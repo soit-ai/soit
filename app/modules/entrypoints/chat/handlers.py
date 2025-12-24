@@ -3,23 +3,24 @@
 Chat request handlers (thin orchestration).
 """
 
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Dict, Any
 from fastapi import HTTPException, status
 
 from app.kernel.contracts.context import RequestContext
-from app.modules.domains.workflow.service import WorkflowService
+from app.modules.domains.chat.service import ChatService
+from app.kernel.db.pagination import PaginatedResponse, parse_page_params
 
 
 class ChatHandlers:
     """Handlers for chat API endpoints."""
     
-    def __init__(self, workflow_service: WorkflowService):
+    def __init__(self, service: ChatService):
         """Initialize chat handlers.
         
         Args:
-            workflow_service: WorkflowService instance for executing chat workflows.
+            service: ChatService instance.
         """
-        self.workflow_service = workflow_service
+        self.service = service
     
     async def create_completion(
         self,
@@ -86,23 +87,79 @@ class ChatHandlers:
         self,
         ctx: RequestContext,
         conversation_id: Optional[str] = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> List[dict]:
+        page_token: Optional[str] = None,
+        page_size: int = 20,
+    ) -> PaginatedResponse[Dict[str, Any]]:
         """Get chat history.
         
         Args:
             ctx: Request context.
-            conversation_id: Optional conversation ID.
-            limit: Maximum number of messages.
-            offset: Offset for pagination.
+            conversation_id: Optional conversation ID (if None, list conversations).
+            page_token: Optional page token.
+            page_size: Page size.
             
         Returns:
-            List of chat messages.
+            Paginated history.
         """
-        # TODO: Implement chat history retrieval
-        # This would typically query a conversation/message table
-        return []
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        
+        if conversation_id:
+            # Get messages in conversation
+            messages = self.service.get_messages(
+                conversation_id=conversation_id,
+                limit=limit,
+                offset=offset,
+            )
+            
+            items = [
+                {
+                    "id": msg.id,
+                    "conversation_id": msg.conversation_id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "metadata": msg.metadata_json,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                }
+                for msg in messages
+            ]
+            
+            has_next = len(messages) == limit
+            next_offset = offset + len(messages) if has_next else None
+            
+            return PaginatedResponse.create(
+                items=items,
+                page_size=len(items),
+                has_next=has_next,
+                next_offset=next_offset,
+            )
+        else:
+            # List conversations
+            conversations = self.service.list_conversations(
+                limit=limit,
+                offset=offset,
+            )
+            
+            items = [
+                {
+                    "id": conv.id,
+                    "title": conv.title,
+                    "metadata": conv.metadata_json,
+                    "created_at": conv.created_at.isoformat() if conv.created_at else None,
+                    "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                }
+                for conv in conversations
+            ]
+            
+            has_next = len(conversations) == limit
+            next_offset = offset + len(conversations) if has_next else None
+            
+            return PaginatedResponse.create(
+                items=items,
+                page_size=len(items),
+                has_next=has_next,
+                next_offset=next_offset,
+            )
     
     async def delete_conversation(
         self,
@@ -115,5 +172,4 @@ class ChatHandlers:
             ctx: Request context.
             conversation_id: Conversation ID.
         """
-        # TODO: Implement conversation deletion
-        pass
+        self.service.delete_conversation(conversation_id)

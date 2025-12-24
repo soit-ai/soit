@@ -48,7 +48,7 @@ async def create_dataset(
     return await handlers.create_dataset(ctx, dataset_in)
 
 
-@router.get("", response_model=list[DatasetResponse])
+@router.get("", response_model=PaginatedResponse[DatasetResponse])
 async def list_datasets(
     page_token: Optional[str] = None,
     page_size: int = 20,
@@ -64,10 +64,10 @@ async def list_datasets(
         service: DatasetService instance.
         
     Returns:
-        List of datasets.
+        Paginated datasets.
     """
-    # TODO: Implement pagination
-    return []
+    handlers = DatasetHandlers(service)
+    return await handlers.list_datasets(ctx, page_token, page_size)
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)

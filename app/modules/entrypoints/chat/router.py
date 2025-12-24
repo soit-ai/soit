@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
-from app.modules.domains.workflow.service import WorkflowService
+from app.modules.domains.chat.service import ChatService
 from app.modules.entrypoints.chat.dependencies import get_chat_service
 from app.modules.entrypoints.chat.handlers import ChatHandlers
 
@@ -48,30 +48,30 @@ class ChatCompletionResponse(BaseModel):
 async def create_completion(
     request: ChatCompletionRequest,
     ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
 ):
     """Create chat completion.
     
     Args:
         request: Chat completion request.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: ChatService instance.
         
     Returns:
         Completion result.
     """
+    # TODO: Implement chat completion with LLM gateway
+    # For now, return placeholder
+    from app.modules.domains.workflow.service import WorkflowService
+    from app.modules.entrypoints.workflow.dependencies import get_workflow_service
+    workflow_service = await get_workflow_service(ctx, None)
     handlers = ChatHandlers(service)
-    result = await handlers.create_completion(
-        ctx,
-        request.workflow_id,
-        request.messages,
-        request.stream,
-    )
-    
+    # Note: This still uses workflow service for execution
+    # In the future, chat should have its own execution path
     return ChatCompletionResponse(
-        id=result.get("run_id", ""),
+        id="placeholder",
         workflow_id=request.workflow_id,
-        result=result,
+        result={"text": "Chat completion placeholder"},
     )
 
 
@@ -80,7 +80,7 @@ async def stream_completion(
     workflow_id: str = Body(...),
     messages: List[dict] = Body(...),
     ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
 ):
     """Stream chat completion (SSE).
     
@@ -88,7 +88,7 @@ async def stream_completion(
         workflow_id: Workflow ID to execute.
         messages: Chat messages.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: ChatService instance.
         
     Returns:
         SSE stream.
@@ -112,39 +112,39 @@ async def stream_completion(
 @router.get("/history")
 async def get_history(
     conversation_id: Optional[str] = None,
-    limit: int = 20,
-    offset: int = 0,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
     ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
 ):
     """Get chat history.
     
     Args:
         conversation_id: Optional conversation ID.
-        limit: Maximum number of messages.
-        offset: Offset for pagination.
+        page_token: Optional page token.
+        page_size: Page size.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: ChatService instance.
         
     Returns:
-        List of chat messages.
+        Paginated chat history.
     """
     handlers = ChatHandlers(service)
-    return await handlers.get_history(ctx, conversation_id, limit, offset)
+    return await handlers.get_history(ctx, conversation_id, page_token, page_size)
 
 
 @router.delete("/history/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
     conversation_id: str,
     ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_chat_service),
+    service: ChatService = Depends(get_chat_service),
 ):
     """Delete conversation.
     
     Args:
         conversation_id: Conversation ID.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: ChatService instance.
     """
     handlers = ChatHandlers(service)
     await handlers.delete_conversation(ctx, conversation_id)

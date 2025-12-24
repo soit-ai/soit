@@ -66,6 +66,54 @@ class DatasetHandlers:
         dataset = self.service.get_dataset(dataset_id)
         return DatasetResponse.model_validate(dataset)
     
+    async def list_datasets(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str] = None,
+        page_size: int = 20,
+    ) -> PaginatedResponse[DatasetResponse]:
+        """List datasets.
+        
+        Args:
+            ctx: Request context.
+            page_token: Optional page token.
+            page_size: Page size.
+            
+        Returns:
+            Paginated datasets.
+        """
+        from app.kernel.db.pagination import parse_page_params
+        
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        
+        datasets = self.service.list_datasets(limit=limit, offset=offset)
+        
+        items = [DatasetResponse.model_validate(ds) for ds in datasets]
+        
+        has_next = len(datasets) == limit
+        next_offset = offset + len(datasets) if has_next else None
+        
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=next_offset,
+        )
+    
+    async def delete_dataset(
+        self,
+        ctx: RequestContext,
+        dataset_id: str,
+    ) -> None:
+        """Delete a dataset.
+        
+        Args:
+            ctx: Request context.
+            dataset_id: Dataset ID.
+        """
+        self.service.delete_dataset(dataset_id)
+    
     async def update_dataset(
         self,
         ctx: RequestContext,

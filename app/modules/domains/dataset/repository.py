@@ -48,6 +48,29 @@ class DatasetRepository(Repository[Dataset]):
         )
         return self.db.exec(query).first()
     
+    def list(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Dataset]:
+        """List datasets.
+        
+        Args:
+            limit: Maximum number of datasets.
+            offset: Offset for pagination.
+            
+        Returns:
+            List of Dataset instances.
+        """
+        query = select(Dataset).where(
+            and_(
+                Dataset.tenant_id == self.ctx.tenant_id,
+                Dataset.workspace_id == self.ctx.workspace_id,
+            )
+        ).order_by(Dataset.created_at.desc()).offset(offset).limit(limit)
+        
+        return list(self.db.exec(query).all())
+    
     def update_stats(
         self,
         dataset_id: str,
