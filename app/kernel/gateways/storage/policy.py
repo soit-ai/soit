@@ -1,0 +1,5 @@
+""" policy
+
+Storage gateway policies.
+"""
+

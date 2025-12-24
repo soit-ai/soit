@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkflowSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "inputs_schema",
+    "nodes",
+    "edges",
+    "outputs"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional spec version string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "inputs_schema": {
+      "type": "object",
+      "description": "JSON Schema for workflow inputs"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "input"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "retrieve",
+              "tool",
+              "condition",
+              "transform",
+              "output"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input": {
+            "type": "object",
+            "description": "Input payload, supports variable references"
+          },
+          "input_schema": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "output_schema": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "retry_policy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "max_retries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "backoff_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "when": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Condition expression (optional)"
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "description": "JSON Schema or output mapping"
+    },
+    "semantics": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "on_error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "fail_fast",
+            "continue",
+            "compensate"
+          ]
+        },
+        "concurrency": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "description": "Immutable DAG workflow specification with node IO schemas. Variable references use template syntax like {{ inputs.query }} and {{ steps.node_id.output.field }}.",
+  "examples": [
+    {
+      "name": "RAG Answer",
+      "inputs_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "retrieve",
+          "input": {
+            "query": "{{ inputs.query }}"
+          }
+        },
+        {
+          "id": "m1",
+          "type": "llm",
+          "input": {
+            "prompt": "Answer with citations.\\n{{ steps.r1.output.context }}"
+          }
+        },
+        {
+          "id": "o1",
+          "type": "output",
+          "input": {
+            "text": "{{ steps.m1.output.text }}",
+            "citations": "{{ steps.r1.output.citations }}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "r1",
+          "to": "m1"
+        },
+        {
+          "from": "m1",
+          "to": "o1"
+        }
+      ],
+      "outputs": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

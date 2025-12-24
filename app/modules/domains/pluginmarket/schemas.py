@@ -1,0 +1,5 @@
+""" schemas
+
+PluginMarket domain schemas.
+"""
+

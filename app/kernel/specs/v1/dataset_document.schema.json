@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DatasetDocument",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "dataset_id",
+    "doc_key",
+    "version",
+    "is_latest",
+    "source_type",
+    "status",
+    "retry_count",
+    "parse_meta_json",
+    "index_meta_json",
+    "access_policy_json",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "workspace_id": {
+      "type": "string"
+    },
+    "dataset_id": {
+      "type": "string"
+    },
+    "doc_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "is_latest": {
+      "type": "boolean"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "upload",
+        "crawler",
+        "api",
+        "manual"
+      ]
+    },
+    "source_uri": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "external_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "file_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "language": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mime_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "filename": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "size_bytes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "checksum": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "content_hash": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "uploaded",
+        "parsing",
+        "parsed",
+        "chunking",
+        "chunked",
+        "indexing",
+        "indexed",
+        "failed",
+        "deleted"
+      ]
+    },
+    "error_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error_message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retry_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "raw_text_artifact_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parsed_artifact_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "chunking_json": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "parse_meta_json": {
+      "type": "object"
+    },
+    "index_meta_json": {
+      "type": "object"
+    },
+    "access_policy_json": {
+      "type": "object"
+    },
+    "created_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

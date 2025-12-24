@@ -1,0 +1,5 @@
+""" dependencies
+
+Bot entry dependencies.
+"""
+

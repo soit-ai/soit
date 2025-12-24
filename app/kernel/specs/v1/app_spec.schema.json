@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AppSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "name",
+    "bindings",
+    "runtime"
+  ],
+  "properties": {
+    "id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional client-generated id"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "bot",
+        "workflow",
+        "agent",
+        "app"
+      ],
+      "description": "Application entry type"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "inputs_schema": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "JSON Schema for runtime inputs"
+    },
+    "variables_schema": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "JSON Schema for app variables"
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_ref"
+      ],
+      "properties": {
+        "model_ref": {
+          "$ref": "refs.schema.json#/$defs/ModelRef"
+        },
+        "datasets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/DatasetRef"
+          },
+          "description": "Dataset references"
+        },
+        "tools": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/ToolRef"
+          },
+          "description": "Tool references"
+        },
+        "workflow_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/WorkflowRef"
+            }
+          ],
+          "description": "Workflow reference when type=workflow/agent"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream",
+        "timeout_ms",
+        "retry_policy"
+      ],
+      "properties": {
+        "stream": {
+          "type": "boolean"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_retries"
+          ],
+          "properties": {
+            "max_retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoff_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        },
+        "guardrails_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/PolicyRef"
+            }
+          ],
+          "description": "Guardrails policy reference"
+        },
+        "quota_policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/PolicyRef"
+            }
+          ],
+          "description": "Quota policy reference"
+        }
+      }
+    },
+    "ui": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional UI hints for renderers"
+    }
+  },
+  "description": "Immutable application version specification (Spec-First).",
+  "examples": [
+    {
+      "type": "chat",
+      "name": "Customer Support",
+      "bindings": {
+        "model_ref": "model:openai:gpt-4.1",
+        "datasets": [
+          "ds:kb_support"
+        ],
+        "tools": [
+          "tool:http:ticket_create"
+        ]
+      },
+      "runtime": {
+        "stream": true,
+        "timeout_ms": 60000,
+        "retry_policy": {
+          "max_retries": 2
+        }
+      }
+    }
+  ]
+}

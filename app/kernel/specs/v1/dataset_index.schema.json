@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DatasetIndex",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "dataset_id",
+    "name",
+    "is_primary",
+    "provider",
+    "embedding_model_ref",
+    "dimension",
+    "metric_type",
+    "index_params_json",
+    "search_params_json",
+    "filters_json",
+    "status",
+    "build_version",
+    "doc_count",
+    "chunk_count",
+    "vector_count",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "workspace_id": {
+      "type": "string"
+    },
+    "dataset_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_primary": {
+      "type": "boolean"
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "milvus",
+        "pgvector",
+        "elastic",
+        "other"
+      ]
+    },
+    "endpoint_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "allOf": [
+        {
+          "$ref": "refs.schema.json#/$defs/EndpointRef"
+        }
+      ]
+    },
+    "collection_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "partition_strategy": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "tenant",
+        "workspace",
+        "dataset",
+        "none"
+      ]
+    },
+    "namespace": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "embedding_model_ref": {
+      "$ref": "refs.schema.json#/$defs/ModelRef"
+    },
+    "dimension": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "metric_type": {
+      "type": "string",
+      "enum": [
+        "cosine",
+        "ip",
+        "l2"
+      ]
+    },
+    "index_params_json": {
+      "type": "object"
+    },
+    "search_params_json": {
+      "type": "object"
+    },
+    "reranker_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "allOf": [
+        {
+          "$ref": "refs.schema.json#/$defs/RefString"
+        }
+      ]
+    },
+    "filters_json": {
+      "type": "object"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "building",
+        "ready",
+        "failed",
+        "disabled"
+      ]
+    },
+    "build_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_build_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "doc_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "chunk_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "vector_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_error_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_error_message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

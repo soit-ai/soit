@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "name",
+    "type",
+    "status",
+    "visibility",
+    "settings_json",
+    "chunking_json",
+    "retrieval_json",
+    "doc_count",
+    "chunk_count",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "ULID/UUID"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "workspace_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "document",
+        "qa",
+        "code",
+        "graph",
+        "other"
+      ]
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "archived",
+        "disabled"
+      ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "private",
+        "workspace",
+        "tenant"
+      ]
+    },
+    "settings_json": {
+      "type": "object"
+    },
+    "chunking_json": {
+      "type": "object"
+    },
+    "retrieval_json": {
+      "type": "object"
+    },
+    "default_embedding_model_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "allOf": [
+        {
+          "$ref": "refs.schema.json#/$defs/ModelRef"
+        }
+      ]
+    },
+    "default_reranker_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "allOf": [
+        {
+          "$ref": "refs.schema.json#/$defs/RefString"
+        }
+      ]
+    },
+    "default_index_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "dataset_indexs.id"
+    },
+    "doc_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "chunk_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_ingested_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_indexed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "tags": {
+      "type": [
+        "array",
+        "object"
+      ],
+      "description": "Prefer array of strings; allow json for future"
+    },
+    "created_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

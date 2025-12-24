@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunTraceSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run",
+    "steps"
+  ],
+  "properties": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "mode",
+        "status",
+        "started_at"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "bot",
+            "workflow",
+            "agent"
+          ]
+        },
+        "app_version_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "canceled"
+          ]
+        },
+        "input_summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8192
+        },
+        "output_summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8192
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step_id",
+          "step_type",
+          "status",
+          "started_at"
+        ],
+        "properties": {
+          "step_id": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step_type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "retrieve",
+              "rerank",
+              "tool",
+              "node",
+              "plan"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "skipped",
+              "canceled"
+            ]
+          },
+          "input_summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 8192
+          },
+          "output_summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 8192
+          },
+          "metrics": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "tokens/latency/http_status/vector_count etc."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "type",
+          "storage_key"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "file",
+              "log",
+              "blob",
+              "json"
+            ]
+          },
+          "storage_key": {
+            "type": "string"
+          },
+          "meta": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "mime/size/hash"
+          }
+        }
+      }
+    },
+    "cost": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tokens_prompt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tokens_completion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "embedding_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rerank_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "ms_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "storage_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "description": "Unified execution trace container (run + steps + optional artifacts/cost). This container may reference artifacts stored in object storage via storage_key.",
+  "examples": [
+    {
+      "run": {
+        "run_id": "run_01H...",
+        "tenant_id": "t_01H...",
+        "workspace_id": "w_01H...",
+        "mode": "workflow",
+        "status": "succeeded",
+        "started_at": "2025-01-01T00:00:00Z"
+      },
+      "steps": [
+        {
+          "step_id": "st_01H...",
+          "step_type": "retrieve",
+          "status": "succeeded",
+          "started_at": "2025-01-01T00:00:01Z",
+          "metrics": {
+            "top_k": 5,
+            "latency_ms": 120
+          }
+        }
+      ],
+      "cost": {
+        "tokens_prompt": 120,
+        "tokens_completion": 350,
+        "ms_total": 2300
+      }
+    }
+  ]
+}

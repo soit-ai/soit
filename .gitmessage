@@ -1,0 +1,9 @@
+# <type>(<scope>): <subject>
+# Examples:
+# feat(core): add plugin manifest validator
+# fix(api): return consistent error envelope
+
+# Why:
+# What:
+# Risks:
+# Tests:

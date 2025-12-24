@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "refs.schema.json",
+  "title": "SOIT Reference Models",
+  "type": "object",
+  "description": "Shared reference string models used across SOIT specs. All are strings with prefixes.",
+  "$defs": {
+    "RefString": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Generic reference string with a namespace prefix."
+    },
+    "ModelRef": {
+      "type": "string",
+      "pattern": "^model:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$",
+      "description": "Model reference. Format: model:{provider}:{model_name_or_id}"
+    },
+    "DatasetRef": {
+      "type": "string",
+      "pattern": "^ds:[A-Za-z0-9_.:-]+$",
+      "description": "Dataset reference. Format: ds:{dataset_id_or_key}"
+    },
+    "ToolRef": {
+      "type": "string",
+      "pattern": "^tool:(http|function|mcp):[A-Za-z0-9_.:-]+$",
+      "description": "Tool reference. Format: tool:{adapter}:{tool_name_or_id}"
+    },
+    "WorkflowRef": {
+      "type": "string",
+      "pattern": "^wf:[A-Za-z0-9_.:-]+$",
+      "description": "Workflow reference. Format: wf:{workflow_id_or_key}"
+    },
+    "SecretRef": {
+      "type": "string",
+      "pattern": "^secret:[A-Za-z0-9_.:-]+$",
+      "description": "Secret reference. Format: secret:{secret_name_or_id}"
+    },
+    "EndpointRef": {
+      "type": "string",
+      "pattern": "^(endpoint|gw):[A-Za-z0-9_.:-]+$",
+      "description": "Gateway/endpoint reference. Format: endpoint:{name} or gw:{name}"
+    },
+    "PolicyRef": {
+      "type": "string",
+      "pattern": "^(policy|quota|guardrails):[A-Za-z0-9_.:-]+$",
+      "description": "Policy reference. Format: policy/quota/guardrails:{name_or_id}"
+    }
+  }
+}

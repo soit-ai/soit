@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PluginSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "publisher",
+    "version",
+    "runtime_level",
+    "capabilities",
+    "exports",
+    "permissions",
+    "integrity"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SemVer recommended"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runtime_level": {
+      "type": "string",
+      "enum": [
+        "L0",
+        "L1",
+        "L2"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "tools",
+          "models",
+          "retrievers",
+          "parsers",
+          "ui"
+        ]
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/ToolRef"
+          }
+        },
+        "models": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/ModelRef"
+          }
+        },
+        "retrievers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/RefString"
+          }
+        },
+        "parsers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/RefString"
+          }
+        },
+        "ui": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/RefString"
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "storage": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "read": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "write": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "secrets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/SecretRef"
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest"
+      ],
+      "properties": {
+        "digest": {
+          "type": "string",
+          "description": "sha256:..."
+        },
+        "signature": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Detached signature if applicable"
+        }
+      }
+    }
+  },
+  "description": "Plugin package manifest for marketplace distribution.",
+  "examples": [
+    {
+      "name": "soit-plugin-zendesk",
+      "publisher": "soit",
+      "version": "1.0.0",
+      "runtime_level": "L0",
+      "capabilities": [
+        "tools"
+      ],
+      "exports": {
+        "tools": [
+          "tool:http:ticket_create"
+        ]
+      },
+      "permissions": {
+        "network": [
+          "api.zendesk.com"
+        ],
+        "secrets": [
+          "secret:zendesk_token"
+        ]
+      },
+      "integrity": {
+        "digest": "sha256:..."
+      }
+    }
+  ]
+}

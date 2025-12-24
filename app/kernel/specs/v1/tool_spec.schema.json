@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "adapter",
+    "input_schema",
+    "output_schema",
+    "policy"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "adapter": {
+      "type": "string",
+      "enum": [
+        "http",
+        "function",
+        "mcp"
+      ]
+    },
+    "input_schema": {
+      "type": "object"
+    },
+    "output_schema": {
+      "type": "object"
+    },
+    "http": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "body_template": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "function": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "entrypoint": {
+          "type": "string",
+          "description": "Function entrypoint reference"
+        },
+        "module": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "mcp": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "server_ref": {
+          "$ref": "refs.schema.json#/$defs/EndpointRef"
+        },
+        "tool_name": {
+          "type": "string",
+          "description": "Remote MCP tool name"
+        }
+      }
+    },
+    "auth": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "none",
+            "api_key",
+            "oauth2",
+            "signature"
+          ]
+        },
+        "secret_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/SecretRef"
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audit_level"
+      ],
+      "properties": {
+        "rate_limit": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "rpm": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "egress": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "audit_level": {
+          "type": "string",
+          "enum": [
+            "basic",
+            "full"
+          ]
+        }
+      }
+    },
+    "endpoint_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "allOf": [
+        {
+          "$ref": "refs.schema.json#/$defs/EndpointRef"
+        }
+      ],
+      "description": "Optional gateway/endpoint reference for routing"
+    }
+  },
+  "description": "Tool specification for HTTP/Function/MCP adapters.",
+  "examples": [
+    {
+      "name": "ticket_create",
+      "adapter": "http",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "http": {
+        "method": "POST",
+        "url": "https://api.example.com/tickets",
+        "headers": {
+          "Authorization": "Bearer {{ secrets.api_key }}"
+        },
+        "body_template": {
+          "title": "{{ inputs.title }}"
+        }
+      },
+      "auth": {
+        "type": "api_key",
+        "secret_refs": [
+          "secret:example_api_key"
+        ]
+      },
+      "policy": {
+        "rate_limit": {
+          "rpm": 60
+        },
+        "egress": {
+          "allow": [
+            "api.example.com"
+          ]
+        },
+        "audit_level": "basic"
+      }
+    }
+  ]
+}
