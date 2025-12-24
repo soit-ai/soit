@@ -106,9 +106,35 @@ class ExecutionEngine:
         Returns:
             Workflow result.
         """
-        # Placeholder: In production, implement workflow execution
-        # This would compile workflow graph and execute nodes
-        return {"output": "Workflow execution placeholder"}
+        from app.modules.domains.workflow.executor import WorkflowExecutor
+        from app.modules.domains.workflow.executors.base import ExecutionContext
+        from app.adapters.openai_llm import OpenAILLMGateway
+        from app.adapters.http_tools import HTTPToolsGateway
+        from app.adapters.milvus_vector import MilvusVectorGateway
+        
+        # Initialize gateways (TODO: Use dependency injection in production)
+        llm_gateway = OpenAILLMGateway()
+        tool_gateway = HTTPToolsGateway()
+        vector_gateway = MilvusVectorGateway()
+        
+        # Initialize workflow executor
+        workflow_executor = WorkflowExecutor(self)
+        
+        # Create execution context
+        context = ExecutionContext(
+            run_id=plan.run_id,
+            step_id=None,
+            ctx=self.ctx,
+            trace_writer=self.trace_writer,
+            llm_gateway=llm_gateway,
+            tool_gateway=tool_gateway,
+            vector_gateway=vector_gateway,
+        )
+        
+        # Execute workflow
+        result = await workflow_executor.execute(plan, context)
+        
+        return result
     
     async def _execute_agent(self, plan: ExecutionPlan) -> Dict[str, Any]:
         """Execute agent mode.

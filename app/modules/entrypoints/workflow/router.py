@@ -213,8 +213,26 @@ async def list_runs(
     Returns:
         Paginated runs.
     """
-    # TODO: Implement run listing
-    return {"items": [], "page_size": page_size, "has_next": False}
+    from app.kernel.db.pagination import parse_page_params
+    
+    # Parse pagination parameters
+    limit, token_obj = parse_page_params(page_token, page_size)
+    offset = token_obj.offset if token_obj else 0
+    
+    # Get runs
+    runs = service.list_runs(workflow_id, limit=limit, offset=offset)
+    
+    # Check if there are more runs
+    has_next = len(runs) == limit
+    next_offset = offset + len(runs) if has_next else None
+    
+    # Create paginated response
+    return PaginatedResponse.create(
+        items=runs,
+        page_size=len(runs),
+        has_next=has_next,
+        next_offset=next_offset,
+    )
 
 
 @router.get("/{workflow_id}/runs/{run_id}")
@@ -235,6 +253,5 @@ async def get_run(
     Returns:
         Run details.
     """
-    # TODO: Implement run retrieval
-    return {"id": run_id, "workflow_id": workflow_id, "status": "completed"}
+    return service.get_run(workflow_id, run_id)
 

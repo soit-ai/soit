@@ -241,3 +241,159 @@ class WorkflowService:
             raise NotFoundError(f"No published version for workflow: {workflow_id}")
         
         return self.compiler.compile(version.graph_json, inputs, run_id)
+    
+    def list_runs(
+        self,
+        workflow_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[dict]:
+        """List runs for a workflow.
+        
+        Args:
+            workflow_id: Workflow ID.
+            limit: Maximum number of runs.
+            offset: Offset for pagination.
+            
+        Returns:
+            List of run dictionaries.
+        """
+        from app.kernel.trace.models import Run
+        from sqlalchemy import select, and_, desc
+        
+        # Query runs for this workflow
+        # Using app_version_id to store workflow_id (as per ExecutionPlan contract)
+        query = select(Run).where(
+            and_(
+                Run.tenant_id == self.ctx.tenant_id,
+                Run.workspace_id == self.ctx.workspace_id,
+                Run.app_version_id == workflow_id,  # workflow_id is stored in app_version_id
+                Run.mode == "workflow",  # Filter by mode to ensure it's a workflow run
+            )
+        ).order_by(desc(Run.created_at)).offset(offset).limit(limit)
+        
+        runs = list(self.db.exec(query).all())
+        
+        # Convert to dictionaries
+        result = []
+        for run in runs:
+            result.append({
+                "id": run.id,
+                "workflow_id": workflow_id,
+                "status": run.status,
+                "mode": run.mode,
+                "input_summary": run.input_summary,
+                "output_summary": run.output_summary,
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+                "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+            })
+        
+        return result
+    
+    def get_run(self, workflow_id: str, run_id: str) -> dict:
+        """Get run details.
+        
+        Args:
+            workflow_id: Workflow ID.
+            run_id: Run ID.
+            
+        Returns:
+            Run details dictionary.
+            
+        Raises:
+            NotFoundError: If run not found.
+        """
+        from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCost
+        from sqlalchemy import select, and_
+        
+        # Get run
+        query = select(Run).where(
+            and_(
+                Run.id == run_id,
+                Run.tenant_id == self.ctx.tenant_id,
+                Run.workspace_id == self.ctx.workspace_id,
+                Run.app_version_id == workflow_id,  # workflow_id is stored in app_version_id
+                Run.mode == "workflow",  # Filter by mode to ensure it's a workflow run
+            )
+        )
+        run = self.db.exec(query).first()
+        
+        if not run:
+            raise NotFoundError(f"Run not found: {run_id}")
+        
+        # Get steps
+        steps_query = select(RunStep).where(
+            and_(
+                RunStep.run_id == run_id,
+                RunStep.tenant_id == self.ctx.tenant_id,
+                RunStep.workspace_id == self.ctx.workspace_id,
+            )
+        ).order_by(RunStep.created_at)
+        steps = list(self.db.exec(steps_query).all())
+        
+        # Get artifacts
+        artifacts_query = select(RunArtifact).where(
+            and_(
+                RunArtifact.run_id == run_id,
+                RunArtifact.tenant_id == self.ctx.tenant_id,
+                RunArtifact.workspace_id == self.ctx.workspace_id,
+            )
+        )
+        artifacts = list(self.db.exec(artifacts_query).all())
+        
+        # Get costs
+        costs_query = select(RunCost).where(
+            and_(
+                RunCost.run_id == run_id,
+                RunCost.tenant_id == self.ctx.tenant_id,
+                RunCost.workspace_id == self.ctx.workspace_id,
+            )
+        )
+        costs = list(self.db.exec(costs_query).all())
+        
+        # Build result
+        result = {
+            "id": run.id,
+            "workflow_id": workflow_id,
+            "status": run.status,
+            "mode": run.mode,
+            "input_summary": run.input_summary,
+            "output_summary": run.output_summary,
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+            "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+            "steps": [
+                {
+                    "id": step.id,
+                    "step_id": step.step_id,
+                    "status": step.status,
+                    "input_summary": step.input_summary,
+                    "output_summary": step.output_summary,
+                    "created_at": step.created_at.isoformat() if step.created_at else None,
+                    "updated_at": step.updated_at.isoformat() if step.updated_at else None,
+                }
+                for step in steps
+            ],
+            "artifacts": [
+                {
+                    "id": artifact.id,
+                    "artifact_key": artifact.artifact_key,
+                    "artifact_type": artifact.artifact_type,
+                    "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+                }
+                for artifact in artifacts
+            ],
+            "costs": [
+                {
+                    "id": cost.id,
+                    "provider": cost.provider,
+                    "model": cost.model,
+                    "input_tokens": cost.input_tokens,
+                    "output_tokens": cost.output_tokens,
+                    "cost_usd": float(cost.cost_usd) if cost.cost_usd else None,
+                    "created_at": cost.created_at.isoformat() if cost.created_at else None,
+                }
+                for cost in costs
+            ],
+        }
+        
+        return result

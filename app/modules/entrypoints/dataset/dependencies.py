@@ -28,19 +28,43 @@ def get_dataset_service(
     Returns:
         DatasetService instance.
     """
-    # TODO: Initialize pipeline and retrieval service with proper dependencies
-    # For now, create placeholder instances
-    # In production, these should be properly initialized via dependency injection
-    
-    # Create minimal service instance
-    # Note: This is a simplified version - in production, use proper DI
     from app.modules.domains.dataset.pipeline import DocumentPipeline
     from app.modules.domains.dataset.retrieval import RetrievalService
+    from app.modules.domains.dataset.embedding import EmbeddingService
+    from app.modules.domains.dataset.chunker import TextChunker
+    from app.adapters.minio_storage import MinIOStorageGateway
+    from app.adapters.milvus_vector import MilvusVectorGateway
+    from app.adapters.openai_llm import OpenAILLMGateway
+    from app.kernel.trace.writer import TraceWriter
     
-    # Create placeholder instances - these would normally be injected
-    # For now, pass None and let the service handle it gracefully
-    pipeline = None  # TODO: Initialize with proper dependencies
-    retrieval_service = None  # TODO: Initialize with proper dependencies
+    # Initialize gateways
+    storage_gateway = MinIOStorageGateway()
+    vector_gateway = MilvusVectorGateway()
+    llm_gateway = OpenAILLMGateway()
+    
+    # Initialize trace writer
+    trace_writer = TraceWriter(db, ctx)
+    
+    # Initialize embedding service
+    embedding_service = EmbeddingService(llm_gateway, trace_writer)
+    
+    # Initialize chunker
+    chunker = TextChunker()
+    
+    # Initialize document pipeline
+    pipeline = DocumentPipeline(
+        storage_gateway=storage_gateway,
+        embedding_service=embedding_service,
+        chunker=chunker,
+        trace_writer=trace_writer,
+    )
+    
+    # Initialize retrieval service
+    retrieval_service = RetrievalService(
+        vector_gateway=vector_gateway,
+        embedding_service=embedding_service,
+        trace_writer=trace_writer,
+    )
     
     return DatasetService(db, ctx, pipeline, retrieval_service)
 

@@ -14,7 +14,7 @@ from app.modules.domains.workflow.schemas import (
     WorkflowResponse,
     WorkflowVersionResponse,
 )
-from app.kernel.db.pagination import PaginatedResponse, parse_page_params
+from app.kernel.db.pagination import PaginatedResponse, parse_page_params, PageToken
 
 
 class WorkflowHandlers:
