@@ -36,16 +36,16 @@ class DatasetService:
         self,
         db: Session,
         ctx: RequestContext,
-        pipeline: DocumentPipeline,
-        retrieval_service: RetrievalService,
+        pipeline: Optional[DocumentPipeline] = None,
+        retrieval_service: Optional[RetrievalService] = None,
     ):
         """Initialize dataset service.
         
         Args:
             db: Database session.
             ctx: Request context.
-            pipeline: Document pipeline.
-            retrieval_service: Retrieval service.
+            pipeline: Optional document pipeline (required for document processing).
+            retrieval_service: Optional retrieval service (required for querying).
         """
         self.db = db
         self.ctx = ctx
@@ -175,7 +175,13 @@ class DatasetService:
             
         Returns:
             Created DatasetDocument instance.
+            
+        Raises:
+            KernelError: If pipeline is not available.
         """
+        if not self.pipeline:
+            raise KernelError("PIPELINE_NOT_AVAILABLE", "Document pipeline is not configured")
+        
         dataset = self.get_dataset(dataset_id)
         
         # Create new document version
@@ -300,7 +306,13 @@ class DatasetService:
             
         Returns:
             QueryResponse instance.
+            
+        Raises:
+            KernelError: If retrieval service is not available.
         """
+        if not self.retrieval_service:
+            raise KernelError("RETRIEVAL_NOT_AVAILABLE", "Retrieval service is not configured")
+        
         results = await self.retrieval_service.query(
             dataset_id=dataset_id,
             query_text=query_request.query,
@@ -315,3 +327,50 @@ class DatasetService:
             results=results,
             total=len(results),
         )
+    
+    def list_datasets(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Dataset]:
+        """List datasets.
+        
+        Args:
+            limit: Maximum number of datasets.
+            offset: Offset for pagination.
+            
+        Returns:
+            List of Dataset instances.
+        """
+        return self.dataset_repo.list(limit=limit, offset=offset)
+    
+    def delete_dataset(self, dataset_id: str) -> None:
+        """Delete a dataset (soft delete).
+        
+        Args:
+            dataset_id: Dataset ID.
+            
+        Raises:
+            KernelError: If dataset not found.
+        """
+        dataset = self.get_dataset(dataset_id)
+        
+        # Soft delete dataset
+        from datetime import datetime, timezone
+        dataset.deleted_at = datetime.now(timezone.utc)
+        dataset.status = "deleted"
+        dataset.updated_at = utc_now()
+        
+        # Also soft delete associated documents
+        documents = self.document_repo.list_by_dataset(
+            dataset_id=dataset_id,
+            is_latest_only=False,
+            limit=10000,  # Large limit to get all documents
+            offset=0,
+        )
+        for doc in documents:
+            doc.deleted_at = datetime.now(timezone.utc)
+            doc.status = "deleted"
+            doc.updated_at = utc_now()
+        
+        self.db.commit()

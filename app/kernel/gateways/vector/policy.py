@@ -3,6 +3,7 @@
 Vector gateway policies: timeout/retry/rate-limit/audit.
 """
 
+import asyncio
 from typing import List, Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -10,6 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.gateways.vector.interface import VectorGateway, VectorQueryResult
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.time import utc_now
+from app.kernel.commons.errors import TimeoutError
 
 
 class VectorPolicyGateway(VectorGateway):
@@ -71,7 +73,17 @@ class VectorPolicyGateway(VectorGateway):
                     **kwargs,
                 )
             
-            result = await _query_with_retry()
+            # Apply timeout
+            try:
+                result = await asyncio.wait_for(
+                    _query_with_retry(),
+                    timeout=self.timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Vector query timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "collection": collection}
+                )
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -118,7 +130,17 @@ class VectorPolicyGateway(VectorGateway):
                 **kwargs,
             )
         
-        await _insert_with_retry()
+        # Apply timeout
+        try:
+            await asyncio.wait_for(
+                _insert_with_retry(),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Vector insert timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "collection": collection}
+            )
     
     async def delete(
         self,
@@ -138,4 +160,14 @@ class VectorPolicyGateway(VectorGateway):
                 **kwargs,
             )
         
-        await _delete_with_retry()
+        # Apply timeout
+        try:
+            await asyncio.wait_for(
+                _delete_with_retry(),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Vector delete timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "collection": collection}
+            )

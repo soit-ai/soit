@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.db.session import get_db
+from app.kernel.db.pagination import PaginatedResponse
 from app.middleware.auth import get_current_context
 from app.modules.domains.dataset.service import DatasetService
 from app.modules.domains.dataset.schemas import (

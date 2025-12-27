@@ -70,6 +70,9 @@ class RunStep(SQLModel, table=True):
     run_id: str = Field(foreign_key="runs.id", index=True)
     """Run ID (foreign key)."""
     
+    step_id: Optional[str] = Field(default=None, nullable=True)
+    """Step ID (e.g., "st_node1" for workflow nodes)."""
+    
     step_type: str = Field()
     """Step type: llm, retrieve, rerank, tool, node, plan."""
     

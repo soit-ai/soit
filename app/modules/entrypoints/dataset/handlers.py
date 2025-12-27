@@ -101,19 +101,6 @@ class DatasetHandlers:
             next_offset=next_offset,
         )
     
-    async def delete_dataset(
-        self,
-        ctx: RequestContext,
-        dataset_id: str,
-    ) -> None:
-        """Delete a dataset.
-        
-        Args:
-            ctx: Request context.
-            dataset_id: Dataset ID.
-        """
-        self.service.delete_dataset(dataset_id)
-    
     async def update_dataset(
         self,
         ctx: RequestContext,

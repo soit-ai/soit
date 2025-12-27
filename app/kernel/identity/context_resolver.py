@@ -85,9 +85,31 @@ class ContextResolver:
         # Get workspace role from token or resolve from membership
         workspace_role = payload.get("workspace_role")
         
-        # If workspace_role not in token, we would normally query database
-        # For now, we assume it's in the token or set to None
-        # In production, implement membership lookup here
+        # If workspace_role not in token, query database for membership
+        if not workspace_role and workspace_id:
+            from app.kernel.db.session import get_db_sync
+            from app.modules.domains.identity.repository import WorkspaceMembershipRepository
+            from app.kernel.contracts.context import RequestContext as RC
+            
+            # Create temporary context for repository
+            temp_ctx = RC(
+                tenant_id=str(tenant_id),
+                workspace_id=str(workspace_id),
+                user_id=str(user_id),
+                tenant_role=tenant_role,
+            )
+            
+            db = get_db_sync()
+            try:
+                membership_repo = WorkspaceMembershipRepository(db, temp_ctx)
+                membership = membership_repo.get(workspace_id, str(user_id))
+                if membership:
+                    workspace_role = membership.role
+            except Exception:
+                # If lookup fails, workspace_role remains None
+                pass
+            finally:
+                db.close()
         
         return RequestContext(
             tenant_id=str(tenant_id),

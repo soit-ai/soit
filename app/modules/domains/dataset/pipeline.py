@@ -140,9 +140,13 @@ class DocumentPipeline:
             if not document.file_id:
                 raise KernelError("NO_FILE", "Document has no file_id")
             
-            # TODO: Load from storage gateway
-            # For now, raise error
-            raise KernelError("NOT_IMPLEMENTED", "File loading from storage not implemented")
+            # Load from storage gateway
+            try:
+                file_content = await self.storage_gateway.get(
+                    storage_key=document.file_id,
+                )
+            except Exception as e:
+                raise KernelError("STORAGE_ERROR", f"Failed to load file from storage: {str(e)}")
         
         # Get parser
         mime_type = document.mime_type or "text/plain"
@@ -160,8 +164,25 @@ class DocumentPipeline:
         
         # Save parsed text to storage
         if parsed_doc.text:
-            # TODO: Save to object storage and set raw_text_artifact_key
-            pass
+            try:
+                # Generate storage key for parsed text
+                from app.kernel.commons.ids import generate_ulid
+                storage_key = f"datasets/{document.dataset_id}/documents/{document.id}/parsed_{generate_ulid()}.txt"
+                
+                # Save to object storage
+                await self.storage_gateway.put(
+                    storage_key=storage_key,
+                    content=parsed_doc.text.encode("utf-8"),
+                    content_type="text/plain",
+                )
+                
+                # Set artifact key
+                document.raw_text_artifact_key = storage_key
+            except Exception as e:
+                # Log error but continue processing
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to save parsed text to storage: {str(e)}")
         
         return parsed_doc
     
@@ -226,7 +247,25 @@ class DocumentPipeline:
             )
             
             # Save chunk text to storage
-            # TODO: Save to object storage and set text_artifact_key
+            try:
+                # Generate storage key for chunk text
+                from app.kernel.commons.ids import generate_ulid
+                storage_key = f"datasets/{document.dataset_id}/documents/{document.id}/chunks/{chunk.chunk_no}_{generate_ulid()}.txt"
+                
+                # Save to object storage
+                await self.storage_gateway.put(
+                    storage_key=storage_key,
+                    content=chunk.text.encode("utf-8"),
+                    content_type="text/plain",
+                )
+                
+                # Set artifact key
+                dataset_chunk.text_artifact_key = storage_key
+            except Exception as e:
+                # Log error but continue processing
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to save chunk text to storage: {str(e)}")
             
             dataset_chunks.append(dataset_chunk)
             self.db.add(dataset_chunk)
@@ -262,7 +301,7 @@ class DocumentPipeline:
         # Get index
         from app.modules.domains.dataset.repository import IndexRepository
         index_repo = IndexRepository(self.db, self.ctx)
-            index = index_repo.get_by_id(index_id)
+        index = index_repo.get_by_id(index_id)
         if not index:
             raise KernelError("INDEX_NOT_FOUND", f"Index {index_id} not found")
         

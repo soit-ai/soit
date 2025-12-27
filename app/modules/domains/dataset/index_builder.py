@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.gateways.vector.interface import VectorGateway
+from app.kernel.gateways.storage.interface import StorageGateway
 from app.modules.domains.dataset.models import DatasetIndex, DatasetChunk
 from app.modules.domains.dataset.repository import ChunkRepository
 from app.modules.domains.dataset.embedding import EmbeddingService
@@ -23,6 +24,7 @@ class IndexBuilder:
         ctx: RequestContext,
         vector_gateway: VectorGateway,
         embedding_service: EmbeddingService,
+        storage_gateway: Optional[StorageGateway] = None,
     ):
         """Initialize index builder.
         
@@ -31,11 +33,13 @@ class IndexBuilder:
             ctx: Request context.
             vector_gateway: Vector database gateway.
             embedding_service: Embedding service.
+            storage_gateway: Optional storage gateway for loading chunk text.
         """
         self.db = db
         self.ctx = ctx
         self.vector_gateway = vector_gateway
         self.embedding_service = embedding_service
+        self.storage_gateway = storage_gateway
         self.chunk_repo = ChunkRepository(db, ctx)
     
     async def create_collection(
@@ -106,9 +110,19 @@ class IndexBuilder:
             chunk_ids = []
             for chunk in chunks:
                 # Get chunk text (from artifact or preview)
-                if chunk.text_artifact_key:
-                    # TODO: Load from object storage
-                    text = chunk.text_preview or ""
+                if chunk.text_artifact_key and self.storage_gateway:
+                    # Load from object storage
+                    try:
+                        content = await self.storage_gateway.get(
+                            storage_key=chunk.text_artifact_key,
+                        )
+                        text = content.decode("utf-8") if isinstance(content, bytes) else content
+                    except Exception as e:
+                        # Fallback to preview if storage load fails
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Failed to load chunk text from storage: {str(e)}")
+                        text = chunk.text_preview or ""
                 else:
                     text = chunk.text_preview or ""
                 
@@ -143,9 +157,19 @@ class IndexBuilder:
             
             # Insert vectors
             index_ref = f"ds:{index.dataset_id}:{index.id}"
+            collection_name = index.collection_name or f"idx_{index.id}"
+            
+            # Extract IDs and vectors from vector data
+            vector_ids = [v["id"] for v in vectors]
+            vector_embeddings = [v["vector"] for v in vectors]
+            vector_metadata = [v.get("metadata", {}) for v in vectors]
+            
             await self.vector_gateway.insert(
+                collection=collection_name,
+                vectors=vector_embeddings,
+                ids=vector_ids,
+                metadata=vector_metadata,
                 index_ref=index_ref,
-                vectors=vectors,
             )
             
             # Update chunk vector_refs and status

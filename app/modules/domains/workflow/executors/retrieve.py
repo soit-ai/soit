@@ -3,7 +3,7 @@
 Retrieve node executor.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from app.modules.domains.workflow.executors.base import NodeExecutor, ExecutionContext
 from app.kernel.commons.errors import ValidationError
 
@@ -30,6 +30,9 @@ class RetrieveNodeExecutor(NodeExecutor):
         if not context.vector_gateway:
             raise ValidationError("Vector gateway not available")
         
+        if not context.llm_gateway:
+            raise ValidationError("LLM gateway not available for embedding")
+        
         # Extract parameters
         query = inputs.get("query")
         if not query:
@@ -40,19 +43,36 @@ class RetrieveNodeExecutor(NodeExecutor):
             raise ValidationError("Retrieve node requires 'collection' or 'dataset' input")
         
         top_k = inputs.get("top_k", 10)
+        embedding_model = inputs.get("embedding_model") or inputs.get("model")
         
-        # Get embedding for query (if needed)
-        # For now, assume query is already embedded or we need to embed it
-        # In production, integrate with embedding gateway
+        # Generate embedding for query
+        if isinstance(query, str):
+            # Query is text, need to embed it
+            if not embedding_model:
+                raise ValidationError("Retrieve node requires 'embedding_model' input for text queries")
+            
+            # Generate embedding using LLM gateway
+            embedding_response = await context.llm_gateway.embed(
+                texts=[query],
+                model=embedding_model,
+            )
+            
+            if not embedding_response.embeddings or len(embedding_response.embeddings) == 0:
+                raise ValidationError("Failed to generate query embedding")
+            
+            query_vector = embedding_response.embeddings[0]
+        elif isinstance(query, list) and all(isinstance(x, (int, float)) for x in query):
+            # Query is already a vector
+            query_vector = query
+        else:
+            raise ValidationError("Query must be a string or a vector list")
         
         # Call vector gateway
-        # Note: This is a placeholder - actual implementation needs embedding
-        # For now, return empty results
         result = await context.vector_gateway.query(
             collection=collection,
-            vector=[],  # Placeholder - should be query embedding
+            vector=query_vector,
             top_k=top_k,
-            run_id=context.run_id,
+            include_metadata=True,
         )
         
         # Format output
@@ -60,16 +80,22 @@ class RetrieveNodeExecutor(NodeExecutor):
         citations = []
         
         for i, doc_id in enumerate(result.ids):
+            doc_metadata = result.metadata[i] if result.metadata and i < len(result.metadata) else {}
+            score = result.scores[i] if result.scores and i < len(result.scores) else 0.0
+            
             documents.append({
                 "id": doc_id,
-                "score": result.scores[i] if result.scores else 0.0,
-                "metadata": result.metadata[i] if result.metadata else {},
+                "score": score,
+                "metadata": doc_metadata,
+                "text": doc_metadata.get("text", "") or doc_metadata.get("text_preview", ""),
             })
             citations.append({
                 "id": doc_id,
                 "rank": i + 1,
+                "score": score,
             })
         
+        # Build context text from documents
         context_text = "\n\n".join([
             doc.get("text", "") or str(doc.get("metadata", {}))
             for doc in documents

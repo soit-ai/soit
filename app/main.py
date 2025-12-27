@@ -80,17 +80,23 @@ app.add_middleware(
 
 
 # Register routers
+from app.modules.entrypoints.identity.router import router as identity_router
 from app.modules.entrypoints.workflow.router import router as workflow_router
 from app.modules.entrypoints.dataset.router import router as dataset_router
 from app.modules.entrypoints.chat.router import router as chat_router
+from app.modules.entrypoints.modelhub.router import router as modelhub_router
+from app.modules.entrypoints.pluginmarket.router import router as pluginmarket_router
 from app.modules.entrypoints.websocket.router import router as websocket_router
 from app.modules.entrypoints.sse.router import router as sse_router
 from app.modules.entrypoints.health.router import router as health_router
 
 # Register routers
+app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
 app.include_router(workflow_router, prefix="/api/v1/workflows", tags=["workflows"])
 app.include_router(dataset_router, prefix="/api/v1/datasets", tags=["datasets"])
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
+app.include_router(modelhub_router, prefix="/api/v1/models", tags=["models"])
+app.include_router(pluginmarket_router, prefix="/api/v1/plugins", tags=["plugins"])
 app.include_router(websocket_router, prefix="/api/v1", tags=["websocket"])
 app.include_router(sse_router, prefix="/api/v1/sse", tags=["sse"])
 app.include_router(health_router, tags=["health"])

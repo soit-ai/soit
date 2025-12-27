@@ -3,12 +3,14 @@
 Storage gateway policies: timeout/retry/audit/quota.
 """
 
+import asyncio
 from typing import Optional, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.gateways.storage.interface import StorageGateway
 from app.kernel.trace.writer import TraceWriter
+from app.kernel.commons.errors import TimeoutError
 
 
 class StoragePolicyGateway(StorageGateway):
@@ -59,7 +61,17 @@ class StoragePolicyGateway(StorageGateway):
                 **kwargs,
             )
         
-        result_key = await _put_with_retry()
+        # Apply timeout
+        try:
+            result_key = await asyncio.wait_for(
+                _put_with_retry(),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Storage put timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "key": key}
+            )
         
         # Update cost if trace writer available
         if self.trace_writer:
@@ -83,7 +95,17 @@ class StoragePolicyGateway(StorageGateway):
         async def _get_with_retry():
             return await self.gateway.get(key=key, **kwargs)
         
-        return await _get_with_retry()
+        # Apply timeout
+        try:
+            return await asyncio.wait_for(
+                _get_with_retry(),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Storage get timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "key": key}
+            )
     
     async def delete(
         self,
@@ -98,7 +120,17 @@ class StoragePolicyGateway(StorageGateway):
         async def _delete_with_retry():
             return await self.gateway.delete(key=key, **kwargs)
         
-        await _delete_with_retry()
+        # Apply timeout
+        try:
+            await asyncio.wait_for(
+                _delete_with_retry(),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Storage delete timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "key": key}
+            )
     
     async def exists(
         self,
@@ -106,4 +138,14 @@ class StoragePolicyGateway(StorageGateway):
         **kwargs: Any,
     ) -> bool:
         """Check if object exists."""
-        return await self.gateway.exists(key=key, **kwargs)
+        # Apply timeout
+        try:
+            return await asyncio.wait_for(
+                self.gateway.exists(key=key, **kwargs),
+                timeout=self.timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Storage exists check timed out after {self.timeout_seconds} seconds",
+                {"timeout_seconds": self.timeout_seconds, "key": key}
+            )

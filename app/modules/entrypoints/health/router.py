@@ -80,7 +80,14 @@ async def metrics():
     Returns:
         Prometheus metrics in text format.
     """
-    # TODO: Implement Prometheus metrics export
-    # For now, return empty metrics
-    return "# Prometheus metrics\n# TODO: Implement metrics collection\n"
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from fastapi import Response
+    
+    # Generate Prometheus metrics
+    metrics_output = generate_latest()
+    
+    return Response(
+        content=metrics_output,
+        media_type=CONTENT_TYPE_LATEST,
+    )
 

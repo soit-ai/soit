@@ -7,6 +7,16 @@ from typing import Optional
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ForbiddenError
+from app.kernel.identity.permissions import (
+    require_resource_read,
+    require_resource_write,
+    require_resource_delete,
+    RESOURCE_WORKFLOW,
+    RESOURCE_DATASET,
+    RESOURCE_MODEL,
+    RESOURCE_PLUGIN,
+    RESOURCE_APP,
+)
 
 
 # Tenant roles
@@ -98,3 +108,49 @@ def check_workspace_access(ctx: RequestContext, target_workspace_id: str) -> Non
     """
     if ctx.workspace_id != target_workspace_id:
         raise ForbiddenError("Access denied: different workspace")
+
+
+# Resource-level permission helpers
+def require_workflow_read(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
+    """Require read permission on workflow."""
+    require_resource_read(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
+
+
+def require_workflow_write(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
+    """Require write permission on workflow."""
+    require_resource_write(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
+
+
+def require_workflow_delete(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
+    """Require delete permission on workflow."""
+    require_resource_delete(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
+
+
+def require_dataset_read(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
+    """Require read permission on dataset."""
+    require_resource_read(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+
+
+def require_dataset_write(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
+    """Require write permission on dataset."""
+    require_resource_write(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+
+
+def require_dataset_delete(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
+    """Require delete permission on dataset."""
+    require_resource_delete(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+
+
+def require_model_read(ctx: RequestContext, model_id: str, owner_id: Optional[str] = None) -> None:
+    """Require read permission on model."""
+    require_resource_read(ctx, RESOURCE_MODEL, model_id, owner_id)
+
+
+def require_model_write(ctx: RequestContext, model_id: str, owner_id: Optional[str] = None) -> None:
+    """Require write permission on model."""
+    require_resource_write(ctx, RESOURCE_MODEL, model_id, owner_id)
+
+
+def require_model_delete(ctx: RequestContext, model_id: str, owner_id: Optional[str] = None) -> None:
+    """Require delete permission on model."""
+    require_resource_delete(ctx, RESOURCE_MODEL, model_id, owner_id)

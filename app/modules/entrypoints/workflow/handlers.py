@@ -61,15 +61,26 @@ class WorkflowHandlers:
         Returns:
             Paginated workflows.
         """
-        workflows = self.service.list_workflows(limit=page_size, offset=0)
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        
+        workflows = self.service.list_workflows(limit=limit + 1, offset=offset)  # Fetch one extra to check has_next
+        
+        # Check if there are more workflows
+        has_next = len(workflows) > limit
+        if has_next:
+            workflows = workflows[:limit]  # Remove the extra item
+        
         # Convert items to WorkflowResponse
         items = [WorkflowResponse.model_validate(wf) for wf in workflows]
-        # Simple pagination - TODO: implement proper cursor-based pagination
+        
+        next_offset = offset + len(items) if has_next else None
+        
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
-            has_next=False,
-            next_offset=None,
+            has_next=has_next,
+            next_offset=next_offset,
         )
     
     async def get_workflow(

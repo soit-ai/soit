@@ -3,14 +3,18 @@
 LLM gateway policies: timeout/retry/rate-limit/audit.
 """
 
-from typing import Optional, Dict, Any
+import asyncio
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.gateways.llm.interface import LLMGateway, ChatMessage, ChatResponse, EmbeddingResponse, RerankResponse
+from app.kernel.gateways.common.rate_limiter import RateLimiter
+from app.kernel.gateways.common.audit import log_gateway_request
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.time import utc_now
+from app.kernel.commons.errors import TimeoutError
 
 
 class LLMPolicyGateway(LLMGateway):
@@ -24,6 +28,7 @@ class LLMPolicyGateway(LLMGateway):
         timeout_seconds: int = 60,
         max_retries: int = 3,
         rate_limit_per_minute: Optional[int] = None,
+        rate_limiter: Optional[RateLimiter] = None,
     ):
         """Initialize policy gateway.
         
@@ -34,6 +39,7 @@ class LLMPolicyGateway(LLMGateway):
             timeout_seconds: Request timeout in seconds.
             max_retries: Maximum retry attempts.
             rate_limit_per_minute: Optional rate limit per minute.
+            rate_limiter: Optional rate limiter instance.
         """
         self.gateway = gateway
         self.ctx = ctx
@@ -41,6 +47,7 @@ class LLMPolicyGateway(LLMGateway):
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.rate_limit_per_minute = rate_limit_per_minute
+        self.rate_limiter = rate_limiter or RateLimiter()
     
     async def chat(
         self,
@@ -62,7 +69,15 @@ class LLMPolicyGateway(LLMGateway):
         Returns:
             ChatResponse instance.
         """
-        # Rate limiting check (placeholder - implement Redis-based rate limiter)
+        # Rate limiting check
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:chat:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        
         # Audit log
         step = None
         if self.trace_writer:
@@ -75,7 +90,7 @@ class LLMPolicyGateway(LLMGateway):
         
         start_time = utc_now()
         try:
-            # Apply retry policy
+            # Apply retry policy with timeout
             @retry(
                 stop=stop_after_attempt(self.max_retries),
                 wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -89,7 +104,17 @@ class LLMPolicyGateway(LLMGateway):
                     **kwargs,
                 )
             
-            response = await _chat_with_retry()
+            # Apply timeout
+            try:
+                response = await asyncio.wait_for(
+                    _chat_with_retry(),
+                    timeout=self.timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"LLM chat request timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "model": model}
+                )
             
             # Update trace
             if step and self.trace_writer:
@@ -140,6 +165,15 @@ class LLMPolicyGateway(LLMGateway):
         Returns:
             EmbeddingResponse instance.
         """
+        # Rate limiting check
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:embed:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        
         step = None
         if self.trace_writer:
             step = self.trace_writer.create_step(
@@ -158,7 +192,17 @@ class LLMPolicyGateway(LLMGateway):
             async def _embed_with_retry():
                 return await self.gateway.embed(texts=texts, model=model, **kwargs)
             
-            response = await _embed_with_retry()
+            # Apply timeout
+            try:
+                response = await asyncio.wait_for(
+                    _embed_with_retry(),
+                    timeout=self.timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"LLM embed request timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "model": model}
+                )
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -209,6 +253,15 @@ class LLMPolicyGateway(LLMGateway):
         Returns:
             RerankResponse instance.
         """
+        # Rate limiting check
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:rerank:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        
         step = None
         if self.trace_writer:
             step = self.trace_writer.create_step(
@@ -233,7 +286,17 @@ class LLMPolicyGateway(LLMGateway):
                     **kwargs,
                 )
             
-            response = await _rerank_with_retry()
+            # Apply timeout
+            try:
+                response = await asyncio.wait_for(
+                    _rerank_with_retry(),
+                    timeout=self.timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"LLM rerank request timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "model": model}
+                )
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)

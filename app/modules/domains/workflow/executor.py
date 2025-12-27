@@ -66,6 +66,7 @@ class WorkflowExecutor:
             async with semaphore:
                 node = nodes[node_id]
                 node_type = node["type"]
+                step_id = f"st_{node_id}"
                 
                 # Get executor
                 executor_class = get_executor(node_type)
@@ -81,10 +82,25 @@ class WorkflowExecutor:
                 resolver = VariableResolver(plan.inputs, steps_outputs_map)
                 inputs = resolver.resolve(node.get("input", {}))
                 
+                # Create RunStep for tracking
+                run_step = context.trace_writer.create_step(
+                    run_id=context.run_id,
+                    step_type=node_type,
+                    step_id=step_id,
+                    node_id=node_id,
+                    input_summary=str(inputs)[:8192] if inputs else None,
+                )
+                
+                # Update step status to running
+                context.trace_writer.update_step_status(
+                    run_step.id,
+                    status="running",
+                )
+                
                 # Create step context
                 step_context = ExecutionContext(
                     run_id=context.run_id,
-                    step_id=f"st_{node_id}",
+                    step_id=step_id,
                     ctx=context.ctx,
                     trace_writer=context.trace_writer,
                     llm_gateway=context.llm_gateway,
@@ -99,6 +115,13 @@ class WorkflowExecutor:
                     node_outputs[node_id] = output
                     node_states[node_id] = "succeeded"
                     
+                    # Update step status to succeeded
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="succeeded",
+                        output_summary=str(output)[:8192] if output else None,
+                    )
+                    
                     # Update in-degree for dependent nodes
                     for dependent_id in graph.get(node_id, []):
                         in_degree[dependent_id] -= 1
@@ -107,13 +130,25 @@ class WorkflowExecutor:
                 
                 except Exception as e:
                     node_states[node_id] = "failed"
+                    
+                    # Update step status to failed
+                    error_message = str(e)
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="failed",
+                        output_summary=error_message[:8192],
+                        error_code="NODE_EXECUTION_ERROR",
+                        error_message=error_message,
+                        error_details={"node_id": node_id, "node_type": node_type},
+                    )
+                    
                     error_strategy = semantics.get("on_error", "fail_fast")
                     
                     if error_strategy == "fail_fast":
-                        raise ValidationError(f"Node {node_id} failed: {str(e)}")
+                        raise ValidationError(f"Node {node_id} failed: {error_message}")
                     elif error_strategy == "continue":
                         # Continue execution, mark node as failed
-                        node_outputs[node_id] = {"error": str(e)}
+                        node_outputs[node_id] = {"error": error_message}
                     # "compensate" strategy not implemented yet
         
         # Execute all nodes

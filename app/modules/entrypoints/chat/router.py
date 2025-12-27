@@ -11,8 +11,10 @@ from pydantic import BaseModel
 from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
 from app.modules.domains.chat.service import ChatService
+from app.modules.domains.workflow.service import WorkflowService
 from app.modules.entrypoints.chat.dependencies import get_chat_service
 from app.modules.entrypoints.chat.handlers import ChatHandlers
+from app.modules.entrypoints.workflow.dependencies import get_workflow_service
 
 
 router = APIRouter()
@@ -49,6 +51,7 @@ async def create_completion(
     request: ChatCompletionRequest,
     ctx: RequestContext = Depends(get_current_context),
     service: ChatService = Depends(get_chat_service),
+    workflow_service: WorkflowService = Depends(get_workflow_service),
 ):
     """Create chat completion.
     
@@ -56,22 +59,19 @@ async def create_completion(
         request: Chat completion request.
         ctx: Request context.
         service: ChatService instance.
+        workflow_service: WorkflowService instance.
         
     Returns:
         Completion result.
     """
-    # TODO: Implement chat completion with LLM gateway
-    # For now, return placeholder
-    from app.modules.domains.workflow.service import WorkflowService
-    from app.modules.entrypoints.workflow.dependencies import get_workflow_service
-    workflow_service = await get_workflow_service(ctx, None)
-    handlers = ChatHandlers(service)
-    # Note: This still uses workflow service for execution
-    # In the future, chat should have its own execution path
+    handlers = ChatHandlers(service, workflow_service)
+    result = await handlers.create_completion(
+        ctx, request.workflow_id, request.messages, request.stream, workflow_service
+    )
     return ChatCompletionResponse(
-        id="placeholder",
+        id=result.get("run_id", "unknown"),
         workflow_id=request.workflow_id,
-        result={"text": "Chat completion placeholder"},
+        result=result,
     )
 
 
@@ -81,6 +81,7 @@ async def stream_completion(
     messages: List[dict] = Body(...),
     ctx: RequestContext = Depends(get_current_context),
     service: ChatService = Depends(get_chat_service),
+    workflow_service: WorkflowService = Depends(get_workflow_service),
 ):
     """Stream chat completion (SSE).
     
@@ -89,14 +90,15 @@ async def stream_completion(
         messages: Chat messages.
         ctx: Request context.
         service: ChatService instance.
+        workflow_service: WorkflowService instance.
         
     Returns:
         SSE stream.
     """
-    handlers = ChatHandlers(service)
+    handlers = ChatHandlers(service, workflow_service)
     
     async def generate():
-        async for chunk in handlers.stream_completion(ctx, workflow_id, messages):
+        async for chunk in handlers.stream_completion(ctx, workflow_id, messages, workflow_service):
             yield chunk
     
     return StreamingResponse(

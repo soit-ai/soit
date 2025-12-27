@@ -6,8 +6,10 @@ Workflow services (validate, publish, run compile).
 from typing import Optional, List
 from sqlalchemy.orm import Session
 
+from typing import Dict, Any
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError, NotFoundError
+from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.modules.domains.workflow.models import Workflow, WorkflowVersion
 from app.modules.domains.workflow.repository import WorkflowRepository, WorkflowVersionRepository
 from app.modules.domains.workflow.compiler import WorkflowCompiler
@@ -16,6 +18,7 @@ from app.modules.domains.workflow.schemas import (
     WorkflowUpdate,
     WorkflowVersionCreate,
 )
+from app.kernel.specs.validator import validator
 
 
 class WorkflowService:
@@ -240,7 +243,111 @@ class WorkflowService:
         if not version:
             raise NotFoundError(f"No published version for workflow: {workflow_id}")
         
-        return self.compiler.compile(version.graph_json, inputs, run_id)
+        plan = self.compiler.compile(version.graph_json, inputs, run_id)
+        # Set app_version_id to workflow_id for trace tracking
+        plan.app_version_id = workflow_id
+        return plan
+    
+    async def execute_workflow(
+        self,
+        workflow_id: str,
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a workflow.
+        
+        Args:
+            workflow_id: Workflow ID.
+            inputs: Workflow inputs.
+            
+        Returns:
+            Execution result.
+            
+        Raises:
+            NotFoundError: If workflow or current version not found.
+        """
+        from app.kernel.commons.ids import generate_ulid
+        from app.kernel.execution.engine import ExecutionEngine
+        from app.kernel.trace.writer import TraceWriter
+        
+        # Generate run ID
+        run_id = generate_ulid()
+        
+        # Compile workflow to execution plan
+        plan = self.compile_workflow(workflow_id, inputs, run_id)
+        
+        # Initialize execution engine
+        trace_writer = TraceWriter(self.db, self.ctx)
+        execution_engine = ExecutionEngine(
+            db=self.db,
+            ctx=self.ctx,
+            trace_writer=trace_writer,
+        )
+        
+        # Execute workflow
+        result = await execution_engine.execute(plan)
+        
+        return result
+    
+    def get_workflow(self, workflow_id: str) -> Workflow:
+        """Get workflow by ID.
+        
+        Args:
+            workflow_id: Workflow ID.
+            
+        Returns:
+            Workflow instance.
+            
+        Raises:
+            NotFoundError: If workflow not found.
+        """
+        workflow = self.workflow_repo.get_by_id(workflow_id)
+        if not workflow:
+            raise NotFoundError(f"Workflow not found: {workflow_id}")
+        return workflow
+    
+    def list_workflows(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Workflow]:
+        """List workflows.
+        
+        Args:
+            limit: Maximum number of workflows.
+            offset: Offset for pagination.
+            
+        Returns:
+            List of Workflow instances.
+        """
+        from sqlalchemy import select, and_, desc
+        from app.modules.domains.workflow.models import Workflow
+        
+        query = select(Workflow).where(
+            and_(
+                Workflow.tenant_id == self.ctx.tenant_id,
+                Workflow.workspace_id == self.ctx.workspace_id,
+            )
+        ).order_by(desc(Workflow.created_at)).offset(offset).limit(limit)
+        
+        return list(self.db.exec(query).all())
+    
+    def delete_workflow(self, workflow_id: str) -> None:
+        """Delete a workflow (soft delete).
+        
+        Args:
+            workflow_id: Workflow ID.
+            
+        Raises:
+            NotFoundError: If workflow not found.
+        """
+        workflow = self.get_workflow(workflow_id)
+        
+        # Soft delete
+        from app.kernel.commons.time import utc_now
+        workflow.deleted_at = utc_now()
+        workflow.updated_at = utc_now()
+        
+        self.db.commit()
     
     def list_runs(
         self,
@@ -263,6 +370,7 @@ class WorkflowService:
         
         # Query runs for this workflow
         # Using app_version_id to store workflow_id (as per ExecutionPlan contract)
+        # The composite index ix_runs_tenant_workspace_app_version_mode_created optimizes this query
         query = select(Run).where(
             and_(
                 Run.tenant_id == self.ctx.tenant_id,

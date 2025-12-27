@@ -3,13 +3,16 @@
 Tool gateway policies: timeout/retry/rate-limit/audit/egress.
 """
 
+import asyncio
 from typing import Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.gateways.tools.interface import ToolGateway, ToolResponse
+from app.kernel.gateways.common.audit import log_gateway_request
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.time import utc_now
+from app.kernel.commons.errors import TimeoutError
 from app.kernel.security.egress import check_egress_policy
 
 
@@ -84,7 +87,36 @@ class ToolPolicyGateway(ToolGateway):
                     **kwargs,
                 )
             
-            response = await _invoke_with_retry()
+            # Apply timeout
+            try:
+                response = await asyncio.wait_for(
+                    _invoke_with_retry(),
+                    timeout=self.timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Tool invocation timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "tool_ref": tool_ref}
+                )
+            
+            # Audit log
+            if step and self.trace_writer:
+                await log_gateway_request(
+                    trace_writer=self.trace_writer,
+                    run_id=kwargs.get("run_id", ""),
+                    step_id=step.id,
+                    gateway_type="tool",
+                    request_data={
+                        "tool_ref": tool_ref,
+                        "parameters": parameters,
+                    },
+                    response_data={
+                        "success": response.success,
+                        "result_type": type(response.result).__name__ if response.result else None,
+                        "metadata": response.metadata,
+                        "error": response.error,
+                    },
+                )
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)

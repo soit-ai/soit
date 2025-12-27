@@ -10,23 +10,20 @@ from sqlalchemy.orm import Session
 from app.kernel.contracts.context import RequestContext
 from app.kernel.db.session import get_db
 from app.middleware.auth import get_current_context
-from app.modules.domains.workflow.service import WorkflowService
-from app.modules.entrypoints.workflow.dependencies import get_workflow_service
+from app.modules.domains.chat.service import ChatService
 
 
 def get_chat_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    workflow_service: WorkflowService = Depends(get_workflow_service),
-) -> "ChatService":
+    db: Annotated[Session, Depends(get_db)],
+) -> ChatService:
     """Get chat service instance.
     
     Args:
         ctx: Request context.
-        workflow_service: WorkflowService instance for executing workflows.
+        db: Database session.
         
     Returns:
         ChatService instance.
     """
-    # Chat service uses workflow service for execution
-    # In the future, this could be a dedicated ChatService
-    return workflow_service
+    return ChatService(db, ctx)

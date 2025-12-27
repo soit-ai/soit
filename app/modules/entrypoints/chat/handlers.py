@@ -5,22 +5,26 @@ Chat request handlers (thin orchestration).
 
 from typing import List, Optional, AsyncGenerator, Dict, Any
 from fastapi import HTTPException, status
+import json
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.domains.chat.service import ChatService
+from app.modules.domains.workflow.service import WorkflowService
 from app.kernel.db.pagination import PaginatedResponse, parse_page_params
 
 
 class ChatHandlers:
     """Handlers for chat API endpoints."""
     
-    def __init__(self, service: ChatService):
+    def __init__(self, service: ChatService, workflow_service: Optional[WorkflowService] = None):
         """Initialize chat handlers.
         
         Args:
             service: ChatService instance.
+            workflow_service: Optional WorkflowService instance for executing workflows.
         """
         self.service = service
+        self.workflow_service = workflow_service
     
     async def create_completion(
         self,
@@ -28,6 +32,7 @@ class ChatHandlers:
         workflow_id: str,
         messages: List[dict],
         stream: bool = False,
+        workflow_service: Optional[WorkflowService] = None,
     ) -> dict:
         """Create chat completion.
         
@@ -36,28 +41,43 @@ class ChatHandlers:
             workflow_id: Workflow ID to execute.
             messages: Chat messages.
             stream: Whether to stream the response.
+            workflow_service: Optional WorkflowService instance.
             
         Returns:
             Completion result.
         """
+        if not workflow_service and not self.workflow_service:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="WorkflowService not available"
+            )
+        
+        ws = workflow_service or self.workflow_service
+        
         # Prepare inputs for workflow execution
         inputs = {
             "messages": messages,
         }
         
         # Execute workflow
-        # TODO: Implement async workflow execution
-        # For now, use compile_workflow and return a placeholder
+        result = await ws.execute_workflow(workflow_id, inputs)
+        
+        # Extract run_id from result if available, otherwise generate one
         from app.kernel.commons.ids import generate_ulid
-        run_id = generate_ulid()
-        execution_plan = self.workflow_service.compile_workflow(workflow_id, inputs, run_id)
-        return {"run_id": run_id, "status": "pending", "plan": str(execution_plan)}
+        run_id = result.get("run_id") or generate_ulid()
+        
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "result": result
+        }
     
     async def stream_completion(
         self,
         ctx: RequestContext,
         workflow_id: str,
         messages: List[dict],
+        workflow_service: Optional[WorkflowService] = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion (SSE).
         
@@ -65,23 +85,28 @@ class ChatHandlers:
             ctx: Request context.
             workflow_id: Workflow ID to execute.
             messages: Chat messages.
+            workflow_service: Optional WorkflowService instance.
             
         Yields:
             SSE formatted data chunks.
         """
-        # TODO: Implement streaming execution
-        # For now, return a simple completion
+        if not workflow_service and not self.workflow_service:
+            yield f"event: error\ndata: {json.dumps({'error': 'WorkflowService not available'})}\n\n"
+            return
+        
+        ws = workflow_service or self.workflow_service
+        
+        # Use SSE handler for streaming
+        from app.modules.entrypoints.sse.handlers import SSEHandlers
+        import json
+        
+        sse_handlers = SSEHandlers(ws)
         inputs = {
             "messages": messages,
         }
-        from app.kernel.commons.ids import generate_ulid
-        run_id = generate_ulid()
-        execution_plan = self.workflow_service.compile_workflow(workflow_id, inputs, run_id)
-        result = {"run_id": run_id, "status": "pending", "plan": str(execution_plan)}
         
-        # Format as SSE
-        yield f"data: {result}\n\n"
-        yield "data: [DONE]\n\n"
+        async for chunk in sse_handlers.stream_execution(ctx, workflow_id, inputs):
+            yield chunk
     
     async def get_history(
         self,

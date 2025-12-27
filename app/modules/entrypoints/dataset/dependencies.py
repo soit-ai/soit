@@ -31,39 +31,58 @@ def get_dataset_service(
     from app.modules.domains.dataset.pipeline import DocumentPipeline
     from app.modules.domains.dataset.retrieval import RetrievalService
     from app.modules.domains.dataset.embedding import EmbeddingService
-    from app.modules.domains.dataset.chunker import TextChunker
-    from app.adapters.minio_storage import MinIOStorageGateway
-    from app.adapters.milvus_vector import MilvusVectorGateway
-    from app.adapters.openai_llm import OpenAILLMGateway
+    from app.modules.domains.dataset.index_builder import IndexBuilder
     from app.kernel.trace.writer import TraceWriter
-    
-    # Initialize gateways
-    storage_gateway = MinIOStorageGateway()
-    vector_gateway = MilvusVectorGateway()
-    llm_gateway = OpenAILLMGateway()
+    from app.kernel.di import get_container
     
     # Initialize trace writer
     trace_writer = TraceWriter(db, ctx)
     
-    # Initialize embedding service
-    embedding_service = EmbeddingService(llm_gateway, trace_writer)
+    # Get gateways from container (with policy enforcement)
+    container = get_container()
+    storage_gateway = container.get_storage_gateway(
+        ctx=ctx,
+        trace_writer=trace_writer,
+    )
+    vector_gateway = container.get_vector_gateway(
+        ctx=ctx,
+        trace_writer=trace_writer,
+    )
+    llm_gateway = container.get_llm_gateway(
+        ctx=ctx,
+        trace_writer=trace_writer,
+    )
     
-    # Initialize chunker
-    chunker = TextChunker()
+    # Initialize embedding service
+    embedding_service = EmbeddingService(llm_gateway)
+    
+    # Initialize index builder
+    index_builder = IndexBuilder(
+        db=db,
+        ctx=ctx,
+        vector_gateway=vector_gateway,
+        embedding_service=embedding_service,
+        storage_gateway=storage_gateway,
+    )
     
     # Initialize document pipeline
     pipeline = DocumentPipeline(
+        db=db,
+        ctx=ctx,
         storage_gateway=storage_gateway,
-        embedding_service=embedding_service,
-        chunker=chunker,
         trace_writer=trace_writer,
+        embedding_service=embedding_service,
+        index_builder=index_builder,
     )
     
     # Initialize retrieval service
     retrieval_service = RetrievalService(
+        db=db,
+        ctx=ctx,
         vector_gateway=vector_gateway,
+        llm_gateway=llm_gateway,
         embedding_service=embedding_service,
-        trace_writer=trace_writer,
+        storage_gateway=storage_gateway,
     )
     
     return DatasetService(db, ctx, pipeline, retrieval_service)

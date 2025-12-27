@@ -63,6 +63,13 @@ class ConflictError(KernelError):
         super().__init__("CONFLICT", message, details)
 
 
+class TimeoutError(KernelError):
+    """Operation timeout."""
+    
+    def __init__(self, message: str = "Operation timeout", details: Optional[Dict[str, Any]] = None):
+        super().__init__("TIMEOUT", message, details)
+
+
 def error_envelope(
     code: str,
     message: str,

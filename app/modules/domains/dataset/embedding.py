@@ -37,14 +37,14 @@ class EmbeddingService:
         if not texts:
             return []
         
-        # Call LLM gateway embeddings API
-        embeddings = await self.llm_gateway.embeddings(
-            model_ref=model_ref,
+        # Call LLM gateway embed API
+        embedding_response = await self.llm_gateway.embed(
             texts=texts,
+            model=model_ref,
             **kwargs,
         )
         
-        return embeddings
+        return embedding_response.embeddings
     
     async def embed_text(
         self,

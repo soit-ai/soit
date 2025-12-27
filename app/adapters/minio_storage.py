@@ -52,9 +52,20 @@ class MinIOStorageGateway(StorageGateway):
         data: bytes,
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> str:
-        """Upload object."""
+        """Upload object.
+        
+        Args:
+            key: Storage key (path).
+            data: Object data.
+            content_type: Optional content type.
+            metadata: Optional metadata.
+            **kwargs: Additional parameters.
+            
+        Returns:
+            Storage key (same as input or modified).
+        """
         extra_args = {}
         if content_type:
             extra_args["ContentType"] = content_type
@@ -72,28 +83,51 @@ class MinIOStorageGateway(StorageGateway):
     async def get(
         self,
         key: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> bytes:
-        """Download object."""
+        """Download object.
+        
+        Args:
+            key: Storage key.
+            **kwargs: Additional parameters.
+            
+        Returns:
+            Object data.
+        """
         response = self.client.get_object(Bucket=self.bucket, Key=key)
         return response["Body"].read()
     
     async def delete(
         self,
         key: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        """Delete object."""
+        """Delete object.
+        
+        Args:
+            key: Storage key.
+            **kwargs: Additional parameters.
+        """
         self.client.delete_object(Bucket=self.bucket, Key=key)
     
     async def exists(
         self,
         key: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> bool:
-        """Check if object exists."""
+        """Check if object exists.
+        
+        Args:
+            key: Storage key.
+            **kwargs: Additional parameters.
+            
+        Returns:
+            True if exists.
+        """
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
         except self.client.exceptions.NoSuchKey:
+            return False
+        except Exception:
             return False

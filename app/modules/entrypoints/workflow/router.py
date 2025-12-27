@@ -145,7 +145,7 @@ async def create_version(
     Returns:
         Created version.
     """
-    version = service.create_version(workflow_id, version_in)
+    version = service.publish_version(workflow_id, version_in)
     return WorkflowVersionResponse.model_validate(version)
 
 
