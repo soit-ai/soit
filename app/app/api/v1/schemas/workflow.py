@@ -4,13 +4,10 @@ Workflow response serializers.
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
-
-from app.modules.workflow.domain.models import Workflow, WorkflowVersion
 from app.modules.workflow.application.schemas import WorkflowResponse, WorkflowVersionResponse
 
 
-def serialize_workflow(workflow: Workflow) -> Dict[str, Any]:
+def serialize_workflow(workflow: Any) -> Dict[str, Any]:
     """Serialize workflow model to dictionary.
     
     Args:
@@ -22,7 +19,7 @@ def serialize_workflow(workflow: Workflow) -> Dict[str, Any]:
     return WorkflowResponse.model_validate(workflow).model_dump()
 
 
-def serialize_workflow_version(version: WorkflowVersion) -> Dict[str, Any]:
+def serialize_workflow_version(version: Any) -> Dict[str, Any]:
     """Serialize workflow version model to dictionary.
     
     Args:

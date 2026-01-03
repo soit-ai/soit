@@ -27,3 +27,25 @@ class PluginInstallationRepositoryPort(Protocol):
     def create(self, installation: PluginInstallation) -> PluginInstallation: ...
     def delete(self, installation: PluginInstallation) -> None: ...
     def list_by_workspace(self, limit: int = 100, offset: int = 0) -> Sequence[PluginInstallation]: ...
+
+
+class PluginInstallerPort(Protocol):
+    """Port for plugin installation/extraction.
+
+    Application code depends on this protocol so we can swap installation
+    strategies (filesystem, object storage, remote runtime) without changing
+    application logic.
+    """
+
+    def install_from_bytes(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        plugin_name: str,
+        version: str,
+        package_bytes: bytes,
+        expected_sha256: str | None = None,
+    ) -> list[str]:
+        """Install plugin package bytes and return installed file paths."""
+        ...

@@ -348,6 +348,39 @@ class IdentityService:
         )
         return membership_repo.create(membership)
     
+
+def get_user(self, user_id: str):
+    """Get user by id."""
+    user = self.user_repo.get_by_id(user_id)
+    if not user:
+        raise NotFoundError(f"User not found: {user_id}")
+    return user
+
+def get_tenant(self, tenant_id: str):
+    """Get tenant by id."""
+    tenant = self.tenant_repo.get_by_id(tenant_id)
+    if not tenant:
+        raise NotFoundError(f"Tenant not found: {tenant_id}")
+    return tenant
+
+def list_workspaces(self, *, tenant_id: str, ctx: RequestContext):
+    """List workspaces in a tenant.
+
+    The underlying repository is scoped by RequestContext (tenant-aware),
+    so we validate the tenant id matches current context.
+    """
+    if ctx.tenant_id != tenant_id:
+        raise ValidationError("tenant_id mismatch with current context")
+    repo = self.workspace_repo_factory(ctx)
+    return repo.list_by_tenant()
+def get_workspace(self, *, workspace_id: str, ctx: RequestContext):
+    """Get workspace by id (ctx scoped)."""
+    repo = self.workspace_repo_factory(ctx)
+    workspace = repo.get_by_id(workspace_id)
+    if not workspace:
+        raise NotFoundError(f"Workspace not found: {workspace_id}")
+    return workspace
+
     def get_user_workspace_role(
         self,
         workspace_id: str,

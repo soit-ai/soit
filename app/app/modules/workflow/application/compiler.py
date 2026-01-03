@@ -17,7 +17,7 @@ class WorkflowCompiler:
     
     def __init__(self):
         """Initialize workflow compiler."""
-        pass
+        self.validator = validator
     
     def compile(
         self,
@@ -39,7 +39,7 @@ class WorkflowCompiler:
             ValidationError: If spec is invalid or has cycles.
         """
         # Validate spec
-        validator.validate_workflow_spec(workflow_spec)
+        self.validator.validate_workflow_spec(workflow_spec)
         
         # Build DAG
         nodes = {node["id"]: node for node in workflow_spec["nodes"]}

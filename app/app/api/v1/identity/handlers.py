@@ -23,46 +23,6 @@ from app.modules.identity.application.schemas import (
     MembershipResponse,
     TokenResponse,
 )
-from app.modules.identity.infra.repository import (
-    UserRepository,
-    TenantRepository,
-    WorkspaceRepository,
-    TenantMembershipRepository,
-    WorkspaceMembershipRepository,
-)
-from app.infra.db.session import get_db
-from app.api.v1.identity.dependencies import get_identity_service
-
-
-async def register(
-    user_data: UserCreate,
-    tenant_name: str | None = None,
-    service: IdentityService = Depends(get_identity_service),
-) -> dict:
-    """Register a new user.
-    
-    Args:
-        user_data: User creation data.
-        tenant_name: Optional tenant name.
-        service: Identity service.
-        
-    Returns:
-        Dictionary with user, tenant, and token.
-    """
-    try:
-        user, tenant, access_token = service.register_user(user_data, tenant_name)
-        return {
-            "user": UserResponse.model_validate(user),
-            "tenant": TenantResponse.model_validate(tenant) if tenant else None,
-            "access_token": access_token,
-            "token_type": "bearer",
-        }
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-
 
 async def login(
     login_data: UserLogin,
@@ -96,26 +56,14 @@ async def login(
 
 async def get_current_user(
     ctx: RequestContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    service: IdentityService = Depends(get_identity_service),
 ) -> UserResponse:
-    """Get current user.
-    
-    Args:
-        ctx: Request context.
-        db: Database session.
-        
-    Returns:
-        User response.
-    """
-    user_repo = UserRepository(db)
-    user = user_repo.get_by_id(ctx.user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    return UserResponse.model_validate(user)
-
+    """Get current user."""
+    try:
+        user = service.get_user(ctx.user_id)
+        return UserResponse.model_validate(user)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 async def create_tenant(
     tenant_data: TenantCreate,
@@ -145,34 +93,14 @@ async def create_tenant(
 async def get_tenant(
     tenant_id: str,
     ctx: RequestContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    service: IdentityService = Depends(get_identity_service),
 ) -> TenantResponse:
-    """Get tenant by ID.
-    
-    Args:
-        tenant_id: Tenant ID.
-        ctx: Request context.
-        db: Database session.
-        
-    Returns:
-        Tenant response.
-    """
-    # Check access
-    if ctx.tenant_id != tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    
-    tenant_repo = TenantRepository(db)
-    tenant = tenant_repo.get_by_id(tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    return TenantResponse.model_validate(tenant)
-
+    """Get tenant by ID."""
+    try:
+        tenant = service.get_tenant(tenant_id)
+        return TenantResponse.model_validate(tenant)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 async def create_workspace(
     workspace_data: WorkspaceCreate,
@@ -200,47 +128,28 @@ async def create_workspace(
 
 
 async def list_workspaces(
+    tenant_id: str,
     ctx: RequestContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    service: IdentityService = Depends(get_identity_service),
 ) -> List[WorkspaceResponse]:
-    """List workspaces in tenant.
-    
-    Args:
-        ctx: Request context.
-        db: Database session.
-        
-    Returns:
-        List of workspace responses.
-    """
-    workspace_repo = WorkspaceRepository(db, ctx)
-    workspaces = workspace_repo.list_by_tenant()
-    return [WorkspaceResponse.model_validate(w) for w in workspaces]
-
+    """List workspaces in tenant."""
+    try:
+        workspaces = service.list_workspaces(tenant_id=tenant_id, ctx=ctx)
+        return [WorkspaceResponse.model_validate(w) for w in workspaces]
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 async def get_workspace(
     workspace_id: str,
     ctx: RequestContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    service: IdentityService = Depends(get_identity_service),
 ) -> WorkspaceResponse:
-    """Get workspace by ID.
-    
-    Args:
-        workspace_id: Workspace ID.
-        ctx: Request context.
-        db: Database session.
-        
-    Returns:
-        Workspace response.
-    """
-    workspace_repo = WorkspaceRepository(db, ctx)
-    workspace = workspace_repo.get_by_id(workspace_id)
-    if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found",
-        )
-    return WorkspaceResponse.model_validate(workspace)
-
+    """Get workspace by ID."""
+    try:
+        workspace = service.get_workspace(workspace_id=workspace_id, ctx=ctx)
+        return WorkspaceResponse.model_validate(workspace)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 async def add_tenant_member(
     tenant_id: str,

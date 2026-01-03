@@ -12,12 +12,12 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
+from app.settings.settings import settings
 from app.kernel.registry.deps import get_registry
 from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
 from app.modules.pluginmarket.domain.models import Plugin, PluginInstallation
-from app.modules.pluginmarket.application.ports import PluginRepositoryPort, PluginInstallationRepositoryPort
+from app.modules.pluginmarket.application.ports import PluginRepositoryPort, PluginInstallationRepositoryPort, PluginInstallerPort
 from app.modules.pluginmarket.application.schemas import PluginCreate, PluginUpdate, PluginInstallRequest
-from app.modules.pluginmarket.infra.installer import PluginInstaller
 
 
 class PluginMarketService:
@@ -29,6 +29,7 @@ class PluginMarketService:
         ctx: RequestContext,
         plugin_repo: PluginRepositoryPort,
         installation_repo: PluginInstallationRepositoryPort,
+        installer: PluginInstallerPort,
     ):
         """Initialize plugin market service.
         
@@ -40,42 +41,58 @@ class PluginMarketService:
         self.ctx = ctx
         self.plugin_repo = plugin_repo
         self.installation_repo = installation_repo
+        self.installer = installer
+        self.settings = settings
 
 
-def _install_dir_for(self, *, plugin_name: str, version: str) -> Path:
-    root = Path(self.settings.plugins_dir).resolve()
-    return root / "installed" / self.ctx.tenant_id / self.ctx.workspace_id / plugin_name / version
 
-def _sync_manifest_enabled(self, *, plugin_name: str, version: str, enabled: bool) -> None:
-    install_dir = self._install_dir_for(plugin_name=plugin_name, version=version)
-    manifest_path = install_dir / "manifest.json"
-    if not manifest_path.exists():
-        return
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["enabled"] = bool(enabled)
-        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        return
+    def _install_dir_for(self, *, plugin_name: str, version: str) -> Path:
+        """Return install directory path for a plugin version in current scope."""
+        root = Path(self.settings.plugins_dir).resolve()
+        return root / "installed" / self.ctx.tenant_id / self.ctx.workspace_id / plugin_name / version
 
-def _sync_registry_for_plugin(self, *, plugin_name: str, version: str, enabled: bool) -> None:
-    reg = get_registry()
-    # remove all tool artifacts belonging to this plugin+version in this scope
-    items = reg.list(kind="tool", tenant_id=self.ctx.tenant_id, workspace_id=self.ctx.workspace_id)
-    for key, payload in items:
-        plugin = (payload or {}).get("plugin") or {}
-        if plugin.get("name") == plugin_name and plugin.get("version") == version:
-            reg.unregister(key)
+    def _sync_manifest_enabled(self, *, plugin_name: str, version: str, enabled: bool) -> None:
+        """Best-effort: keep filesystem manifest enabled flag in sync."""
+        install_dir = self._install_dir_for(plugin_name=plugin_name, version=version)
+        manifest_path = install_dir / "manifest.json"
+        if not manifest_path.exists():
+            return
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["enabled"] = bool(enabled)
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            # Do not fail requests on filesystem issues
+            return
 
-    # remove plugin artifact
-    plugin_items = reg.list(kind="plugin", tenant_id=self.ctx.tenant_id, workspace_id=self.ctx.workspace_id, name=plugin_name)
-    for key, _ in plugin_items:
-        if key.version == version:
-            reg.unregister(key)
+    def _sync_registry_for_plugin(self, *, plugin_name: str, version: str, enabled: bool) -> None:
+        """Sync in-process registry for a plugin version (tools + plugin record)."""
+        reg = get_registry()
 
-    if enabled:
-        # reload from filesystem (best-effort)
-        PluginRuntimeLoader().load_all()
+        # remove all tool artifacts belonging to this plugin+version in this scope
+        items = reg.list(kind="tool", tenant_id=self.ctx.tenant_id, workspace_id=self.ctx.workspace_id)
+        for key, payload in items:
+            plugin = (payload or {}).get("plugin") or {}
+            if plugin.get("name") == plugin_name and plugin.get("version") == version:
+                reg.unregister(key)
+
+        # remove plugin artifact
+        plugin_items = reg.list(
+            kind="plugin",
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            name=plugin_name,
+        )
+        for key, _ in plugin_items:
+            if key.version == version:
+                reg.unregister(key)
+
+        if enabled:
+            # reload from filesystem (best-effort)
+            PluginRuntimeLoader().load_all()
 
     def create_plugin(self, plugin_in: PluginCreate) -> Plugin:
         """Create a new plugin.
