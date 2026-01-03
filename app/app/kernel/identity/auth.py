@@ -180,4 +180,37 @@ class JWTManager:
         if not workspace_role:
             raise UnauthorizedError("Token missing workspace role")
         return str(workspace_role)
+
+
+# Global JWT manager instance (lazy initialization)
+_jwt_manager: Optional[JWTManager] = None
+
+
+def _get_jwt_manager() -> JWTManager:
+    """Get or create global JWT manager instance.
+    
+    Returns:
+        JWTManager instance.
+    """
+    global _jwt_manager
+    if _jwt_manager is None:
+        from app.settings.settings import settings
+        _jwt_manager = JWTManager(secret_key=settings.secret_key)
+    return _jwt_manager
+
+
+def decode_jwt_token(token: str) -> Dict[str, any]:
+    """Decode and validate JWT token (convenience function).
+    
+    Args:
+        token: JWT token string.
+        
+    Returns:
+        Decoded token payload.
+        
+    Raises:
+        UnauthorizedError: If token is invalid or expired.
+    """
+    jwt_manager = _get_jwt_manager()
+    return jwt_manager.decode_token(token)
         

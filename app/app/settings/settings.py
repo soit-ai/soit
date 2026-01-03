@@ -15,13 +15,38 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
-    
+
+    project_name: str = "soit"
+    """Project name."""
+    project_description: str = "SOIT is a platform for llm application building."
+    """Project description."""
+
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/soit"
-    """PostgreSQL database URL."""
+    database_type: str = "postgresql"
+    """Database type."""
+    database_host: str = "localhost"
+    """Database host."""
+    database_port: int = 5432
+    """Database port."""
+    database_user: Optional[str] = None
+    """Database username."""
+    database_pass: Optional[str] = None
+    """Database password."""
+    database_name: str = ""
+    """Database name."""
+    database_url: str = f"{database_type}://{database_user}:{database_pass}@{database_host}:{database_port}/{database_name}"
+    """Database URL."""
     
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_host: str = "localhost"
+    """Redis host."""
+    redis_port: int = 6379
+    """Redis port."""
+    redis_pass: Optional[str] = None
+    """Redis pass."""
+    redis_db: int = 0
+    """Redis data."""
+    redis_url: str = f"redis://:{redis_pass}@{redis_host}:{redis_port}/{redis_db}"
     """Redis URL for cache and message queue."""
     
     # JWT
@@ -59,6 +84,10 @@ class Settings(BaseSettings):
     # Observability
     sentry_dsn: Optional[str] = None
     """Sentry DSN for error tracking."""
+    sentry_enabled: bool = False
+    """Enable Sentry error tracking."""
+    sentry_traces_sample_rate: float = 0.0
+    """Sentry traces sample rate."""
     log_level: str = "INFO"
     """Log level (DEBUG, INFO, WARNING, ERROR)."""
     

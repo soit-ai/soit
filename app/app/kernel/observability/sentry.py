@@ -1,29 +1,43 @@
-""" sentry
+"""sentry
 
 Sentry integration.
+
+This integration is optional: if `sentry-sdk` isn't installed, Sentry setup is a no-op.
 """
 
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from __future__ import annotations
+
+from typing import Optional
+
+try:
+    import sentry_sdk  # type: ignore
+    from sentry_sdk.integrations.asgi import SentryAsgiMiddleware  # type: ignore
+except Exception:  # pragma: no cover
+    sentry_sdk = None
+    SentryAsgiMiddleware = None
 
 from app.settings.settings import settings
 
 
-def init_sentry() -> None:
-    """Initialize Sentry SDK."""
-    if settings.sentry_dsn:
-        sentry_sdk.init(
-            dsn=settings.sentry_dsn,
-            integrations=[
-                FastApiIntegration(),
-                SqlalchemyIntegration(),
-            ],
-            traces_sample_rate=0.1,  # 10% of transactions
-            environment="production",  # Set from env var in production
-        )
+def setup_sentry() -> None:
+    """Initialize Sentry if enabled and dependency is available."""
+    if sentry_sdk is None:
+        return
+
+    dsn: Optional[str] = getattr(settings, "sentry_dsn", None)
+    enabled: bool = bool(getattr(settings, "sentry_enabled", False) or bool(dsn))
+    if not enabled:
+        return
+
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=getattr(settings, "env", "dev"),
+        traces_sample_rate=float(getattr(settings, "sentry_traces_sample_rate", 0.0) or 0.0),
+    )
 
 
-# Initialize on import if DSN is configured
-if settings.sentry_dsn:
-    init_sentry()
+def wrap_asgi(app):
+    """Wrap ASGI app with Sentry middleware if available."""
+    if SentryAsgiMiddleware is None:
+        return app
+    return SentryAsgiMiddleware(app)

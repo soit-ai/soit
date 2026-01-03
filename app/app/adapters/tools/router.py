@@ -28,6 +28,7 @@ class RegistryToolRouterPort(ToolPort):
         self.http_port = http_port or HTTPToolsPort()
 
     async def invoke(self, tool_ref: str, parameters: Dict[str, Any], **kwargs: Any) -> ToolResponse:
+        strict_registry: bool = bool(kwargs.get("strict_registry", False))
         ctx: Optional[RequestContext] = kwargs.get("ctx")
         if ctx is None:
             # allow callers to pass tenant/workspace explicitly
@@ -36,13 +37,17 @@ class RegistryToolRouterPort(ToolPort):
             if tenant_id and workspace_id:
                 ctx = RequestContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=kwargs.get("user_id"))
             else:
-                # No ctx: fall back to raw http mode if possible
+                # No ctx: in strict mode we refuse to run unscoped tools
+                if strict_registry:
+                    raise ValidationError("Tool invocation requires ctx (tenant_id/workspace_id) in strict mode")
                 return await self.http_port.invoke(tool_ref=tool_ref, parameters=parameters, **kwargs)
 
         reg = get_registry()
         found = reg.get_latest(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=tool_ref)
         if not found:
-            # Not registered -> raw http mode
+            # Not registered
+            if strict_registry:
+                raise ValidationError(f"Tool not registered for tenant/workspace: {tool_ref}")
             return await self.http_port.invoke(tool_ref=tool_ref, parameters=parameters, **kwargs)
 
         _, payload = found

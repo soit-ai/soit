@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, JSON, Relationship
 from sqlalchemy import Text
 
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 from app.kernel.commons.ids import generate_ulid
 
 
@@ -175,7 +175,7 @@ class DatasetDocument(SQLModel, table=True):
     error_code: Optional[str] = Field(default=None, nullable=True)
     """Error code if failed."""
     
-    error_message: Optional[str] = Field(default=None, nullable=True, sa_column=Column(Text))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     """Error message if failed."""
     
     retry_count: int = Field(default=0)
@@ -379,7 +379,7 @@ class DatasetIndex(SQLModel, table=True):
     last_error_code: Optional[str] = Field(default=None, nullable=True)
     """Last error code."""
     
-    last_error_message: Optional[str] = Field(default=None, nullable=True, sa_column=Column(Text))
+    last_error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     """Last error message."""
     
     created_by: Optional[str] = Field(default=None, nullable=True)

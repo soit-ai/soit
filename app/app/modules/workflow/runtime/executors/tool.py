@@ -28,7 +28,7 @@ class ToolNodeExecutor(NodeExecutor):
             Output dictionary with tool result.
         """
         if not context.tool_port:
-            raise ValidationError("Tool gateway not available")
+            raise ValidationError("Tool port not available")
         
         # Extract tool reference
         tool_ref = inputs.get("tool_ref") or inputs.get("tool")
@@ -44,6 +44,7 @@ class ToolNodeExecutor(NodeExecutor):
             parameters=parameters,
             run_id=context.run_id,
             ctx=context.ctx,
+            strict_registry=True,
         )
         
         if not response.success:

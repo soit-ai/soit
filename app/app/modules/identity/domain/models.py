@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, UniqueConstraint, Index
 from sqlalchemy import Text
 
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 from app.kernel.commons.ids import generate_ulid
 
 

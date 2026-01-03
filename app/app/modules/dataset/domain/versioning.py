@@ -10,7 +10,7 @@ from sqlalchemy import select, and_
 from app.kernel.contracts.context import RequestContext
 from app.modules.dataset.domain.models import DatasetDocument
 from app.modules.dataset.infrastructure.repository import DocumentRepository
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 
 
 class DocumentVersioning:

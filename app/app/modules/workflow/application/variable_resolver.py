@@ -4,7 +4,7 @@ Variable resolver for template syntax ({{ inputs.xxx }} and {{ steps.xxx.output.
 """
 
 import re
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from app.kernel.commons.errors import ValidationError
 
 

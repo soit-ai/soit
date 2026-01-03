@@ -3,7 +3,7 @@
 Document processing pipeline orchestration.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
@@ -19,7 +19,7 @@ from app.modules.dataset.infrastructure.parsers import get_parser
 from app.modules.dataset.application.chunker import TextChunker
 from app.modules.dataset.runtime.embedding import EmbeddingService
 from app.modules.dataset.runtime.index_builder import IndexBuilder
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 from app.kernel.commons.errors import KernelError
 
 

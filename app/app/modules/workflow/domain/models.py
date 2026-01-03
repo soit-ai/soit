@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, JSON
 
 from app.kernel.commons.time import utc_now
-from app.kernel.commons.ids import generate_ulid
+from app.kernel.commons.ids import generate_workflow_id, generate_workflow_version_id
 
 
 class Workflow(SQLModel, table=True):

@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.auth import JWTManager
 from app.kernel.commons.errors import NotFoundError, ValidationError, UnauthorizedError
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 from app.modules.identity.domain.models import (
     User,
     Tenant,

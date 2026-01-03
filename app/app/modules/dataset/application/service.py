@@ -22,7 +22,7 @@ from app.modules.dataset.runtime.pipeline import DocumentPipeline
 from app.modules.dataset.runtime.retrieval import RetrievalService
 from app.modules.dataset.domain.versioning import DocumentVersioning
 from app.modules.dataset.runtime.index_builder import IndexBuilder
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 
 
 class DatasetService:

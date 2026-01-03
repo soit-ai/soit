@@ -73,6 +73,24 @@ def generate_artifact_id() -> str:
     return f"art_{uuid.uuid4().hex}"
 
 
+def generate_workflow_id() -> str:
+    """Generate a workflow ID.
+    
+    Returns:
+        A workflow ID string (e.g., "wf_01H...").
+    """
+    return f"wf_{uuid.uuid4().hex}"
+
+
+def generate_workflow_version_id() -> str:
+    """Generate a workflow version ID.
+    
+    Returns:
+        A workflow version ID string (e.g., "wfv_01H...").
+    """
+    return f"wfv_{uuid.uuid4().hex}"
+
+
 def parse_id(id_str: str) -> Optional[str]:
     """Parse and validate an ID string.
     

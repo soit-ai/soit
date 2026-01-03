@@ -96,7 +96,7 @@ class DatasetRepository(Repository[Dataset]):
         if chunk_count is not None:
             dataset.chunk_count = chunk_count
         
-        from app.kernel.commons.time import utcnow as utc_now
+        from app.kernel.commons.time import utc_now
         dataset.updated_at = utc_now()
         
         self.db.commit()

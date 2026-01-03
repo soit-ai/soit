@@ -12,7 +12,7 @@ from app.kernel.ports.storage.interface import StoragePort
 from app.modules.dataset.domain.models import DatasetIndex, DatasetChunk
 from app.modules.dataset.infrastructure.repository import ChunkRepository
 from app.modules.dataset.runtime.embedding import EmbeddingService
-from app.kernel.commons.time import utcnow as utc_now
+from app.kernel.commons.time import utc_now
 
 
 class IndexBuilder:

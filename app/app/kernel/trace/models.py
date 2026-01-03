@@ -94,7 +94,7 @@ class RunStep(SQLModel, table=True):
     error_code: Optional[str] = Field(default=None, nullable=True)
     """Error code if failed."""
     
-    error_message: Optional[str] = Field(default=None, nullable=True, sa_column=Column(Text))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     """Error message if failed."""
     
     error_details: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))

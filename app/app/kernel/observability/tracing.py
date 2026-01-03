@@ -4,6 +4,7 @@ Tracing hooks (OTel).
 """
 
 from typing import Optional, Dict, Any
+from fastapi import FastAPI
 from app.kernel.trace.models import Run, RunStep
 
 
@@ -48,3 +49,15 @@ class OpenTelemetryTracer:
 
 # Global tracer instance
 tracer = OpenTelemetryTracer()
+
+
+def setup_tracing(app: FastAPI) -> None:
+    """Setup tracing for FastAPI application.
+    
+    Args:
+        app: FastAPI application instance.
+    """
+    # Placeholder: In production, setup OpenTelemetry middleware
+    # from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    # FastAPIInstrumentor.instrument_app(app)
+    pass

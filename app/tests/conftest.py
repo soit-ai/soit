@@ -98,3 +98,16 @@ def mock_llm_port():
     gateway.complete = AsyncMock(return_value={"text": "test response"})
     gateway.embed = AsyncMock(return_value=[0.1] * 1536)  # Mock embedding vector
     return gateway
+
+
+from app.kernel.registry.deps import get_registry
+
+
+@pytest.fixture(autouse=True)
+def _clear_registry(test_context: RequestContext):
+    """Ensure registry is isolated per test (tenant/workspace scope)."""
+    reg = get_registry()
+    # clear scope for this test's context
+    reg.clear_scope(tenant_id=test_context.tenant_id, workspace_id=test_context.workspace_id)
+    yield
+    reg.clear_scope(tenant_id=test_context.tenant_id, workspace_id=test_context.workspace_id)
