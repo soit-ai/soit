@@ -13,7 +13,7 @@ from app.middleware.auth import get_current_context
 from app.modules.dataset.application.service import DatasetService
 from app.modules.dataset.runtime.pipeline import DocumentPipeline
 from app.modules.dataset.runtime.retrieval import RetrievalService
-from app.modules.dataset.infrastructure.repository import DatasetRepository, DocumentRepository, ChunkRepository, IndexRepository
+from app.modules.dataset.infra.repository import DatasetRepository, DocumentRepository, ChunkRepository, IndexRepository
 
 
 

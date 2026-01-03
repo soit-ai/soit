@@ -4,7 +4,7 @@ Document parsers for various formats.
 """
 
 from typing import Dict, Type, Optional
-from app.modules.dataset.infrastructure.parsers.base import DocumentParser
+from app.modules.dataset.infra.parsers.base import DocumentParser
 
 
 # Registry for parsers

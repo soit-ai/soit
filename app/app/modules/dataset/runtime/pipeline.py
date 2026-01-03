@@ -10,12 +10,12 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.trace.writer import TraceWriter
 from app.modules.dataset.domain.models import DatasetDocument, DatasetChunk, Dataset
-from app.modules.dataset.infrastructure.repository import (
+from app.modules.dataset.infra.repository import (
     DatasetRepository,
     DocumentRepository,
     ChunkRepository,
 )
-from app.modules.dataset.infrastructure.parsers import get_parser
+from app.modules.dataset.infra.parsers import get_parser
 from app.modules.dataset.application.chunker import TextChunker
 from app.modules.dataset.runtime.embedding import EmbeddingService
 from app.modules.dataset.runtime.index_builder import IndexBuilder
@@ -291,7 +291,7 @@ class DocumentPipeline:
         index_id = dataset.default_index_id
         if not index_id:
             # Try to get primary index
-            from app.modules.dataset.infrastructure.repository import IndexRepository
+            from app.modules.dataset.infra.repository import IndexRepository
             index_repo = IndexRepository(self.db, self.ctx)
             index = index_repo.get_primary(dataset.id)
             if not index:
@@ -299,7 +299,7 @@ class DocumentPipeline:
             index_id = index.id
         
         # Get index
-        from app.modules.dataset.infrastructure.repository import IndexRepository
+        from app.modules.dataset.infra.repository import IndexRepository
         index_repo = IndexRepository(self.db, self.ctx)
         index = index_repo.get_by_id(index_id)
         if not index:

@@ -4,7 +4,7 @@ Plain text parser.
 """
 
 from typing import Optional
-from app.modules.dataset.infrastructure.parsers.base import DocumentParser, ParsedDocument
+from app.modules.dataset.infra.parsers.base import DocumentParser, ParsedDocument
 
 
 class TextParser(DocumentParser):

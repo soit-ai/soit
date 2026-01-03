@@ -11,7 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
 from app.middleware.auth import get_current_context
 from app.modules.chat.application.service import ChatService
-from app.modules.chat.infrastructure.repository import ConversationRepository, MessageRepository
+from app.modules.chat.infra.repository import ConversationRepository, MessageRepository
 
 
 def get_chat_service(

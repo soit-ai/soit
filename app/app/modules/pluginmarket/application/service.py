@@ -17,7 +17,7 @@ from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
 from app.modules.pluginmarket.domain.models import Plugin, PluginInstallation
 from app.modules.pluginmarket.application.ports import PluginRepositoryPort, PluginInstallationRepositoryPort
 from app.modules.pluginmarket.application.schemas import PluginCreate, PluginUpdate, PluginInstallRequest
-from app.modules.pluginmarket.infrastructure.installer import PluginInstaller
+from app.modules.pluginmarket.infra.installer import PluginInstaller
 
 
 class PluginMarketService:

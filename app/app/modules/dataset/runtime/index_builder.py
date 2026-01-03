@@ -10,7 +10,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.modules.dataset.domain.models import DatasetIndex, DatasetChunk
-from app.modules.dataset.infrastructure.repository import ChunkRepository
+from app.modules.dataset.infra.repository import ChunkRepository
 from app.modules.dataset.runtime.embedding import EmbeddingService
 from app.kernel.commons.time import utc_now
 

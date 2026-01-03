@@ -5,7 +5,7 @@ Markdown parser.
 
 from typing import Optional
 import markdown
-from app.modules.dataset.infrastructure.parsers.base import DocumentParser, ParsedDocument
+from app.modules.dataset.infra.parsers.base import DocumentParser, ParsedDocument
 
 
 class MarkdownParser(DocumentParser):

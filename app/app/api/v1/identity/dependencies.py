@@ -10,7 +10,7 @@ from app.infra.db.session import get_db
 from app.kernel.identity.auth import JWTManager
 from app.settings.settings import settings
 from app.modules.identity.application.service import IdentityService
-from app.modules.identity.infrastructure.repository import (
+from app.modules.identity.infra.repository import (
     UserRepository,
     TenantRepository,
     TenantMembershipRepository,

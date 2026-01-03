@@ -88,7 +88,7 @@ class ContextResolver:
         # If workspace_role not in token, query database for membership
         if not workspace_role and workspace_id:
             from app.infra.db.session import get_db_sync
-            from app.modules.identity.infrastructure.repository import WorkspaceMembershipRepository
+            from app.modules.identity.infra.repository import WorkspaceMembershipRepository
             from app.kernel.contracts.context import RequestContext as RC
             
             # Create temporary context for repository

@@ -1,7 +1,7 @@
 """ ports
 
 Protocols (ports) for appcenter application layer.
-Application code depends on these protocols, not infrastructure implementations.
+Application code depends on these protocols, not infra implementations.
 """
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ Marketplace + installation for SOIT plugins.
   - `service.py`: use-cases (publish/list/install/enable/disable)
   - `schemas.py`: request/response DTOs (Pydantic)
   - `ports.py`: repository ports (Protocols)
-- `infrastructure/`
+- `infra/`
   - `repository.py`: SQL-backed repositories (scope-aware)
   - `installer.py`: filesystem installer (package validation + extract + runtime registry)
 

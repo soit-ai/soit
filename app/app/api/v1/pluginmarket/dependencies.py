@@ -11,7 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
 from app.middleware.auth import get_current_context
 from app.modules.pluginmarket.application.service import PluginMarketService
-from app.modules.pluginmarket.infrastructure.repository import PluginRepository, PluginInstallationRepository
+from app.modules.pluginmarket.infra.repository import PluginRepository, PluginInstallationRepository
 
 
 

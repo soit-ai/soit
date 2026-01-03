@@ -11,7 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
 from app.middleware.auth import get_current_context
 from app.modules.modelhub.application.service import ModelHubService
-from app.modules.modelhub.infrastructure.repository import ModelRepository
+from app.modules.modelhub.infra.repository import ModelRepository
 
 
 

@@ -11,7 +11,7 @@ from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.modules.dataset.domain.models import DatasetIndex, DatasetChunk
-from app.modules.dataset.infrastructure.repository import IndexRepository, ChunkRepository
+from app.modules.dataset.infra.repository import IndexRepository, ChunkRepository
 from app.modules.dataset.runtime.embedding import EmbeddingService
 from app.modules.dataset.application.schemas import QueryResult
 

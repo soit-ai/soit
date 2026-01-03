@@ -2,7 +2,7 @@
 
 Application-layer ports (Protocols) for the pluginmarket module.
 
-Application code depends on these protocols, not on infrastructure implementations.
+Application code depends on these protocols, not on infra implementations.
 """
 
 from __future__ import annotations

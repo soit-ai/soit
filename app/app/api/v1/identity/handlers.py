@@ -23,7 +23,7 @@ from app.modules.identity.application.schemas import (
     MembershipResponse,
     TokenResponse,
 )
-from app.modules.identity.infrastructure.repository import (
+from app.modules.identity.infra.repository import (
     UserRepository,
     TenantRepository,
     WorkspaceRepository,
