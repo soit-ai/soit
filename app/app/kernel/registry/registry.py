@@ -1,4 +1,4 @@
-""" registry
+"""registry
 
 In-process registry for versioned artifacts (plugin/tool/workflow templates, etc.).
 
@@ -15,15 +15,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock
-from typing import Any, Dict, Iterable, Optional, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 
-from packaging.version import Version, InvalidVersion, parse as parse_version
+from packaging.version import parse as parse_version
 
 
 @dataclass(frozen=True)
 class ArtifactKey:
-    """Uniquely identifies an artifact in a scope."""
-    kind: str               # e.g. "plugin", "tool"
+    """Unique key for a versioned artifact."""
+
+    kind: str
     tenant_id: str
     workspace_id: str
     name: str
@@ -47,11 +48,19 @@ class Registry:
         version: str,
         payload: Dict[str, Any],
     ) -> None:
-        key = ArtifactKey(kind=kind, tenant_id=tenant_id, workspace_id=workspace_id, name=name, version=version)
+        """Register or overwrite an artifact payload."""
+        key = ArtifactKey(
+            kind=kind,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            name=name,
+            version=version,
+        )
         with self._lock:
             self._items[key] = payload
 
     def unregister(self, key: ArtifactKey) -> None:
+        """Remove an artifact from registry."""
         with self._lock:
             self._items.pop(key, None)
 
@@ -63,36 +72,21 @@ class Registry:
         workspace_id: str,
         name: str,
         version: str,
-    ) -> Optional[Dict[str, Any]]:
-        key = ArtifactKey(kind=kind, tenant_id=tenant_id, workspace_id=workspace_id, name=name, version=version)
+    ) -> Optional[Tuple[ArtifactKey, Dict[str, Any]]]:
+        """Get a single artifact (key, payload) by exact version."""
+        key = ArtifactKey(
+            kind=kind,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            name=name,
+            version=version,
+        )
         with self._lock:
-            return self._items.get(key)
+            payload = self._items.get(key)
+            if payload is None:
+                return None
+            return key, payload
 
-
-def get_latest(
-    self,
-    *,
-    kind: str,
-    tenant_id: str,
-    workspace_id: str,
-    name: str,
-) -> Optional[Tuple[ArtifactKey, Dict[str, Any]]]:
-    """Get the latest version of an artifact by semantic version comparison.
-
-    If versions are not valid semver, it falls back to lexicographic order.
-    """
-    items = self.list(kind=kind, tenant_id=tenant_id, workspace_id=workspace_id, name=name)
-    if not items:
-        return None
-
-    def _key(item):
-        k, _ = item
-        try:
-            return parse_version(k.version)
-        except Exception:
-            return k.version
-
-    return sorted(items, key=_key, reverse=True)[0]
     def list(
         self,
         *,
@@ -101,6 +95,7 @@ def get_latest(
         workspace_id: Optional[str] = None,
         name: Optional[str] = None,
     ) -> List[Tuple[ArtifactKey, Dict[str, Any]]]:
+        """List artifacts filtered by optional fields."""
         with self._lock:
             out: List[Tuple[ArtifactKey, Dict[str, Any]]] = []
             for k, v in self._items.items():
@@ -115,8 +110,37 @@ def get_latest(
                 out.append((k, v))
             return out
 
-    def clear_scope(self, *, tenant_id: str, workspace_id: str) -> None:
+    def get_latest(
+        self,
+        *,
+        kind: str,
+        tenant_id: str,
+        workspace_id: str,
+        name: str,
+    ) -> Optional[Tuple[ArtifactKey, Dict[str, Any]]]:
+        """Get latest version by semantic version comparison.
+
+        If versions are not valid semver/PEP440, it falls back to lexicographic order.
+        """
+        items = self.list(kind=kind, tenant_id=tenant_id, workspace_id=workspace_id, name=name)
+        if not items:
+            return None
+
+        def _key(item: Tuple[ArtifactKey, Dict[str, Any]]):
+            k, _ = item
+            try:
+                return parse_version(k.version)
+            except Exception:
+                return k.version
+
+        return sorted(items, key=_key, reverse=True)[0]
+
+    def clear_scope(self, tenant_id: str, workspace_id: str) -> None:
+        """Clear all artifacts for a tenant/workspace scope."""
         with self._lock:
-            keys = [k for k in self._items.keys() if k.tenant_id == tenant_id and k.workspace_id == workspace_id]
+            keys = [
+                k for k in self._items.keys()
+                if k.tenant_id == tenant_id and k.workspace_id == workspace_id
+            ]
             for k in keys:
                 self._items.pop(k, None)

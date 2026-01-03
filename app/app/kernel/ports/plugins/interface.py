@@ -1,4 +1,4 @@
-""" interface
+"""interface
 
 Plugin runtime port.
 
@@ -15,14 +15,20 @@ from app.kernel.contracts.context import RequestContext
 
 
 class PluginRuntimePort(ABC):
-    """Invoke plugin tools for a tenant/workspace scope."""
+    """Plugin runtime port interface."""
 
     @abstractmethod
-    def list_tools(self, *, plugin_name: str, version: str, ctx: RequestContext) -> List[Dict[str, Any]]:
+    def list_tools(
+        self,
+        *,
+        plugin_name: str,
+        version: str,
+        ctx: RequestContext,
+    ) -> List[Dict[str, Any]]:
         """Return tool specs (tool_spec-compatible dicts)."""
 
     @abstractmethod
-    def invoke(
+    async def invoke(
         self,
         *,
         plugin_name: str,

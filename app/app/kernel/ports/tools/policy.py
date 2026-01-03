@@ -15,6 +15,14 @@ from app.kernel.commons.time import utc_now
 from app.kernel.commons.errors import TimeoutError
 from app.kernel.security.egress import check_egress_policy
 
+def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
+    """Resolve run_id for trace emission.
+
+    When trace_writer is enabled, run_id must be present. We allow reading from ctx (best-effort)
+    to support propagation via execution context.
+    """
+    run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
+    return str(run_id) if run_id else ""
 
 class ToolPolicyGateway(ToolPort):
     """Tool port with policy enforcement."""
@@ -67,8 +75,11 @@ class ToolPolicyGateway(ToolPort):
         
         step = None
         if self.trace_writer:
+            run_id = _resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
             step = self.trace_writer.create_step(
-                run_id=kwargs.get("run_id", ""),
+                run_id=_resolve_run_id(kwargs, self.ctx),
                 step_type="tool",
                 input_summary=f"tool={tool_ref}",
             )
@@ -103,7 +114,7 @@ class ToolPolicyGateway(ToolPort):
             if step and self.trace_writer:
                 await log_gateway_request(
                     trace_writer=self.trace_writer,
-                    run_id=kwargs.get("run_id", ""),
+                    run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     gateway_type="tool",
                     request_data={

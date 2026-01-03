@@ -12,6 +12,14 @@ from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.errors import TimeoutError
 
+def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
+    """Resolve run_id for trace emission.
+
+    When trace_writer is enabled, run_id must be present. We allow reading from ctx (best-effort)
+    to support propagation via execution context.
+    """
+    run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
+    return str(run_id) if run_id else ""
 
 class StoragePolicyGateway(StoragePort):
     """Storage port with policy enforcement."""
@@ -76,7 +84,7 @@ class StoragePolicyGateway(StoragePort):
         # Update cost if trace writer available
         if self.trace_writer:
             self.trace_writer.update_cost(
-                run_id=kwargs.get("run_id", ""),
+                run_id=_resolve_run_id(kwargs, self.ctx),
                 storage_bytes=len(data),
             )
         
