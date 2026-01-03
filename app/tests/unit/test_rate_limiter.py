@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 import redis.asyncio as redis_async
 
-from app.kernel.gateways.common.rate_limiter import RateLimiter
+from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.commons.errors import ForbiddenError
 
 

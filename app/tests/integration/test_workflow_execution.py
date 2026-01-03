@@ -7,11 +7,11 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.execution.engine import ExecutionEngine
+from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.trace.models import Run, RunStep
-from app.modules.domains.workflow.models import Workflow, WorkflowVersion
-from app.modules.domains.workflow.repository import WorkflowRepository
+from app.modules.workflow.domain.models import Workflow, WorkflowVersion
+from app.modules.workflow.infrastructure.repository import WorkflowRepository
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
         inputs={},
     )
     
-    # Execute (may fail if gateways not configured)
+    # Execute (may fail if ports not configured)
     try:
         engine.execute(plan)
     except Exception:

@@ -9,7 +9,7 @@ from pathlib import Path
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.kernel.db.session import get_engine
+from app.infra.db.session import get_engine
 from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCost
 from sqlmodel import SQLModel
 

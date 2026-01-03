@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
-from app.kernel.execution.engine import ExecutionEngine
+from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.trace.models import Run, RunStep
 

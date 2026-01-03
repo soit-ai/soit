@@ -1,16 +1,40 @@
-# ENGINEERING_GUIDE.md (SOIT Kernel Standard)
+# ENGINEERING_GUIDE.md (SOIT Engineering Standard)
 
 This document is **mandatory**. It defines engineering rules that keep SOIT stable for years:
 - Kernel is stable and compatibility-first
 - Domains evolve quickly without breaking kernel contracts
 - Everything is scoped by `tenant_id + workspace_id`
 - Everything executable is traceable (`run/run_step/run_cost/run_artifact`)
-- Everything external goes through gateways
+- Everything external goes through ports
 - Specs (JSON Schema) are the source of truth
 
 > Language policy
 > - Product/docs may be Chinese
-> - **Code comments and git commit messages MUST be English**
+> - \*\*Code comments and git commit messages MUST be English\*\*
+
+---
+
+## Project structure (authoritative)
+
+All runtime code lives in the Python package **`app/`**. Within it, SOIT is organized into **four layers**:
+
+1. **app/api/** (API & transport)
+   - FastAPI routers/controllers, request parsing, response envelopes
+   - SSE / WebSocket transport, OpenAPI
+   - dependency wiring and composition happens here (thin)
+2. **app/modules/** (business domains, fast iteration)
+   - domain logic + use-cases (services)
+   - repositories (persistence boundary) and domain schemas
+   - MUST call external systems via kernel ports (interfaces)
+3. **app/kernel/** (stable kernel, compatibility-first)
+   - contracts, scope, policies, execution semantics, trace, registry, security, specs
+   - gateway interfaces + enforcement policies
+   - MUST NOT depend on FastAPI routers, domain tables/models, or provider SDKs
+4. **app/adapters/** (infrastructure implementations)
+   - implements kernel gateway interfaces (LLM/vector/storage/secrets/tools/db/telemetry)
+   - contains provider SDK calls and infra details
+
+**Rule of thumb:** if a file can be replaced without changing core semantics, it does **not** belong in `app/kernel/`.
 
 ---
 
@@ -31,9 +55,9 @@ This document is **mandatory**. It defines engineering rules that keep SOIT stab
    - Large payloads MUST be stored as artifacts (object storage) and referenced by key.
    - Costs MUST be written to `run_cost`.
 
-4. **Gateway‑Only**
-   - LLM / tools / MCP / vector DB / object storage / secrets MUST be accessed via gateways.
-   - Gateways enforce retry/timeout/audit/rate-limit consistently.
+4. **Port‑Only**
+   - LLM / tools / MCP / vector DB / object storage / secrets MUST be accessed via ports.
+   - Ports enforce retry/timeout/audit/rate-limit consistently.
 
 5. **Immutable Versions**
    - `app_version`, `workflow_version`, `plugin_version` are immutable.
@@ -48,57 +72,57 @@ This document is **mandatory**. It defines engineering rules that keep SOIT stab
 
 ## 1. Dependency Direction (import rules)
 
-Allowed dependency directions:
+Allowed dependency directions (top -> bottom):
 
-- `modules/entrypoints/*  -> modules/domains/*`
-- `modules/*              -> kernel/*`
-- `adapters/*             -> kernel/gateways/*` (implementations plugged into gateways)
-- `kernel/*               -> kernel/*`
+- `app/api/*             -> app/modules/*`
+- `app/api/*             -> app/kernel/*` (contracts/policies only)
+- `app/modules/*         -> app/kernel/*`
+- `app/adapters/*        -> app/kernel/ports/*` (implements gateway interfaces)
+- `app/kernel/*          -> app/kernel/*`
 
-Forbidden:
+Forbidden (must fail code review):
 
-- `kernel/* -> modules/*`
-- `modules/domains/*` importing other domains' **models** directly (avoid cycles)
-- `modules/entrypoints/*` doing complex domain logic (must call domain services)
+- `app/kernel/*          -> app/modules/*`
+- `app/kernel/*          -> app/api/*`
+- `app/modules/*         -> app/api/*`
+- Any module importing other modules' **domain models** directly (avoid cycles; depend on contracts/ports instead)
 
 **Enforcement**
 - Code review is mandatory.
 - Add an import-lint rule (recommended) to fail forbidden imports.
-
----
 
 ## 2. Repository boundaries
 
 ### 2.1 Kernel (stable)
 Kernel owns:
 - contracts, scope, policy, execution semantics, trace schema
-- gateways and security guardrails
+- gateway interfaces and security guardrails
 - spec schemas and registry mechanism
 
 Kernel MUST NOT:
 - include product/business rules
-- depend on domain tables or domain services
+- depend on FastAPI, ORM implementations, or provider SDKs
+- depend on module tables or module services
 
-### 2.2 Domains (fast iteration)
-Domains own:
-- domain models (SQLModel), schemas (Pydantic), repositories, services
+### 2.2 Modules (domains, fast iteration)
+Modules own:
+- domain models (SQLModel), domain schemas (Pydantic), repositories, services/use-cases
 - state machines for domain objects (dataset pipeline, workflow versions, market listings)
 
-Domains MUST:
-- call external systems only via gateways
+Modules MUST:
+- call external systems only via kernel ports
 - use scope-aware repositories
+- keep HTTP concerns out of modules (no FastAPI routers in modules)
 
-### 2.3 Entrypoints (API layer)
-Entrypoints own:
+### 2.3 App/API (transport & composition)
+API layer owns:
 - routers/controllers, request parsing, response envelopes
 - permission checks (call kernel policy)
-- orchestration across domains (thin)
+- orchestration across modules (thin)
 
-Entrypoints MUST NOT:
+API layer MUST NOT:
 - contain persistence logic
 - implement domain algorithms
-
----
 
 ## 3. Identity & Scope (tenant + workspace)
 
@@ -154,6 +178,16 @@ Gateway retries MUST be safe or disabled.
 
 ---
 
+## 4.5 Directory placement rules (quick)
+
+- HTTP request/response schemas: `app/api/v1/schemas/*`
+- Domain/internal schemas (not part of HTTP): `app/modules/<domain>/**/schemas.py`
+- Cross-layer stable contracts: `app/kernel/contracts/*`
+- Dependency wiring / container: `app/wiring/*`
+- Settings & feature flags: `app/settings/*`
+- Provider implementations: `app/adapters/*`
+- Specs (JSON Schema): `app/kernel/specs/v1/*`
+
 ## 5. Execution & Trace standard
 
 ### 5.1 What requires run_step
@@ -173,19 +207,77 @@ Suggested limits (tunable):
 
 ---
 
-## 6. Gateways (policy enforcement point)
+## 6. Ports & Ports (policy enforcement point)
 
-All gateways MUST implement:
+SOIT uses **ports** as the stable interfaces (see `app/kernel/ports/*`).
+Adapters implement ports, and `app/wiring/*` wires them into module services.
+
+Policy enforcement MUST happen consistently at the boundary:
 - timeout
 - retry policy (idempotent only)
 - audit logging (request_id/run_id/step_id)
 - rate limiting (tenant/workspace)
-- secrets resolution via secrets gateway (refs only)
+- secrets resolution via secrets port (refs only)
 - egress policy checks (deny-by-default)
+
+**Rule:** modules never call provider SDKs directly; they call ports only.
 
 ---
 
+
+
+## Plugins
+
+SOIT plugins are **runtime artifacts**. A plugin installation contributes:
+- one `plugin_spec` (validated by JSON Schema)
+- optionally, **exported tools** (each has a `tool_spec`)
+- optional runtime config (stored in `manifest.json` and/or installation `config_json`)
+
+### Filesystem layout (authoritative)
+
+Runtime plugin artifacts are stored on filesystem under `Settings.plugins_dir` (default: `./var/plugins`):
+
+- packages: `var/plugins/packages/<tenant>/<workspace>/<name>/<version>/...`
+- installs:  `var/plugins/installed/<tenant>/<workspace>/<name>/<version>/...`
+
+### Plugin package format (zip)
+
+A minimal plugin zip:
+
+```
+manifest.json
+spec.json
+files/
+  tools/
+    <tool_name>.json
+```
+
+Rules:
+- `spec.json` MUST validate against `kernel/specs/v1/plugin_spec.schema.json`
+- `spec.exports.tools` is a list of **tool refs**, e.g. `tool:http:ticket_create`
+- For each exported tool ref, SOIT will load the tool spec from:
+  `files/tools/<tool_name>.json` (where `<tool_name>` is the last segment of the tool ref)
+
+### Enable/disable
+
+- `manifest.json` carries `enabled: true|false` (restart-safe).
+- `POST /v1/pluginmarket/{plugin_id}/enabled` updates both DB (`config_json.enabled`) and FS (`manifest.json.enabled`).
+
+### Runtime registry & tool routing
+
+- Marketplace installs register **plugins** and **tools** into the in-process registry (`app/kernel/registry`).
+- On startup, `PluginRuntimeLoader` reloads all **enabled** installed plugins into registry.
+- `ToolPort` uses `RegistryToolRouterPort`:
+  - If a `tool_ref` exists in registry (`kind="tool"`), it resolves `tool_spec` and dispatches to the right adapter.
+  - Otherwise it falls back to raw HTTP tool invocation.
+
+Runtime introspection endpoints:
+- `POST /v1/pluginmarket/runtime/reload`
+- `GET  /v1/pluginmarket/runtime/tools`
+
+
 ## 7. Specs & Refs
+
 
 ### 7.1 JSON Schemas
 - Specs live under `app/kernel/specs/v1`.
@@ -223,7 +315,7 @@ Mandatory tests:
 - gateway mocks allow deterministic tests
 
 Recommended:
-- contract tests for gateways
+- contract tests for ports
 - smoke tests for docker-compose
 
 ---

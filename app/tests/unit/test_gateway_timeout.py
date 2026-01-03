@@ -7,8 +7,8 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from app.kernel.gateways.llm.policy import LLMPolicyGateway
-from app.kernel.gateways.llm.interface import LLMGateway, ChatMessage, ChatResponse
+from app.kernel.ports.llm.policy import LLMPolicyGateway
+from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ChatResponse
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import TimeoutError
 
@@ -16,7 +16,7 @@ from app.kernel.commons.errors import TimeoutError
 @pytest.fixture
 def mock_gateway():
     """Create mock LLM gateway."""
-    gateway = MagicMock(spec=LLMGateway)
+    gateway = MagicMock(spec=LLMPort)
     gateway.chat = AsyncMock(return_value=ChatResponse(text="test"))
     return gateway
 

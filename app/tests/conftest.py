@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
-from app.kernel.db.session import get_db
+from app.infra.db.session import get_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.ids import generate_ulid
 
@@ -28,7 +28,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 @pytest.fixture
 def db():
     """Create a test database session."""
-    from app.kernel.db.session import Base
+    from app.infra.db.session import Base
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
     try:
@@ -66,7 +66,7 @@ def test_context():
 
 
 @pytest.fixture
-def mock_storage_gateway():
+def mock_storage_port():
     """Mock storage gateway."""
     from unittest.mock import AsyncMock, MagicMock
     
@@ -78,7 +78,7 @@ def mock_storage_gateway():
 
 
 @pytest.fixture
-def mock_vector_gateway():
+def mock_vector_port():
     """Mock vector gateway."""
     from unittest.mock import AsyncMock, MagicMock
     
@@ -90,7 +90,7 @@ def mock_vector_gateway():
 
 
 @pytest.fixture
-def mock_llm_gateway():
+def mock_llm_port():
     """Mock LLM gateway."""
     from unittest.mock import AsyncMock, MagicMock
     

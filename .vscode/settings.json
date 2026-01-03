@@ -1,0 +1,11 @@
+{
+  "python.defaultInterpreterPath": "${projectRoot}/app/.venv/Scripts/python.exe",
+  "python.autoComplete.extraPaths": [
+    "${projectRoot}/app",
+    "${projectRoot}/app/.venv/Lib/site-packages"
+  ],
+  "python.analysis.extraPaths": [
+    "${projectRoot}/app",
+    "${projectRoot}/app/.venv/Lib/site-packages"
+  ]
+}

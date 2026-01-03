@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
-from app.modules.domains.workflow.models import Workflow
-from app.modules.domains.workflow.repository import WorkflowRepository
-from app.modules.domains.dataset.models import Dataset
-from app.modules.domains.dataset.repository import DatasetRepository
+from app.modules.workflow.domain.models import Workflow
+from app.modules.workflow.infrastructure.repository import WorkflowRepository
+from app.modules.dataset.domain.models import Dataset
+from app.modules.dataset.infrastructure.repository import DatasetRepository
 
 
 @pytest.fixture

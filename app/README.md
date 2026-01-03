@@ -1,10 +1,11 @@
-# app/
+# SOIT-Pro Backend
 
 Main backend workspace for SOIT.
 
-- `kernel/`: long-term stable core
-- `modules/`: product domains and API entrypoints
-- `adapters/`: replaceable implementations plugged into gateways
+- `app/kernel/`: long-term stable core (contracts, ports, specs, trace, security)
+- `app/modules/`: product domains (services/repositories/models)
+- `app/adapters/`: infra implementations (LLM/vector/storage/secrets/tools)
+- `app/api/`: FastAPI transport layer (routers, SSE/WS)
 - `docs/`: engineering/architecture/spec assets
 
 
