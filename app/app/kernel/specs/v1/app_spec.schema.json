@@ -164,6 +164,51 @@
         "null"
       ],
       "description": "Optional UI hints for renderers"
+    },
+    "requirements": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "plugins": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/PluginRef"
+          }
+        },
+        "tools": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/ToolRef"
+          }
+        },
+        "datasets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/DatasetRef"
+          }
+        },
+        "models": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/ModelRef"
+          }
+        }
+      }
     }
   },
   "description": "Immutable application version specification (Spec-First).",
@@ -188,5 +233,7 @@
         }
       }
     }
-  ]
+  ],
+  "$id": "https://soit.ai/specs/v1/app_spec.schema.json",
+  "$comment": "SOIT kernel spec schema (v1)."
 }

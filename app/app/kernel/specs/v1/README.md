@@ -8,3 +8,8 @@ Kernel v1 schemas:
 Rules:
 - Keep v1 stable.
 - Add new optional fields only (minor versions).
+
+
+### Dataset schemas
+
+Dataset-related schemas are consolidated in `dataset_spec.schema.json` (legacy wrappers remain for compatibility).

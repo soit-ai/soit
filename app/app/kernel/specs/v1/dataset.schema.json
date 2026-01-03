@@ -1,164 +1,737 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Dataset",
+  "$id": "https://soit.ai/specs/v1/dataset.schema.json",
+  "title": "Dataset Schema",
+  "description": "Consolidated dataset schemas. Default target is $defs.Dataset.",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "id",
-    "tenant_id",
-    "workspace_id",
-    "name",
-    "type",
-    "status",
-    "visibility",
-    "settings_json",
-    "chunking_json",
-    "retrieval_json",
-    "doc_count",
-    "chunk_count",
-    "created_at",
-    "updated_at"
-  ],
-  "properties": {
-    "id": {
-      "type": "string",
-      "description": "ULID/UUID"
-    },
-    "tenant_id": {
-      "type": "string"
-    },
-    "workspace_id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string",
-      "minLength": 1
-    },
-    "type": {
-      "type": "string",
-      "enum": [
-        "document",
-        "qa",
-        "code",
-        "graph",
-        "other"
-      ]
-    },
-    "description": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "status": {
-      "type": "string",
-      "enum": [
-        "active",
-        "archived",
-        "disabled"
-      ]
-    },
-    "visibility": {
-      "type": "string",
-      "enum": [
-        "private",
-        "workspace",
-        "tenant"
-      ]
-    },
-    "settings_json": {
-      "type": "object"
-    },
-    "chunking_json": {
-      "type": "object"
-    },
-    "retrieval_json": {
-      "type": "object"
-    },
-    "default_embedding_model_ref": {
-      "type": [
-        "string",
-        "null"
+  "$defs": {
+    "Dataset": {
+      "title": "Dataset",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tenant_id",
+        "workspace_id",
+        "name",
+        "type",
+        "status",
+        "visibility",
+        "settings_json",
+        "chunking_json",
+        "retrieval_json",
+        "doc_count",
+        "chunk_count",
+        "created_at",
+        "updated_at"
       ],
-      "allOf": [
-        {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ULID/UUID"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "document",
+            "qa",
+            "code",
+            "graph",
+            "other"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "archived",
+            "disabled"
+          ]
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "private",
+            "workspace",
+            "tenant"
+          ]
+        },
+        "settings_json": {
+          "type": "object"
+        },
+        "chunking_json": {
+          "type": "object"
+        },
+        "retrieval_json": {
+          "type": "object"
+        },
+        "default_embedding_model_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/ModelRef"
+            }
+          ]
+        },
+        "default_reranker_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/RefString"
+            }
+          ]
+        },
+        "default_index_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "dataset_indexs.id"
+        },
+        "doc_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunk_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_ingested_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "last_indexed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "tags": {
+          "type": [
+            "array",
+            "object"
+          ],
+          "description": "Prefer array of strings; allow json for future"
+        },
+        "created_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "DatasetDocument": {
+      "title": "DatasetDocument",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tenant_id",
+        "workspace_id",
+        "dataset_id",
+        "doc_key",
+        "version",
+        "is_latest",
+        "source_type",
+        "status",
+        "retry_count",
+        "parse_meta_json",
+        "index_meta_json",
+        "access_policy_json",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "dataset_id": {
+          "type": "string"
+        },
+        "doc_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "is_latest": {
+          "type": "boolean"
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "upload",
+            "crawler",
+            "api",
+            "manual"
+          ]
+        },
+        "source_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "external_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mime_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "checksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "uploaded",
+            "parsing",
+            "parsed",
+            "chunking",
+            "chunked",
+            "indexing",
+            "indexed",
+            "failed",
+            "deleted"
+          ]
+        },
+        "error_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_text_artifact_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parsed_artifact_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chunking_json": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "parse_meta_json": {
+          "type": "object"
+        },
+        "index_meta_json": {
+          "type": "object"
+        },
+        "access_policy_json": {
+          "type": "object"
+        },
+        "created_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "DatasetChunk": {
+      "title": "DatasetChunk",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tenant_id",
+        "workspace_id",
+        "dataset_id",
+        "document_id",
+        "document_version",
+        "chunk_no",
+        "section_path",
+        "bbox_json",
+        "source_meta_json",
+        "index_status",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "dataset_id": {
+          "type": "string"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "document_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "chunk_no": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunk_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text_preview": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        },
+        "text_artifact_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "end_offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "page_no": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "section_path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bbox_json": {
+          "type": "object"
+        },
+        "source_meta_json": {
+          "type": "object"
+        },
+        "char_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "token_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "embedding_model_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/ModelRef"
+            }
+          ]
+        },
+        "vector_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "indexed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "index_status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "indexed",
+            "failed"
+          ]
+        },
+        "index_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "DatasetIndex": {
+      "title": "DatasetIndex",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tenant_id",
+        "workspace_id",
+        "dataset_id",
+        "name",
+        "is_primary",
+        "provider",
+        "embedding_model_ref",
+        "dimension",
+        "metric_type",
+        "index_params_json",
+        "search_params_json",
+        "filters_json",
+        "status",
+        "build_version",
+        "doc_count",
+        "chunk_count",
+        "vector_count",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "dataset_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "is_primary": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "milvus",
+            "pgvector",
+            "elastic",
+            "other"
+          ]
+        },
+        "endpoint_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/EndpointRef"
+            }
+          ]
+        },
+        "collection_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partition_strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "tenant",
+            "workspace",
+            "dataset",
+            "none"
+          ]
+        },
+        "namespace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedding_model_ref": {
           "$ref": "refs.schema.json#/$defs/ModelRef"
+        },
+        "dimension": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "metric_type": {
+          "type": "string",
+          "enum": [
+            "cosine",
+            "ip",
+            "l2"
+          ]
+        },
+        "index_params_json": {
+          "type": "object"
+        },
+        "search_params_json": {
+          "type": "object"
+        },
+        "reranker_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "allOf": [
+            {
+              "$ref": "refs.schema.json#/$defs/RefString"
+            }
+          ]
+        },
+        "filters_json": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "building",
+            "ready",
+            "failed",
+            "disabled"
+          ]
+        },
+        "build_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "last_build_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "doc_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunk_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vector_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_error_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_error_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         }
-      ]
-    },
-    "default_reranker_ref": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "allOf": [
-        {
-          "$ref": "refs.schema.json#/$defs/RefString"
-        }
-      ]
-    },
-    "default_index_id": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "description": "dataset_indexs.id"
-    },
-    "doc_count": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "chunk_count": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "last_ingested_at": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time"
-    },
-    "last_indexed_at": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time"
-    },
-    "tags": {
-      "type": [
-        "array",
-        "object"
-      ],
-      "description": "Prefer array of strings; allow json for future"
-    },
-    "created_by": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "updated_by": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "deleted_at": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time"
+      }
     }
-  }
+  },
+  "$ref": "#/$defs/Dataset"
 }

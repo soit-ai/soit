@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "refs.schema.json",
+  "$id": "https://soit.ai/specs/v1/refs.schema.json",
   "title": "SOIT Reference Models",
   "type": "object",
   "description": "Shared reference string models used across SOIT specs. All are strings with prefixes.",
@@ -38,12 +38,35 @@
     "EndpointRef": {
       "type": "string",
       "pattern": "^(endpoint|gw):[A-Za-z0-9_.:-]+$",
-      "description": "Gateway/endpoint reference. Format: endpoint:{name} or gw:{name}"
+      "description": "Endpoint/route reference. Format: endpoint:{name} or gw:{name}"
     },
     "PolicyRef": {
       "type": "string",
       "pattern": "^(policy|quota|guardrails):[A-Za-z0-9_.:-]+$",
       "description": "Policy reference. Format: policy/quota/guardrails:{name_or_id}"
+    },
+    "ULID": {
+      "type": "string",
+      "description": "ULID (Crockford Base32, 26 chars).",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "TenantId": {
+      "type": "string",
+      "description": "Tenant identifier.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "WorkspaceId": {
+      "type": "string",
+      "description": "Workspace identifier within a tenant.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "PluginRef": {
+      "type": "string",
+      "description": "Plugin reference. Format: plugin:{publisher}:{name}:{version}",
+      "pattern": "^plugin:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$"
     }
-  }
+  },
+  "$comment": "SOIT kernel spec schema (v1)."
 }

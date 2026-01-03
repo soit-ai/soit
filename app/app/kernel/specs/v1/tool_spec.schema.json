@@ -50,10 +50,12 @@
             "PUT",
             "PATCH",
             "DELETE"
-          ]
+          ],
+          "minLength": 3
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "headers": {
           "type": [
@@ -75,8 +77,38 @@
             "object",
             "null"
           ]
+        },
+        "timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "follow_redirects": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "base_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional base URL (used with path)."
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional path appended to base URL."
         }
-      }
+      },
+      "required": [
+        "method"
+      ]
     },
     "function": {
       "type": [
@@ -87,15 +119,31 @@
       "properties": {
         "entrypoint": {
           "type": "string",
-          "description": "Function entrypoint reference"
+          "description": "Function entrypoint reference (e.g. 'pkg.module:func')."
         },
         "module": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "runtime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "python",
+            "node",
+            "wasm",
+            null
+          ],
+          "description": "Execution runtime hint."
         }
-      }
+      },
+      "required": [
+        "entrypoint"
+      ]
     },
     "mcp": {
       "type": [
@@ -111,7 +159,11 @@
           "type": "string",
           "description": "Remote MCP tool name"
         }
-      }
+      },
+      "required": [
+        "server_ref",
+        "tool_name"
+      ]
     },
     "auth": {
       "type": [
@@ -137,6 +189,67 @@
           "items": {
             "$ref": "refs.schema.json#/$defs/SecretRef"
           }
+        },
+        "api_key": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "in": {
+              "type": "string",
+              "enum": [
+                "header",
+                "query"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "description": "Header/query name to carry the api key."
+            },
+            "secret_ref": {
+              "$ref": "refs.schema.json#/$defs/SecretRef"
+            }
+          },
+          "required": [
+            "in",
+            "name",
+            "secret_ref"
+          ]
+        },
+        "signature": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "algo": {
+              "type": "string",
+              "enum": [
+                "hmac-sha256",
+                "hmac-sha1",
+                "rsa-sha256"
+              ]
+            },
+            "secret_ref": {
+              "$ref": "refs.schema.json#/$defs/SecretRef"
+            },
+            "headers_to_sign": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "algo",
+            "secret_ref"
+          ]
         }
       }
     },
@@ -179,6 +292,47 @@
             "basic",
             "full"
           ]
+        },
+        "timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "Default execution timeout for this tool."
+        },
+        "retry": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "max_retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoff_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        },
+        "registry": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "registry_only": {
+              "type": "boolean",
+              "description": "If true, tool must be invoked via registry resolution (no raw-http fallback)."
+            }
+          }
         }
       }
     },
@@ -193,6 +347,40 @@
         }
       ],
       "description": "Optional gateway/endpoint reference for routing"
+    },
+    "id": {
+      "$ref": "refs.schema.json#/$defs/ToolRef",
+      "description": "Stable tool reference id (tool_ref).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Tool spec version (SemVer recommended).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?(\\+[A-Za-z0-9.-]+)?$"
+    },
+    "display_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 256
+    },
+    "tags": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "maxItems": 32
     }
   },
   "description": "Tool specification for HTTP/Function/MCP adapters.",
@@ -245,6 +433,126 @@
           ]
         },
         "audit_level": "basic"
+      }
+    }
+  ],
+  "$id": "https://soit.ai/specs/v1/tool_spec.schema.json",
+  "$comment": "SOIT kernel spec schema (v1).",
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "title": "HTTP tool",
+          "properties": {
+            "adapter": {
+              "const": "http"
+            },
+            "http": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "adapter",
+            "http"
+          ],
+          "allOf": [
+            {
+              "anyOf": [
+                {
+                  "required": [
+                    "endpoint_ref"
+                  ]
+                },
+                {
+                  "properties": {
+                    "http": {
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Function tool",
+          "properties": {
+            "adapter": {
+              "const": "function"
+            },
+            "function": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "adapter",
+            "function"
+          ]
+        },
+        {
+          "title": "MCP tool",
+          "properties": {
+            "adapter": {
+              "const": "mcp"
+            },
+            "mcp": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "adapter",
+            "mcp"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Auth config binding",
+      "if": {
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "api_key"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "required": [
+              "api_key"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "auth": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "signature"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "required": [
+              "signature"
+            ]
+          }
+        }
       }
     }
   ]

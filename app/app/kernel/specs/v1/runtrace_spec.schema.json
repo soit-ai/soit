@@ -299,5 +299,7 @@
         "ms_total": 2300
       }
     }
-  ]
+  ],
+  "$id": "https://soit.ai/specs/v1/runtrace_spec.schema.json",
+  "$comment": "SOIT kernel spec schema (v1)."
 }

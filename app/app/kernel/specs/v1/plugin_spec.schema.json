@@ -195,6 +195,78 @@
           "description": "Detached signature if applicable"
         }
       }
+    },
+    "id": {
+      "$ref": "refs.schema.json#/$defs/PluginRef",
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional stable plugin reference."
+    },
+    "compatibility": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "min_platform_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_platform_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requires_features": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "propertyNames": {
+            "$ref": "refs.schema.json#/$defs/ToolRef"
+          },
+          "patternProperties": {
+            "^tool:(http|function|mcp):[A-Za-z0-9_.:-]+$": {
+              "type": "string",
+              "description": "Relative path to tool spec JSON within the plugin package."
+            }
+          }
+        },
+        "ui": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "description": "Plugin package manifest for marketplace distribution.",
@@ -224,5 +296,7 @@
         "digest": "sha256:..."
       }
     }
-  ]
+  ],
+  "$id": "https://soit.ai/specs/v1/plugin_spec.schema.json",
+  "$comment": "SOIT kernel spec schema (v1)."
 }
