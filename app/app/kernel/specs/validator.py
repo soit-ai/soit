@@ -1,115 +1,135 @@
-""" validator
+"""app.kernel.specs.validator
 
-Validate spec JSON against JSON Schema.
+Validate JSON documents against SOIT JSON Schemas.
+
+- Uses JSON Schema Draft 2020-12 (as declared in schemas).
+- Resolves $ref across sibling schema files (refs.schema.json etc) via referencing.Registry.
 """
 
-import json
-from typing import Dict, Any, Optional, List
-from jsonschema import validate, ValidationError as JSONSchemaValidationError
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Union
+
+from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from app.kernel.specs.loader import load_schema
 from app.kernel.commons.errors import ValidationError
+from app.kernel.specs.loader import load_schema, build_registry
+
+JsonDict = Dict[str, Any]
+
+
+@dataclass
+class SpecIssue:
+    message: str
+    instance_path: str
+    schema_path: str
+
+
+def _json_pointer(path_parts: List[Union[str, int]]) -> str:
+    def esc(s: str) -> str:
+        return s.replace("~", "~0").replace("/", "~1")
+
+    if not path_parts:
+        return ""
+    out = ""
+    for p in path_parts:
+        if isinstance(p, int):
+            out += f"/{p}"
+        else:
+            out += f"/{esc(p)}"
+    return out
 
 
 class SpecValidator:
-    """JSON Schema validator for specs."""
-    
+    """Schema validator with rich error details."""
+
     def validate(
         self,
-        spec_name: str,
-        spec_data: Dict[str, Any],
+        schema_name: str,
+        document: JsonDict,
+        *,
+        version: str = "v1",
         raise_on_error: bool = True,
-    ) -> tuple[bool, Optional[str]]:
-        """Validate spec data against schema.
-        
-        Args:
-            spec_name: Schema name (e.g., "workflow_spec").
-            spec_data: Spec data to validate.
-            raise_on_error: Whether to raise exception on error.
-            
-        Returns:
-            Tuple of (is_valid, error_message).
-            
-        Raises:
-            ValidationError: If validation fails and raise_on_error is True.
-        """
+    ) -> List[SpecIssue]:
+        schema = load_schema(schema_name, version=version)
+        registry = build_registry(version=version)
+
         try:
-            schema = load_schema(spec_name)
-            validate(instance=spec_data, schema=schema)
-            return True, None
-        except FileNotFoundError as e:
-            error_msg = f"Schema not found: {spec_name}"
-            if raise_on_error:
-                raise ValidationError(error_msg) from e
-            return False, error_msg
-        except JSONSchemaValidationError as e:
-            error_msg = self._format_validation_error(e)
-            if raise_on_error:
-                raise ValidationError(error_msg, details={"path": list(e.path)}) from e
-            return False, error_msg
+            v = Draft202012Validator(schema, registry=registry)
         except SchemaError as e:
-            error_msg = f"Invalid schema: {str(e)}"
-            if raise_on_error:
-                raise ValidationError(error_msg) from e
-            return False, error_msg
-    
-    def _format_validation_error(self, error: JSONSchemaValidationError) -> str:
-        """Format validation error message.
-        
-        Args:
-            error: Validation error.
-            
-        Returns:
-            Formatted error message.
-        """
-        path = ".".join(str(p) for p in error.path) if error.path else "root"
-        return f"Validation failed at {path}: {error.message}"
-    
-    def validate_workflow_spec(self, spec_data: Dict[str, Any]) -> None:
-        """Validate workflow spec.
-        
-        Args:
-            spec_data: Workflow spec data.
-            
-        Raises:
-            ValidationError: If validation fails.
-        """
-        self.validate("workflow_spec", spec_data, raise_on_error=True)
-    
-    def validate_tool_spec(self, spec_data: Dict[str, Any]) -> None:
-        """Validate tool spec.
-        
-        Args:
-            spec_data: Tool spec data.
-            
-        Raises:
-            ValidationError: If validation fails.
-        """
-        self.validate("tool_spec", spec_data, raise_on_error=True)
-    
-    def validate_plugin_spec(self, spec_data: Dict[str, Any]) -> None:
-        """Validate plugin spec.
-        
-        Args:
-            spec_data: Plugin spec data.
-            
-        Raises:
-            ValidationError: If validation fails.
-        """
-        self.validate("plugin_spec", spec_data, raise_on_error=True)
-    
-    def validate_app_spec(self, spec_data: Dict[str, Any]) -> None:
-        """Validate app spec.
-        
-        Args:
-            spec_data: App spec data.
-            
-        Raises:
-            ValidationError: If validation fails.
-        """
-        self.validate("app_spec", spec_data, raise_on_error=True)
+            raise ValidationError(
+                message=f"Invalid JSON Schema: {schema_name}",
+                details={"spec": schema_name, "version": version, "error": str(e)},
+            )
+
+        errors = sorted(v.iter_errors(document), key=lambda e: list(e.absolute_path))
+
+        issues: List[SpecIssue] = [
+            SpecIssue(
+                message=e.message,
+                instance_path=_json_pointer(list(e.absolute_path)),
+                schema_path=_json_pointer(list(e.absolute_schema_path)),
+            )
+            for e in errors
+        ]
+
+        if issues and raise_on_error:
+            raise ValidationError(
+                message=f"Spec validation failed: {schema_name}",
+                details={
+                    "spec": schema_name,
+                    "version": version,
+                    "error_count": len(issues),
+                    "errors": [i.__dict__ for i in issues],
+                },
+            )
+        return issues
+
+    # Convenience wrappers
+    def validate_workflow_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("workflow_spec", document, version=version)
+
+    def validate_tool_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("tool_spec", document, version=version)
+
+    def validate_plugin_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("plugin_spec", document, version=version)
+
+    def validate_runtrace_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("runtrace_spec", document, version=version)
+
+    def validate_app_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("app_spec", document, version=version)
 
 
-# Global validator instance
 validator = SpecValidator()
+
+
+def validate_spec(document: JsonDict, schema: Union[str, JsonDict], *, version: str = "v1") -> bool:
+    """Backward compatible helper: return True if valid, otherwise raise ValidationError."""
+    if isinstance(schema, str):
+        validator.validate(schema, document, version=version, raise_on_error=True)
+        return True
+
+    registry = build_registry(version=version)
+    v = Draft202012Validator(schema, registry=registry)
+    errors = sorted(v.iter_errors(document), key=lambda e: list(e.absolute_path))
+    if errors:
+        raise ValidationError(
+            message="Spec validation failed",
+            details={
+                "version": version,
+                "error_count": len(errors),
+                "errors": [
+                    {
+                        "message": e.message,
+                        "instance_path": _json_pointer(list(e.absolute_path)),
+                        "schema_path": _json_pointer(list(e.absolute_schema_path)),
+                    }
+                    for e in errors
+                ],
+            },
+        )
+    return True
