@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.workflow.domain.models import Workflow
-from app.modules.workflow.infrastructure.repository import WorkflowRepository
+from app.modules.workflow.infra.repository import WorkflowRepository
 from app.modules.dataset.domain.models import Dataset
-from app.modules.dataset.infrastructure.repository import DatasetRepository
+from app.modules.dataset.infra.repository import DatasetRepository
 
 
 @pytest.fixture

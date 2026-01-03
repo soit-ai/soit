@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from app.kernel.registry.deps import get_registry
-from app.modules.pluginmarket.infrastructure.installer import PluginInstaller
+from app.modules.pluginmarket.infra.installer import PluginInstaller
 from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
 
 

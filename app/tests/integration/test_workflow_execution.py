@@ -11,7 +11,7 @@ from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.trace.models import Run, RunStep
 from app.modules.workflow.domain.models import Workflow, WorkflowVersion
-from app.modules.workflow.infrastructure.repository import WorkflowRepository
+from app.modules.workflow.infra.repository import WorkflowRepository
 
 
 @pytest.fixture
