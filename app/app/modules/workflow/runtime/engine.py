@@ -3,15 +3,14 @@
 Execution engine core entry.
 """
 
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.trace.writer import TraceWriter
-from app.kernel.execution.state_machine import StateMachine, RunStatus, StepStatus
-from app.kernel.execution.scheduler import scheduler
-from app.kernel.commons.time import utc_now
+from app.kernel.execution.state_machine import StateMachine, RunStatus
+from app.kernel.commons.ids import generate_run_id
 
 
 class ExecutionEngine:
@@ -44,11 +43,15 @@ class ExecutionEngine:
         Returns:
             Execution result.
         """
+        if not plan.run_id:
+            plan.run_id = generate_run_id()
+
         # Create run (metrics are recorded in trace_writer)
         run = self.trace_writer.create_run(
             mode=plan.mode,
             app_version_id=plan.app_version_id,
             input_summary=str(plan.inputs)[:8192] if plan.inputs else None,
+            run_id=plan.run_id,
         )
         
         # Transition to running
@@ -99,7 +102,6 @@ class ExecutionEngine:
         """
         from app.kernel.ports.llm.interface import LLMPort, ChatMessage
         from app.wiring import get_container
-        from app.modules.chat.application.service import ChatService
         
         # Get LLM port from container
         container = get_container()
@@ -110,59 +112,19 @@ class ExecutionEngine:
         
         # Extract inputs
         messages_data = plan.inputs.get("messages", [])
-        conversation_id = plan.inputs.get("conversation_id")
         model = plan.inputs.get("model", "model:openai:gpt-3.5-turbo")
         temperature = plan.inputs.get("temperature", 0.7)
         max_tokens = plan.inputs.get("max_tokens")
-        
-        # Load conversation history if conversation_id provided
-        chat_service = ChatService(self.db, self.ctx)
-        if conversation_id:
-            try:
-                # Get existing messages from conversation
-                history_messages = chat_service.get_messages(
-                    conversation_id=conversation_id,
-                    limit=100,  # Get last 100 messages
-                    offset=0,
-                )
-                # Convert to ChatMessage format
-                existing_messages = [
-                    ChatMessage(role=msg.role, content=msg.content)
-                    for msg in history_messages
-                ]
-                # Combine with new messages
-                new_messages = [
-                    ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
-                    for msg in messages_data
-                ]
-                all_messages = existing_messages + new_messages
-            except Exception:
-                # If conversation not found, use only new messages
-                all_messages = [
-                    ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
-                    for msg in messages_data
-                ]
-        else:
-            # No conversation history, use only new messages
-            all_messages = [
-                ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
-                for msg in messages_data
-            ]
+        top_p = plan.inputs.get("top_p")
+
+        # Convert messages to ChatMessage format
+        all_messages = [
+            ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
+            for msg in messages_data
+        ]
         
         if not all_messages:
             raise ValueError("No messages provided for chat execution")
-        
-        # Create step for LLM call
-        step = self.trace_writer.create_step(
-            run_id=plan.run_id,
-                                ctx=self.ctx,
-            step_type="llm",
-            input_summary=str(all_messages)[:8192] if all_messages else None,
-        )
-        
-        # Transition step to running
-        self.state_machine.transition_step(step, "running")
-        self.trace_writer.update_step_status(step.id, step.status)
         
         try:
             # Call LLM port
@@ -171,76 +133,21 @@ class ExecutionEngine:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                top_p=top_p,
+                run_id=plan.run_id,
             )
             
             # Extract response text
             response_text = response.text
             
-            # Save messages to conversation if conversation_id provided
-            if conversation_id:
-                try:
-                    # Save user message(s)
-                    for msg in messages_data:
-                        if msg.get("role") == "user":
-                            chat_service.add_message(
-                                conversation_id=conversation_id,
-                                role="user",
-                                content=msg.get("content", ""),
-                            )
-                    
-                    # Save assistant response
-                    chat_service.add_message(
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=response_text,
-                        metadata={
-                            "model": model,
-                            "tokens_prompt": response.tokens_prompt,
-                            "tokens_completion": response.tokens_completion,
-                        },
-                    )
-                except Exception:
-                    # If saving fails, continue without saving
-                    pass
-            
-            # Update step status
-            self.state_machine.transition_step(step, "succeeded")
-            self.trace_writer.update_step_status(
-                step.id,
-                "succeeded",
-                output_summary=response_text[:8192],
-                metrics={
-                    "tokens_prompt": response.tokens_prompt,
-                    "tokens_completion": response.tokens_completion,
-                    "model": model,
-                },
-            )
-            
-            # Update cost
-            self.trace_writer.update_cost(
-                run_id=plan.run_id,
-                                ctx=self.ctx,
-                tokens_prompt=response.tokens_prompt,
-                tokens_completion=response.tokens_completion,
-            )
-            
             return {
                 "text": response_text,
-                "model": model,
+                "model": response.model or model,
                 "tokens_prompt": response.tokens_prompt,
                 "tokens_completion": response.tokens_completion,
-                "conversation_id": conversation_id,
+                "finish_reason": response.finish_reason,
             }
         except Exception as e:
-            # Update step status to failed
-            error_message = str(e)
-            self.state_machine.transition_step(step, "failed")
-            self.trace_writer.update_step_status(
-                step.id,
-                "failed",
-                error_code="CHAT_ERROR",
-                error_message=error_message[:1024],
-            )
             raise
     
     async def _execute_workflow(self, plan: ExecutionPlan) -> Dict[str, Any]:
@@ -346,7 +253,6 @@ class ExecutionEngine:
             # Create step for agent iteration
             step = self.trace_writer.create_step(
                 run_id=plan.run_id,
-                                ctx=self.ctx,
                 step_type="plan",
                 input_summary=f"Agent iteration {iteration}",
             )
@@ -361,6 +267,7 @@ class ExecutionEngine:
                     messages=messages,
                     model=model,
                     temperature=temperature,
+                    run_id=plan.run_id,
                 )
                 
                 response_text = response.text
@@ -395,7 +302,6 @@ class ExecutionEngine:
                         # Create step for tool execution
                         tool_step = self.trace_writer.create_step(
                             run_id=plan.run_id,
-                                ctx=self.ctx,
                             step_type="tool",
                             input_summary=f"Tool: {tool_ref}",
                         )

@@ -3,7 +3,7 @@
 Chat domain repository.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, desc
 
@@ -106,6 +106,41 @@ class ConversationRepository(Repository[Conversation]):
         self.db.refresh(conversation)
         return conversation
 
+    def update(
+        self,
+        conversation_id: str,
+        title: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Conversation:
+        """Update a conversation.
+
+        Args:
+            conversation_id: Conversation ID.
+            title: Optional new title.
+            metadata: Optional new metadata.
+
+        Returns:
+            Updated Conversation instance.
+
+        Raises:
+            NotFoundError: If conversation not found.
+        """
+        conversation = self.get_by_id(conversation_id)
+        if not conversation:
+            raise NotFoundError(f"Conversation not found: {conversation_id}")
+
+        if title is not None:
+            conversation.title = title
+        if metadata is not None:
+            conversation.metadata_json = metadata
+
+        from app.kernel.commons.time import utc_now
+        conversation.updated_at = utc_now()
+
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation
+
 
 class MessageRepository(Repository[Message]):
     """Repository for Message model."""
@@ -178,4 +213,3 @@ class MessageRepository(Repository[Message]):
         )
         result = self.db.exec(query).first()
         return result or 0
-

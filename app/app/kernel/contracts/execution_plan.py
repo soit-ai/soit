@@ -3,28 +3,35 @@
 ExecutionPlan and node/step contract types.
 """
 
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
+
+from app.kernel.commons.ids import generate_run_id
 
 
 @dataclass
 class ExecutionPlan:
     """Execution plan for a run."""
-    
-    run_id: str
-    """Run ID."""
-    
+
     mode: str
     """Execution mode (chat/bot/workflow/agent)."""
-    
-    plan_data: Dict[str, Any]
-    """Plan data (workflow graph, agent config, etc.)."""
-    
-    inputs: Dict[str, Any]
+
+    inputs: Dict[str, Any] = field(default_factory=dict)
     """Input parameters."""
-    
+
+    plan_data: Dict[str, Any] = field(default_factory=dict)
+    """Plan data (workflow graph, agent config, etc.)."""
+
+    run_id: Optional[str] = None
+    """Run ID."""
+
     app_version_id: Optional[str] = None
     """Optional app version ID."""
+
+    def __post_init__(self) -> None:
+        """Ensure run_id is available."""
+        if not self.run_id:
+            self.run_id = generate_run_id()
 
 
 @dataclass
@@ -40,7 +47,7 @@ class StepPlan:
     node_id: Optional[str] = None
     """Optional node ID."""
     
-    input_data: Dict[str, Any] = None
+    input_data: Dict[str, Any] = field(default_factory=dict)
     """Input data for step."""
     
     config: Optional[Dict[str, Any]] = None

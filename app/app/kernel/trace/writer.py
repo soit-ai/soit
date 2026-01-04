@@ -44,6 +44,7 @@ class TraceWriter:
         mode: str,
         app_version_id: Optional[str] = None,
         input_summary: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> Run:
         """Create a new run.
         
@@ -56,7 +57,7 @@ class TraceWriter:
             Created Run instance.
         """
         run = Run(
-            id=generate_run_id(),
+            id=run_id or generate_run_id(),
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             mode=mode,

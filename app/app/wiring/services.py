@@ -62,7 +62,17 @@ from app.wiring import get_container
 def build_chat_service(*, db: Session, ctx: RequestContext) -> ChatService:
     conversation_repo = ConversationRepository(db, ctx)
     message_repo = MessageRepository(db, ctx)
-    return ChatService(db, ctx, conversation_repo, message_repo)
+    trace_writer = TraceWriter(db, ctx)
+    container = get_container()
+    llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
+    return ChatService(
+        db,
+        ctx,
+        conversation_repo,
+        message_repo,
+        llm_port=llm_port,
+        trace_writer=trace_writer,
+    )
 
 
 def build_dataset_service(*, db: Session, ctx: RequestContext) -> DatasetService:
