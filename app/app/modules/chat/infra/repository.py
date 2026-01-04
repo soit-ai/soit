@@ -4,6 +4,7 @@ Chat domain repository.
 """
 
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, desc
 
@@ -113,6 +114,15 @@ class ConversationRepository(Repository[Conversation]):
         conversation_id: str,
         title: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        status: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        default_model_ref: Optional[str] = None,
+        default_temperature: Optional[float] = None,
+        default_max_tokens: Optional[int] = None,
+        default_top_p: Optional[float] = None,
+        message_count: Optional[int] = None,
+        last_message_at: Optional[datetime] = None,
+        updated_by: Optional[str] = None,
     ) -> Conversation:
         """Update a conversation.
 
@@ -135,6 +145,24 @@ class ConversationRepository(Repository[Conversation]):
             conversation.title = title
         if metadata is not None:
             conversation.metadata_json = metadata
+        if status is not None:
+            conversation.status = status
+        if system_prompt is not None:
+            conversation.system_prompt = system_prompt
+        if default_model_ref is not None:
+            conversation.default_model_ref = default_model_ref
+        if default_temperature is not None:
+            conversation.default_temperature = default_temperature
+        if default_max_tokens is not None:
+            conversation.default_max_tokens = default_max_tokens
+        if default_top_p is not None:
+            conversation.default_top_p = default_top_p
+        if message_count is not None:
+            conversation.message_count = message_count
+        if last_message_at is not None:
+            conversation.last_message_at = last_message_at
+        if updated_by is not None:
+            conversation.updated_by = updated_by
 
         from app.kernel.commons.time import utc_now
         conversation.updated_at = utc_now()

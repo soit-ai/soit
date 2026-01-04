@@ -27,10 +27,40 @@ class Conversation(SQLModel, table=True):
     
     title: Optional[str] = Field(default=None, nullable=True, max_length=512)
     """Conversation title."""
-    
+
+    status: str = Field(default="active")
+    """Conversation status: active, archived."""
+
     metadata_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     """Conversation metadata."""
-    
+
+    system_prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    """Default system prompt."""
+
+    default_model_ref: Optional[str] = Field(default=None, nullable=True)
+    """Default model reference."""
+
+    default_temperature: Optional[float] = Field(default=None, nullable=True)
+    """Default temperature."""
+
+    default_max_tokens: Optional[int] = Field(default=None, nullable=True)
+    """Default max tokens."""
+
+    default_top_p: Optional[float] = Field(default=None, nullable=True)
+    """Default top-p value."""
+
+    message_count: int = Field(default=0)
+    """Message count."""
+
+    last_message_at: Optional[datetime] = Field(default=None, nullable=True)
+    """Last message timestamp."""
+
+    created_by: Optional[str] = Field(default=None, nullable=True)
+    """User ID who created."""
+
+    updated_by: Optional[str] = Field(default=None, nullable=True)
+    """User ID who last updated."""
+
     deleted_at: Optional[datetime] = Field(default=None, nullable=True)
     """Deletion timestamp (soft delete)."""
     
@@ -60,13 +90,30 @@ class Message(SQLModel, table=True):
     
     role: str = Field()
     """Message role (user, assistant, system)."""
-    
+
     content: str = Field(sa_column=Column(Text))
     """Message content."""
-    
+
+    model_ref: Optional[str] = Field(default=None, nullable=True)
+    """Model reference for assistant responses."""
+
+    tokens_prompt: Optional[int] = Field(default=None, nullable=True)
+    """Prompt tokens for the completion."""
+
+    tokens_completion: Optional[int] = Field(default=None, nullable=True)
+    """Completion tokens for the response."""
+
+    finish_reason: Optional[str] = Field(default=None, nullable=True)
+    """Finish reason (stop, length, etc.)."""
+
+    run_id: Optional[str] = Field(default=None, nullable=True, index=True)
+    """Run ID for trace correlation."""
+
+    created_by: Optional[str] = Field(default=None, nullable=True)
+    """User ID who created."""
+
     metadata_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     """Message metadata (model, tokens, etc.)."""
     
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
-

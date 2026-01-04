@@ -64,7 +64,7 @@ def db():
     Lazily imports sqlalchemy/sqlmodel to avoid hard dependency for pure-unit tests.
     """
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
+    from sqlmodel import Session
     from sqlalchemy.pool import StaticPool
     from sqlmodel import SQLModel
 
@@ -79,8 +79,7 @@ def db():
     )
     SQLModel.metadata.create_all(engine)
 
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = SessionLocal()
+    session = Session(engine)
     try:
         yield session
     finally:

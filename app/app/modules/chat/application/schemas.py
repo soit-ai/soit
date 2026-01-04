@@ -27,8 +27,26 @@ class ConversationCreate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=512)
     """Conversation title."""
 
+    status: str = Field(default="active", pattern="^(active|archived)$")
+    """Conversation status."""
+
     metadata: Optional[Dict[str, Any]] = None
     """Conversation metadata."""
+
+    system_prompt: Optional[str] = Field(default=None, max_length=8000)
+    """Default system prompt."""
+
+    default_model_ref: Optional[str] = None
+    """Default model reference."""
+
+    default_temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    """Default temperature."""
+
+    default_max_tokens: Optional[int] = Field(default=None, ge=1)
+    """Default max tokens."""
+
+    default_top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    """Default top-p value."""
 
 
 class ConversationUpdate(BaseModel):
@@ -37,8 +55,26 @@ class ConversationUpdate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=512)
     """Conversation title."""
 
+    status: Optional[str] = Field(default=None, pattern="^(active|archived)$")
+    """Conversation status."""
+
     metadata: Optional[Dict[str, Any]] = None
     """Conversation metadata."""
+
+    system_prompt: Optional[str] = Field(default=None, max_length=8000)
+    """Default system prompt."""
+
+    default_model_ref: Optional[str] = None
+    """Default model reference."""
+
+    default_temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    """Default temperature."""
+
+    default_max_tokens: Optional[int] = Field(default=None, ge=1)
+    """Default max tokens."""
+
+    default_top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    """Default top-p value."""
 
 
 class ConversationResponse(BaseModel):
@@ -48,7 +84,18 @@ class ConversationResponse(BaseModel):
     tenant_id: str
     workspace_id: str
     title: Optional[str]
+    status: str
     metadata_json: Optional[Dict[str, Any]]
+    system_prompt: Optional[str]
+    default_model_ref: Optional[str]
+    default_temperature: Optional[float]
+    default_max_tokens: Optional[int]
+    default_top_p: Optional[float]
+    message_count: int
+    last_message_at: Optional[datetime]
+    created_by: Optional[str]
+    updated_by: Optional[str]
+    deleted_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +110,12 @@ class MessageResponse(BaseModel):
     conversation_id: str
     role: str
     content: str
+    model_ref: Optional[str]
+    tokens_prompt: Optional[int]
+    tokens_completion: Optional[int]
+    finish_reason: Optional[str]
+    run_id: Optional[str]
+    created_by: Optional[str]
     metadata_json: Optional[Dict[str, Any]]
     created_at: datetime
 
@@ -79,7 +132,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessageInput] = Field(..., min_length=1)
     """Chat messages."""
 
-    model: str = Field(default="model:openai:gpt-3.5-turbo", min_length=1)
+    model: Optional[str] = None
     """Model reference (provider:model)."""
 
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)

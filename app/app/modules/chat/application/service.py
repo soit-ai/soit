@@ -67,7 +67,15 @@ class ChatService:
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             title=data.title,
+            status=data.status,
             metadata_json=data.metadata,
+            system_prompt=data.system_prompt,
+            default_model_ref=data.default_model_ref,
+            default_temperature=data.default_temperature,
+            default_max_tokens=data.default_max_tokens,
+            default_top_p=data.default_top_p,
+            created_by=self.ctx.user_id,
+            updated_by=self.ctx.user_id,
         )
         
         return self.conversation_repo.create(conversation)
@@ -90,6 +98,13 @@ class ChatService:
             conversation_id=conversation_id,
             title=data.title,
             metadata=data.metadata,
+            status=data.status,
+            system_prompt=data.system_prompt,
+            default_model_ref=data.default_model_ref,
+            default_temperature=data.default_temperature,
+            default_max_tokens=data.default_max_tokens,
+            default_top_p=data.default_top_p,
+            updated_by=self.ctx.user_id,
         )
     
     def add_message(
@@ -98,6 +113,11 @@ class ChatService:
         role: str,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
+        model_ref: Optional[str] = None,
+        tokens_prompt: Optional[int] = None,
+        tokens_completion: Optional[int] = None,
+        finish_reason: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> Message:
         """Add a message to a conversation.
         
@@ -126,13 +146,24 @@ class ChatService:
             conversation_id=conversation_id,
             role=role,
             content=content,
+            model_ref=model_ref,
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            finish_reason=finish_reason,
+            run_id=run_id,
+            created_by=self.ctx.user_id,
             metadata_json=metadata,
         )
         
         message = self.message_repo.create(message)
         
-        # Update conversation updated_at
+        # Update conversation stats
         conversation.updated_at = utc_now()
+        conversation.updated_by = self.ctx.user_id
+        conversation.last_message_at = utc_now()
+        if conversation.message_count is None:
+            conversation.message_count = 0
+        conversation.message_count += 1
         self.db.commit()
         self.db.refresh(conversation)
         
@@ -279,6 +310,9 @@ class ChatService:
             for msg in data.messages
         )
 
+        if conversation.system_prompt and not any(msg.role == "system" for msg in llm_messages):
+            llm_messages = [ChatMessage(role="system", content=conversation.system_prompt)] + llm_messages
+
         if not llm_messages:
             raise ValidationError("No messages provided for completion")
 
@@ -299,6 +333,7 @@ class ChatService:
                     role=msg.role,
                     content=msg.content,
                     metadata=msg.metadata,
+                    run_id=run_id,
                 )
 
             if not conversation.title:
@@ -310,12 +345,17 @@ class ChatService:
                         metadata=conversation.metadata_json,
                     )
 
+            model_ref = data.model or conversation.default_model_ref or "model:openai:gpt-3.5-turbo"
+            temperature = data.temperature if data.temperature is not None else conversation.default_temperature
+            max_tokens = data.max_tokens if data.max_tokens is not None else conversation.default_max_tokens
+            top_p = data.top_p if data.top_p is not None else conversation.default_top_p
+
             response = await self.llm_port.chat(
                 messages=llm_messages,
-                model=data.model,
-                temperature=data.temperature,
-                max_tokens=data.max_tokens,
-                top_p=data.top_p,
+                model=model_ref,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
                 run_id=run_id,
             )
 
@@ -323,8 +363,13 @@ class ChatService:
                 conversation_id=conversation.id,
                 role="assistant",
                 content=response.text,
+                model_ref=response.model or model_ref,
+                tokens_prompt=response.tokens_prompt,
+                tokens_completion=response.tokens_completion,
+                finish_reason=response.finish_reason,
+                run_id=run_id,
                 metadata={
-                    "model": response.model or data.model,
+                    "model": response.model or model_ref,
                     "tokens_prompt": response.tokens_prompt,
                     "tokens_completion": response.tokens_completion,
                     "finish_reason": response.finish_reason,
@@ -343,7 +388,7 @@ class ChatService:
                 "run_id": run_id,
                 "conversation": conversation,
                 "message": assistant_message,
-                "model": response.model or data.model,
+                "model": response.model or model_ref,
                 "tokens_prompt": response.tokens_prompt,
                 "tokens_completion": response.tokens_completion,
                 "finish_reason": response.finish_reason,
