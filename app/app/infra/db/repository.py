@@ -3,7 +3,7 @@
 Scope-aware repository base (tenant_id + workspace_id enforced).
 """
 
-from typing import Generic, TypeVar, Optional, List, Type
+from typing import Generic, TypeVar, Optional, List, Type, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from sqlmodel import SQLModel, select
@@ -56,6 +56,33 @@ class Repository(Generic[ModelType]):
             return query.where(self.model.tenant_id == self.ctx.tenant_id)
         # No scope columns, return as-is (should be rare)
         return query
+
+    def _unwrap_result(self, result: Optional[Any]) -> Optional[ModelType]:
+        """Unwrap SQLAlchemy row to model instance.
+
+        Args:
+            result: Raw result from SQL execution.
+
+        Returns:
+            Model instance or None.
+        """
+        if result is None:
+            return None
+        if isinstance(result, self.model):
+            return result
+        if isinstance(result, (list, tuple)):
+            return result[0] if result else None
+        if hasattr(result, "_mapping"):
+            return result[0]
+        return result
+
+    def _unwrap_all(self, results: List[Any]) -> List[ModelType]:
+        """Unwrap list of SQLAlchemy rows to model instances."""
+        if not results:
+            return []
+        if isinstance(results[0], self.model):
+            return results
+        return [self._unwrap_result(item) for item in results if item is not None]
     
     def get_by_id(self, id: str) -> Optional[ModelType]:
         """Get model by ID (with scope check).
@@ -68,7 +95,8 @@ class Repository(Generic[ModelType]):
         """
         query = select(self.model).where(self.model.id == id)
         query = self._apply_scope(query)
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def get_all(
         self,
@@ -104,6 +132,7 @@ class Repository(Generic[ModelType]):
         query = query.offset(offset).limit(limit + 1)  # Fetch one extra to check has_next
         
         results = list(self.db.exec(query).all())
+        results = self._unwrap_all(results)
         has_next = len(results) > limit
         items = results[:limit]
         

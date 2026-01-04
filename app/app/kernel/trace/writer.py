@@ -4,7 +4,7 @@ Trace writer interface (DB + artifact storage).
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCost
@@ -108,7 +108,10 @@ class TraceWriter:
             run.ended_at = utc_now()
             # Calculate duration
             if run.started_at:
-                duration_seconds = (run.ended_at - run.started_at).total_seconds()
+                started_at = run.started_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                duration_seconds = (run.ended_at - started_at).total_seconds()
                 run_duration.labels(mode=run.mode, tenant_id=self.ctx.tenant_id).observe(duration_seconds)
             # Decrement active runs
             active_runs.labels(mode=run.mode, tenant_id=self.ctx.tenant_id).dec()
@@ -211,7 +214,10 @@ class TraceWriter:
             step.ended_at = utc_now()
             # Calculate duration
             if step.started_at:
-                duration_seconds = (step.ended_at - step.started_at).total_seconds()
+                started_at = step.started_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                duration_seconds = (step.ended_at - started_at).total_seconds()
                 step_duration.labels(step_type=step.step_type, tenant_id=self.ctx.tenant_id).observe(duration_seconds)
         
         # Update metrics

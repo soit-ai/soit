@@ -23,6 +23,9 @@ class RequestContext:
     
     user_id: str
     """User ID (required)."""
+
+    request_id: Optional[str] = None
+    """Request ID for tracing (optional)."""
     
     tenant_role: Optional[str] = None
     """User's role in tenant (Owner/Admin/Member)."""

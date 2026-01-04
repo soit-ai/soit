@@ -56,7 +56,8 @@ class ConversationRepository(Repository[Conversation]):
                 Conversation.deleted_at.is_(None),  # Exclude soft-deleted
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list(
         self,
@@ -80,7 +81,8 @@ class ConversationRepository(Repository[Conversation]):
             )
         ).order_by(desc(Conversation.updated_at)).offset(offset).limit(limit)
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def soft_delete(self, conversation_id: str) -> Conversation:
         """Soft delete a conversation.
@@ -192,7 +194,8 @@ class MessageRepository(Repository[Message]):
             )
         ).order_by(Message.created_at).offset(offset).limit(limit)
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def count_by_conversation(self, conversation_id: str) -> int:
         """Count messages in a conversation.
@@ -211,5 +214,9 @@ class MessageRepository(Repository[Message]):
                 Message.workspace_id == self.ctx.workspace_id,
             )
         )
-        result = self.db.exec(query).first()
-        return result or 0
+        result = self.db.exec(query).one()
+        if result is None:
+            return 0
+        if isinstance(result, int):
+            return result
+        return int(result[0])
