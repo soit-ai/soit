@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/memory_spec.schema.json",
+  "title": "MemorySpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content", "memory_type"],
+  "properties": {
+    "content": {
+      "type": "object"
+    },
+    "content_summary": {
+      "type": ["string", "null"],
+      "maxLength": 2048
+    },
+    "memory_type": {
+      "type": "string",
+      "enum": ["short", "long"]
+    },
+    "user_id": {
+      "type": ["string", "null"]
+    },
+    "metadata_json": {
+      "type": ["object", "null"]
+    },
+    "tags": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "maxItems": 32
+    }
+  },
+  "description": "Memory item payload schema."
+}

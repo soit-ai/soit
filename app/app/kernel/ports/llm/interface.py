@@ -3,7 +3,7 @@
 LLM port interface (chat/embed/rerank).
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, AsyncIterator
 from abc import ABC, abstractmethod
 
 
@@ -42,6 +42,27 @@ class ChatResponse:
             finish_reason: Finish reason (stop, length, etc.).
         """
         self.text = text
+        self.tokens_prompt = tokens_prompt
+        self.tokens_completion = tokens_completion
+        self.model = model
+        self.finish_reason = finish_reason
+
+
+class ChatStreamChunk:
+    """Streaming chat chunk."""
+
+    def __init__(
+        self,
+        delta: str = "",
+        done: bool = False,
+        tokens_prompt: int = 0,
+        tokens_completion: int = 0,
+        model: Optional[str] = None,
+        finish_reason: Optional[str] = None,
+    ):
+        """Initialize stream chunk."""
+        self.delta = delta
+        self.done = done
         self.tokens_prompt = tokens_prompt
         self.tokens_completion = tokens_completion
         self.model = model
@@ -115,6 +136,17 @@ class LLMPort(ABC):
             ChatResponse instance.
         """
         pass
+
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatStreamChunk]:
+        """Stream chat completion."""
+        raise NotImplementedError("stream_chat not implemented")
     
     @abstractmethod
     async def embed(

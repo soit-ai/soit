@@ -3,23 +3,31 @@
 Settings model and environment parsing.
 """
 
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE_PATH),
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     project_name: str = "soit"
     """Project name."""
     project_description: str = "SOIT is a platform for llm application building."
     """Project description."""
+
+    environment: str = "production"
+    """Environment."""
 
     # Database
     database_type: str = "postgresql"
@@ -34,7 +42,7 @@ class Settings(BaseSettings):
     """Database password."""
     database_name: str = ""
     """Database name."""
-    database_url: str = f"{database_type}://{database_user}:{database_pass}@{database_host}:{database_port}/{database_name}"
+    database_url: Optional[str] = None
     """Database URL."""
     
     # Redis
@@ -46,7 +54,7 @@ class Settings(BaseSettings):
     """Redis pass."""
     redis_db: int = 0
     """Redis data."""
-    redis_url: str = f"redis://:{redis_pass}@{redis_host}:{redis_port}/{redis_db}"
+    redis_url: Optional[str] = None
     """Redis URL for cache and message queue."""
     
     # JWT
@@ -88,21 +96,106 @@ class Settings(BaseSettings):
     """Enable Sentry error tracking."""
     sentry_traces_sample_rate: float = 0.0
     """Sentry traces sample rate."""
+    
     log_level: str = "INFO"
     """Log level (DEBUG, INFO, WARNING, ERROR)."""
-    
+    log_format: str = "rich"
+    """Log format: text, json, or rich."""
+    log_color: bool = True
+    """Enable ANSI colors for text logs (TTY only)."""
+    log_color_force: bool = True
+    """Force ANSI colors even when stdout is not a TTY."""
+
+    default_llm_provider: str = "openai"
+    """Default LLM provider when model ref has no provider prefix."""
+
+    deepseek_api_key: Optional[str] = None
+    """DeepSeek API key."""
+
+    deepseek_base_url: str = "https://api.deepseek.com"
+    """DeepSeek API base URL (OpenAI-compatible)."""
+
+    memory_embedding_model_ref: str = "model:openai:text-embedding-3-small"
+    """Default embedding model for memory module."""
+
+    agent_rate_limit_per_minute: Optional[int] = None
+    """Optional rate limit for agent runs (per minute)."""
+
+    # Dataset ingest worker
+    dataset_ingest_worker_enabled: bool = False
+    """Enable background dataset ingestion worker."""
+
+    dataset_ingest_worker_poll_interval: float = 1.0
+    """Polling interval (seconds) for dataset ingestion worker."""
+
+    dataset_ingest_worker_max_tasks: int = 10
+    """Max tasks to process before worker exits."""
+
+    dataset_ingest_worker_concurrency: int = 1
+    """Max concurrent ingestion tasks per worker loop."""
+
+    dataset_ingest_worker_heartbeat_seconds: int = 30
+    """Heartbeat interval (seconds) for ingest worker logs."""
 
     # Plugins
     plugins_dir: str = "./var/plugins"
     """Filesystem directory for plugin packages and extracted installs."""
 
+    plugin_runtime_allow_localhost: bool = False
+    """Allow plugin runtime to run on localhost (development only)."""
+
+    platform_version: str = "0.1.0"
+    """Platform version for plugin compatibility checks."""
+
+    platform_features: List[str] = []
+    """Platform feature flags for plugin compatibility checks."""
+
+    plugin_signature_required: bool = False
+    """Require signature verification for plugin package installs."""
+
+    plugin_signature_public_keys: List[str] = []
+    """Base64-encoded public keys for plugin signature verification."""
+
+    plugin_integrity_required: bool = False
+    """Require digest verification for plugin package installs."""
+
     # Feature flags
     enable_egress_policy: bool = True
     """Enable egress policy (deny-by-default)."""
+
+    egress_allowlist: List[str] = []
+    """Global egress allowlist domains (wildcards supported)."""
+
+    egress_blocklist: List[str] = []
+    """Global egress blocklist domains (wildcards supported)."""
     
     # API
     api_v1_prefix: str = "/api/v1"
     """API v1 prefix."""
+
+    # Event bus
+    event_bus_backend: str = "memory"
+    """Event bus backend: memory or redis."""
+
+    event_bus_redis_url: Optional[str] = None
+    """Optional Redis URL override for event bus."""
+
+    event_bus_channel: str = "soit:events"
+    """Redis pubsub channel for event bus."""
+
+    @model_validator(mode="after")
+    def _build_urls(self) -> "Settings":
+        if not self.database_url:
+            self.database_url = (
+                f"{self.database_type}://{self.database_user}:{self.database_pass}"
+                f"@{self.database_host}:{self.database_port}/{self.database_name}"
+            )
+        if not self.redis_url:
+            password = f":{self.redis_pass}@" if self.redis_pass else ""
+            self.redis_url = (
+                f"redis://{password}{self.redis_host}:{self.redis_port}/{self.redis_db}"
+            )
+        return self
 
 
 # Global settings instance

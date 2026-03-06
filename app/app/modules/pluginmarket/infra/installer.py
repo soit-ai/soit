@@ -18,9 +18,11 @@ import json
 import os
 import shutil
 import zipfile
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+import logging
 
 try:
     import tomllib  # py3.11+
@@ -29,10 +31,11 @@ except Exception:  # pragma: no cover
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.registry.deps import get_registry
-from app.kernel.registry.signature import sha256_hex, verify_sha256
+from app.kernel.registry.signature import sha256_hex, verify_sha256, verify_signature
 from app.kernel.specs.validator import SpecValidator
 from app.settings.settings import get_settings
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class InstalledPluginPaths:
@@ -84,6 +87,64 @@ class PluginInstaller:
 
     def _root(self) -> Path:
         return Path(self.settings.plugins_dir).resolve()
+
+    def _check_integrity(self, *, spec: Dict[str, Any], digest: str) -> None:
+        integrity = spec.get("integrity") or {}
+        expected = (integrity.get("digest") or "").strip()
+        if expected and self.settings.plugin_integrity_required:
+            expected_hex = expected.split(":", 1)[1] if expected.startswith("sha256:") else expected
+            if expected_hex.lower() != digest.lower():
+                raise ValidationError("Plugin package digest mismatch.")
+
+        signature = (integrity.get("signature") or "").strip()
+        if signature:
+            public_keys = self.settings.plugin_signature_public_keys or []
+            verified = False
+            payload = (expected or f"sha256:{digest}").encode("utf-8")
+            for key in public_keys:
+                if verify_signature(data=payload, signature_b64=signature, public_key_b64=key):
+                    verified = True
+                    break
+            if not verified:
+                if self.settings.plugin_signature_required:
+                    raise ValidationError("Plugin package signature verification failed.")
+                logger.warning(
+                    "plugin.signature.unverified",
+                    extra={"plugin_name": spec.get("name"), "version": spec.get("version")},
+                )
+        elif self.settings.plugin_signature_required:
+            raise ValidationError("Plugin package signature required.")
+
+    def inspect_package(self, package_bytes: bytes) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Inspect plugin package and return manifest/spec without installing."""
+        digest = sha256_hex(package_bytes)
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as zf:
+                _safe_extract_zip(zf, tmp_dir)
+
+            extracted_root = tmp_dir
+            children = [p for p in tmp_dir.iterdir()]
+            if len(children) == 1 and children[0].is_dir():
+                extracted_root = children[0]
+
+            manifest = _load_manifest_from_dir(extracted_root)
+            manifest.setdefault("enabled", True)
+            spec = manifest.get("spec") or manifest.get("spec_json") or manifest.get("specJson")
+            if not isinstance(spec, dict):
+                spec_path = extracted_root / "spec.json"
+                if spec_path.exists():
+                    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+            if not isinstance(spec, dict):
+                raise ValidationError("Plugin package missing spec (manifest.spec or spec.json).")
+
+            issues = self.validator.validate("plugin_spec", spec, raise_on_error=False)
+            if issues:
+                raise ValidationError(f"Invalid plugin_spec: {issues[0].message}")
+
+            self._check_integrity(spec=spec, digest=digest)
+
+            return manifest, spec
 
     def install_from_bytes(
         self,
@@ -139,9 +200,11 @@ class PluginInstaller:
         if not isinstance(spec, dict):
             raise ValidationError("Plugin package missing spec (manifest.spec or spec.json).")
 
-        ok, err = self.validator.validate("plugin_spec", spec, raise_on_error=False)
-        if not ok:
-            raise ValidationError(f"Invalid plugin_spec: {err}")
+        issues = self.validator.validate("plugin_spec", spec, raise_on_error=False)
+        if issues:
+            raise ValidationError(f"Invalid plugin_spec: {issues[0].message}")
+
+        self._check_integrity(spec=spec, digest=digest)
 
         # persist manifest/spec as normalized json
         manifest_path = install_dir / "manifest.json"
@@ -181,9 +244,9 @@ class PluginInstaller:
             except Exception as e:
                 raise ValidationError(f"Failed to load tool spec json for '{tool_ref}': {e}")
 
-            ok2, err2 = self.validator.validate("tool_spec", tool_spec, raise_on_error=False)
-            if not ok2:
-                raise ValidationError(f"Invalid tool_spec for '{tool_ref}': {err2}")
+            tool_issues = self.validator.validate("tool_spec", tool_spec, raise_on_error=False)
+            if tool_issues:
+                raise ValidationError(f"Invalid tool_spec for '{tool_ref}': {tool_issues[0].message}")
 
             reg.register(
                 kind="tool",
@@ -213,6 +276,18 @@ class PluginInstaller:
                 "manifest": manifest,
                 "spec": spec,
                 "tools": tool_refs,
+            },
+        )
+
+        logger.info(
+            "plugin.install",
+            extra={
+                "plugin_name": plugin_name,
+                "version": version,
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "tool_count": len(tool_refs),
+                "install_dir": str(install_dir),
             },
         )
 

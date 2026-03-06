@@ -4,6 +4,8 @@ Resource-level permission checks and caching.
 """
 
 from typing import Optional, Set
+import asyncio
+import os
 import redis.asyncio as redis_async
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ForbiddenError
@@ -16,6 +18,10 @@ RESOURCE_DATASET = "dataset"
 RESOURCE_MODEL = "model"
 RESOURCE_PLUGIN = "plugin"
 RESOURCE_APP = "app"
+RESOURCE_BOT = "bot"
+RESOURCE_CHAT = "chat"
+RESOURCE_MEMORY = "memory"
+RESOURCE_AGENT = "agent"
 
 # Actions
 ACTION_READ = "read"
@@ -23,6 +29,10 @@ ACTION_WRITE = "write"
 ACTION_DELETE = "delete"
 ACTION_EXECUTE = "execute"
 ACTION_PUBLISH = "publish"
+ACTION_CREATE = "create"
+ACTION_UPDATE = "update"
+ACTION_RUN = "run"
+ACTION_EXECUTE_ALIAS = "execute"
 
 
 class PermissionCache:
@@ -44,14 +54,20 @@ class PermissionCache:
         Returns:
             Redis client instance or None if Redis unavailable.
         """
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return None
         if self._redis is not None:
             return self._redis
+        if not settings.redis_url or "None" in settings.redis_url:
+            return None
         
         try:
             if self._redis_pool is None:
                 self._redis_pool = redis_async.ConnectionPool.from_url(
                     settings.redis_url,
                     decode_responses=True,
+                    socket_connect_timeout=1,
+                    socket_timeout=1,
                 )
             return redis_async.Redis(connection_pool=self._redis_pool)
         except Exception:
@@ -159,8 +175,6 @@ class PermissionCache:
 
 # Global permission cache instance
 _permission_cache: Optional[PermissionCache] = None
-
-
 def get_permission_cache() -> PermissionCache:
     """Get or create global permission cache instance.
     
@@ -186,7 +200,7 @@ async def check_resource_permission(
         ctx: Request context.
         resource_type: Resource type (workflow, dataset, model, etc.).
         resource_id: Resource ID.
-        action: Action (read, write, delete, execute, publish).
+        action: Action (read, write, delete, execute, publish, create, update, run).
         resource_owner_id: Optional resource owner ID (for ownership checks).
         
     Raises:
@@ -213,24 +227,38 @@ async def check_resource_permission(
             )
         return
     
+    action_key = _normalize_action(action)
+    effective_action = _resolve_effective_action(action_key)
+
     # Perform permission check
     allowed = False
     
-    # Workspace owners/maintainers can do everything
-    if ctx.is_workspace_owner():
+    # Workspace owners/admins can do everything
+    if ctx.is_workspace_owner() or ctx.is_workspace_admin():
         allowed = True
-    elif ctx.is_workspace_maintainer():
-        # Maintainers can read/write/execute, but not delete/publish
-        if action in (ACTION_READ, ACTION_WRITE, ACTION_EXECUTE):
+    elif ctx.is_workspace_dev():
+        # Dev can read/write/execute/run, but not delete/publish
+        if effective_action in (ACTION_READ, ACTION_WRITE, ACTION_EXECUTE):
             allowed = True
     elif ctx.can_read():
-        # Readers can only read
-        if action == ACTION_READ:
+        # Viewer can only read
+        if effective_action == ACTION_READ:
             allowed = True
     
     # Resource owner can do everything (if resource_owner_id provided)
     if resource_owner_id and resource_owner_id == ctx.user_id:
         allowed = True
+
+    if not allowed:
+        grant_allowed = _check_resource_grant(
+            ctx=ctx,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action_key,
+            effective_action=effective_action,
+        )
+        if grant_allowed:
+            allowed = True
     
     # Cache result
     await cache.set_cached_permission(
@@ -252,44 +280,63 @@ async def check_resource_permission(
         )
 
 
+def _normalize_action(action: str) -> str:
+    return action.strip().lower()
+
+
+def _resolve_effective_action(action: str) -> str:
+    if action in (ACTION_CREATE, ACTION_UPDATE):
+        return ACTION_WRITE
+    if action == ACTION_RUN:
+        return ACTION_EXECUTE
+    if action == ACTION_EXECUTE_ALIAS:
+        return ACTION_EXECUTE
+    return action
+
+
+def _check_resource_grant(
+    *,
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    action: str,
+    effective_action: str,
+) -> bool:
+    try:
+        from app.infra.db.session import get_db_sync
+        from app.modules.identity.infra.repository import ResourceGrantRepository
+    except Exception:
+        return False
+
+    db = None
+    try:
+        db = get_db_sync()
+        repo = ResourceGrantRepository(db, ctx)
+        grant = repo.get_by_resource_user(resource_type, resource_id, ctx.user_id)
+        if not grant:
+            return False
+        allowed_actions = {_normalize_action(item) for item in (grant.actions or [])}
+        if "*" in allowed_actions:
+            return True
+        return action in allowed_actions or effective_action in allowed_actions
+    except Exception:
+        return False
+    finally:
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def require_resource_read(
     ctx: RequestContext,
     resource_type: str,
     resource_id: str,
     resource_owner_id: Optional[str] = None,
 ) -> None:
-    """Require read permission on resource.
-    
-    Args:
-        ctx: Request context.
-        resource_type: Resource type.
-        resource_id: Resource ID.
-        resource_owner_id: Optional resource owner ID.
-        
-    Raises:
-        ForbiddenError: If permission denied.
-    """
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If event loop is running, schedule coroutine
-            import asyncio
-            task = asyncio.create_task(
-                check_resource_permission(ctx, resource_type, resource_id, ACTION_READ, resource_owner_id)
-            )
-            # For sync context, we'll need to handle this differently
-            # For now, do sync check
-            if not ctx.can_read():
-                raise ForbiddenError(f"Read permission denied on {resource_type} {resource_id}")
-        else:
-            loop.run_until_complete(
-                check_resource_permission(ctx, resource_type, resource_id, ACTION_READ, resource_owner_id)
-            )
-    except RuntimeError:
-        # No event loop, do sync check
-        if not ctx.can_read():
-            raise ForbiddenError(f"Read permission denied on {resource_type} {resource_id}")
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_read is disabled; use await require_resource_read_async")
 
 
 def require_resource_write(
@@ -298,19 +345,8 @@ def require_resource_write(
     resource_id: str,
     resource_owner_id: Optional[str] = None,
 ) -> None:
-    """Require write permission on resource.
-    
-    Args:
-        ctx: Request context.
-        resource_type: Resource type.
-        resource_id: Resource ID.
-        resource_owner_id: Optional resource owner ID.
-        
-    Raises:
-        ForbiddenError: If permission denied.
-    """
-    if not ctx.can_write():
-        raise ForbiddenError(f"Write permission denied on {resource_type} {resource_id}")
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_write is disabled; use await require_resource_write_async")
 
 
 def require_resource_delete(
@@ -319,20 +355,132 @@ def require_resource_delete(
     resource_id: str,
     resource_owner_id: Optional[str] = None,
 ) -> None:
-    """Require delete permission on resource.
-    
-    Args:
-        ctx: Request context.
-        resource_type: Resource type.
-        resource_id: Resource ID.
-        resource_owner_id: Optional resource owner ID.
-        
-    Raises:
-        ForbiddenError: If permission denied.
-    """
-    if not ctx.is_workspace_owner():
-        if resource_owner_id and resource_owner_id != ctx.user_id:
-            raise ForbiddenError(f"Delete permission denied on {resource_type} {resource_id}")
-        if not ctx.is_workspace_owner():
-            raise ForbiddenError(f"Delete permission denied on {resource_type} {resource_id}")
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_delete is disabled; use await require_resource_delete_async")
 
+
+def require_resource_execute(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_execute is disabled; use await require_resource_execute_async")
+
+
+def require_resource_create(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_create is disabled; use await require_resource_create_async")
+
+
+def require_resource_update(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_update is disabled; use await require_resource_update_async")
+
+
+def require_resource_run(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Deprecated sync permission check (disabled)."""
+    raise RuntimeError("require_resource_run is disabled; use await require_resource_run_async")
+
+
+async def require_resource_read_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require read permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_READ, resource_owner_id)
+
+
+async def require_resource_write_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require write permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_WRITE, resource_owner_id)
+
+
+async def require_resource_delete_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require delete permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_DELETE, resource_owner_id)
+
+
+async def require_resource_execute_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require execute permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_EXECUTE, resource_owner_id)
+
+
+async def require_resource_create_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require create permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_CREATE, resource_owner_id)
+
+
+async def require_resource_update_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require update permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_UPDATE, resource_owner_id)
+
+
+async def require_resource_run_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require run permission on resource (async)."""
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_RUN, resource_owner_id)
+
+
+async def _require_resource_action_async(
+    ctx: RequestContext,
+    resource_type: str,
+    resource_id: str,
+    action: str,
+    resource_owner_id: Optional[str] = None,
+) -> None:
+    """Require permission on resource (async)."""
+    await check_resource_permission(
+        ctx,
+        resource_type,
+        resource_id,
+        action,
+        resource_owner_id,
+    )

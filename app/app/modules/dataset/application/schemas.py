@@ -5,7 +5,7 @@ Dataset domain Pydantic schemas.
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class DatasetCreate(BaseModel):
@@ -90,7 +90,22 @@ class DocumentUpload(BaseModel):
     
     file_id: Optional[str] = None
     """File ID."""
-    
+
+    filename: Optional[str] = None
+    """Original filename."""
+
+    mime_type: Optional[str] = None
+    """MIME type."""
+
+    size_bytes: Optional[int] = None
+    """File size in bytes."""
+
+    checksum: Optional[str] = None
+    """File checksum (sha256)."""
+
+    content_hash: Optional[str] = None
+    """Content hash (sha256)."""
+
     title: Optional[str] = None
     """Title."""
     
@@ -122,6 +137,33 @@ class QueryRequest(BaseModel):
     reranker_ref: Optional[str] = None
     """Reranker reference."""
 
+    strategy: Optional[str] = Field(default=None, pattern="^(vector|multi_index|keyword|hybrid)$")
+    """Retrieval strategy."""
+
+    index_ids: Optional[List[str]] = None
+    """Index IDs for multi-index retrieval."""
+
+    keyword_top_k: Optional[int] = Field(default=None, ge=1, le=200)
+    """Top K for keyword retrieval."""
+
+    keyword_candidate_limit: Optional[int] = Field(default=None, ge=10, le=10000)
+    """Max chunks to scan for keyword retrieval."""
+
+    keyword_min_score: Optional[int] = Field(default=None, ge=1)
+    """Minimum keyword score to include a chunk."""
+
+    hybrid_alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    """Weight for vector scores in hybrid retrieval."""
+
+    include_snippets: bool = Field(default=True)
+    """Whether to include text snippets in results."""
+
+    snippet_length: int = Field(default=160, ge=40, le=1000)
+    """Snippet length for citations."""
+
+    max_snippets: int = Field(default=2, ge=0, le=10)
+    """Max snippets per result."""
+
 
 class QueryResult(BaseModel):
     """Schema for query result."""
@@ -137,9 +179,52 @@ class QueryResult(BaseModel):
     
     text: str
     """Chunk text."""
+
+    snippets: List[str] = Field(default_factory=list)
+    """Snippet list for citations."""
     
     metadata: Dict[str, Any] = Field(default_factory=dict)
     """Chunk metadata."""
+
+
+class QueryCitation(BaseModel):
+    """Schema for query citations."""
+
+    chunk_id: str
+    """Chunk ID."""
+
+    document_id: str
+    """Document ID."""
+
+    rank: int
+    """Rank in results."""
+
+    score: float
+    """Score used for ranking."""
+
+    dataset_id: Optional[str] = None
+    """Dataset ID."""
+
+    doc_key: Optional[str] = None
+    """Document key."""
+
+    title: Optional[str] = None
+    """Document title."""
+
+    source_uri: Optional[str] = None
+    """Source URI."""
+
+    chunk_no: Optional[int] = None
+    """Chunk number."""
+
+    page_no: Optional[int] = None
+    """Page number."""
+
+    section_path: Optional[List[str]] = None
+    """Section path."""
+
+    snippet: Optional[str] = None
+    """Primary snippet."""
 
 
 class QueryResponse(BaseModel):
@@ -150,6 +235,9 @@ class QueryResponse(BaseModel):
     
     total: int
     """Total results count."""
+
+    citations: List[QueryCitation] = Field(default_factory=list)
+    """Citation list (sources + snippets)."""
 
 
 class DatasetResponse(BaseModel):
@@ -177,8 +265,7 @@ class DatasetResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DocumentResponse(BaseModel):
@@ -193,12 +280,63 @@ class DocumentResponse(BaseModel):
     is_latest: bool
     source_type: str
     title: Optional[str]
+    language: Optional[str]
+    mime_type: Optional[str]
+    filename: Optional[str]
+    size_bytes: Optional[int]
+    checksum: Optional[str]
+    content_hash: Optional[str]
+    source_uri: Optional[str]
+    file_id: Optional[str]
+    error_code: Optional[str]
+    error_message: Optional[str]
+    retry_count: int
     status: str
+    parse_meta_json: Dict[str, Any] = Field(default_factory=dict)
+    index_meta_json: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+    deleted_at: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChunkResponse(BaseModel):
+    """Schema for chunk response."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    dataset_id: str
+    document_id: str
+    document_version: int
+    chunk_no: int
+    chunk_key: Optional[str]
+    text_preview: Optional[str]
+    start_offset: Optional[int]
+    end_offset: Optional[int]
+    page_no: Optional[int]
+    section_path: List[str]
+    char_count: Optional[int]
+    token_count: Optional[int]
+    index_status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChunkUpdate(BaseModel):
+    """Schema for updating a chunk."""
+
+    content: Optional[str] = None
+    """Updated chunk content."""
+
+    index_status: Optional[str] = Field(
+        default=None,
+        pattern="^(pending|indexed|failed|disabled)$",
+    )
+    """Chunk index status."""
 
 
 class IndexResponse(BaseModel):
@@ -222,5 +360,109 @@ class IndexResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IndexCreate(BaseModel):
+    """Schema for creating an index."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    """Index name."""
+
+    provider: str = Field(default="milvus")
+    """Vector provider."""
+
+    embedding_model_ref: str
+    """Embedding model reference."""
+
+    dimension: int = Field(default=0, ge=0)
+    """Embedding dimension (0 means infer later)."""
+
+    metric_type: str = Field(default="cosine")
+    """Metric type."""
+
+    is_primary: bool = Field(default=False)
+    """Whether this is the primary index."""
+
+    collection_name: Optional[str] = None
+    """Collection name in vector store."""
+
+    partition_strategy: Optional[str] = None
+    """Partition strategy."""
+
+    namespace: Optional[str] = None
+    """Namespace."""
+
+    index_params_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    """Index params."""
+
+    search_params_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    """Search params."""
+
+    reranker_ref: Optional[str] = None
+    """Reranker reference."""
+
+    filters_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    """Default filters."""
+
+
+class IndexUpdate(BaseModel):
+    """Schema for updating an index."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    """Index name."""
+
+    is_primary: Optional[bool] = None
+    """Set as primary index."""
+
+    status: Optional[str] = Field(None, pattern="^(draft|building|ready|failed|disabled)$")
+    """Index status."""
+
+    search_params_json: Optional[Dict[str, Any]] = None
+    """Search params."""
+
+    reranker_ref: Optional[str] = None
+    """Reranker reference."""
+
+    filters_json: Optional[Dict[str, Any]] = None
+    """Default filters."""
+
+
+class IngestTaskResponse(BaseModel):
+    """Schema for ingest task response."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    dataset_id: str
+    document_id: Optional[str]
+    status: str
+    payload_json: Dict[str, Any]
+    run_id: Optional[str]
+    error_code: Optional[str]
+    error_message: Optional[str]
+    retry_count: int
+    max_retries: int
+    started_at: Optional[datetime]
+    finished_at: Optional[datetime]
+    created_by: Optional[str]
+    updated_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DatasetApplicationUsageResponse(BaseModel):
+    """Schema for dataset-linked application versions."""
+
+    app_id: str
+    app_name: str
+    app_type: str
+    app_status: str
+    app_version_id: str
+    app_version: int
+    app_version_status: str
+    app_version_created_at: datetime
+    run_count: int
+    last_run_at: Optional[datetime]

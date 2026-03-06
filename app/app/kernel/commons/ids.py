@@ -91,6 +91,24 @@ def generate_workflow_version_id() -> str:
     return f"wfv_{uuid.uuid4().hex}"
 
 
+def generate_notification_id() -> str:
+    """Generate a notification ID.
+
+    Returns:
+        A notification ID string (e.g., "ntf_01H...").
+    """
+    return f"ntf_{uuid.uuid4().hex}"
+
+
+def generate_secret_id() -> str:
+    """Generate a secret ID.
+
+    Returns:
+        A secret ID string (e.g., "sec_01H...").
+    """
+    return f"sec_{uuid.uuid4().hex}"
+
+
 def parse_id(id_str: str) -> Optional[str]:
     """Parse and validate an ID string.
     

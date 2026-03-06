@@ -1,7 +1,7 @@
 # kernel/trace/
 
 Unified execution trace:
-- run/run_step/run_artifact/run_cost writers
+- run/run_step/run_artifact/run_cost_entries writers
 - exporters to observability stack
 
 Rules:

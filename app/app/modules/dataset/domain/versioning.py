@@ -31,6 +31,7 @@ class DocumentVersioning:
         self,
         dataset_id: str,
         doc_key: str,
+        status: str = "uploaded",
         **kwargs,
     ) -> DatasetDocument:
         """Create a new document version.
@@ -52,6 +53,7 @@ class DocumentVersioning:
             if prev_version.is_latest:
                 prev_version.is_latest = False
                 prev_version.updated_at = utc_now()
+                prev_version.updated_by = self.ctx.user_id
         
         # Create new version
         new_document = DatasetDocument(
@@ -61,7 +63,7 @@ class DocumentVersioning:
             doc_key=doc_key,
             version=version,
             is_latest=True,
-            status="uploaded",
+            status=status,
             **kwargs,
         )
         
@@ -148,10 +150,12 @@ class DocumentVersioning:
             if version_doc.is_latest:
                 version_doc.is_latest = False
                 version_doc.updated_at = utc_now()
+                version_doc.updated_by = self.ctx.user_id
         
         # Mark target version as latest
         target_doc.is_latest = True
         target_doc.updated_at = utc_now()
+        target_doc.updated_by = self.ctx.user_id
         
         self.db.commit()
         self.db.refresh(target_doc)
@@ -178,8 +182,10 @@ class DocumentVersioning:
                 DatasetDocument.workspace_id == self.ctx.workspace_id,
                 DatasetDocument.dataset_id == dataset_id,
                 DatasetDocument.doc_key == doc_key,
+                DatasetDocument.deleted_at.is_(None),
             )
         ).order_by(DatasetDocument.version.desc())
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self.document_repo._unwrap_all(results)
 

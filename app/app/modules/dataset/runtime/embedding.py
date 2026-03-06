@@ -22,6 +22,7 @@ class EmbeddingService:
         self,
         texts: List[str],
         model_ref: str,
+        run_id: Optional[str] = None,
         **kwargs,
     ) -> List[List[float]]:
         """Generate embeddings for texts.
@@ -41,6 +42,7 @@ class EmbeddingService:
         embedding_response = await self.llm_port.embed(
             texts=texts,
             model=model_ref,
+            run_id=run_id,
             **kwargs,
         )
         
@@ -50,6 +52,7 @@ class EmbeddingService:
         self,
         text: str,
         model_ref: str,
+        run_id: Optional[str] = None,
         **kwargs,
     ) -> List[float]:
         """Generate embedding for a single text.
@@ -62,7 +65,7 @@ class EmbeddingService:
         Returns:
             Embedding vector.
         """
-        embeddings = await self.embed_texts([text], model_ref, **kwargs)
+        embeddings = await self.embed_texts([text], model_ref, run_id=run_id, **kwargs)
         return embeddings[0] if embeddings else []
     
     async def embed_batch(
@@ -70,6 +73,7 @@ class EmbeddingService:
         texts: List[str],
         model_ref: str,
         batch_size: int = 100,
+        run_id: Optional[str] = None,
         **kwargs,
     ) -> List[List[float]]:
         """Generate embeddings in batches.
@@ -87,8 +91,7 @@ class EmbeddingService:
         
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            batch_embeddings = await self.embed_texts(batch, model_ref, **kwargs)
+            batch_embeddings = await self.embed_texts(batch, model_ref, run_id=run_id, **kwargs)
             all_embeddings.extend(batch_embeddings)
         
         return all_embeddings
-

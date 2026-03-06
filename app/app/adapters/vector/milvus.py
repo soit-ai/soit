@@ -4,7 +4,10 @@ Milvus vector gateway adapter implementation.
 """
 
 from typing import List, Dict, Any, Optional
-from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType
+import hashlib
+import json
+import re
+from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
 from app.settings.settings import settings
@@ -23,6 +26,52 @@ class MilvusVectorPort(VectorPort):
         self.host = host or settings.milvus_host
         self.port = port or settings.milvus_port
         connections.connect("default", host=self.host, port=self.port)
+
+    @staticmethod
+    def _normalize_collection_name(name: str) -> str:
+        """Normalize collection name to Milvus-compatible format."""
+        if not name:
+            return "collection"
+
+        normalized = re.sub(r"[^A-Za-z0-9_]+", "_", name)
+        normalized = normalized.strip("_") or "collection"
+        if normalized[0].isdigit():
+            normalized = f"c_{normalized}"
+
+        max_len = 255
+        if len(normalized) <= max_len:
+            return normalized
+
+        digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+        trimmed = normalized[: max_len - 13]
+        return f"{trimmed}_{digest}"
+
+    def _ensure_collection(
+        self,
+        collection_name: str,
+        dimension: int,
+        include_metadata: bool,
+    ) -> Collection:
+        """Ensure collection exists with expected schema."""
+        normalized = self._normalize_collection_name(collection_name)
+        if utility.has_collection(normalized):
+            return Collection(normalized)
+
+        fields = [
+            FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=256),
+            FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
+        ]
+
+        if include_metadata:
+            fields.append(FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=8192))
+
+        schema = CollectionSchema(fields=fields, description="soit vector collection")
+        coll = Collection(name=normalized, schema=schema)
+        coll.create_index(
+            field_name="vector",
+            index_params={"index_type": "IVF_FLAT", "metric_type": "L2", "params": {"nlist": 1024}},
+        )
+        return coll
     
     async def query(
         self,
@@ -44,7 +93,11 @@ class MilvusVectorPort(VectorPort):
         Returns:
             VectorQueryResult instance.
         """
-        coll = Collection(collection)
+        collection_name = self._normalize_collection_name(collection)
+        if not utility.has_collection(collection_name):
+            return VectorQueryResult(ids=[], scores=[])
+
+        coll = Collection(collection_name)
         coll.load()
         
         # Build search params
@@ -66,13 +119,17 @@ class MilvusVectorPort(VectorPort):
                 expr = " && ".join(conditions)
         
         # Perform search
+        output_fields = []
+        if kwargs.get("include_metadata", False):
+            output_fields = ["metadata"]
+
         results = coll.search(
             data=[vector],
             anns_field="vector",
             param=search_params,
             limit=top_k,
             expr=expr,
-            output_fields=["*"] if kwargs.get("include_metadata", False) else [],
+            output_fields=output_fields,
         )
         
         # Extract results
@@ -85,14 +142,18 @@ class MilvusVectorPort(VectorPort):
         
         # Extract metadata if available
         metadata = None
-        if hasattr(result, "entities") and result.entities:
+        if kwargs.get("include_metadata", False):
             metadata = []
-            for entity in result.entities:
-                meta_dict = {}
-                for field_name, field_values in entity.items():
-                    if field_name != "vector":  # Exclude vector field from metadata
-                        meta_dict[field_name] = field_values[0] if field_values else None
-                metadata.append(meta_dict)
+            for hit in result:
+                raw_meta = None
+                if hasattr(hit, "entity") and hit.entity is not None:
+                    raw_meta = hit.entity.get("metadata")
+                if isinstance(raw_meta, str):
+                    try:
+                        raw_meta = json.loads(raw_meta)
+                    except Exception:
+                        pass
+                metadata.append(raw_meta or {})
         
         return VectorQueryResult(
             ids=ids,
@@ -124,33 +185,20 @@ class MilvusVectorPort(VectorPort):
             raise ValueError("Vectors and IDs must have the same length")
         
         # Support both collection and index_ref parameters
-        collection_name = kwargs.get("index_ref", collection)
-        # If index_ref format is "ds:dataset_id:index_id", extract collection name
-        if ":" in collection_name:
-            # Use the index_ref as collection name, or extract meaningful part
-            # For now, use as-is (Milvus collection names can contain special chars)
-            pass
+        collection_name = self._normalize_collection_name(kwargs.get("index_ref", collection))
         
-        coll = Collection(collection_name)
+        dimension = len(vectors[0])
+        include_metadata = bool(metadata)
+        coll = self._ensure_collection(collection_name, dimension, include_metadata)
         coll.load()
         
         # Prepare data for insertion
         # Milvus expects data as a list of lists, where each inner list represents a field
         # Format: [ids, vectors, ...metadata_fields]
         data = [ids, vectors]
-        
-        # Add metadata fields if provided
         if metadata:
-            # Extract all unique keys from metadata
-            all_keys = set()
-            for meta in metadata:
-                if isinstance(meta, dict):
-                    all_keys.update(meta.keys())
-            
-            # Add each metadata field as a separate list
-            for key in sorted(all_keys):  # Sort for consistency
-                field_data = [meta.get(key) if isinstance(meta, dict) else None for meta in metadata]
-                data.append(field_data)
+            serialized = [json.dumps(item, ensure_ascii=True, default=str) for item in metadata]
+            data.append(serialized)
         
         # Insert data
         coll.insert(data)
@@ -172,7 +220,8 @@ class MilvusVectorPort(VectorPort):
         if not ids:
             return
         
-        coll = Collection(collection)
+        collection_name = self._normalize_collection_name(collection)
+        coll = Collection(collection_name)
         coll.load()
         
         # Delete by IDs

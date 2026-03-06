@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/agent_spec.schema.json",
+  "$comment": "SOIT agent runtime spec (v1).",
+  "title": "AgentSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime"
+  ],
+  "anyOf": [
+    { "required": ["model"] },
+    { "required": ["model_ref"] }
+  ],
+  "properties": {
+    "runtime": {
+      "type": "string",
+      "const": "agent_runtime_v1"
+    },
+    "system_prompt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 8000
+    },
+    "planner": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "model": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ref_key": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "anyOf": [
+        { "required": ["ref_key"] },
+        { "required": ["provider", "model"] }
+      ]
+    },
+    "model_ref": {
+      "$ref": "refs.schema.json#/$defs/ModelRef"
+    },
+    "tools": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowlist": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "configs": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "rag": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["dataset_ids"] },
+        { "required": ["datasets"] }
+      ],
+      "properties": {
+        "dataset_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "datasets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top_k": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 50
+        },
+        "strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "vector",
+            "multi_index",
+            "keyword",
+            "hybrid"
+          ]
+        },
+        "index_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "filter": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "use_rerank": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reranker_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "include_snippets": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snippet_length": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 40,
+          "maximum": 1000
+        },
+        "max_snippets": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10
+        },
+        "keyword_top_k": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 200
+        },
+        "keyword_candidate_limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 10,
+          "maximum": 10000
+        },
+        "keyword_min_score": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "hybrid_alpha": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "memory": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "limits": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "max_iterations": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 50
+        },
+        "max_tool_calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_llm_calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 200
+        },
+        "max_failures": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10
+        },
+        "timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "policies": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}

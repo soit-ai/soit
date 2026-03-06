@@ -33,8 +33,44 @@ tags_metadata = [
         "description": "Chat completion and conversation endpoints.",
     },
     {
+        "name": "runs",
+        "description": "Run history and cost summary endpoints.",
+    },
+    {
+        "name": "bots",
+        "description": "Bot definition and execution endpoints.",
+    },
+    {
+        "name": "memory",
+        "description": "Memory storage and retrieval endpoints.",
+    },
+    {
+        "name": "security",
+        "description": "Security and policy management endpoints.",
+    },
+    {
+        "name": "secrets",
+        "description": "Workspace secrets management endpoints.",
+    },
+    {
+        "name": "agents",
+        "description": "Agent runtime endpoints.",
+    },
+    {
+        "name": "appcenter",
+        "description": "App center management and marketplace endpoints.",
+    },
+    {
+        "name": "notifications",
+        "description": "Notification inbox and delivery endpoints.",
+    },
+    {
         "name": "websocket",
         "description": "WebSocket endpoints for real-time updates.",
+    },
+    {
+        "name": "api_keys",
+        "description": "API key lifecycle endpoints.",
     },
     {
         "name": "sse",
@@ -45,4 +81,3 @@ tags_metadata = [
         "description": "Health check and monitoring endpoints.",
     },
 ]
-

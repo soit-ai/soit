@@ -3,9 +3,9 @@
 Workflow domain schemas.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class WorkflowCreate(BaseModel):
@@ -27,6 +27,9 @@ class WorkflowUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     """Workflow description."""
 
+    metadata_json: Optional[Dict[str, Any]] = None
+    """Workflow metadata."""
+
 
 class WorkflowVersionCreate(BaseModel):
     """Schema for creating a workflow version."""
@@ -36,6 +39,9 @@ class WorkflowVersionCreate(BaseModel):
     
     created_by: str = Field(...)
     """User ID who creates this version."""
+
+    preflight: bool = Field(default=False)
+    """Whether to run preflight checks before publish."""
 
 
 class WorkflowResponse(BaseModel):
@@ -47,11 +53,11 @@ class WorkflowResponse(BaseModel):
     name: str
     description: Optional[str]
     current_version_id: Optional[str]
+    metadata_json: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowVersionResponse(BaseModel):
@@ -65,5 +71,37 @@ class WorkflowVersionResponse(BaseModel):
     created_by: str
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkflowDSLImport(BaseModel):
+    """Schema for importing workflow DSL."""
+
+    dsl: Union[Dict[str, Any], str] = Field(...)
+    """Workflow DSL payload."""
+
+    created_by: str = Field(...)
+    """User ID who creates this version."""
+
+    format: str = Field(default="json", pattern="^(json|yaml)$")
+    """DSL format."""
+
+
+class WorkflowPublishRequest(BaseModel):
+    """Schema for publishing a workflow version."""
+
+    version_id: str
+    """Version ID to publish."""
+
+    preflight: bool = Field(default=False)
+    """Whether to run preflight checks before publish."""
+
+
+class WorkflowDSLExport(BaseModel):
+    """Schema for exporting workflow DSL."""
+
+    dsl: Union[Dict[str, Any], str]
+    """Workflow DSL payload."""
+
+    format: str = Field(default="json", pattern="^(json|yaml)$")
+    """DSL format."""

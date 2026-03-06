@@ -144,6 +144,24 @@ class Repository(Generic[ModelType]):
             has_next=has_next,
             next_offset=next_offset,
         )
+
+    def list(
+        self,
+        page_token: Optional[str] = None,
+        page_size: int = 20,
+        order_by: Optional[str] = None,
+    ) -> PaginatedResponse[ModelType]:
+        """List models (alias for get_all).
+
+        Args:
+            page_token: Optional page token.
+            page_size: Page size.
+            order_by: Optional column name to order by.
+
+        Returns:
+            PaginatedResponse with models.
+        """
+        return self.get_all(page_token=page_token, page_size=page_size, order_by=order_by)
     
     def create(self, model: ModelType) -> ModelType:
         """Create a new model (with scope enforcement).

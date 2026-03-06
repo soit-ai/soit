@@ -9,12 +9,19 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ChatResponse, EmbeddingResponse, RerankResponse
+from app.kernel.ports.llm.interface import (
+    LLMPort,
+    ChatMessage,
+    ChatResponse,
+    ChatStreamChunk,
+    EmbeddingResponse,
+    RerankResponse,
+)
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.common.audit import log_gateway_request
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.time import utc_now
-from app.kernel.commons.errors import TimeoutError
+from app.kernel.commons.errors import TimeoutError, KernelError
 
 def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
     """Resolve run_id for trace emission.
@@ -24,6 +31,26 @@ def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
     """
     run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
     return str(run_id) if run_id else ""
+
+
+def _error_details(exc: Exception) -> Dict[str, Any]:
+    details: Dict[str, Any] = {"error_type": type(exc).__name__}
+    if isinstance(exc, KernelError):
+        details["code"] = exc.code
+        details.update(exc.details or {})
+    else:
+        details["detail"] = str(exc)
+    return details
+
+
+def _provider_from_model(model_ref: Optional[str]) -> Optional[str]:
+    if not model_ref:
+        return None
+    if model_ref.startswith("model:"):
+        parts = model_ref.split(":")
+        if len(parts) >= 2:
+            return parts[1]
+    return None
 
 class LLMPolicyGateway(LLMPort):
     """LLM port with policy enforcement."""
@@ -36,6 +63,7 @@ class LLMPolicyGateway(LLMPort):
         timeout_seconds: int = 60,
         max_retries: int = 3,
         rate_limit_per_minute: Optional[int] = None,
+        daily_quota: Optional[int] = None,
         rate_limiter: Optional[RateLimiter] = None,
     ):
         """Initialize policy gateway.
@@ -47,6 +75,7 @@ class LLMPolicyGateway(LLMPort):
             timeout_seconds: Request timeout in seconds.
             max_retries: Maximum retry attempts.
             rate_limit_per_minute: Optional rate limit per minute.
+            daily_quota: Optional daily request quota.
             rate_limiter: Optional rate limiter instance.
         """
         self.gateway = gateway
@@ -55,7 +84,18 @@ class LLMPolicyGateway(LLMPort):
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.rate_limit_per_minute = rate_limit_per_minute
+        self.daily_quota = daily_quota
         self.rate_limiter = rate_limiter or RateLimiter()
+
+    async def _check_daily_quota(self, *, key_suffix: str) -> None:
+        if not self.daily_quota:
+            return
+        quota_key = f"quota:llm:{key_suffix}:{self.ctx.tenant_id}:{self.ctx.workspace_id}"
+        await self.rate_limiter.check_rate_limit(
+            key=quota_key,
+            limit=self.daily_quota,
+            window_seconds=86400,
+        )
     
     async def chat(
         self,
@@ -85,6 +125,7 @@ class LLMPolicyGateway(LLMPort):
                 limit=self.rate_limit_per_minute,
                 window_seconds=60,
             )
+        await self._check_daily_quota(key_suffix="chat")
         
         # Audit log
         step = None
@@ -130,6 +171,7 @@ class LLMPolicyGateway(LLMPort):
             # Update trace
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                model_used = response.model or model
                 self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
@@ -138,15 +180,27 @@ class LLMPolicyGateway(LLMPort):
                         "tokens_prompt": response.tokens_prompt,
                         "tokens_completion": response.tokens_completion,
                         "latency_ms": elapsed_ms,
-                        "model": response.model or model,
+                        "model": model_used,
                     },
                 )
-                # Update cost
-                self.trace_writer.update_cost(
+                self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
-                    tokens_prompt=response.tokens_prompt,
-                    tokens_completion=response.tokens_completion,
-                    ms_total=elapsed_ms,
+                    step_id=step.id,
+                    unit="tokens",
+                    quantity=response.tokens_prompt + response.tokens_completion,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
+                    prompt_tokens=response.tokens_prompt,
+                    completion_tokens=response.tokens_completion,
+                    total_tokens=response.tokens_prompt + response.tokens_completion,
+                )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="ms",
+                    quantity=elapsed_ms,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
                 )
             
             return response
@@ -157,6 +211,127 @@ class LLMPolicyGateway(LLMPort):
                     "failed",
                     error_code="LLM_ERROR",
                     error_message=str(e),
+                    error_details=_error_details(e),
+                )
+            raise
+
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ):
+        """Stream chat completion with policy enforcement."""
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:chat:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        await self._check_daily_quota(key_suffix="chat")
+
+        if not hasattr(self.gateway, "stream_chat"):
+            raise ValueError("Streaming not supported by LLM gateway")
+
+        step = None
+        if self.trace_writer:
+            run_id = _resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            step = self.trace_writer.create_step(
+                run_id=_resolve_run_id(kwargs, self.ctx),
+                step_type="llm",
+                input_summary=f"model={model}, messages={len(messages)}",
+            )
+            self.trace_writer.update_step_status(step.id, "running")
+
+        start_time = utc_now()
+        tokens_prompt = 0
+        tokens_completion = 0
+        finish_reason = None
+        model_used = None
+        output_preview = ""
+
+        import inspect
+        stream = self.gateway.stream_chat(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        if inspect.isawaitable(stream):
+            stream = await stream
+
+        try:
+            aiter = stream.__aiter__()
+            while True:
+                try:
+                    chunk: ChatStreamChunk = await asyncio.wait_for(
+                        aiter.__anext__(),
+                        timeout=self.timeout_seconds,
+                    )
+                except StopAsyncIteration:
+                    break
+
+                if chunk.delta and len(output_preview) < 200:
+                    output_preview += chunk.delta
+
+                if chunk.tokens_prompt:
+                    tokens_prompt = chunk.tokens_prompt
+                if chunk.tokens_completion:
+                    tokens_completion = chunk.tokens_completion
+                if chunk.finish_reason:
+                    finish_reason = chunk.finish_reason
+                if chunk.model:
+                    model_used = chunk.model
+
+                yield chunk
+
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                model_used = model_used or model
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    output_summary=output_preview[:100] if output_preview else None,
+                    metrics={
+                        "tokens_prompt": tokens_prompt,
+                        "tokens_completion": tokens_completion,
+                        "latency_ms": elapsed_ms,
+                        "model": model_used,
+                    },
+                )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="tokens",
+                    quantity=tokens_prompt + tokens_completion,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
+                    prompt_tokens=tokens_prompt,
+                    completion_tokens=tokens_completion,
+                    total_tokens=tokens_prompt + tokens_completion,
+                )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="ms",
+                    quantity=elapsed_ms,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
+                )
+        except Exception as e:
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="LLM_ERROR",
+                    error_message=str(e),
+                    error_details=_error_details(e),
                 )
             raise
     
@@ -184,6 +359,7 @@ class LLMPolicyGateway(LLMPort):
                 limit=self.rate_limit_per_minute,
                 window_seconds=60,
             )
+        await self._check_daily_quota(key_suffix="embed")
         
         step = None
         if self.trace_writer:
@@ -192,7 +368,7 @@ class LLMPolicyGateway(LLMPort):
                 raise ValueError("run_id is required when trace_writer is enabled")
             step = self.trace_writer.create_step(
                 run_id=_resolve_run_id(kwargs, self.ctx),
-                step_type="retrieve",
+                step_type="retrieval",
                 input_summary=f"model={model}, texts={len(texts)}",
             )
             self.trace_writer.update_step_status(step.id, "running")
@@ -220,6 +396,7 @@ class LLMPolicyGateway(LLMPort):
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                model_used = response.model or model
                 self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
@@ -227,13 +404,24 @@ class LLMPolicyGateway(LLMPort):
                         "tokens_used": response.tokens_used,
                         "embedding_count": len(texts),
                         "latency_ms": elapsed_ms,
-                        "model": response.model or model,
+                        "model": model_used,
                     },
                 )
-                self.trace_writer.update_cost(
+                self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
-                    embedding_count=len(texts),
-                    ms_total=elapsed_ms,
+                    step_id=step.id,
+                    unit="embeddings",
+                    quantity=len(texts),
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
+                )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="ms",
+                    quantity=elapsed_ms,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
                 )
             
             return response
@@ -244,6 +432,7 @@ class LLMPolicyGateway(LLMPort):
                     "failed",
                     error_code="EMBED_ERROR",
                     error_message=str(e),
+                    error_details=_error_details(e),
                 )
             raise
     
@@ -275,6 +464,7 @@ class LLMPolicyGateway(LLMPort):
                 limit=self.rate_limit_per_minute,
                 window_seconds=60,
             )
+        await self._check_daily_quota(key_suffix="rerank")
         
         step = None
         if self.trace_writer:
@@ -317,6 +507,7 @@ class LLMPolicyGateway(LLMPort):
             
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                model_used = response.model or model
                 self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
@@ -325,13 +516,24 @@ class LLMPolicyGateway(LLMPort):
                         "rerank_count": len(documents),
                         "top_n": top_n or len(documents),
                         "latency_ms": elapsed_ms,
-                        "model": response.model or model,
+                        "model": model_used,
                     },
                 )
-                self.trace_writer.update_cost(
+                self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
-                    rerank_count=len(documents),
-                    ms_total=elapsed_ms,
+                    step_id=step.id,
+                    unit="rerank",
+                    quantity=len(documents),
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
+                )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="ms",
+                    quantity=elapsed_ms,
+                    provider=_provider_from_model(model_used),
+                    model_ref=model_used,
                 )
             
             return response
@@ -342,5 +544,6 @@ class LLMPolicyGateway(LLMPort):
                     "failed",
                     error_code="RERANK_ERROR",
                     error_message=str(e),
+                    error_details=_error_details(e),
                 )
             raise

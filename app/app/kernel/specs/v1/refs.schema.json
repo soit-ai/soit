@@ -25,6 +25,11 @@
       "pattern": "^tool:(http|function|mcp):[A-Za-z0-9_.:-]+$",
       "description": "Tool reference. Format: tool:{adapter}:{tool_name_or_id}"
     },
+    "NodeRef": {
+      "type": "string",
+      "pattern": "^node:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$",
+      "description": "Workflow node reference. Format: node:{adapter}:{node_name_or_id}"
+    },
     "WorkflowRef": {
       "type": "string",
       "pattern": "^wf:[A-Za-z0-9_.:-]+$",

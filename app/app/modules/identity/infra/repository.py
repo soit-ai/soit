@@ -15,7 +15,30 @@ from app.modules.identity.domain.models import (
     Workspace,
     TenantMembership,
     WorkspaceMembership,
+    ApiKey,
+    ResourceGrant,
 )
+
+
+def _unwrap_result(result):
+    """Unwrap SQLAlchemy row results to model instances."""
+    if result is None:
+        return None
+    if isinstance(result, (list, tuple)):
+        return result[0] if result else None
+    if hasattr(result, "_mapping"):
+        return result[0]
+    return result
+
+
+def _unwrap_all(results):
+    """Unwrap list of SQLAlchemy rows to model instances."""
+    if not results:
+        return []
+    first = results[0]
+    if isinstance(first, (list, tuple)) or hasattr(first, "_mapping"):
+        return [item[0] for item in results]
+    return results
 
 
 class UserRepository:
@@ -50,7 +73,8 @@ class UserRepository:
             User instance or None if not found.
         """
         query = select(User).where(User.email == email)
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return _unwrap_result(result)
     
     def create(self, user: User) -> User:
         """Create a new user.
@@ -112,7 +136,8 @@ class TenantRepository:
             Tenant instance or None if not found.
         """
         query = select(Tenant).where(Tenant.name == name)
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return _unwrap_result(result)
     
     def create(self, tenant: Tenant) -> Tenant:
         """Create a new tenant.
@@ -169,7 +194,8 @@ class WorkspaceRepository(Repository[Workspace]):
                 Workspace.name == name,
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list_by_tenant(self) -> List[Workspace]:
         """List all workspaces in tenant.
@@ -180,7 +206,8 @@ class WorkspaceRepository(Repository[Workspace]):
         query = select(Workspace).where(
             Workspace.tenant_id == self.ctx.tenant_id
         ).order_by(Workspace.created_at.desc())
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
 
 
 class TenantMembershipRepository:
@@ -218,7 +245,8 @@ class TenantMembershipRepository:
         query = select(TenantMembership).where(
             TenantMembership.user_id == user_id
         )
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return _unwrap_all(results)
     
     def get_by_tenant(self, tenant_id: str) -> List[TenantMembership]:
         """Get all memberships for a tenant.
@@ -232,7 +260,8 @@ class TenantMembershipRepository:
         query = select(TenantMembership).where(
             TenantMembership.tenant_id == tenant_id
         )
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return _unwrap_all(results)
     
     def create(self, membership: TenantMembership) -> TenantMembership:
         """Create a new membership.
@@ -323,7 +352,8 @@ class WorkspaceMembershipRepository:
                 WorkspaceMembership.workspace_id == workspace_id,
             )
         )
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return _unwrap_all(results)
     
     def get_by_user(self, user_id: str) -> List[WorkspaceMembership]:
         """Get all workspace memberships for a user.
@@ -340,7 +370,8 @@ class WorkspaceMembershipRepository:
                 WorkspaceMembership.user_id == user_id,
             )
         )
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return _unwrap_all(results)
     
     def create(self, membership: WorkspaceMembership) -> WorkspaceMembership:
         """Create a new membership.
@@ -389,3 +420,108 @@ class WorkspaceMembershipRepository:
         self.db.commit()
         return True
 
+
+class ApiKeyRepository:
+    """Repository for API keys."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_id(self, key_id: str) -> Optional[ApiKey]:
+        return self.db.get(ApiKey, key_id)
+
+    def get_by_hash(self, key_hash: str) -> Optional[ApiKey]:
+        query = select(ApiKey).where(ApiKey.key_hash == key_hash)
+        result = self.db.exec(query).first()
+        return _unwrap_result(result)
+
+    def list_by_workspace(
+        self,
+        tenant_id: str,
+        workspace_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[ApiKey]:
+        query = (
+            select(ApiKey)
+            .where(
+                and_(
+                    ApiKey.tenant_id == tenant_id,
+                    ApiKey.workspace_id == workspace_id,
+                )
+            )
+            .order_by(ApiKey.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        results = list(self.db.exec(query).all())
+        return _unwrap_all(results)
+
+    def create(self, api_key: ApiKey) -> ApiKey:
+        self.db.add(api_key)
+        self.db.commit()
+        self.db.refresh(api_key)
+        return api_key
+
+    def update(self, api_key: ApiKey) -> ApiKey:
+        self.db.commit()
+        self.db.refresh(api_key)
+        return api_key
+
+
+class ResourceGrantRepository(Repository[ResourceGrant]):
+    """Repository for resource grants."""
+
+    def __init__(self, db: Session, ctx: RequestContext):
+        super().__init__(ResourceGrant, db, ctx)
+
+    def get_by_resource_user(
+        self,
+        resource_type: str,
+        resource_id: str,
+        user_id: str,
+    ) -> Optional[ResourceGrant]:
+        query = select(ResourceGrant).where(
+            and_(
+                ResourceGrant.resource_type == resource_type,
+                ResourceGrant.resource_id == resource_id,
+                ResourceGrant.user_id == user_id,
+            )
+        )
+        query = self._apply_scope(query)
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
+
+    def list_by_resource(
+        self,
+        resource_type: str,
+        resource_id: str,
+    ) -> List[ResourceGrant]:
+        query = select(ResourceGrant).where(
+            and_(
+                ResourceGrant.resource_type == resource_type,
+                ResourceGrant.resource_id == resource_id,
+            )
+        )
+        query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
+    def list_by_user(self, user_id: str) -> List[ResourceGrant]:
+        query = select(ResourceGrant).where(ResourceGrant.user_id == user_id)
+        query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
+    def delete_by_resource_user(
+        self,
+        resource_type: str,
+        resource_id: str,
+        user_id: str,
+    ) -> bool:
+        grant = self.get_by_resource_user(resource_type, resource_id, user_id)
+        if not grant:
+            return False
+        self.db.delete(grant)
+        self.db.commit()
+        return True

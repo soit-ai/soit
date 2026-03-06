@@ -73,7 +73,8 @@ class PluginRepository(Repository[Plugin]):
         
         query = query.order_by(desc(Plugin.created_at)).offset(offset).limit(limit)
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
 
 
 class PluginInstallationRepository(Repository[PluginInstallation]):
@@ -118,7 +119,8 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
                 PluginInstallation.plugin_id == plugin_id,
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list_by_workspace(
         self,

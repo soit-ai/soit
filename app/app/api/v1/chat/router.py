@@ -4,12 +4,15 @@ Chat API routes (FastAPI).
 """
 
 from typing import Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Header
 from fastapi.responses import StreamingResponse
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError
-from app.middleware.auth import get_current_context
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.infra.db.pagination import PaginatedResponse
 from app.modules.chat.application.service import ChatService
 from app.modules.chat.application.schemas import (
@@ -30,8 +33,9 @@ router = APIRouter()
 @router.post("/completions", response_model=ChatCompletionResponse)
 async def create_completion(
     request: ChatCompletionRequest,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """Create chat completion.
     
@@ -46,14 +50,15 @@ async def create_completion(
     if request.stream:
         raise ValidationError("Use /chat/stream for streaming responses")
     handlers = ChatHandlers(service)
-    return await handlers.create_completion(ctx, request)
+    return await handlers.create_completion(ctx, request, idempotency_key=idempotency_key)
 
 
 @router.post("/stream")
 async def stream_completion(
     request: ChatCompletionRequest,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """Stream chat completion (SSE).
     
@@ -68,7 +73,7 @@ async def stream_completion(
     handlers = ChatHandlers(service)
     
     async def generate():
-        async for chunk in handlers.stream_completion(ctx, request):
+        async for chunk in handlers.stream_completion(ctx, request, idempotency_key=idempotency_key):
             yield chunk
     
     return StreamingResponse(
@@ -87,7 +92,8 @@ async def get_history(
     conversation_id: Optional[str] = None,
     page_token: Optional[str] = None,
     page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
+    status: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Get chat history.
@@ -103,13 +109,13 @@ async def get_history(
         Paginated chat history.
     """
     handlers = ChatHandlers(service)
-    return await handlers.get_history(ctx, conversation_id, page_token, page_size)
+    return await handlers.get_history(ctx, conversation_id, page_token, page_size, status=status)
 
 
 @router.delete("/history/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
     conversation_id: str,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Delete conversation.
@@ -126,7 +132,7 @@ async def delete_conversation(
 @router.post("/conversations", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     conversation_in: ConversationCreate,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Create a conversation.
@@ -147,7 +153,8 @@ async def create_conversation(
 async def list_conversations(
     page_token: Optional[str] = None,
     page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
+    status: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """List conversations.
@@ -162,13 +169,13 @@ async def list_conversations(
         Paginated conversations.
     """
     handlers = ChatHandlers(service)
-    return await handlers.list_conversations(ctx, page_token, page_size)
+    return await handlers.list_conversations(ctx, page_token, page_size, status=status)
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 async def get_conversation(
     conversation_id: str,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Get conversation by ID.
@@ -189,7 +196,7 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: str,
     conversation_in: ConversationUpdate,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Update conversation.
@@ -210,7 +217,7 @@ async def update_conversation(
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation_by_id(
     conversation_id: str,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """Delete conversation.
@@ -229,7 +236,7 @@ async def list_messages(
     conversation_id: str,
     page_token: Optional[str] = None,
     page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ChatService = Depends(get_chat_service),
 ):
     """List messages in a conversation.

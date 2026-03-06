@@ -3,7 +3,10 @@
 Chat request handlers (thin orchestration).
 """
 
-from typing import Optional, AsyncGenerator, Dict, Any, Iterable
+from typing import Optional, AsyncGenerator, Dict, Any, Iterable, Tuple
+from datetime import datetime
+import asyncio
+import base64
 import json
 
 from app.kernel.contracts.context import RequestContext
@@ -16,7 +19,7 @@ from app.modules.chat.application.schemas import (
     ConversationResponse,
     MessageResponse,
 )
-from app.infra.db.pagination import PaginatedResponse, parse_page_params
+from app.infra.db.pagination import PaginatedResponse
 from app.api.v1.schemas.chat import serialize_conversation, serialize_message
 
 
@@ -30,6 +33,84 @@ class ChatHandlers:
             service: ChatService instance.
         """
         self.service = service
+
+    def _clamp_page_size(self, page_size: int, max_page_size: int = 100) -> int:
+        """Clamp page size to a safe range."""
+        return min(max(1, page_size), max_page_size)
+
+    def _decode_page_token(self, token_str: str) -> Optional[Dict[str, Any]]:
+        """Decode a base64 or JSON page token."""
+        if not token_str:
+            return None
+        try:
+            decoded = base64.b64decode(token_str).decode("utf-8")
+            return json.loads(decoded)
+        except Exception:
+            try:
+                return json.loads(token_str)
+            except Exception:
+                return None
+
+    def _parse_cursor_token(
+        self,
+        page_token: Optional[str],
+        page_size: int,
+        scope: str,
+    ) -> Tuple[int, Optional[datetime], Optional[str], int]:
+        """Parse cursor-based or legacy offset pagination token."""
+        limit = self._clamp_page_size(page_size)
+        cursor_at = None
+        cursor_id = None
+        offset = 0
+
+        data = self._decode_page_token(page_token or "")
+        if not data:
+            return limit, cursor_at, cursor_id, offset
+
+        token_scope = data.get("scope")
+        if token_scope and token_scope != scope:
+            return limit, cursor_at, cursor_id, offset
+
+        if "cursor_at" in data and "cursor_id" in data:
+            cursor_at_raw = data.get("cursor_at")
+            cursor_id_val = data.get("cursor_id")
+            try:
+                if cursor_at_raw and cursor_id_val:
+                    cursor_at = datetime.fromisoformat(cursor_at_raw)
+                    cursor_id = str(cursor_id_val)
+                    limit = self._clamp_page_size(int(data.get("limit", limit)))
+                    return limit, cursor_at, cursor_id, 0
+            except (TypeError, ValueError):
+                cursor_at = None
+                cursor_id = None
+
+        if "offset" in data:
+            try:
+                offset = max(int(data.get("offset", 0)), 0)
+                limit = self._clamp_page_size(int(data.get("limit", limit)))
+            except (TypeError, ValueError):
+                offset = 0
+
+        return limit, cursor_at, cursor_id, offset
+
+    def _encode_cursor_token(
+        self,
+        scope: str,
+        limit: int,
+        cursor_at: Optional[datetime],
+        cursor_id: Optional[str],
+    ) -> Optional[str]:
+        """Encode cursor pagination token."""
+        if not cursor_at or not cursor_id:
+            return None
+        payload = {
+            "scope": scope,
+            "limit": limit,
+            "cursor_at": cursor_at.isoformat(),
+            "cursor_id": cursor_id,
+        }
+        encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        return base64.b64encode(encoded.encode("utf-8")).decode("utf-8")
 
     def _chunk_text(self, text: str, chunk_size: int = 80) -> Iterable[str]:
         """Split text into fixed-size chunks.
@@ -49,6 +130,7 @@ class ChatHandlers:
         self,
         ctx: RequestContext,
         data: ChatCompletionRequest,
+        idempotency_key: Optional[str] = None,
     ) -> ChatCompletionResponse:
         """Create chat completion.
         
@@ -59,7 +141,7 @@ class ChatHandlers:
         Returns:
             Completion result.
         """
-        result = await self.service.create_completion(data)
+        result = await self.service.create_completion(data, idempotency_key=idempotency_key)
         return ChatCompletionResponse(
             run_id=result["run_id"],
             conversation_id=result["conversation"].id,
@@ -74,6 +156,7 @@ class ChatHandlers:
         self,
         ctx: RequestContext,
         data: ChatCompletionRequest,
+        idempotency_key: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion (SSE).
         
@@ -84,17 +167,49 @@ class ChatHandlers:
         Yields:
             SSE formatted data chunks.
         """
-        result = await self.service.create_completion(data)
-        run_id = result["run_id"]
-        conversation_id = result["conversation"].id
-        message = result["message"]
-
-        yield f"event: start\ndata: {json.dumps({'run_id': run_id, 'conversation_id': conversation_id})}\n\n"
-
-        for chunk in self._chunk_text(message.content):
-            yield f"event: delta\ndata: {json.dumps({'run_id': run_id, 'delta': chunk})}\n\n"
-
-        yield f"event: complete\ndata: {json.dumps({'run_id': run_id, 'message_id': message.id, 'model': result['model'], 'tokens_prompt': result['tokens_prompt'], 'tokens_completion': result['tokens_completion'], 'finish_reason': result['finish_reason']})}\n\n"
+        try:
+            async for event in self.service.stream_completion(data, idempotency_key=idempotency_key):
+                event_type = event.get("type")
+                if event_type == "start":
+                    payload = {
+                        "run_id": event["run_id"],
+                        "conversation_id": event["conversation_id"],
+                        "request_id": ctx.request_id,
+                    }
+                    yield f"event: start\ndata: {json.dumps(payload)}\n\n"
+                    continue
+                if event_type == "delta":
+                    delta = event.get("delta") or ""
+                    run_id = event.get("run_id")
+                    chunk_size = data.stream_chunk_size or 80
+                    for chunk in self._chunk_text(delta, chunk_size=chunk_size):
+                        payload = {"delta": chunk}
+                        if run_id:
+                            payload["run_id"] = run_id
+                        yield f"event: delta\ndata: {json.dumps(payload)}\n\n"
+                    continue
+                if event_type == "complete":
+                    message = event["message"]
+                    payload = {
+                        "run_id": event["run_id"],
+                        "message_id": message.id,
+                        "model": event["model"],
+                        "tokens_prompt": event["tokens_prompt"],
+                        "tokens_completion": event["tokens_completion"],
+                        "finish_reason": event["finish_reason"],
+                    }
+                    payload["metadata"] = message.metadata_json or {}
+                    yield f"event: complete\ndata: {json.dumps(payload)}\n\n"
+                    continue
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            payload = {
+                "error": str(exc),
+                "request_id": ctx.request_id,
+            }
+            yield f"event: error\ndata: {json.dumps(payload)}\n\n"
+            return
     
     async def get_history(
         self,
@@ -102,6 +217,7 @@ class ChatHandlers:
         conversation_id: Optional[str] = None,
         page_token: Optional[str] = None,
         page_size: int = 20,
+        status: Optional[str] = None,
     ) -> PaginatedResponse[Dict[str, Any]]:
         """Get chat history.
         
@@ -114,21 +230,30 @@ class ChatHandlers:
         Returns:
             Paginated history.
         """
-        limit, token_obj = parse_page_params(page_token, page_size)
-        offset = token_obj.offset if token_obj else 0
+        limit, cursor_at, cursor_id, offset = self._parse_cursor_token(
+            page_token,
+            page_size,
+            scope="messages" if conversation_id else "conversations",
+        )
+        limit_plus = limit + 1
         
         if conversation_id:
             # Get messages in conversation
-            messages = self.service.get_messages(
+            messages = await self.service.get_messages(
                 conversation_id=conversation_id,
-                limit=limit,
+                limit=limit_plus,
                 offset=offset,
+                cursor_at=cursor_at,
+                cursor_id=cursor_id,
             )
             
+            has_next = len(messages) > limit
+            messages = messages[:limit]
             items = [
                 {
                     "id": msg.id,
                     "conversation_id": msg.conversation_id,
+                    "parent_id": msg.parent_id,
                     "role": msg.role,
                     "content": msg.content,
                     "model_ref": msg.model_ref,
@@ -137,28 +262,39 @@ class ChatHandlers:
                     "finish_reason": msg.finish_reason,
                     "run_id": msg.run_id,
                     "created_by": msg.created_by,
-                    "metadata": msg.metadata_json,
+                    "metadata_json": msg.metadata_json,
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
                 }
                 for msg in messages
             ]
-            
-            has_next = len(messages) == limit
-            next_offset = offset + len(messages) if has_next else None
-            
-            return PaginatedResponse.create(
+
+            next_token = None
+            if has_next and messages:
+                last = messages[-1]
+                next_token = self._encode_cursor_token(
+                    "messages",
+                    limit,
+                    last.created_at,
+                    last.id,
+                )
+
+            return PaginatedResponse(
                 items=items,
+                next_page_token=next_token,
                 page_size=len(items),
-                has_next=has_next,
-                next_offset=next_offset,
             )
         else:
             # List conversations
-            conversations = self.service.list_conversations(
-                limit=limit,
+            conversations = await self.service.list_conversations(
+                limit=limit_plus,
                 offset=offset,
+                cursor_at=cursor_at,
+                cursor_id=cursor_id,
+                status=status,
             )
             
+            has_next = len(conversations) > limit
+            conversations = conversations[:limit]
             items = [
                 {
                     "id": conv.id,
@@ -179,15 +315,21 @@ class ChatHandlers:
                 }
                 for conv in conversations
             ]
-            
-            has_next = len(conversations) == limit
-            next_offset = offset + len(conversations) if has_next else None
-            
-            return PaginatedResponse.create(
+
+            next_token = None
+            if has_next and conversations:
+                last = conversations[-1]
+                next_token = self._encode_cursor_token(
+                    "conversations",
+                    limit,
+                    last.updated_at,
+                    last.id,
+                )
+
+            return PaginatedResponse(
                 items=items,
+                next_page_token=next_token,
                 page_size=len(items),
-                has_next=has_next,
-                next_offset=next_offset,
             )
     
     async def delete_conversation(
@@ -201,7 +343,7 @@ class ChatHandlers:
             ctx: Request context.
             conversation_id: Conversation ID.
         """
-        self.service.delete_conversation(conversation_id)
+        await self.service.delete_conversation(conversation_id)
 
     async def create_conversation(
         self,
@@ -217,7 +359,7 @@ class ChatHandlers:
         Returns:
             Created conversation.
         """
-        conversation = self.service.create_conversation(data)
+        conversation = await self.service.create_conversation(data)
         return ConversationResponse.model_validate(conversation)
 
     async def update_conversation(
@@ -236,7 +378,7 @@ class ChatHandlers:
         Returns:
             Updated conversation.
         """
-        conversation = self.service.update_conversation(conversation_id, data)
+        conversation = await self.service.update_conversation(conversation_id, data)
         return ConversationResponse.model_validate(conversation)
 
     async def get_conversation(
@@ -253,7 +395,7 @@ class ChatHandlers:
         Returns:
             Conversation details.
         """
-        conversation = self.service.get_conversation(conversation_id)
+        conversation = await self.service.get_conversation(conversation_id)
         return ConversationResponse.model_validate(conversation)
 
     async def list_conversations(
@@ -261,6 +403,7 @@ class ChatHandlers:
         ctx: RequestContext,
         page_token: Optional[str],
         page_size: int,
+        status: Optional[str] = None,
     ) -> PaginatedResponse[Dict[str, Any]]:
         """List conversations.
 
@@ -272,19 +415,37 @@ class ChatHandlers:
         Returns:
             Paginated conversations.
         """
-        limit, token_obj = parse_page_params(page_token, page_size)
-        offset = token_obj.offset if token_obj else 0
-        conversations = self.service.list_conversations(limit=limit, offset=offset)
+        limit, cursor_at, cursor_id, offset = self._parse_cursor_token(
+            page_token,
+            page_size,
+            scope="conversations",
+        )
+        limit_plus = limit + 1
+        conversations = await self.service.list_conversations(
+            limit=limit_plus,
+            offset=offset,
+            cursor_at=cursor_at,
+            cursor_id=cursor_id,
+            status=status,
+        )
 
+        has_next = len(conversations) > limit
+        conversations = conversations[:limit]
         items = [serialize_conversation(conv) for conv in conversations]
-        has_next = len(conversations) == limit
-        next_offset = offset + len(conversations) if has_next else None
+        next_token = None
+        if has_next and conversations:
+            last = conversations[-1]
+            next_token = self._encode_cursor_token(
+                "conversations",
+                limit,
+                last.updated_at,
+                last.id,
+            )
 
-        return PaginatedResponse.create(
+        return PaginatedResponse(
             items=items,
+            next_page_token=next_token,
             page_size=len(items),
-            has_next=has_next,
-            next_offset=next_offset,
         )
 
     async def list_messages(
@@ -305,22 +466,36 @@ class ChatHandlers:
         Returns:
             Paginated messages.
         """
-        limit, token_obj = parse_page_params(page_token, page_size)
-        offset = token_obj.offset if token_obj else 0
+        limit, cursor_at, cursor_id, offset = self._parse_cursor_token(
+            page_token,
+            page_size,
+            scope="messages",
+        )
+        limit_plus = limit + 1
 
-        messages = self.service.get_messages(
+        messages = await self.service.get_messages(
             conversation_id=conversation_id,
-            limit=limit,
+            limit=limit_plus,
             offset=offset,
+            cursor_at=cursor_at,
+            cursor_id=cursor_id,
         )
 
+        has_next = len(messages) > limit
+        messages = messages[:limit]
         items = [serialize_message(msg) for msg in messages]
-        has_next = len(messages) == limit
-        next_offset = offset + len(messages) if has_next else None
+        next_token = None
+        if has_next and messages:
+            last = messages[-1]
+            next_token = self._encode_cursor_token(
+                "messages",
+                limit,
+                last.created_at,
+                last.id,
+            )
 
-        return PaginatedResponse.create(
+        return PaginatedResponse(
             items=items,
+            next_page_token=next_token,
             page_size=len(items),
-            has_next=has_next,
-            next_offset=next_offset,
         )

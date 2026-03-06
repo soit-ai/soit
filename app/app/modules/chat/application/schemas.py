@@ -5,7 +5,7 @@ Chat domain schemas.
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ChatMessageInput(BaseModel):
@@ -99,8 +99,7 @@ class ConversationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageResponse(BaseModel):
@@ -108,6 +107,7 @@ class MessageResponse(BaseModel):
 
     id: str
     conversation_id: str
+    parent_id: Optional[str] = None
     role: str
     content: str
     model_ref: Optional[str]
@@ -119,8 +119,59 @@ class MessageResponse(BaseModel):
     metadata_json: Optional[Dict[str, Any]]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatRagConfig(BaseModel):
+    """RAG configuration for dataset retrieval."""
+
+    dataset_ids: List[str] = Field(..., min_length=1)
+    """Dataset IDs to search."""
+
+    query: Optional[str] = None
+    """Optional query override (defaults to latest user message)."""
+
+    top_k: int = Field(default=5, ge=1, le=50)
+    """Number of retrieval results per dataset."""
+
+    strategy: Optional[str] = Field(default=None, pattern="^(vector|multi_index|keyword|hybrid)$")
+    """Retrieval strategy."""
+
+    index_id: Optional[str] = None
+    """Index ID (use default if not specified)."""
+
+    index_ids: Optional[List[str]] = None
+    """Index IDs for multi-index retrieval."""
+
+    filter: Optional[Dict[str, Any]] = None
+    """Metadata filter."""
+
+    use_rerank: bool = Field(default=False)
+    """Whether to use reranking."""
+
+    reranker_ref: Optional[str] = None
+    """Reranker reference."""
+
+    include_snippets: bool = Field(default=True)
+    """Whether to include snippets."""
+
+    snippet_length: int = Field(default=160, ge=40, le=1000)
+    """Snippet length."""
+
+    max_snippets: int = Field(default=2, ge=0, le=10)
+    """Max snippets per result."""
+
+    keyword_top_k: Optional[int] = Field(default=None, ge=1, le=200)
+    """Top K for keyword retrieval."""
+
+    keyword_candidate_limit: Optional[int] = Field(default=None, ge=10, le=10000)
+    """Candidate limit for keyword retrieval."""
+
+    keyword_min_score: Optional[int] = Field(default=None, ge=1)
+    """Minimum keyword score for inclusion."""
+
+    hybrid_alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    """Hybrid retrieval alpha."""
 
 
 class ChatCompletionRequest(BaseModel):
@@ -129,8 +180,11 @@ class ChatCompletionRequest(BaseModel):
     conversation_id: Optional[str] = None
     """Conversation ID (optional)."""
 
-    messages: List[ChatMessageInput] = Field(..., min_length=1)
-    """Chat messages."""
+    parent_message_id: Optional[str] = None
+    """Parent message ID for branch continuations/reloads."""
+
+    messages: List[ChatMessageInput] = Field(default_factory=list)
+    """New messages to append under parent_message_id (can be empty for reload)."""
 
     model: Optional[str] = None
     """Model reference (provider:model)."""
@@ -155,6 +209,12 @@ class ChatCompletionRequest(BaseModel):
 
     metadata: Optional[Dict[str, Any]] = None
     """Conversation metadata (used when creating new conversation)."""
+
+    stream_chunk_size: Optional[int] = Field(default=None, ge=1, le=2000)
+    """Optional chunk size for streaming responses."""
+
+    rag: Optional[ChatRagConfig] = None
+    """Optional dataset retrieval configuration."""
 
 
 class ChatCompletionResponse(BaseModel):

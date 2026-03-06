@@ -30,10 +30,17 @@ Optional:
 1. Upload package via API: `POST /v1/pluginmarket/{plugin_id}/install-package`
 2. `installer.py`:
    - checks sha256 (optional)
+   - verifies integrity digest/signature if enabled by settings
    - safe-extracts zip (blocks path traversal)
    - validates `plugin_spec` via `kernel/specs`
    - stores normalized `manifest.json` and `spec.json`
    - registers the plugin into in-process `kernel.registry`
+3. `service.py`:
+   - enforces compatibility constraints (platform version + feature flags)
+   - applies optional rollout gating (`spec.release`)
+
+Signature verification (when enabled) expects an Ed25519 detached signature over
+the integrity digest string (`sha256:<hex>`), and base64-encoded public keys.
 
 ## Enable/disable
 
@@ -42,6 +49,5 @@ No DB schema changes:
 
 ## Next steps (planned)
 
-- signature verification (ed25519/rsa)
 - dependency resolution between plugins
 - a concrete `PluginRuntimePort` adapter (http/subprocess/container)

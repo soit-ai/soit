@@ -153,8 +153,27 @@ npm run dev
 ### Docker Compose 启动
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
+
+启动后默认行为：
+- 自动执行数据库迁移（alembic upgrade head）。
+- 自动初始化默认管理员/租户（可通过环境变量覆盖）。
+- 自动启动 dataset ingest worker（后台消费任务）。
+- Web 默认端口：`http://localhost:5000`
+- API 默认端口：`http://localhost:9200`
+
+默认管理员可通过以下环境变量配置（见 `.env.example`）：
+- `BOOTSTRAP_ADMIN_EMAIL`
+- `BOOTSTRAP_ADMIN_PASSWORD`
+- `BOOTSTRAP_ADMIN_NAME`
+- `BOOTSTRAP_TENANT_NAME`
+
+常见启动问题排查：
+- `milvus` 启动失败：确认 `etcd` 和 `minio` 健康后再观察 `milvus` 日志。
+- `vault` 健康检查失败：确认端口 `8200` 未被占用，且容器为 dev 模式。
+- `api` 启动失败：优先查看 `migrate`/`bootstrap` 容器日志是否失败。
+- `web` 无法访问：确认 `web` 容器健康且 `PORT=5000` 生效。
 
 ## 许可证
 

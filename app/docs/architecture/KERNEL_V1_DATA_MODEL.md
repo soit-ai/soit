@@ -43,12 +43,12 @@ It is designed to be stable for years and to support:
 
 ### tenant_memberships
 - PK `(tenant_id, user_id)`
-- `role` (Owner/Admin/Member)
+- `role` (Owner/Admin/Dev/Viewer)
 - `created_at`
 
 ### workspace_memberships
 - PK `(tenant_id, workspace_id, user_id)`
-- `role` (Owner/Maintainer/Reader)
+- `role` (Owner/Admin/Dev/Viewer)
 - `created_at`
 
 ---
@@ -60,6 +60,8 @@ Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`
 - `type` (chat/bot/workflow/agent/app)
+- `status` (active/archived)
+- `visibility` (private/workspace/public)
 - `name`, `description`
 - `current_version_id` (nullable)
 - UNIQUE `(tenant_id, workspace_id, name)`
@@ -76,20 +78,9 @@ Workspace-scoped.
 
 ## 3. Workflow (definition and immutable versions)
 
-### workflows
-Workspace-scoped.
-- `id` PK
-- `tenant_id`, `workspace_id`
-- `name`, `description`
-- `current_version_id` nullable
-- UNIQUE `(tenant_id, workspace_id, name)`
-
-### workflow_versions (immutable)
-- `id` PK
-- `tenant_id`, `workspace_id`, `workflow_id` FK → workflows.id
-- `graph_json` (WorkflowSpec)
-- `created_by`, `created_at`
-- INDEX `(tenant_id, workspace_id, workflow_id, created_at DESC)`
+Workflow definitions are stored in `apps/app_versions` with:
+- `apps.type = WORKFLOW`
+- `app_versions.spec_schema = workflow.v1`
 
 ---
 
@@ -100,7 +91,9 @@ Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`
 - `mode` (chat/bot/workflow/agent)
-- `app_version_id` nullable
+- `app_id` FK → apps.id (required)
+- `app_version_id` FK → app_versions.id (required)
+- `app_type` (optional redundancy)
 - `status` (queued/running/succeeded/failed/canceled)
 - `input_summary`, `output_summary` (bounded)
 - `started_at`, `ended_at`
@@ -124,12 +117,16 @@ Workspace-scoped.
 - `meta_json` (mime/size/hash)
 - INDEX `(tenant_id, workspace_id, run_id)`
 
-### run_costs
-- `run_id` UNIQUE (or PK)
+### run_cost_entries
+- `id` PK
+- `run_id` FK
+- `step_id` nullable
 - `tenant_id`, `workspace_id`
-- `tokens_prompt`, `tokens_completion`
-- `embedding_count`, `rerank_count`
-- `ms_total`, `storage_bytes`
+- `currency`, `amount`
+- `unit`, `quantity`
+- `provider`, `model_ref`, `tool_ref`
+- `prompt_tokens`, `completion_tokens`, `total_tokens`
+- `created_at`
 - INDEX `(tenant_id, workspace_id, run_id)`
 
 ---
@@ -216,4 +213,3 @@ Workspace-scoped.
 - Any UNIQUE constraint for workspace resources MUST include `(tenant_id, workspace_id, ...)`.
 - Any listing query MUST have an index starting with `(tenant_id, workspace_id, ...)`.
 - For trace tables, ensure fast lookup by `(tenant_id, workspace_id, run_id)`.
-

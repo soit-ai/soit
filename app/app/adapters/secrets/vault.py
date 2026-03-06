@@ -3,7 +3,7 @@
 Vault secrets gateway adapter implementation.
 """
 
-from typing import Optional
+from typing import Any, Optional
 import hvac
 
 from app.kernel.ports.secrets.interface import SecretsPort

@@ -25,6 +25,7 @@ POST {base_url}{invoke_path}
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -32,6 +33,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError
 from app.kernel.registry.deps import get_registry
 from app.kernel.ports.plugins.interface import PluginRuntimePort
+from app.settings.settings import settings
 
 
 class HTTPPluginRuntimePort(PluginRuntimePort):
@@ -81,7 +83,13 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
         base_url = runtime.get("base_url")
         if not base_url:
             raise ValidationError("Plugin manifest missing runtime.base_url")
+        parsed = urlparse(base_url)
+        host = (parsed.hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1") and not settings.plugin_runtime_allow_localhost:
+            raise ValidationError("Plugin runtime must run out-of-process (localhost not allowed)")
         invoke_path = runtime.get("invoke_path") or "/invoke"
+        if not str(invoke_path).startswith("/"):
+            invoke_path = f"/{invoke_path}"
         url = base_url.rstrip("/") + invoke_path
 
         context_json: Dict[str, Any] = {

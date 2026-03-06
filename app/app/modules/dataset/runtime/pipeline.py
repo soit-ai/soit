@@ -60,6 +60,7 @@ class DocumentPipeline:
         document: DatasetDocument,
         dataset: Dataset,
         file_content: Optional[bytes] = None,
+        run_id: Optional[str] = None,
     ) -> DatasetDocument:
         """Process document through pipeline.
         
@@ -76,35 +77,89 @@ class DocumentPipeline:
             document.status = "parsing"
             document.updated_at = utc_now()
             self.db.commit()
-            
-            parsed_doc = await self._parse_document(document, file_content)
-            
+
+            parse_step_id = None
+            if run_id:
+                parse_step = self.trace_writer.create_step(
+                    run_id=run_id,
+                    step_type="io",
+                    step_id="parse",
+                    input_summary=f"document_id={document.id}",
+                )
+                parse_step_id = parse_step.id
+                self.trace_writer.update_step_status(parse_step_id, "running")
+
+            parsed_doc = await self._parse_document(document, file_content, run_id=run_id)
+
             document.status = "parsed"
             document.parse_meta_json = parsed_doc.metadata
             document.updated_at = utc_now()
             self.db.commit()
+
+            if parse_step_id:
+                self.trace_writer.update_step_status(
+                    parse_step_id,
+                    "succeeded",
+                    output_summary=f"chars={len(parsed_doc.text)}",
+                )
             
             # Step 2: Chunk document
             document.status = "chunking"
             document.updated_at = utc_now()
             self.db.commit()
-            
-            chunks = await self._chunk_document(document, dataset, parsed_doc.text)
-            
+
+            chunk_step_id = None
+            if run_id:
+                chunk_step = self.trace_writer.create_step(
+                    run_id=run_id,
+                    step_type="io",
+                    step_id="chunk",
+                    input_summary=f"document_id={document.id}",
+                )
+                chunk_step_id = chunk_step.id
+                self.trace_writer.update_step_status(chunk_step_id, "running")
+
+            chunks = await self._chunk_document(document, dataset, parsed_doc.text, run_id=run_id)
+
             document.status = "chunked"
             document.updated_at = utc_now()
             self.db.commit()
+
+            if chunk_step_id:
+                self.trace_writer.update_step_status(
+                    chunk_step_id,
+                    "succeeded",
+                    output_summary=f"chunks={len(chunks)}",
+                )
             
             # Step 3: Generate embeddings and index
             document.status = "indexing"
             document.updated_at = utc_now()
             self.db.commit()
-            
-            await self._index_chunks(document, dataset, chunks)
-            
+
+            index_step_id = None
+            if run_id:
+                index_step = self.trace_writer.create_step(
+                    run_id=run_id,
+                    step_type="io",
+                    step_id="index",
+                    input_summary=f"document_id={document.id}",
+                )
+                index_step_id = index_step.id
+                self.trace_writer.update_step_status(index_step_id, "running")
+
+            await self._index_chunks(document, dataset, chunks, run_id=run_id)
+
             document.status = "indexed"
             document.updated_at = utc_now()
             self.db.commit()
+
+            if index_step_id:
+                self.trace_writer.update_step_status(
+                    index_step_id,
+                    "succeeded",
+                    output_summary=f"vectors={len(chunks)}",
+                )
             
             # Update dataset statistics
             self._update_dataset_stats(dataset)
@@ -125,6 +180,7 @@ class DocumentPipeline:
         self,
         document: DatasetDocument,
         file_content: Optional[bytes],
+        run_id: Optional[str] = None,
     ) -> Any:
         """Parse document.
         
@@ -143,7 +199,8 @@ class DocumentPipeline:
             # Load from storage gateway
             try:
                 file_content = await self.storage_port.get(
-                    storage_key=document.file_id,
+                    key=document.file_id,
+                    run_id=run_id,
                 )
             except Exception as e:
                 raise KernelError("STORAGE_ERROR", f"Failed to load file from storage: {str(e)}")
@@ -151,9 +208,9 @@ class DocumentPipeline:
         # Get parser
         mime_type = document.mime_type or "text/plain"
         parser_class = get_parser(mime_type)
-        
         if not parser_class:
-            raise KernelError("UNSUPPORTED_FORMAT", f"Unsupported MIME type: {mime_type}")
+            from app.modules.dataset.infra.parsers.text import TextParser
+            parser_class = TextParser
         
         parser = parser_class()
         parsed_doc = await parser.parse(
@@ -171,9 +228,10 @@ class DocumentPipeline:
                 
                 # Save to object storage
                 await self.storage_port.put(
-                    storage_key=storage_key,
-                    content=parsed_doc.text.encode("utf-8"),
+                    key=storage_key,
+                    data=parsed_doc.text.encode("utf-8"),
                     content_type="text/plain",
+                    run_id=run_id,
                 )
                 
                 # Set artifact key
@@ -184,6 +242,26 @@ class DocumentPipeline:
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to save parsed text to storage: {str(e)}")
         
+        if parsed_doc.structured_data:
+            try:
+                from app.kernel.commons.ids import generate_ulid
+                import json
+                storage_key = f"datasets/{document.dataset_id}/documents/{document.id}/parsed_{generate_ulid()}.json"
+                await self.storage_port.put(
+                    key=storage_key,
+                    data=json.dumps(parsed_doc.structured_data).encode("utf-8"),
+                    content_type="application/json",
+                    run_id=run_id,
+                )
+                document.parsed_artifact_key = storage_key
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to save parsed data to storage: {str(e)}")
+
+        if parsed_doc.metadata.get("title") and not document.title:
+            document.title = parsed_doc.metadata["title"]
+
         return parsed_doc
     
     async def _chunk_document(
@@ -191,6 +269,7 @@ class DocumentPipeline:
         document: DatasetDocument,
         dataset: Dataset,
         text: str,
+        run_id: Optional[str] = None,
     ) -> List[DatasetChunk]:
         """Chunk document text.
         
@@ -204,6 +283,7 @@ class DocumentPipeline:
         """
         # Get chunking config
         chunking_config = document.chunking_json or dataset.chunking_json or {}
+        document.chunking_json = chunking_config
         chunk_size = chunking_config.get("chunk_size", 1000)
         chunk_overlap = chunking_config.get("chunk_overlap", 200)
         separators = chunking_config.get("separators", None)
@@ -243,6 +323,7 @@ class DocumentPipeline:
                 page_no=chunk.page_no,
                 section_path=chunk.section_path or [],
                 char_count=len(chunk.text),
+                token_count=len(chunk.text.split()),
                 index_status="pending",
             )
             
@@ -254,9 +335,10 @@ class DocumentPipeline:
                 
                 # Save to object storage
                 await self.storage_port.put(
-                    storage_key=storage_key,
-                    content=chunk.text.encode("utf-8"),
+                    key=storage_key,
+                    data=chunk.text.encode("utf-8"),
                     content_type="text/plain",
+                    run_id=run_id,
                 )
                 
                 # Set artifact key
@@ -279,6 +361,7 @@ class DocumentPipeline:
         document: DatasetDocument,
         dataset: Dataset,
         chunks: List[DatasetChunk],
+        run_id: Optional[str] = None,
     ) -> None:
         """Index chunks in vector database.
         
@@ -306,7 +389,12 @@ class DocumentPipeline:
             raise KernelError("INDEX_NOT_FOUND", f"Index {index_id} not found")
         
         # Build index with these chunks
-        await self.index_builder.build_index(index, chunks=chunks, incremental=True)
+        await self.index_builder.build_index(
+            index,
+            chunks=chunks,
+            incremental=True,
+            run_id=run_id,
+        )
         
         # Update document index metadata
         document.index_meta_json = {
@@ -330,4 +418,5 @@ class DocumentPipeline:
             dataset.id,
             doc_count=doc_count,
             chunk_count=chunk_count,
+            last_indexed_at=utc_now(),
         )

@@ -7,7 +7,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status, UploadFile, File
 
 from app.kernel.contracts.context import RequestContext
-from app.middleware.auth import get_current_context
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.modules.pluginmarket.application.service import PluginMarketService
 from app.modules.pluginmarket.application.schemas import (
     PluginCreate,
@@ -16,6 +19,7 @@ from app.modules.pluginmarket.application.schemas import (
     PluginEnableRequest,
     PluginInstallationResponse,
     PluginPackageInstallResponse,
+    PluginUpgradeResponse,
     PluginResponse,
     PluginRuntimeReloadResponse,
     RuntimeToolListResponse,
@@ -31,7 +35,7 @@ router = APIRouter()
 @router.post("", response_model=PluginResponse, status_code=status.HTTP_201_CREATED)
 async def create_plugin(
     plugin_in: PluginCreate,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Create a new plugin.
@@ -53,7 +57,7 @@ async def list_plugins(
     published_only: bool = False,
     page_token: Optional[str] = None,
     page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """List plugins.
@@ -75,7 +79,7 @@ async def list_plugins(
 @router.get("/{plugin_id}", response_model=PluginResponse)
 async def get_plugin(
     plugin_id: str,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Get plugin by ID.
@@ -96,7 +100,7 @@ async def get_plugin(
 async def update_plugin(
     plugin_id: str,
     plugin_in: PluginUpdate,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Update plugin.
@@ -118,7 +122,7 @@ async def update_plugin(
 async def install_plugin(
     plugin_id: str,
     install_request: PluginInstallRequest,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Install a plugin.
@@ -139,7 +143,7 @@ async def install_plugin(
 @router.delete("/{plugin_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_plugin(
     plugin_id: str,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Delete plugin.
@@ -158,7 +162,7 @@ async def install_plugin_package(
     plugin_id: str,
     package: UploadFile = File(...),
     expected_sha256: Optional[str] = None,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Install a plugin from uploaded package (zip)."""
@@ -167,11 +171,36 @@ async def install_plugin_package(
     return await handlers.install_plugin_package(ctx, plugin_id, package_bytes, expected_sha256)
 
 
+@router.post("/{plugin_id}/upgrade-package", response_model=PluginUpgradeResponse)
+async def upgrade_plugin_package(
+    plugin_id: str,
+    package: UploadFile = File(...),
+    expected_sha256: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginMarketService = Depends(get_pluginmarket_service),
+):
+    """Upgrade a plugin from uploaded package (zip)."""
+    handlers = PluginMarketHandlers(service)
+    package_bytes = await package.read()
+    return await handlers.upgrade_plugin_package(ctx, plugin_id, package_bytes, expected_sha256)
+
+
+@router.delete("/{plugin_id}/install", status_code=status.HTTP_204_NO_CONTENT)
+async def uninstall_plugin(
+    plugin_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginMarketService = Depends(get_pluginmarket_service),
+):
+    """Uninstall a plugin from workspace."""
+    handlers = PluginMarketHandlers(service)
+    await handlers.uninstall_plugin(ctx, plugin_id)
+
+
 @router.post("/{plugin_id}/enabled", response_model=PluginInstallationResponse)
 async def set_plugin_enabled(
     plugin_id: str,
     req: PluginEnableRequest,
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Enable/disable a plugin installation in this workspace."""
@@ -183,7 +212,7 @@ async def set_plugin_enabled(
 
 @router.post("/runtime/reload", response_model=PluginRuntimeReloadResponse)
 async def reload_plugin_runtime(
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """Reload installed plugins from filesystem into runtime registry."""
@@ -193,7 +222,7 @@ async def reload_plugin_runtime(
 
 @router.get("/runtime/tools", response_model=RuntimeToolListResponse)
 async def list_runtime_tools(
-    ctx: RequestContext = Depends(get_current_context),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginMarketService = Depends(get_pluginmarket_service),
 ):
     """List tool specs currently available in runtime registry."""

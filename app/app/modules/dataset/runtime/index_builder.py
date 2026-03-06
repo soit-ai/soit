@@ -68,6 +68,7 @@ class IndexBuilder:
         index: DatasetIndex,
         chunks: Optional[List[DatasetChunk]] = None,
         incremental: bool = True,
+        run_id: Optional[str] = None,
     ) -> None:
         """Build or update index.
         
@@ -107,14 +108,15 @@ class IndexBuilder:
             
             # Generate embeddings
             texts = []
-            chunk_ids = []
+            indexed_chunks = []
             for chunk in chunks:
                 # Get chunk text (from artifact or preview)
                 if chunk.text_artifact_key and self.storage_port:
                     # Load from object storage
                     try:
                         content = await self.storage_port.get(
-                            storage_key=chunk.text_artifact_key,
+                            key=chunk.text_artifact_key,
+                            run_id=run_id,
                         )
                         text = content.decode("utf-8") if isinstance(content, bytes) else content
                     except Exception as e:
@@ -128,7 +130,7 @@ class IndexBuilder:
                 
                 if text:
                     texts.append(text)
-                    chunk_ids.append(chunk.id)
+                    indexed_chunks.append(chunk)
             
             if not texts:
                 index.status = "ready"
@@ -140,18 +142,24 @@ class IndexBuilder:
             embeddings = await self.embedding_service.embed_batch(
                 texts=texts,
                 model_ref=index.embedding_model_ref,
+                run_id=run_id,
             )
+
+            if index.dimension == 0 and embeddings:
+                index.dimension = len(embeddings[0])
             
             # Prepare vectors for insertion
             vectors = []
-            for i, (chunk_id, embedding) in enumerate(zip(chunk_ids, embeddings)):
+            for chunk, embedding in zip(indexed_chunks, embeddings):
+                chunk_id = chunk.id
                 vectors.append({
                     "id": chunk_id,
                     "vector": embedding,
                     "metadata": {
                         "chunk_id": chunk_id,
                         "dataset_id": index.dataset_id,
-                        "document_id": chunks[i].document_id,
+                        "document_id": chunk.document_id,
+                        "text_preview": chunk.text_preview,
                     },
                 })
             
@@ -170,10 +178,11 @@ class IndexBuilder:
                 ids=vector_ids,
                 metadata=vector_metadata,
                 index_ref=index_ref,
+                run_id=run_id,
             )
             
             # Update chunk vector_refs and status
-            for chunk, vector_data in zip(chunks, vectors):
+            for chunk, vector_data in zip(indexed_chunks, vectors):
                 chunk.vector_ref = vector_data["id"]
                 chunk.index_status = "indexed"
                 chunk.indexed_at = utc_now()
@@ -181,7 +190,8 @@ class IndexBuilder:
             
             # Update index statistics
             index.vector_count = len(vectors)
-            index.chunk_count = len(chunks)
+            index.chunk_count = len(indexed_chunks)
+            index.doc_count = len({chunk.document_id for chunk in indexed_chunks})
             index.status = "ready"
             index.last_build_at = utc_now()
             if not incremental:
@@ -201,11 +211,33 @@ class IndexBuilder:
     async def rebuild_index(
         self,
         index: DatasetIndex,
+        run_id: Optional[str] = None,
     ) -> None:
         """Rebuild index from scratch.
         
         Args:
             index: Index configuration.
         """
-        await self.build_index(index, incremental=False)
+        # Delete existing vectors
+        chunks = self.chunk_repo.list_by_dataset(
+            index.dataset_id,
+            limit=10000,
+        )
+        vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks]
+        collection_name = index.collection_name or f"idx_{index.id}"
+        if vector_ids:
+            await self.vector_port.delete(
+                collection=collection_name,
+                ids=vector_ids,
+                run_id=run_id,
+            )
+
+        for chunk in chunks:
+            chunk.index_status = "pending"
+            chunk.indexed_at = None
+            chunk.vector_ref = None
+
+        self.db.commit()
+
+        await self.build_index(index, chunks=chunks, incremental=False, run_id=run_id)
 

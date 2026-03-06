@@ -23,6 +23,15 @@ def filter_sensitive_data(data: Any) -> Any:
         for key, value in data.items():
             # Check if key contains sensitive field name
             key_lower = key.lower()
+            if key_lower in {"secret_ref", "signing_policy_ref"}:
+                filtered[key] = filter_sensitive_data(value)
+                continue
+            if isinstance(value, dict) and "secret_ref" in value:
+                filtered[key] = filter_sensitive_data(value)
+                continue
+            if isinstance(value, list) and any(isinstance(item, dict) and "secret_ref" in item for item in value):
+                filtered[key] = filter_sensitive_data(value)
+                continue
             sensitive_fields = {
                 "password", "secret", "token", "api_key", "apikey",
                 "authorization", "auth", "credential", "private_key",
@@ -76,40 +85,60 @@ async def log_gateway_request(
         "timestamp": str(utc_now()),
     }
     
-    # Serialize to JSON
-    audit_json = json.dumps(audit_log, ensure_ascii=False, indent=2)
+    audit_json = json.dumps(audit_log, ensure_ascii=True, default=str, separators=(",", ":"))
     audit_bytes = audit_json.encode("utf-8")
+    inline_limit = 8 * 1024
     
-    # If payload is large (>64KB), store in object storage
-    if len(audit_bytes) > 64 * 1024 and storage_port:
+    if len(audit_bytes) <= inline_limit:
+        trace_writer.update_step_metrics(
+            step_id,
+            {
+                "audit_json": audit_json,
+                "audit_size": len(audit_bytes),
+            },
+        )
+        return
+
+    if storage_port:
         try:
-            # Store in object storage
             storage_key = f"audit/{run_id}/{step_id}.json"
             await storage_port.put(
                 key=storage_key,
                 data=audit_bytes,
                 content_type="application/json",
+                run_id=run_id,
             )
-            
-            # Create artifact reference
             trace_writer.create_artifact(
                 run_id=run_id,
                 artifact_type="json",
                 storage_key=storage_key,
+                step_id=step_id,
+                mime="application/json",
+                size_bytes=len(audit_bytes),
                 meta={
                     "gateway_type": gateway_type,
                     "size": len(audit_bytes),
                     "mime_type": "application/json",
                 },
             )
+            trace_writer.update_step_metrics(
+                step_id,
+                {
+                    "audit_artifact": storage_key,
+                    "audit_size": len(audit_bytes),
+                },
+            )
+            return
         except Exception:
-            # If storage fails, fall back to truncating and storing in step metadata
-            truncated = audit_json[:8192] + "... [truncated]"
-            # Store truncated version in step error_details or metrics
+            # Fall back to inline preview
             pass
-    else:
-        # Store in step metadata (if small enough)
-        # For now, we'll store a reference in step metrics
-        # Full audit log can be retrieved from artifact if stored
-        pass
 
+    preview = audit_json[:inline_limit]
+    trace_writer.update_step_metrics(
+        step_id,
+        {
+            "audit_preview": preview,
+            "audit_truncated": True,
+            "audit_size": len(audit_bytes),
+        },
+    )

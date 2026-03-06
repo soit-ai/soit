@@ -9,6 +9,7 @@ Current support
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from typing import Optional
 
@@ -27,9 +28,19 @@ def verify_sha256(data: bytes, expected_hex: str) -> bool:
 
 
 def verify_signature(*, data: bytes, signature_b64: str, public_key_b64: str) -> bool:
-    """Placeholder for future signature verification.
+    """Best-effort signature verification using optional crypto backend.
 
-    Returns False if cryptographic verification is not implemented.
+    Returns False if cryptographic verification is unavailable or fails.
     """
-    # Intentionally not implemented (avoid forcing heavy crypto deps now).
-    return False
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except Exception:
+        return False
+
+    try:
+        signature = base64.b64decode(signature_b64)
+        public_key = base64.b64decode(public_key_b64)
+        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, data)
+        return True
+    except Exception:
+        return False

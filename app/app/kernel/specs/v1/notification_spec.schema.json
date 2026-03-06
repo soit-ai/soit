@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "notification_spec.schema.json",
+  "title": "Notification",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "user_id",
+    "type",
+    "status",
+    "title",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "tenant_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "user_id": { "type": "string" },
+    "type": { "type": "string" },
+    "severity": { "type": ["string", "null"] },
+    "status": { "type": "string" },
+    "title": { "type": "string" },
+    "content": { "type": ["string", "null"] },
+    "source_module": { "type": ["string", "null"] },
+    "action": { "type": ["object", "null"] },
+    "meta": { "type": ["object", "null"] },
+    "read_at": { "type": ["string", "null"], "format": "date-time" },
+    "archived_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

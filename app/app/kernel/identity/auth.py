@@ -195,7 +195,11 @@ def _get_jwt_manager() -> JWTManager:
     global _jwt_manager
     if _jwt_manager is None:
         from app.settings.settings import settings
-        _jwt_manager = JWTManager(secret_key=settings.secret_key)
+        _jwt_manager = JWTManager(
+            secret_key=settings.secret_key,
+            algorithm=settings.jwt_algorithm,
+            access_token_expire_minutes=settings.access_token_expire_minutes,
+        )
     return _jwt_manager
 
 

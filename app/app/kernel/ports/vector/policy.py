@@ -11,7 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.commons.time import utc_now
-from app.kernel.commons.errors import TimeoutError
+from app.kernel.commons.errors import TimeoutError, KernelError
 
 def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
     """Resolve run_id for trace emission.
@@ -21,6 +21,16 @@ def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
     """
     run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
     return str(run_id) if run_id else ""
+
+
+def _error_details(exc: Exception) -> Dict[str, Any]:
+    details: Dict[str, Any] = {"error_type": type(exc).__name__}
+    if isinstance(exc, KernelError):
+        details["code"] = exc.code
+        details.update(exc.details or {})
+    else:
+        details["detail"] = str(exc)
+    return details
 
 class VectorPolicyGateway(VectorPort):
     """Vector port with policy enforcement."""
@@ -64,7 +74,7 @@ class VectorPolicyGateway(VectorPort):
                 raise ValueError("run_id is required when trace_writer is enabled")
             step = self.trace_writer.create_step(
                 run_id=_resolve_run_id(kwargs, self.ctx),
-                step_type="retrieve",
+                step_type="retrieval",
                 input_summary=f"collection={collection}, top_k={top_k}",
             )
             self.trace_writer.update_step_status(step.id, "running")
@@ -107,6 +117,13 @@ class VectorPolicyGateway(VectorPort):
                         "latency_ms": elapsed_ms,
                     },
                 )
+                self.trace_writer.record_cost(
+                    run_id=_resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    unit="requests",
+                    quantity=1,
+                    provider="vector",
+                )
             
             return result
         except Exception as e:
@@ -116,6 +133,7 @@ class VectorPolicyGateway(VectorPort):
                     "failed",
                     error_code="VECTOR_QUERY_ERROR",
                     error_message=str(e),
+                    error_details=_error_details(e),
                 )
             raise
     
@@ -128,6 +146,19 @@ class VectorPolicyGateway(VectorPort):
         **kwargs: Any,
     ) -> None:
         """Insert vectors with policy enforcement."""
+        step = None
+        if self.trace_writer:
+            run_id = _resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            step = self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="io",
+                input_summary=f"collection={collection}, vectors={len(vectors)}",
+            )
+            self.trace_writer.update_step_status(step.id, "running")
+
+        start_time = utc_now()
         @retry(
             stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential(multiplier=1, min=1, max=5),
@@ -147,11 +178,47 @@ class VectorPolicyGateway(VectorPort):
                 _insert_with_retry(),
                 timeout=self.timeout_seconds
             )
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    metrics={
+                        "vector_count": len(ids),
+                        "latency_ms": elapsed_ms,
+                    },
+                )
+                self.trace_writer.record_cost(
+                    run_id=run_id,
+                    step_id=step.id,
+                    unit="vectors",
+                    quantity=len(ids),
+                    provider="vector",
+                )
         except asyncio.TimeoutError:
-            raise TimeoutError(
+            exc = TimeoutError(
                 f"Vector insert timed out after {self.timeout_seconds} seconds",
                 {"timeout_seconds": self.timeout_seconds, "collection": collection}
             )
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="VECTOR_INSERT_ERROR",
+                    error_message=str(exc),
+                    error_details=_error_details(exc),
+                )
+            raise
+        except Exception as exc:
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="VECTOR_INSERT_ERROR",
+                    error_message=str(exc),
+                    error_details=_error_details(exc),
+                )
+            raise
     
     async def delete(
         self,
@@ -160,6 +227,19 @@ class VectorPolicyGateway(VectorPort):
         **kwargs: Any,
     ) -> None:
         """Delete vectors with policy enforcement."""
+        step = None
+        if self.trace_writer:
+            run_id = _resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            step = self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="io",
+                input_summary=f"collection={collection}, ids={len(ids)}",
+            )
+            self.trace_writer.update_step_status(step.id, "running")
+
+        start_time = utc_now()
         @retry(
             stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential(multiplier=1, min=1, max=5),
@@ -177,8 +257,44 @@ class VectorPolicyGateway(VectorPort):
                 _delete_with_retry(),
                 timeout=self.timeout_seconds
             )
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    metrics={
+                        "delete_count": len(ids),
+                        "latency_ms": elapsed_ms,
+                    },
+                )
+                self.trace_writer.record_cost(
+                    run_id=run_id,
+                    step_id=step.id,
+                    unit="vectors",
+                    quantity=len(ids),
+                    provider="vector",
+                )
         except asyncio.TimeoutError:
-            raise TimeoutError(
+            exc = TimeoutError(
                 f"Vector delete timed out after {self.timeout_seconds} seconds",
                 {"timeout_seconds": self.timeout_seconds, "collection": collection}
             )
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="VECTOR_DELETE_ERROR",
+                    error_message=str(exc),
+                    error_details=_error_details(exc),
+                )
+            raise
+        except Exception as exc:
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="VECTOR_DELETE_ERROR",
+                    error_message=str(exc),
+                    error_details=_error_details(exc),
+                )
+            raise

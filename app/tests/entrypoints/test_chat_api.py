@@ -18,8 +18,10 @@ class TestChatAPI:
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert "items" in data
-        assert isinstance(data["items"], list)
+        assert data["success"] is True
+        payload = data["data"]
+        assert "items" in payload
+        assert isinstance(payload["items"], list)
     
     def test_get_history_with_conversation(self, client):
         """Test getting chat history with conversation ID."""
@@ -45,3 +47,31 @@ class TestChatAPI:
         # Should return 204 or 404 depending on whether conversation exists
         assert response.status_code in [status.HTTP_204_NO_CONTENT, status.HTTP_404_NOT_FOUND]
 
+    def test_create_conversation_contract(self, client):
+        """Conversation response matches frontend contract."""
+        response = client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "contract-convo"},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        payload = response.json()["data"]
+        required_keys = {
+            "id",
+            "title",
+            "status",
+            "metadata_json",
+            "system_prompt",
+            "default_model_ref",
+            "default_temperature",
+            "default_max_tokens",
+            "default_top_p",
+            "message_count",
+            "last_message_at",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        }
+        for key in required_keys:
+            assert key in payload

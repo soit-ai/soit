@@ -19,6 +19,13 @@ from app.kernel.specs.loader import load_schema, build_registry
 
 JsonDict = Dict[str, Any]
 
+SPEC_SCHEMA_MAP = {
+    "workflow.v1": "workflow_spec",
+    "chat.v1": "chat_spec",
+    "bot.v1": "bot_spec",
+    "agent.v1": "agent_spec",
+}
+
 
 @dataclass
 class SpecIssue:
@@ -94,6 +101,9 @@ class SpecValidator:
     def validate_tool_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
         return self.validate("tool_spec", document, version=version)
 
+    def validate_node_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("node_spec", document, version=version)
+
     def validate_plugin_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
         return self.validate("plugin_spec", document, version=version)
 
@@ -103,8 +113,34 @@ class SpecValidator:
     def validate_app_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
         return self.validate("app_spec", document, version=version)
 
+    def validate_memory_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+        return self.validate("memory_spec", document, version=version)
+
 
 validator = SpecValidator()
+
+
+def validate_runtime_spec(
+    spec_schema: str,
+    document: JsonDict,
+    *,
+    raise_on_error: bool = True,
+) -> List[SpecIssue]:
+    """Validate runtime spec by schema identifier (e.g., workflow.v1)."""
+    if not spec_schema:
+        raise ValidationError(message="Spec schema is required", details={"spec_schema": spec_schema})
+    normalized = spec_schema.strip().lower()
+    schema_name = SPEC_SCHEMA_MAP.get(normalized)
+    if not schema_name:
+        raise ValidationError(
+            message="Unsupported spec schema",
+            details={"spec_schema": spec_schema, "supported": sorted(SPEC_SCHEMA_MAP.keys())},
+        )
+    version = "v1"
+    if "." in normalized:
+        _, version = normalized.split(".", 1)
+        version = version or "v1"
+    return validator.validate(schema_name, document, version=version, raise_on_error=raise_on_error)
 
 
 def validate_spec(document: JsonDict, schema: Union[str, JsonDict], *, version: str = "v1") -> bool:

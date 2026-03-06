@@ -6,7 +6,7 @@ Chat domain repository.
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, or_
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
@@ -64,12 +64,17 @@ class ConversationRepository(Repository[Conversation]):
         self,
         limit: int = 20,
         offset: int = 0,
+        cursor_at: Optional[datetime] = None,
+        cursor_id: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> List[Conversation]:
         """List conversations.
         
         Args:
             limit: Maximum number of conversations.
             offset: Offset for pagination.
+            cursor_at: Updated_at cursor for pagination.
+            cursor_id: Conversation ID cursor for pagination.
             
         Returns:
             List of Conversation instances.
@@ -80,7 +85,24 @@ class ConversationRepository(Repository[Conversation]):
                 Conversation.workspace_id == self.ctx.workspace_id,
                 Conversation.deleted_at.is_(None),  # Exclude soft-deleted
             )
-        ).order_by(desc(Conversation.updated_at)).offset(offset).limit(limit)
+        )
+        if status:
+            query = query.where(Conversation.status == status)
+
+        if cursor_at and cursor_id:
+            query = query.where(
+                or_(
+                    Conversation.updated_at < cursor_at,
+                    and_(
+                        Conversation.updated_at == cursor_at,
+                        Conversation.id < cursor_id,
+                    ),
+                )
+            )
+        elif offset:
+            query = query.offset(offset)
+
+        query = query.order_by(desc(Conversation.updated_at), desc(Conversation.id)).limit(limit)
         
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
@@ -197,12 +219,62 @@ class MessageRepository(Repository[Message]):
         self.db.commit()
         self.db.refresh(message)
         return message
+
+    def get_latest_by_conversation(self, conversation_id: str) -> Optional[Message]:
+        """Get latest message in a conversation ordered by creation time."""
+        query = (
+            select(Message)
+            .where(
+                and_(
+                    Message.conversation_id == conversation_id,
+                    Message.tenant_id == self.ctx.tenant_id,
+                    Message.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(desc(Message.created_at), desc(Message.id))
+            .limit(1)
+        )
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
+
+    def list_ancestry(
+        self,
+        conversation_id: str,
+        head_message_id: str,
+        limit: int = 100,
+    ) -> List[Message]:
+        """List ancestor chain from root to the given head message."""
+        if not head_message_id or limit <= 0:
+            return []
+
+        ancestry: List[Message] = []
+        visited: set[str] = set()
+        current_id: Optional[str] = head_message_id
+
+        while current_id and len(ancestry) < limit:
+            if current_id in visited:
+                break
+            visited.add(current_id)
+
+            message = self.get_by_id(current_id)
+            if not message:
+                break
+            if message.conversation_id != conversation_id:
+                break
+
+            ancestry.append(message)
+            current_id = message.parent_id
+
+        ancestry.reverse()
+        return ancestry
     
     def list_by_conversation(
         self,
         conversation_id: str,
         limit: int = 100,
         offset: int = 0,
+        cursor_at: Optional[datetime] = None,
+        cursor_id: Optional[str] = None,
     ) -> List[Message]:
         """List messages in a conversation.
         
@@ -210,6 +282,8 @@ class MessageRepository(Repository[Message]):
             conversation_id: Conversation ID.
             limit: Maximum number of messages.
             offset: Offset for pagination.
+            cursor_at: Created_at cursor for pagination.
+            cursor_id: Message ID cursor for pagination.
             
         Returns:
             List of Message instances.
@@ -220,7 +294,22 @@ class MessageRepository(Repository[Message]):
                 Message.tenant_id == self.ctx.tenant_id,
                 Message.workspace_id == self.ctx.workspace_id,
             )
-        ).order_by(Message.created_at).offset(offset).limit(limit)
+        )
+
+        if cursor_at and cursor_id:
+            query = query.where(
+                or_(
+                    Message.created_at > cursor_at,
+                    and_(
+                        Message.created_at == cursor_at,
+                        Message.id > cursor_id,
+                    ),
+                )
+            )
+        elif offset:
+            query = query.offset(offset)
+
+        query = query.order_by(Message.created_at, Message.id).limit(limit)
         
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)

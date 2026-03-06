@@ -1,14 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/workflow_spec.schema.json",
+  "$comment": "SOIT kernel workflow spec schema (v1).",
   "title": "WorkflowSpec",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "name",
+    "graph",
     "inputs_schema",
-    "nodes",
-    "edges",
-    "outputs"
+    "outputs_schema"
   ],
   "properties": {
     "name": {
@@ -32,679 +33,155 @@
       "type": "object",
       "description": "JSON Schema for workflow inputs"
     },
-    "nodes": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "tool"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "input": {
-                    "type": "object",
-                    "anyOf": [
-                      {
-                        "required": [
-                          "tool_ref"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "tool"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "llm"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "input": {
-                    "type": "object",
-                    "anyOf": [
-                      {
-                        "required": [
-                          "prompt"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "message"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "messages"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "retrieve"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "input": {
-                    "type": "object",
-                    "required": [
-                      "query"
-                    ],
-                    "anyOf": [
-                      {
-                        "required": [
-                          "collection"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "dataset"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "condition"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "input": {
-                    "type": "object",
-                    "required": [
-                      "condition"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "output"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "input": {
-                    "type": "object",
-                    "anyOf": [
-                      {
-                        "required": [
-                          "value"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "key"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "id",
-                  "type",
-                  "input"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "llm",
-                      "retrieve",
-                      "tool",
-                      "condition",
-                      "transform",
-                      "output"
-                    ]
-                  },
-                  "name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "input": {
-                    "type": "object",
-                    "description": "Input payload, supports variable references"
-                  },
-                  "input_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "output_schema": {
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "timeout_ms": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "minimum": 1
-                  },
-                  "retry_policy": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "max_retries": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "backoff_ms": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "type": {
-                    "const": "transform"
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    "edges": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "from",
-          "to"
-        ],
-        "properties": {
-          "from": {
-            "type": "string"
-          },
-          "to": {
-            "type": "string"
-          },
-          "when": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Condition expression (optional)"
-          }
-        }
-      }
-    },
-    "outputs": {
+    "outputs_schema": {
       "type": "object",
-      "description": "JSON Schema or output mapping"
+      "description": "JSON Schema for workflow outputs"
     },
-    "semantics": {
+    "limits": {
       "type": [
         "object",
         "null"
       ],
       "additionalProperties": false,
       "properties": {
-        "on_error": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            null,
-            "fail_fast",
-            "continue",
-            "compensate"
-          ]
-        },
-        "concurrency": {
+        "timeout_ms": {
           "type": [
             "integer",
             "null"
           ],
           "minimum": 1
+        },
+        "max_steps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_tool_calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "runtime": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Runtime engine identifier (e.g. workflow_engine_v1)"
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type",
+              "params"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "description": "Node parameters payload"
+              },
+              "ui": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "UI metadata (position/group/color)"
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "from",
+              "to"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1
+              },
+              "from_port": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to_port": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "condition": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Conditional expression for routing"
+              }
+            }
+          }
         }
       }
     },
@@ -750,67 +227,42 @@
           }
         }
       }
-    }
-  },
-  "description": "Immutable DAG workflow specification with node IO schemas. Variable references use template syntax like {{ inputs.query }} and {{ steps.node_id.output.field }}.",
-  "examples": [
-    {
-      "name": "RAG Answer",
-      "inputs_schema": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ]
-      },
-      "nodes": [
-        {
-          "id": "r1",
-          "type": "retrieve",
-          "input": {
-            "query": "{{ inputs.query }}"
-          }
-        },
-        {
-          "id": "m1",
-          "type": "llm",
-          "input": {
-            "prompt": "Answer with citations.\\n{{ steps.r1.output.context }}"
-          }
-        },
-        {
-          "id": "o1",
-          "type": "output",
-          "input": {
-            "text": "{{ steps.m1.output.text }}",
-            "citations": "{{ steps.r1.output.citations }}"
-          }
-        }
+    },
+    "semantics": {
+      "type": [
+        "object",
+        "null"
       ],
-      "edges": [
-        {
-          "from": "r1",
-          "to": "m1"
+      "additionalProperties": false,
+      "properties": {
+        "on_error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "fail_fast",
+            "continue",
+            "compensate"
+          ]
         },
-        {
-          "from": "m1",
-          "to": "o1"
-        }
-      ],
-      "outputs": {
-        "type": "object",
-        "properties": {
-          "text": {
-            "type": "string"
-          }
+        "concurrency": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "pause_poll_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 100
         }
       }
     }
-  ],
-  "$id": "https://soit.ai/specs/v1/workflow_spec.schema.json",
-  "$comment": "SOIT kernel spec schema (v1)."
+  },
+  "description": "Immutable workflow spec with graph projection and runtime constraints."
 }

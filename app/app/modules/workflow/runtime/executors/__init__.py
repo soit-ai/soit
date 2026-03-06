@@ -11,6 +11,9 @@ from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
 from app.modules.workflow.runtime.executors.condition import ConditionNodeExecutor
 from app.modules.workflow.runtime.executors.transform import TransformNodeExecutor
 from app.modules.workflow.runtime.executors.output import OutputNodeExecutor
+from app.modules.workflow.runtime.executors.http import HttpNodeExecutor
+from app.modules.workflow.runtime.executors.set_var import SetVarNodeExecutor
+from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
 
 
 # Registry for node executors
@@ -51,5 +54,7 @@ register_executor("retrieve", RetrieveNodeExecutor)
 register_executor("tool", ToolNodeExecutor)
 register_executor("condition", ConditionNodeExecutor)
 register_executor("transform", TransformNodeExecutor)
+register_executor("set_var", SetVarNodeExecutor)
+register_executor("http", HttpNodeExecutor)
 register_executor("output", OutputNodeExecutor)
-
+register_executor("node", RegistryNodeExecutor)

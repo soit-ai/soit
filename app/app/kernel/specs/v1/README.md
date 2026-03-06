@@ -1,7 +1,7 @@
 # kernel/specs/v1/
 
 Kernel v1 schemas:
-- app_spec, workflow_spec, tool_spec, plugin_spec, runtrace_spec
+- app_spec, workflow_spec, tool_spec, node_spec, plugin_spec, runtrace_spec, memory_spec, notification_spec
 - refs.schema.json (shared reference models)
 - dataset schemas (if included)
 

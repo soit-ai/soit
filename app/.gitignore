@@ -14,6 +14,7 @@ htmlcov
 celerybeat-schedule.db.db
 report.xml
 coverage.xml
+var/plugins/*
 
 .cursor/*
 examples/

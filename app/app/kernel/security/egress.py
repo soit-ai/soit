@@ -85,7 +85,7 @@ class EgressPolicy:
                 return True
         return False
     
-    async def check_allowed(
+    def check_allowed(
         self,
         ctx: RequestContext,
         url: str,
@@ -152,17 +152,11 @@ def get_egress_policy() -> EgressPolicy:
     """
     global _egress_policy
     if _egress_policy is None:
-        # Initialize with default allowlist (can be configured via settings)
-        # For now, allow common public APIs
-        default_allowlist = [
-            "*.openai.com",
-            "*.anthropic.com",
-            "*.googleapis.com",
-            "api.github.com",
-            "*.github.com",
-        ]
+        default_allowlist = settings.egress_allowlist
+        default_blocklist = settings.egress_blocklist
         _egress_policy = EgressPolicy(
             global_allowlist=default_allowlist,
+            global_blocklist=default_blocklist,
         )
     return _egress_policy
 
@@ -198,12 +192,65 @@ def check_egress_policy(
     
     # Get egress policy
     policy = get_egress_policy()
-    
-    # TODO: Load workspace/tenant allowlist from database
-    # For now, use global policy only
+
+    tenant_allowlist: Optional[List[str]] = None
+    tenant_blocklist: Optional[List[str]] = None
+    workspace_allowlist: Optional[List[str]] = None
+    workspace_blocklist: Optional[List[str]] = None
+
+    try:
+        from app.infra.db.session import get_db_sync
+        from app.modules.identity.infra.repository import TenantRepository, WorkspaceRepository
+
+        db = get_db_sync()
+        try:
+            tenant = TenantRepository(db).get_by_id(ctx.tenant_id)
+            if tenant:
+                tenant_allowlist = list(tenant.egress_allowlist or [])
+                tenant_blocklist = list(tenant.egress_blocklist or [])
+            workspace = WorkspaceRepository(db, ctx).get_by_id(ctx.workspace_id)
+            if workspace:
+                workspace_allowlist = list(workspace.egress_allowlist or [])
+                workspace_blocklist = list(workspace.egress_blocklist or [])
+        finally:
+            db.close()
+    except Exception:
+        # Fallback to global policy if DB lookup fails
+        tenant_allowlist = None
+        tenant_blocklist = None
+        workspace_allowlist = None
+        workspace_blocklist = None
+
+    domain = policy._extract_domain(url)
+    if domain:
+        if tenant_blocklist:
+            tenant_patterns = [policy._compile_pattern(p) for p in tenant_blocklist]
+            if policy._matches_pattern(domain, tenant_patterns):
+                raise ForbiddenError(
+                    f"Egress to {domain} is blocked by tenant policy",
+                    {
+                        "url": url,
+                        "domain": domain,
+                        "resource_ref": resource_ref,
+                    },
+                )
+        if workspace_blocklist:
+            workspace_patterns = [policy._compile_pattern(p) for p in workspace_blocklist]
+            if policy._matches_pattern(domain, workspace_patterns):
+                raise ForbiddenError(
+                    f"Egress to {domain} is blocked by workspace policy",
+                    {
+                        "url": url,
+                        "domain": domain,
+                        "resource_ref": resource_ref,
+                    },
+                )
+
     is_allowed = policy.check_allowed(
         ctx=ctx,
         url=url,
+        workspace_allowlist=workspace_allowlist,
+        tenant_allowlist=tenant_allowlist,
     )
     
     if not is_allowed:

@@ -12,22 +12,23 @@ from app.kernel.ports.llm.interface import (
     LLMPort,
     ChatMessage,
     ChatResponse,
+    ChatStreamChunk,
     EmbeddingResponse,
     RerankResponse,
 )
-from app.settings.settings import settings
 
 
 class OpenAILLMPort(LLMPort):
     """OpenAI LLM port adapter."""
-    
-    def __init__(self, api_key: Optional[str] = None):
+
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         """Initialize OpenAI gateway.
-        
+
         Args:
             api_key: OpenAI API key (if None, uses settings or env var).
+            base_url: Optional OpenAI-compatible API base URL.
         """
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     
     async def chat(
         self,
@@ -38,8 +39,7 @@ class OpenAILLMPort(LLMPort):
         **kwargs,
     ) -> ChatResponse:
         """Chat completion via OpenAI."""
-        # Parse model reference (e.g., "model:openai:gpt-4")
-        model_name = model.split(":")[-1] if ":" in model else model
+        model_name = self._resolve_model_name(model)
         
         # Convert messages
         openai_messages = [
@@ -48,12 +48,23 @@ class OpenAILLMPort(LLMPort):
         ]
         
         # Call OpenAI API
-        response = await self.client.chat.completions.create(
-            model=model_name,
-            messages=openai_messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        params: Dict[str, Any] = {
+            "model": model_name,
+            "messages": openai_messages,
+        }
+        resolved_temperature = self._resolve_temperature_param(model_name, temperature)
+        if resolved_temperature is not None:
+            params["temperature"] = resolved_temperature
+        if max_tokens is not None:
+            params[self._token_limit_param(model_name)] = max_tokens
+        reasoning_effort = kwargs.get("reasoning_effort")
+        if reasoning_effort and self._supports_reasoning_effort(model_name):
+            params["reasoning_effort"] = reasoning_effort
+        top_p = kwargs.get("top_p")
+        if top_p is not None:
+            params["top_p"] = top_p
+
+        response = await self.client.chat.completions.create(**params)
         
         choice = response.choices[0]
         return ChatResponse(
@@ -63,6 +74,80 @@ class OpenAILLMPort(LLMPort):
             model=model_name,
             finish_reason=choice.finish_reason,
         )
+
+    async def stream_chat(
+        self,
+        messages: List[ChatMessage],
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ):
+        """Stream chat completion via OpenAI."""
+        model_name = self._resolve_model_name(model)
+        openai_messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+
+        params: Dict[str, Any] = {
+            "model": model_name,
+            "messages": openai_messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        resolved_temperature = self._resolve_temperature_param(model_name, temperature)
+        if resolved_temperature is not None:
+            params["temperature"] = resolved_temperature
+        if max_tokens is not None:
+            params[self._token_limit_param(model_name)] = max_tokens
+        reasoning_effort = kwargs.get("reasoning_effort")
+        if reasoning_effort and self._supports_reasoning_effort(model_name):
+            params["reasoning_effort"] = reasoning_effort
+        top_p = kwargs.get("top_p")
+        if top_p is not None:
+            params["top_p"] = top_p
+
+        # Compat: older OpenAI SDK (e.g. 1.6.x) does not accept stream_options.
+        try:
+            stream = await self.client.chat.completions.create(**params)
+        except TypeError as exc:
+            if "stream_options" not in str(exc):
+                raise
+            params.pop("stream_options", None)
+            stream = await self.client.chat.completions.create(**params)
+        async for event in stream:
+            if not event.choices:
+                usage = getattr(event, "usage", None)
+                if usage:
+                    yield ChatStreamChunk(
+                        delta="",
+                        done=True,
+                        tokens_prompt=usage.prompt_tokens or 0,
+                        tokens_completion=usage.completion_tokens or 0,
+                        model=model_name,
+                        finish_reason=None,
+                    )
+                continue
+
+            choice = event.choices[0]
+            delta = ""
+            if choice.delta and choice.delta.content:
+                delta = choice.delta.content
+
+            done = choice.finish_reason is not None
+            usage = getattr(event, "usage", None)
+            tokens_prompt = usage.prompt_tokens if usage else 0
+            tokens_completion = usage.completion_tokens if usage else 0
+
+            yield ChatStreamChunk(
+                delta=delta,
+                done=done,
+                tokens_prompt=tokens_prompt,
+                tokens_completion=tokens_completion,
+                model=model_name,
+                finish_reason=choice.finish_reason,
+            )
     
     async def embed(
         self,
@@ -71,8 +156,7 @@ class OpenAILLMPort(LLMPort):
         **kwargs,
     ) -> EmbeddingResponse:
         """Generate embeddings via OpenAI."""
-        # Parse model reference
-        model_name = model.split(":")[-1] if ":" in model else model
+        model_name = self._resolve_model_name(model)
         
         # Call OpenAI API
         response = await self.client.embeddings.create(
@@ -116,13 +200,10 @@ class OpenAILLMPort(LLMPort):
                 model=model,
             )
         
-        # Parse model reference
-        model_name = model.split(":")[-1] if ":" in model else model
+        model_name = self._resolve_model_name(model)
         
         # Use embedding model (default to text-embedding-ada-002 if not specified)
-        embedding_model = kwargs.get("embedding_model", "text-embedding-ada-002")
-        if ":" in embedding_model:
-            embedding_model = embedding_model.split(":")[-1]
+        embedding_model = self._resolve_model_name(kwargs.get("embedding_model", "text-embedding-ada-002"))
         
         # Generate embeddings for query and documents
         all_texts = [query] + documents
@@ -171,3 +252,42 @@ class OpenAILLMPort(LLMPort):
             tokens_used=tokens_used,
             model=model_name,
         )
+
+    @staticmethod
+    def _token_limit_param(model_name: str) -> str:
+        """Map token-limit param based on model family."""
+        normalized = model_name.lower()
+        if normalized.startswith(("gpt-5", "o1", "o3", "o4")):
+            return "max_completion_tokens"
+        return "max_tokens"
+
+    @staticmethod
+    def _resolve_model_name(model: str) -> str:
+        """Resolve provider-qualified model refs to provider-native model ids."""
+        if model.startswith("model:"):
+            parts = model.split(":")
+            if len(parts) >= 3:
+                return ":".join(parts[2:])
+        if model.startswith("openai:"):
+            return model.split(":", 1)[1]
+        return model
+
+    @staticmethod
+    def _supports_reasoning_effort(model_name: str) -> bool:
+        """Whether model supports reasoning_effort param."""
+        normalized = model_name.lower()
+        return normalized.startswith(("gpt-5", "o1", "o3", "o4"))
+
+    @staticmethod
+    def _resolve_temperature_param(
+        model_name: str,
+        temperature: Optional[float],
+    ) -> Optional[float]:
+        """Normalize temperature by model capabilities."""
+        if temperature is None:
+            return None
+        normalized = model_name.lower()
+        # Some reasoning-focused models only accept the default temperature.
+        if normalized.startswith(("gpt-5", "o1", "o3", "o4")):
+            return 1.0 if abs(temperature - 1.0) < 1e-9 else None
+        return temperature

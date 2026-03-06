@@ -5,8 +5,8 @@ DB engine/session management.
 
 from typing import Generator, Optional
 from sqlalchemy import create_engine, Engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlmodel import SQLModel
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, Session
 
 from app.settings.settings import settings
 
@@ -24,9 +24,13 @@ def get_engine() -> Engine:
     """
     global _engine
     if _engine is None:
+        database_url = settings.database_url
+        # Prefer psycopg (v3) driver when using PostgreSQL.
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         # Use echo=True for SQL logging in development
         _engine = create_engine(
-            settings.database_url,
+            database_url,
             echo=False,
             pool_pre_ping=True,
             pool_size=10,

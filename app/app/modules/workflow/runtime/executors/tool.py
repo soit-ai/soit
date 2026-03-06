@@ -31,9 +31,12 @@ class ToolNodeExecutor(NodeExecutor):
             raise ValidationError("Tool port not available")
         
         # Extract tool reference
+        registry_only = bool(context.workflow_policy.get("registry_only_tools"))
         tool_ref = inputs.get("tool_ref") or inputs.get("tool")
         if not tool_ref:
             raise ValidationError("Tool node requires 'tool_ref' or 'tool' input")
+        if registry_only and not inputs.get("tool_ref"):
+            raise ValidationError("Tool node requires 'tool_ref' when registry_only_tools is enabled")
         
         # Extract parameters (everything except tool_ref)
         parameters = {k: v for k, v in inputs.items() if k not in ("tool_ref", "tool")}
@@ -44,7 +47,7 @@ class ToolNodeExecutor(NodeExecutor):
             parameters=parameters,
             run_id=context.run_id,
             ctx=context.ctx,
-            strict_registry=True,
+            strict_registry=registry_only,
         )
         
         if not response.success:
@@ -54,4 +57,3 @@ class ToolNodeExecutor(NodeExecutor):
             "result": response.result,
             "metadata": response.metadata,
         }
-

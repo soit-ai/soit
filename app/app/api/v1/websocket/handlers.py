@@ -3,7 +3,7 @@
 WebSocket request handlers.
 """
 
-from typing import Optional
+import logging
 import json
 
 from app.kernel.contracts.context import RequestContext
@@ -12,6 +12,10 @@ from app.api.v1.websocket.manager import manager
 
 class WebSocketHandlers:
     """Handlers for WebSocket endpoints."""
+    
+    def __init__(self):
+        """Initialize handlers."""
+        self.logger = logging.getLogger(__name__)
     
     async def handle_connection(
         self,
@@ -52,9 +56,15 @@ class WebSocketHandlers:
                         },
                         connection_id,
                     )
-        except Exception as e:
-            # Connection closed or error
-            pass
+        except Exception as exc:
+            self.logger.info(
+                "websocket.connection.closed",
+                extra={
+                    "connection_id": connection_id,
+                    "user_id": ctx.user_id,
+                    "error": str(exc),
+                },
+            )
         finally:
             manager.disconnect(connection_id, ctx)
     
@@ -115,4 +125,3 @@ class WebSocketHandlers:
                 },
                 connection_id,
             )
-

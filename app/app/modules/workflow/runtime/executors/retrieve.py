@@ -55,6 +55,7 @@ class RetrieveNodeExecutor(NodeExecutor):
             embedding_response = await context.llm_port.embed(
                 texts=[query],
                 model=embedding_model,
+                run_id=context.run_id,
             )
             
             if not embedding_response.embeddings or len(embedding_response.embeddings) == 0:
@@ -73,6 +74,7 @@ class RetrieveNodeExecutor(NodeExecutor):
             vector=query_vector,
             top_k=top_k,
             include_metadata=True,
+            run_id=context.run_id,
         )
         
         # Format output
@@ -107,4 +109,3 @@ class RetrieveNodeExecutor(NodeExecutor):
             "citations": citations,
             "count": len(documents),
         }
-

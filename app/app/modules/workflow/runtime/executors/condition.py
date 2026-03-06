@@ -57,6 +57,9 @@ class ConditionNodeExecutor(NodeExecutor):
         
         # If condition is a string, try to evaluate as expression
         if isinstance(condition, str):
+            normalized = condition.strip().lower()
+            if normalized in ("true", "false"):
+                return normalized == "true"
             # Simple comparison expressions
             if "==" in condition:
                 parts = condition.split("==", 1)
@@ -110,7 +113,10 @@ class ConditionNodeExecutor(NodeExecutor):
             return int(expr)
         except ValueError:
             pass
+
+        normalized = expr.lower()
+        if normalized in ("true", "false"):
+            return normalized == "true"
         
         # Return as string
         return expr
-

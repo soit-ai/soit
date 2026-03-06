@@ -16,6 +16,7 @@ from app.modules.pluginmarket.application.schemas import (
     PluginEnableRequest,
     PluginInstallationResponse,
     PluginPackageInstallResponse,
+    PluginUpgradeResponse,
     PluginResponse,
 )
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
@@ -46,7 +47,7 @@ class PluginMarketHandlers:
         Returns:
             Created plugin.
         """
-        plugin = self.service.create_plugin(plugin_in)
+        plugin = await self.service.create_plugin(plugin_in)
         return PluginResponse.model_validate(plugin)
     
     async def list_plugins(
@@ -70,13 +71,34 @@ class PluginMarketHandlers:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
         
-        plugins = self.service.list_plugins(
+        plugins = await self.service.list_plugins(
             published_only=published_only,
             limit=limit,
             offset=offset,
         )
-        
-        items = [PluginResponse.model_validate(p) for p in plugins]
+
+        items: list[PluginResponse] = []
+        for plugin in plugins:
+            installation = self.service.get_installation_for_plugin(plugin.id)
+            base = PluginResponse.model_validate(plugin)
+            enabled = None
+            installation_id = None
+            installed_at = None
+            if installation:
+                cfg = installation.config_json or {}
+                enabled = bool(cfg.get("enabled", True))
+                installation_id = installation.id
+                installed_at = installation.created_at
+            items.append(
+                base.model_copy(
+                    update={
+                        "installed": installation is not None,
+                        "enabled": enabled,
+                        "installation_id": installation_id,
+                        "installed_at": installed_at,
+                    }
+                )
+            )
         
         has_next = len(plugins) == limit
         next_offset = offset + len(plugins) if has_next else None
@@ -102,8 +124,25 @@ class PluginMarketHandlers:
         Returns:
             Plugin details.
         """
-        plugin = self.service.get_plugin(plugin_id)
-        return PluginResponse.model_validate(plugin)
+        plugin = await self.service.get_plugin(plugin_id)
+        installation = self.service.get_installation_for_plugin(plugin.id)
+        base = PluginResponse.model_validate(plugin)
+        enabled = None
+        installation_id = None
+        installed_at = None
+        if installation:
+            cfg = installation.config_json or {}
+            enabled = bool(cfg.get("enabled", True))
+            installation_id = installation.id
+            installed_at = installation.created_at
+        return base.model_copy(
+            update={
+                "installed": installation is not None,
+                "enabled": enabled,
+                "installation_id": installation_id,
+                "installed_at": installed_at,
+            }
+        )
     
     async def update_plugin(
         self,
@@ -121,7 +160,7 @@ class PluginMarketHandlers:
         Returns:
             Updated plugin.
         """
-        plugin = self.service.update_plugin(plugin_id, plugin_in)
+        plugin = await self.service.update_plugin(plugin_id, plugin_in)
         return PluginResponse.model_validate(plugin)
     
     async def delete_plugin(
@@ -135,7 +174,7 @@ class PluginMarketHandlers:
             ctx: Request context.
             plugin_id: Plugin ID.
         """
-        self.service.delete_plugin(plugin_id)
+        await self.service.delete_plugin(plugin_id)
     
     async def install_plugin(
         self,
@@ -153,7 +192,7 @@ class PluginMarketHandlers:
         Returns:
             Installation result.
         """
-        installation = self.service.install_plugin(plugin_id, install_request)
+        installation = await self.service.install_plugin(plugin_id, install_request)
         return {
             "id": installation.id,
             "plugin_id": installation.plugin_id,
@@ -169,8 +208,31 @@ class PluginMarketHandlers:
         expected_sha256: Optional[str] = None,
     ) -> PluginPackageInstallResponse:
         """Install plugin package bytes into filesystem."""
-        result = self.service.install_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
+        result = await self.service.install_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
         return PluginPackageInstallResponse(**result)
+
+    async def uninstall_plugin(
+        self,
+        ctx: RequestContext,
+        plugin_id: str,
+    ) -> None:
+        """Uninstall plugin from workspace."""
+        await self.service.uninstall_plugin(plugin_id)
+
+    async def upgrade_plugin_package(
+        self,
+        ctx: RequestContext,
+        plugin_id: str,
+        package_bytes: bytes,
+        expected_sha256: Optional[str] = None,
+    ) -> PluginUpgradeResponse:
+        """Upgrade plugin package bytes into filesystem."""
+        result = await self.service.upgrade_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
+        plugin = await self.service.get_plugin(plugin_id)
+        return PluginUpgradeResponse(
+            plugin=PluginResponse.model_validate(plugin),
+            install=PluginPackageInstallResponse(**result),
+        )
 
     async def set_plugin_enabled(
         self,
@@ -179,50 +241,48 @@ class PluginMarketHandlers:
         req: PluginEnableRequest,
     ) -> PluginInstallationResponse:
         """Enable/disable a plugin installation."""
-        inst = self.service.set_plugin_enabled(plugin_id, req.enabled)
+        inst = await self.service.set_plugin_enabled(plugin_id, req.enabled)
         return PluginInstallationResponse(
             id=inst.id,
             plugin_id=inst.plugin_id,
             tenant_id=inst.tenant_id,
             workspace_id=inst.workspace_id,
             config_json=inst.config_json,
-            created_at=inst.created_at.isoformat(),
+            created_at=inst.created_at,
         )
 
+    async def reload_runtime(self, ctx: RequestContext) -> dict:
+        """Reload installed plugins from filesystem into the in-process registry."""
+        loader = PluginRuntimeLoader()
+        loaded = loader.load_all()
+        return {
+            "loaded_count": len(loaded),
+            "loaded": [
+                {
+                    "tenant_id": p.tenant_id,
+                    "workspace_id": p.workspace_id,
+                    "name": p.name,
+                    "version": p.version,
+                    "install_dir": str(p.install_dir),
+                    "tool_refs": p.tool_refs,
+                    "node_refs": p.node_refs,
+                }
+                for p in loaded
+            ],
+        }
 
-
-
-async def reload_runtime(self, ctx: RequestContext) -> dict:
-    """Reload installed plugins from filesystem into the in-process registry."""
-    loader = PluginRuntimeLoader()
-    loaded = loader.load_all()
-    return {
-        "loaded_count": len(loaded),
-        "loaded": [
-            {
-                "tenant_id": p.tenant_id,
-                "workspace_id": p.workspace_id,
-                "name": p.name,
-                "version": p.version,
-                "install_dir": str(p.install_dir),
-                "tool_refs": p.tool_refs,
-            }
-            for p in loaded
-        ],
-    }
-
-async def list_runtime_tools(self, ctx: RequestContext) -> dict:
-    """List tool specs currently registered for this tenant/workspace."""
-    reg = get_registry()
-    items = reg.list(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id)
-    return {
-        "tools": [
-            {
-                "tool_ref": key.name,
-                "version": key.version,
-                "plugin": (payload or {}).get("plugin"),
-                "tool_spec": (payload or {}).get("tool_spec"),
-            }
-            for key, payload in items
-        ]
-    }
+    async def list_runtime_tools(self, ctx: RequestContext) -> dict:
+        """List tool specs currently registered for this tenant/workspace."""
+        reg = get_registry()
+        items = reg.list(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id)
+        return {
+            "tools": [
+                {
+                    "tool_ref": key.name,
+                    "version": key.version,
+                    "plugin": (payload or {}).get("plugin"),
+                    "tool_spec": (payload or {}).get("tool_spec"),
+                }
+                for key, payload in items
+            ]
+        }

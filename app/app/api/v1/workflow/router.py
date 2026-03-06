@@ -3,21 +3,25 @@
 Workflow API routes (FastAPI).
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Body
-from sqlalchemy.orm import Session
+from typing import Optional
+from fastapi import APIRouter, Depends, status, Body
 
 from app.kernel.contracts.context import RequestContext
-from app.infra.db.session import get_db
 from app.infra.db.pagination import PaginatedResponse
-from app.middleware.auth import get_current_context
-from app.modules.workflow.application.service import WorkflowService
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
+from app.modules.workflow.application.app_facade import WorkflowAppFacadeService
 from app.modules.workflow.application.schemas import (
     WorkflowCreate,
     WorkflowUpdate,
     WorkflowResponse,
     WorkflowVersionCreate,
     WorkflowVersionResponse,
+    WorkflowDSLImport,
+    WorkflowDSLExport,
+    WorkflowPublishRequest,
 )
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.handlers import WorkflowHandlers
@@ -29,15 +33,15 @@ router = APIRouter()
 @router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     workflow_in: WorkflowCreate,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Create a new workflow.
     
     Args:
         workflow_in: Workflow creation data.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Created workflow.
@@ -50,8 +54,8 @@ async def create_workflow(
 async def list_workflows(
     page_token: Optional[str] = None,
     page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """List workflows.
     
@@ -59,7 +63,7 @@ async def list_workflows(
         page_token: Optional page token.
         page_size: Page size.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Paginated workflows.
@@ -68,190 +72,225 @@ async def list_workflows(
     return await handlers.list_workflows(ctx, page_token=page_token, page_size=page_size)
 
 
-@router.get("/{workflow_id}", response_model=WorkflowResponse)
+@router.get("/{app_id}", response_model=WorkflowResponse)
 async def get_workflow(
-    workflow_id: str,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    app_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Get workflow by ID.
     
     Args:
-        workflow_id: Workflow ID.
+        app_id: App ID.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Workflow details.
     """
     handlers = WorkflowHandlers(service)
-    return await handlers.get_workflow(ctx, workflow_id)
+    return await handlers.get_workflow(ctx, app_id)
 
 
-@router.put("/{workflow_id}", response_model=WorkflowResponse)
+@router.get("/{app_id}/versions", response_model=PaginatedResponse[WorkflowVersionResponse])
+async def list_versions(
+    app_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """List workflow versions."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.list_versions(ctx, app_id, page_token=page_token, page_size=page_size)
+
+
+@router.get("/{app_id}/version/current", response_model=WorkflowVersionResponse)
+async def get_current_version(
+    app_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Get current workflow version."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.get_current_version(ctx, app_id)
+
+
+@router.put("/{app_id}", response_model=WorkflowResponse)
 async def update_workflow(
-    workflow_id: str,
+    app_id: str,
     workflow_in: WorkflowUpdate,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Update workflow.
     
     Args:
-        workflow_id: Workflow ID.
+        app_id: App ID.
         workflow_in: Workflow update data.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Updated workflow.
     """
     handlers = WorkflowHandlers(service)
-    return await handlers.update_workflow(ctx, workflow_id, workflow_in)
+    return await handlers.update_workflow(ctx, app_id, workflow_in)
 
 
-@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{app_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
-    workflow_id: str,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    app_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Delete workflow.
     
     Args:
-        workflow_id: Workflow ID.
+        app_id: App ID.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
     """
     handlers = WorkflowHandlers(service)
-    await handlers.delete_workflow(ctx, workflow_id)
+    await handlers.delete_workflow(ctx, app_id)
 
 
-@router.post("/{workflow_id}/versions", response_model=WorkflowVersionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{app_id}/versions", response_model=WorkflowVersionResponse, status_code=status.HTTP_201_CREATED)
 async def create_version(
-    workflow_id: str,
+    app_id: str,
     version_in: WorkflowVersionCreate,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Create a new workflow version.
     
     Args:
-        workflow_id: Workflow ID.
+        app_id: App ID.
         version_in: Version creation data.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Created version.
     """
-    version = service.publish_version(workflow_id, version_in)
-    return WorkflowVersionResponse.model_validate(version)
+    handlers = WorkflowHandlers(service)
+    return await handlers.create_version(ctx, app_id, version_in)
 
 
-@router.post("/{workflow_id}/publish", response_model=WorkflowResponse)
+@router.post("/{app_id}/publish", response_model=WorkflowResponse)
 async def publish_version(
-    workflow_id: str,
-    version_id: str = Body(...),
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    app_id: str,
+    payload: WorkflowPublishRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Publish workflow version.
     
     Args:
-        workflow_id: Workflow ID.
-        version_id: Version ID to publish.
+        app_id: App ID.
+        payload: Publish request payload.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Updated workflow.
     """
     handlers = WorkflowHandlers(service)
-    return await handlers.publish_version(ctx, workflow_id, version_id)
+    return await handlers.publish_version(ctx, app_id, payload.version_id, preflight=payload.preflight)
 
 
-@router.post("/{workflow_id}/execute", status_code=status.HTTP_200_OK)
+@router.post("/{app_id}/execute", status_code=status.HTTP_200_OK)
 async def execute_workflow(
-    workflow_id: str,
+    app_id: str,
     inputs: dict = Body(...),
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
     """Execute workflow.
     
     Args:
-        workflow_id: Workflow ID.
+        app_id: App ID.
         inputs: Workflow inputs.
         ctx: Request context.
-        service: WorkflowService instance.
+        service: WorkflowAppFacadeService instance.
         
     Returns:
         Execution result.
     """
     handlers = WorkflowHandlers(service)
-    return await handlers.execute_workflow(ctx, workflow_id, inputs)
+    return await handlers.execute_workflow(ctx, app_id, inputs)
 
 
-@router.get("/{workflow_id}/runs")
-async def list_runs(
-    workflow_id: str,
-    page_token: Optional[str] = None,
-    page_size: int = 20,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
-):
-    """List workflow runs.
-    
-    Args:
-        workflow_id: Workflow ID.
-        page_token: Optional page token.
-        page_size: Page size.
-        ctx: Request context.
-        service: WorkflowService instance.
-        
-    Returns:
-        Paginated runs.
-    """
-    from app.infra.db.pagination import parse_page_params
-    
-    # Parse pagination parameters
-    limit, token_obj = parse_page_params(page_token, page_size)
-    offset = token_obj.offset if token_obj else 0
-    
-    # Get runs
-    runs = service.list_runs(workflow_id, limit=limit, offset=offset)
-    
-    # Check if there are more runs
-    has_next = len(runs) == limit
-    next_offset = offset + len(runs) if has_next else None
-    
-    # Create paginated response
-    return PaginatedResponse.create(
-        items=runs,
-        page_size=len(runs),
-        has_next=has_next,
-        next_offset=next_offset,
-    )
-
-
-@router.get("/{workflow_id}/runs/{run_id}")
-async def get_run(
-    workflow_id: str,
+@router.post("/{app_id}/runs/{run_id}/pause")
+async def pause_run(
+    app_id: str,
     run_id: str,
-    ctx: RequestContext = Depends(get_current_context),
-    service: WorkflowService = Depends(get_workflow_service),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
 ):
-    """Get run details.
-    
-    Args:
-        workflow_id: Workflow ID.
-        run_id: Run ID.
-        ctx: Request context.
-        service: WorkflowService instance.
-        
-    Returns:
-        Run details.
-    """
-    return service.get_run(workflow_id, run_id)
+    """Pause workflow run."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.pause_run(ctx, app_id, run_id)
 
+
+@router.post("/{app_id}/runs/{run_id}/resume")
+async def resume_run(
+    app_id: str,
+    run_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Resume workflow run."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.resume_run(ctx, app_id, run_id)
+
+
+@router.post("/{app_id}/runs/{run_id}/retry")
+async def retry_run(
+    app_id: str,
+    run_id: str,
+    inputs: Optional[dict] = Body(default=None),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Retry workflow run."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.retry_run(ctx, app_id, run_id, inputs)
+
+
+@router.post("/{app_id}/runs/{run_id}/replay")
+async def replay_run(
+    app_id: str,
+    run_id: str,
+    inputs: Optional[dict] = Body(default=None),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Replay workflow run."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.replay_run(ctx, app_id, run_id, inputs)
+
+
+@router.get("/{app_id}/dsl", response_model=WorkflowDSLExport)
+async def export_dsl(
+    app_id: str,
+    version_id: Optional[str] = None,
+    format: str = "json",
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Export workflow DSL."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.export_dsl(ctx, app_id, version_id=version_id, format=format)
+
+
+@router.post("/{app_id}/dsl", response_model=WorkflowVersionResponse, status_code=status.HTTP_201_CREATED)
+async def import_dsl(
+    app_id: str,
+    dsl_in: WorkflowDSLImport,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowAppFacadeService = Depends(get_workflow_service),
+):
+    """Import workflow DSL."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.import_dsl(ctx, app_id, dsl_in)

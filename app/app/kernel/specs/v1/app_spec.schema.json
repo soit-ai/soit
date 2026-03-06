@@ -217,7 +217,7 @@
       "type": "chat",
       "name": "Customer Support",
       "bindings": {
-        "model_ref": "model:openai:gpt-4.1",
+        "model_ref": "model:openai:gpt-5.1",
         "datasets": [
           "ds:kb_support"
         ],

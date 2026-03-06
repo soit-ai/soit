@@ -13,6 +13,7 @@ class RunStatus(Enum):
     """Run status enum."""
     QUEUED = "queued"
     RUNNING = "running"
+    PAUSED = "paused"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELED = "canceled"
@@ -34,7 +35,8 @@ class StateMachine:
     # Valid transitions
     RUN_TRANSITIONS = {
         RunStatus.QUEUED: [RunStatus.RUNNING, RunStatus.CANCELED],
-        RunStatus.RUNNING: [RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED],
+        RunStatus.RUNNING: [RunStatus.PAUSED, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED],
+        RunStatus.PAUSED: [RunStatus.RUNNING, RunStatus.CANCELED],
         RunStatus.SUCCEEDED: [],
         RunStatus.FAILED: [],
         RunStatus.CANCELED: [],

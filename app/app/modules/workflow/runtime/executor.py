@@ -4,6 +4,8 @@ DAG execution engine for workflows.
 """
 
 import asyncio
+import time
+from dataclasses import asdict
 from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict, deque
 
@@ -13,6 +15,7 @@ from app.modules.workflow.runtime.executors import get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
 from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.kernel.commons.errors import ValidationError
+from app.kernel.trace.models import Run
 
 
 class WorkflowExecutor:
@@ -44,29 +47,103 @@ class WorkflowExecutor:
         edges = plan.plan_data["edges"]
         execution_order = plan.plan_data["execution_order"]
         semantics = plan.plan_data.get("semantics", {})
+        policy = plan.plan_data.get("policy", {})
+        context_payload = asdict(context.ctx) if context.ctx else {}
         
         # Build graph for dependency tracking
-        graph = self._build_graph(edges)
-        reverse_graph = self._build_reverse_graph(edges)
+        edge_map = self._build_edge_map(edges)
+        reverse_edge_map = self._build_reverse_edge_map(edges)
         
         # Track node states and outputs
         node_states: Dict[str, str] = {}  # node_id -> status
         node_outputs: Dict[str, Dict[str, Any]] = {}  # node_id -> output
-        in_degree = {node_id: len(reverse_graph.get(node_id, [])) for node_id in nodes}
+        in_degree = {node_id: len(reverse_edge_map.get(node_id, [])) for node_id in nodes}
+        incoming_active = {node_id: 0 for node_id in nodes}
+        has_incoming = {node_id: in_degree[node_id] > 0 for node_id in nodes}
         
         # Execution queue (nodes ready to execute)
         ready_queue = deque([node_id for node_id, degree in in_degree.items() if degree == 0])
+        queued_nodes: Set[str] = set(ready_queue)
         
+        class CompensationRequested(Exception):
+            def __init__(self, node_id: str, error_message: str):
+                super().__init__(error_message)
+                self.node_id = node_id
+                self.error_message = error_message
+
+        def _strip_control_keys(payload: Dict[str, Any]) -> Dict[str, Any]:
+            if not payload:
+                return {}
+            cleaned = dict(payload)
+            for key in ("__compensate", "__compensate_with", "__compensate_for"):
+                cleaned.pop(key, None)
+            return cleaned
+
         # Execute nodes in topological order with concurrency
         concurrency = semantics.get("concurrency", 1)
         semaphore = asyncio.Semaphore(concurrency)
+        compensation_requested = False
+        compensation_error: Optional[CompensationRequested] = None
         
+        def resolve_edge_condition(condition: Any) -> bool:
+            if condition is None:
+                return True
+            resolver = VariableResolver(plan.inputs, node_outputs)
+            resolved = resolver.resolve(condition)
+            return self._evaluate_condition(resolved, {})
+
+        def mark_skipped(node_id: str) -> None:
+            if node_states.get(node_id):
+                return
+            node_states[node_id] = "skipped"
+            run_step = context.trace_writer.create_step(
+                run_id=context.run_id,
+                step_type="workflow_node",
+                step_id=f"st_{node_id}",
+                node_id=node_id,
+            )
+            context.trace_writer.update_step_status(
+                run_step.id,
+                status="skipped",
+                output_summary="skipped",
+                metrics={
+                    "node_type": nodes[node_id]["type"],
+                    "node_id": node_id,
+                },
+            )
+            resolve_outgoing_edges(node_id, allow_edges=False)
+
+        def resolve_outgoing_edges(node_id: str, allow_edges: bool) -> None:
+            for edge in edge_map.get(node_id, []):
+                to_id = edge["to"]
+                if in_degree[to_id] <= 0:
+                    continue
+                in_degree[to_id] -= 1
+                if allow_edges and resolve_edge_condition(edge.get("when")):
+                    incoming_active[to_id] += 1
+                if in_degree[to_id] == 0:
+                    if node_states.get(to_id):
+                        continue
+                    if incoming_active[to_id] > 0 or not has_incoming[to_id]:
+                        if to_id not in queued_nodes:
+                            ready_queue.append(to_id)
+                            queued_nodes.add(to_id)
+                    else:
+                        mark_skipped(to_id)
+
         async def execute_node(node_id: str):
             """Execute a single node."""
             async with semaphore:
+                if node_states.get(node_id) == "skipped":
+                    return
                 node = nodes[node_id]
                 node_type = node["type"]
-                step_id = f"st_{node_id}"
+                step_id_base = f"st_{node_id}"
+
+                pause_wait_ms = 0
+                wait_started = time.monotonic()
+                await self._wait_for_resume(context.run_id, semantics)
+                pause_wait_ms = int((time.monotonic() - wait_started) * 1000)
                 
                 # Get executor
                 executor_class = get_executor(node_type)
@@ -79,68 +156,178 @@ class WorkflowExecutor:
                     if nid in node_outputs:
                         steps_outputs_map[nid] = node_outputs[nid]
                 
-                resolver = VariableResolver(plan.inputs, steps_outputs_map)
-                inputs = resolver.resolve(node.get("input", {}))
-                
-                # Create RunStep for tracking
-                run_step = context.trace_writer.create_step(
-                    run_id=context.run_id,
-                    step_type=node_type,
-                    step_id=step_id,
-                    node_id=node_id,
-                    input_summary=str(inputs)[:8192] if inputs else None,
+                skipped_steps = {nid for nid, state in node_states.items() if state == "skipped"}
+                resolver = VariableResolver(
+                    plan.inputs,
+                    steps_outputs_map,
+                    context=context_payload,
+                    skipped_steps=skipped_steps,
                 )
+                inputs = _strip_control_keys(resolver.resolve(node.get("input", {})))
                 
-                # Update step status to running
-                context.trace_writer.update_step_status(
-                    run_step.id,
-                    status="running",
-                )
+                def create_attempt_step(attempt: int):
+                    """Create a run step for this attempt."""
+                    step_key = step_id_base if attempt == 1 else f"{step_id_base}_retry{attempt}"
+                    run_step = context.trace_writer.create_step(
+                        run_id=context.run_id,
+                        step_type="workflow_node",
+                        step_id=step_key,
+                        node_id=node_id,
+                        input_summary=str(inputs)[:8192] if inputs else None,
+                    )
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="running",
+                    )
+                    return run_step
                 
-                # Create step context
+                attempt = 1
+                attempts = 0
+                run_step = create_attempt_step(attempt)
+                
+                # Create step context after initial step is created.
                 step_context = ExecutionContext(
                     run_id=context.run_id,
-                    step_id=step_id,
+                    step_id=run_step.id,
                     ctx=context.ctx,
                     trace_writer=context.trace_writer,
                     llm_port=context.llm_port,
                     tool_port=context.tool_port,
                     vector_port=context.vector_port,
+                    plugin_runtime_port=context.plugin_runtime_port,
+                    workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
                 )
-                
+                final_error_recorded = False
                 try:
-                    # Execute node
-                    output = await executor.execute(node, step_context, inputs)
+                    # Execute node with retry/timeout
+                    retry_policy = node.get("retry_policy") or policy.get("default_retry_policy") or {}
+                    max_retries = int(retry_policy.get("max_retries", 0) or 0)
+                    backoff_ms = retry_policy.get("backoff_ms")
+                    timeout_ms = node.get("timeout_ms") or policy.get("default_timeout_ms")
+
+                    async def _run_once():
+                        if timeout_ms:
+                            return await asyncio.wait_for(
+                                executor.execute(node, step_context, inputs),
+                                timeout=timeout_ms / 1000,
+                            )
+                        return await executor.execute(node, step_context, inputs)
+
+                    while True:
+                        exec_started = time.monotonic()
+                        try:
+                            step_context.step_id = run_step.id
+                            output = await _run_once()
+                            break
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            attempts += 1
+                            elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                            context.trace_writer.update_step_status(
+                                run_step.id,
+                                status="failed",
+                                output_summary=str(exc)[:8192],
+                                error_code="NODE_EXECUTION_ERROR",
+                                error_message=str(exc),
+                                error_details={
+                                    "node_id": node_id,
+                                    "node_type": node_type,
+                                    "attempt": attempt,
+                                    "error_type": type(exc).__name__,
+                                },
+                                metrics={
+                                    "attempt": attempt,
+                                    "node_type": node_type,
+                                    "node_id": node_id,
+                                    "latency_ms": elapsed_ms,
+                                    "pause_wait_ms": pause_wait_ms,
+                                    "max_retries": max_retries,
+                                },
+                            )
+                            if attempts > max_retries:
+                                final_error_recorded = True
+                                raise
+                            if backoff_ms:
+                                await asyncio.sleep(backoff_ms / 1000)
+                            attempt += 1
+                            run_step = create_attempt_step(attempt)
+
                     node_outputs[node_id] = output
                     node_states[node_id] = "succeeded"
                     
                     # Update step status to succeeded
+                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                    metrics = {
+                        "attempts": attempt,
+                        "node_type": node_type,
+                        "node_id": node_id,
+                        "latency_ms": elapsed_ms,
+                        "pause_wait_ms": pause_wait_ms,
+                        "max_retries": max_retries,
+                    }
+                    if timeout_ms is not None:
+                        metrics["timeout_ms"] = int(timeout_ms)
                     context.trace_writer.update_step_status(
                         run_step.id,
                         status="succeeded",
                         output_summary=str(output)[:8192] if output else None,
+                        metrics=metrics,
                     )
                     
-                    # Update in-degree for dependent nodes
-                    for dependent_id in graph.get(node_id, []):
-                        in_degree[dependent_id] -= 1
-                        if in_degree[dependent_id] == 0:
-                            ready_queue.append(dependent_id)
+                    resolve_outgoing_edges(node_id, allow_edges=True)
                 
+                except asyncio.CancelledError:
+                    node_states[node_id] = "canceled"
+                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="canceled",
+                        output_summary="canceled",
+                        metrics={
+                            "attempts": attempt,
+                            "node_type": node_type,
+                            "node_id": node_id,
+                            "latency_ms": elapsed_ms,
+                            "pause_wait_ms": pause_wait_ms,
+                            "max_retries": max_retries,
+                        },
+                        error_code="NODE_CANCELED",
+                        error_message="Node execution canceled",
+                    )
+                    raise
                 except Exception as e:
                     node_states[node_id] = "failed"
                     
                     # Update step status to failed
                     error_message = str(e)
-                    context.trace_writer.update_step_status(
-                        run_step.id,
-                        status="failed",
-                        output_summary=error_message[:8192],
-                        error_code="NODE_EXECUTION_ERROR",
-                        error_message=error_message,
-                        error_details={"node_id": node_id, "node_type": node_type},
-                    )
+                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                    if not final_error_recorded:
+                        metrics = {
+                            "node_type": node_type,
+                            "node_id": node_id,
+                            "attempts": attempt,
+                            "latency_ms": elapsed_ms,
+                            "pause_wait_ms": pause_wait_ms,
+                            "max_retries": max_retries,
+                        }
+                        if timeout_ms is not None:
+                            metrics["timeout_ms"] = int(timeout_ms)
+                        context.trace_writer.update_step_status(
+                            run_step.id,
+                            status="failed",
+                            output_summary=error_message[:8192],
+                            error_code="NODE_EXECUTION_ERROR",
+                            error_message=error_message,
+                            error_details={
+                                "node_id": node_id,
+                                "node_type": node_type,
+                                "attempts": attempts + 1,
+                                "error_type": type(e).__name__,
+                            },
+                            metrics=metrics,
+                        )
                     
                     error_strategy = semantics.get("on_error", "fail_fast")
                     
@@ -149,14 +336,105 @@ class WorkflowExecutor:
                     elif error_strategy == "continue":
                         # Continue execution, mark node as failed
                         node_outputs[node_id] = {"error": error_message}
-                    # "compensate" strategy not implemented yet
+                        resolve_outgoing_edges(node_id, allow_edges=True)
+                    elif error_strategy == "compensate":
+                        raise CompensationRequested(node_id=node_id, error_message=error_message)
+                    # other strategies: ignore
         
+        def _collect_compensation_nodes() -> List[str]:
+            compensation_nodes: List[str] = []
+            seen: Set[str] = set()
+            for node_id in reversed(execution_order):
+                if node_states.get(node_id) != "succeeded":
+                    continue
+                node = nodes.get(node_id, {})
+                inputs = node.get("input", {}) or {}
+                refs = inputs.get("__compensate_with") or inputs.get("__compensate") or []
+                if isinstance(refs, str):
+                    refs = [refs]
+                if not isinstance(refs, list):
+                    continue
+                for ref in refs:
+                    if isinstance(ref, str) and ref in nodes and ref not in seen:
+                        compensation_nodes.append(ref)
+                        seen.add(ref)
+            return compensation_nodes
+
+        async def _execute_compensation_nodes() -> None:
+            compensation_nodes = _collect_compensation_nodes()
+            for comp_node_id in compensation_nodes:
+                node = nodes.get(comp_node_id)
+                if not node:
+                    continue
+                node_type = node["type"]
+                executor_class = get_executor(node_type)
+                executor = executor_class()
+                inputs = _strip_control_keys(
+                    VariableResolver(
+                        plan.inputs,
+                        node_outputs,
+                        context=context_payload,
+                        skipped_steps={nid for nid, state in node_states.items() if state == "skipped"},
+                    ).resolve(node.get("input", {}))
+                )
+                run_step = context.trace_writer.create_step(
+                    run_id=context.run_id,
+                    step_type="workflow_compensate",
+                    step_id=f"st_comp_{comp_node_id}",
+                    node_id=comp_node_id,
+                    input_summary=str(inputs)[:8192] if inputs else None,
+                )
+                context.trace_writer.update_step_status(run_step.id, status="running")
+                step_context = ExecutionContext(
+                    run_id=context.run_id,
+                    step_id=run_step.id,
+                    ctx=context.ctx,
+                    trace_writer=context.trace_writer,
+                    llm_port=context.llm_port,
+                    tool_port=context.tool_port,
+                    vector_port=context.vector_port,
+                    plugin_runtime_port=context.plugin_runtime_port,
+                    workflow_policy=context.workflow_policy,
+                    steps_outputs=node_outputs,
+                )
+                try:
+                    output = await executor.execute(node, step_context, inputs)
+                    node_outputs[comp_node_id] = output
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="succeeded",
+                        output_summary=str(output)[:8192] if output else None,
+                        metrics={
+                            "node_type": node_type,
+                            "node_id": comp_node_id,
+                            "compensate": True,
+                        },
+                    )
+                except Exception as exc:
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="failed",
+                        output_summary=str(exc)[:8192],
+                        error_code="NODE_COMPENSATION_ERROR",
+                        error_message=str(exc),
+                        error_details={
+                            "node_id": comp_node_id,
+                            "node_type": node_type,
+                        },
+                        metrics={
+                            "node_type": node_type,
+                            "node_id": comp_node_id,
+                            "compensate": True,
+                        },
+                    )
+
         # Execute all nodes
         tasks = []
         while ready_queue or tasks:
             # Start new tasks for ready nodes
             while ready_queue and len(tasks) < concurrency:
                 node_id = ready_queue.popleft()
+                queued_nodes.discard(node_id)
                 tasks.append(asyncio.create_task(execute_node(node_id)))
             
             # Wait for at least one task to complete
@@ -168,11 +446,31 @@ class WorkflowExecutor:
                 for task in done:
                     try:
                         await task
-                    except Exception as e:
+                    except CompensationRequested as exc:
+                        compensation_requested = True
+                        compensation_error = exc
+                        for pending_task in tasks:
+                            pending_task.cancel()
+                        for pending_task in tasks:
+                            try:
+                                await pending_task
+                            except Exception:
+                                pass
+                        tasks = []
+                        break
+                    except Exception:
                         # If fail_fast, propagate exception
                         if semantics.get("on_error") == "fail_fast":
                             raise
                         # Otherwise, continue
+
+            if compensation_requested:
+                break
+
+        if compensation_requested:
+            await _execute_compensation_nodes()
+            error_message = compensation_error.error_message if compensation_error else "Compensation triggered"
+            raise ValidationError(f"Workflow compensated after failure: {error_message}")
         
         # Find output node
         output_node_id = None
@@ -189,6 +487,19 @@ class WorkflowExecutor:
             return node_outputs[execution_order[-1]]
         
         return {}
+
+    async def _wait_for_resume(self, run_id: str, semantics: Dict[str, Any]) -> None:
+        """Block execution while run is paused."""
+        poll_ms = semantics.get("pause_poll_ms", 500)
+        while True:
+            run = self.execution_engine.db.get(Run, run_id)
+            status = getattr(run, "status", None)
+            if status == "paused":
+                await asyncio.sleep(poll_ms / 1000)
+                continue
+            if status == "canceled":
+                raise asyncio.CancelledError()
+            return
     
     def _build_graph(self, edges: List[Dict[str, str]]) -> Dict[str, List[str]]:
         """Build forward graph (from -> to)."""
@@ -204,3 +515,61 @@ class WorkflowExecutor:
             graph[edge["to"]].append(edge["from"])
         return dict(graph)
 
+    def _build_edge_map(self, edges: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Build forward edge map (from -> edges)."""
+        graph = defaultdict(list)
+        for edge in edges:
+            graph[edge["from"]].append(edge)
+        return dict(graph)
+
+    def _build_reverse_edge_map(self, edges: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Build reverse edge map (to -> edges)."""
+        graph = defaultdict(list)
+        for edge in edges:
+            graph[edge["to"]].append(edge)
+        return dict(graph)
+
+    def _evaluate_condition(self, condition: Any, inputs: Dict[str, Any]) -> bool:
+        """Evaluate condition expression for edge routing."""
+        if isinstance(condition, bool):
+            return condition
+        if isinstance(condition, (int, float)):
+            return bool(condition)
+        if isinstance(condition, str):
+            trimmed = condition.strip()
+            if trimmed.lower() in ("true", "false"):
+                return trimmed.lower() == "true"
+            if "==" in trimmed:
+                parts = trimmed.split("==", 1)
+                left = self._get_condition_value(parts[0].strip(), inputs)
+                right = self._get_condition_value(parts[1].strip(), inputs)
+                return left == right
+            if "!=" in trimmed:
+                parts = trimmed.split("!=", 1)
+                left = self._get_condition_value(parts[0].strip(), inputs)
+                right = self._get_condition_value(parts[1].strip(), inputs)
+                return left != right
+            if ">" in trimmed:
+                parts = trimmed.split(">", 1)
+                left = self._get_condition_value(parts[0].strip(), inputs)
+                right = self._get_condition_value(parts[1].strip(), inputs)
+                return float(left) > float(right)
+            if "<" in trimmed:
+                parts = trimmed.split("<", 1)
+                left = self._get_condition_value(parts[0].strip(), inputs)
+                right = self._get_condition_value(parts[1].strip(), inputs)
+                return float(left) < float(right)
+            value = self._get_condition_value(trimmed, inputs)
+            return bool(value)
+        return bool(condition)
+
+    def _get_condition_value(self, expr: str, inputs: Dict[str, Any]) -> Any:
+        expr = expr.strip().strip('"').strip("'")
+        if expr in inputs:
+            return inputs[expr]
+        try:
+            if "." in expr:
+                return float(expr)
+            return int(expr)
+        except ValueError:
+            return expr

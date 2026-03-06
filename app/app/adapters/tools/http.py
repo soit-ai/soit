@@ -31,6 +31,8 @@ class HTTPToolsPort(ToolPort):
         method = parameters.get("method", "POST")
         headers = parameters.get("headers", {})
         body = parameters.get("body", {})
+        query = parameters.get("query", {})
+        timeout_s = kwargs.get("timeout_s")
         
         if not url:
             return ToolResponse(
@@ -41,14 +43,24 @@ class HTTPToolsPort(ToolPort):
         
         try:
             # Make HTTP request
-            if method.upper() == "GET":
-                response = await self.client.get(url, headers=headers, params=body)
-            elif method.upper() == "POST":
-                response = await self.client.post(url, headers=headers, json=body)
-            elif method.upper() == "PUT":
-                response = await self.client.put(url, headers=headers, json=body)
-            elif method.upper() == "DELETE":
-                response = await self.client.delete(url, headers=headers)
+            method_upper = method.upper()
+            if method_upper in {"GET", "DELETE"}:
+                response = await self.client.request(
+                    method_upper,
+                    url,
+                    headers=headers,
+                    params=query or body,
+                    timeout=timeout_s,
+                )
+            elif method_upper in {"POST", "PUT", "PATCH"}:
+                response = await self.client.request(
+                    method_upper,
+                    url,
+                    headers=headers,
+                    params=query or None,
+                    json=body,
+                    timeout=timeout_s,
+                )
             else:
                 return ToolResponse(
                     result=None,

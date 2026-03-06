@@ -11,7 +11,7 @@ Public API:
 """
 
 from .loader import get_specs_dir, list_schemas, load_schema, load_spec, build_registry
-from .validator import validate_spec, validator, SpecValidator, SpecIssue
+from .validator import validate_spec, validate_runtime_spec, validator, SpecValidator, SpecIssue
 
 __all__ = [
     "get_specs_dir",
@@ -20,6 +20,7 @@ __all__ = [
     "load_spec",
     "build_registry",
     "validate_spec",
+    "validate_runtime_spec",
     "validator",
     "SpecValidator",
     "SpecIssue",

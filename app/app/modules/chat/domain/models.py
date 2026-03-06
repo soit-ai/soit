@@ -24,6 +24,9 @@ class Conversation(SQLModel, table=True):
     
     workspace_id: str = Field(index=True)
     """Workspace ID."""
+
+    app_id: Optional[str] = Field(default=None, index=True)
+    """Associated chat app ID."""
     
     title: Optional[str] = Field(default=None, nullable=True, max_length=512)
     """Conversation title."""
@@ -87,6 +90,9 @@ class Message(SQLModel, table=True):
     
     conversation_id: str = Field(foreign_key="conversations.id", index=True)
     """Conversation ID (foreign key)."""
+
+    parent_id: Optional[str] = Field(default=None, foreign_key="messages.id", index=True, nullable=True)
+    """Parent message ID for branch threading."""
     
     role: str = Field()
     """Message role (user, assistant, system)."""

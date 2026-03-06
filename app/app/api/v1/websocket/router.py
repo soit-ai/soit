@@ -5,6 +5,7 @@ WebSocket API routes (FastAPI).
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from fastapi.security import HTTPBearer
+import logging
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.ids import generate_ulid
@@ -13,6 +14,7 @@ from app.api.v1.websocket.handlers import WebSocketHandlers
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.websocket("/ws")
@@ -68,6 +70,10 @@ async def websocket_endpoint(
         except Exception as e:
             await websocket.close(code=1008, reason=f"Authentication failed: {str(e)}")
             return
+
+        if not ctx.can_read():
+            await websocket.close(code=1008, reason="Workspace read permission required")
+            return
         
         # Generate connection ID
         connection_id = generate_ulid()
@@ -76,12 +82,10 @@ async def websocket_endpoint(
         handlers = WebSocketHandlers()
         await handlers.handle_connection(websocket, connection_id, ctx)
     except WebSocketDisconnect:
-        # Client disconnected
-        pass
+        logger.info("websocket.disconnect")
     except Exception as e:
-        # Error handling
+        logger.exception("websocket.error", extra={"error": str(e)})
         try:
-            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
-        except:
-            pass
-
+            await websocket.close(code=1011, reason="Server error")
+        except Exception:
+            logger.debug("websocket.close_failed")

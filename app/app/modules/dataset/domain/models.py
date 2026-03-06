@@ -32,6 +32,11 @@ def generate_index_id() -> str:
     return f"idx_{generate_ulid()}"
 
 
+def generate_ingest_task_id() -> str:
+    """Generate dataset ingest task ID."""
+    return f"ingest_{generate_ulid()}"
+
+
 class Dataset(SQLModel, table=True):
     """Dataset model - workspace-scoped knowledge base."""
     
@@ -49,7 +54,7 @@ class Dataset(SQLModel, table=True):
     name: str = Field()
     """Dataset name."""
     
-    type: str = Field()
+    type: str = Field(default="document")
     """Dataset type: document, qa, code, graph, other."""
     
     description: Optional[str] = Field(default=None, nullable=True)
@@ -213,6 +218,66 @@ class DatasetDocument(SQLModel, table=True):
     
     deleted_at: Optional[datetime] = Field(default=None, nullable=True)
     """Soft delete timestamp."""
+
+
+class DatasetIngestTask(SQLModel, table=True):
+    """Dataset ingestion task model."""
+
+    __tablename__ = "dataset_ingest_tasks"
+
+    id: str = Field(primary_key=True, default_factory=generate_ingest_task_id)
+    """Task ID."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    dataset_id: str = Field(foreign_key="dataset.id", index=True)
+    """Dataset ID (foreign key)."""
+
+    document_id: Optional[str] = Field(default=None, nullable=True, index=True)
+    """Related document ID."""
+
+    status: str = Field(default="queued")
+    """Status: queued, running, succeeded, failed, canceled."""
+
+    payload_json: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Ingestion payload snapshot (DocumentUpload)."""
+
+    run_id: Optional[str] = Field(default=None, nullable=True)
+    """Run ID for tracing."""
+
+    error_code: Optional[str] = Field(default=None, nullable=True)
+    """Error code if failed."""
+
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    """Error message if failed."""
+
+    retry_count: int = Field(default=0)
+    """Retry count."""
+
+    max_retries: int = Field(default=1)
+    """Max retries."""
+
+    started_at: Optional[datetime] = Field(default=None, nullable=True)
+    """Start timestamp."""
+
+    finished_at: Optional[datetime] = Field(default=None, nullable=True)
+    """Finish timestamp."""
+
+    created_by: Optional[str] = Field(default=None, nullable=True)
+    """User ID who created."""
+
+    updated_by: Optional[str] = Field(default=None, nullable=True)
+    """User ID who last updated."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(default_factory=utc_now)
+    """Last update timestamp."""
 
 
 class DatasetChunk(SQLModel, table=True):

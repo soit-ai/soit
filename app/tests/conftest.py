@@ -23,6 +23,8 @@ def ctx() -> RequestContext:
         workspace_id="test-workspace",
         user_id="test-user",
         request_id=generate_ulid(),
+        tenant_role="Owner",
+        workspace_role="Owner",
     )
 
 
@@ -71,6 +73,7 @@ def db():
     # Ensure models are imported so SQLModel.metadata is populated.
     # Importing modules is safe in test env and keeps create_all deterministic.
     import app.modules  # noqa: F401
+    import app.kernel.observability.idempotency  # noqa: F401
 
     engine = create_engine(
         "sqlite://",
@@ -88,12 +91,13 @@ def db():
 
 
 @pytest.fixture
-def client(db):
+def client(db, ctx: RequestContext):
     """FastAPI TestClient with DB dependency override."""
     from fastapi.testclient import TestClient
 
     from app.main import app
     from app.infra.db.session import get_db
+    from app.middleware.auth import get_current_context
 
     def _override_get_db():
         try:
@@ -101,10 +105,15 @@ def client(db):
         finally:
             pass
 
+    async def _override_get_current_context() -> RequestContext:
+        return ctx
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_context] = _override_get_current_context
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_context, None)
 
 
 @pytest.fixture(autouse=True)

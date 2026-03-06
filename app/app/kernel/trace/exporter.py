@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any
 import json
 import logging
 
-from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCost
+from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCostEntry
 from app.kernel.commons.time import to_iso8601
 
 
@@ -40,10 +40,18 @@ class OpenTelemetryExporter:
             "run_id": run.id,
             "tenant_id": run.tenant_id,
             "workspace_id": run.workspace_id,
+            "trace_id": run.trace_id,
+            "mode": run.mode,
+            "kind": run.kind,
             "status": run.status,
-            "created_at": to_iso8601(run.created_at) if run.created_at else None,
-            "updated_at": to_iso8601(run.updated_at) if run.updated_at else None,
-            "type": run.run_type,
+            "started_at": to_iso8601(run.started_at) if run.started_at else None,
+            "ended_at": to_iso8601(run.ended_at) if run.ended_at else None,
+            "duration_ms": run.duration_ms,
+            "input_summary": run.input_summary,
+            "output_summary": run.output_summary,
+            "error_code": run.error_code,
+            "error_message": run.error_message,
+            "error_step_id": run.error_step_id,
         }
         self._emit("run", payload)
 
@@ -52,11 +60,15 @@ class OpenTelemetryExporter:
         payload = {
             "run_id": step.run_id,
             "step_id": step.id,
-            "type": step.step_type,
+            "step_type": step.step_type,
             "status": step.status,
-            "created_at": to_iso8601(step.created_at) if step.created_at else None,
-            "updated_at": to_iso8601(step.updated_at) if step.updated_at else None,
+            "started_at": to_iso8601(step.started_at) if step.started_at else None,
+            "ended_at": to_iso8601(step.ended_at) if step.ended_at else None,
             "metrics": step.metrics_json or {},
+            "input_summary": step.input_summary,
+            "output_summary": step.output_summary,
+            "error_code": step.error_code,
+            "error_message": step.error_message,
         }
         self._emit("step", payload)
 
@@ -71,61 +83,118 @@ def to_runtrace_spec(
     run: Run,
     steps: list[RunStep],
     artifacts: Optional[list[RunArtifact]] = None,
-    cost: Optional[RunCost] = None,
+    cost_entries: Optional[list[RunCostEntry]] = None,
 ) -> Dict[str, Any]:
     """Convert run objects to RunTraceSpec-like dict."""
     spec: Dict[str, Any] = {
-        "id": run.id,
-        "tenant_id": run.tenant_id,
-        "workspace_id": run.workspace_id,
-        "type": run.run_type,
-        "status": run.status,
-        "created_at": to_iso8601(run.created_at) if run.created_at else None,
-        "updated_at": to_iso8601(run.updated_at) if run.updated_at else None,
-        "inputs": run.inputs_json or {},
-        "outputs": run.outputs_json or {},
-        "metadata": run.metadata_json or {},
+        "run": {
+            "run_id": run.id,
+            "tenant_id": run.tenant_id,
+            "workspace_id": run.workspace_id,
+            "trace_id": run.trace_id,
+            "mode": run.mode,
+            "kind": run.kind,
+            "status": run.status,
+            "app_version_id": run.app_version_id,
+            "input_summary": run.input_summary,
+            "output_summary": run.output_summary,
+            "started_at": to_iso8601(run.started_at) if run.started_at else None,
+            "ended_at": to_iso8601(run.ended_at) if run.ended_at else None,
+            "duration_ms": run.duration_ms,
+            "error_code": run.error_code,
+            "error_message": run.error_message,
+            "error_step_id": run.error_step_id,
+        },
         "steps": [to_step_spec(s) for s in steps],
     }
 
     if artifacts:
         spec["artifacts"] = [
             {
-                "id": a.id,
-                "kind": a.artifact_type,
-                "name": a.name,
-                "mime_type": a.mime_type,
+                "artifact_id": a.id,
+                "type": a.type,
+                "storage_key": a.storage_key,
+                "step_id": a.step_id,
+                "mime": a.mime,
                 "size_bytes": a.size_bytes,
-                "uri": a.uri,
-                "created_at": to_iso8601(a.created_at) if a.created_at else None,
+                "sha256": a.sha256,
+                "meta": a.meta_json or {},
             }
             for a in artifacts
         ]
 
-    if cost:
-        spec["cost"] = {
-            "tokens_prompt": cost.tokens_prompt,
-            "tokens_completion": cost.tokens_completion,
-            "embedding_count": cost.embedding_count,
-            "rerank_count": cost.rerank_count,
-            "ms_total": cost.ms_total,
-            "storage_bytes": cost.storage_bytes,
-        }
+    if cost_entries is not None:
+        summary = _summarize_entries(cost_entries)
+        spec["cost"] = summary
+        spec["costs"] = [
+            {
+                "cost_id": entry.id,
+                "run_id": entry.run_id,
+                "step_id": entry.step_id,
+                "currency": entry.currency,
+                "amount": float(entry.amount),
+                "unit": entry.unit,
+                "quantity": float(entry.quantity),
+                "provider": entry.provider,
+                "model_ref": entry.model_ref,
+                "tool_ref": entry.tool_ref,
+                "prompt_tokens": entry.prompt_tokens,
+                "completion_tokens": entry.completion_tokens,
+                "total_tokens": entry.total_tokens,
+                "created_at": to_iso8601(entry.created_at) if entry.created_at else None,
+            }
+            for entry in cost_entries
+        ]
 
     return spec
 
 
 def to_step_spec(step: RunStep) -> Dict[str, Any]:
     return {
-        "id": step.id,
-        "run_id": step.run_id,
-        "type": step.step_type,
+        "step_id": step.id,
+        "node_id": step.node_id,
+        "step_type": step.step_type,
         "status": step.status,
-        "created_at": to_iso8601(step.created_at) if step.created_at else None,
-        "updated_at": to_iso8601(step.updated_at) if step.updated_at else None,
-        "inputs": step.inputs_json or {},
-        "outputs": step.outputs_json or {},
+        "input_summary": step.input_summary,
+        "output_summary": step.output_summary,
+        "started_at": to_iso8601(step.started_at) if step.started_at else None,
+        "ended_at": to_iso8601(step.ended_at) if step.ended_at else None,
         "metrics": step.metrics_json or {},
-        "metadata": step.metadata_json or {},
-        "error": step.error_json or None,
+        "error": {
+            "code": step.error_code,
+            "message": step.error_message,
+            "details": step.error_details,
+        } if step.error_code or step.error_message or step.error_details else None,
+    }
+
+
+def _summarize_entries(entries: list[RunCostEntry]) -> Dict[str, Any]:
+    tokens_prompt = 0
+    tokens_completion = 0
+    embedding_count = 0
+    rerank_count = 0
+    ms_total = 0
+    storage_bytes = 0
+
+    for entry in entries:
+        if entry.prompt_tokens:
+            tokens_prompt += int(entry.prompt_tokens)
+        if entry.completion_tokens:
+            tokens_completion += int(entry.completion_tokens)
+        if entry.unit in ("embeddings", "embedding"):
+            embedding_count += int(entry.quantity)
+        if entry.unit == "rerank":
+            rerank_count += int(entry.quantity)
+        if entry.unit == "ms":
+            ms_total += int(entry.quantity)
+        if entry.unit == "bytes":
+            storage_bytes += int(entry.quantity)
+
+    return {
+        "tokens_prompt": tokens_prompt,
+        "tokens_completion": tokens_completion,
+        "embedding_count": embedding_count,
+        "rerank_count": rerank_count,
+        "ms_total": ms_total,
+        "storage_bytes": storage_bytes,
     }

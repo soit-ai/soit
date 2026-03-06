@@ -3,7 +3,7 @@
 Secrets port interface.
 """
 
-from typing import Optional
+from typing import Optional, Any
 from abc import ABC, abstractmethod
 
 

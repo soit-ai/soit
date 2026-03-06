@@ -1,0 +1,289 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-soit}
+      POSTGRES_USER: ${DATABASE_USER:-soit}
+      POSTGRES_PASSWORD: ${DATABASE_PASS:-soit}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-soit} -d ${DATABASE_NAME:-soit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ./app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-soit}
+      DATABASE_PASS: ${DATABASE_PASS:-soit}
+      DATABASE_NAME: ${DATABASE_NAME:-soit}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "sh /app/scripts/migrate.sh"]
+    restart: "no"
+
+  bootstrap:
+    build:
+      context: ./app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-soit}
+      DATABASE_PASS: ${DATABASE_PASS:-soit}
+      DATABASE_NAME: ${DATABASE_NAME:-soit}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - /bin/sh
+      - -c
+      - >
+        python scripts/bootstrap_admin.py
+        --email ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+        --password ${BOOTSTRAP_ADMIN_PASSWORD:-changeme123}
+        --name ${BOOTSTRAP_ADMIN_NAME:-Admin}
+        --tenant-name ${BOOTSTRAP_TENANT_NAME:-default}
+    restart: "no"
+
+  dataset-worker:
+    build:
+      context: ./app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-soit}
+      DATABASE_PASS: ${DATABASE_PASS:-soit}
+      DATABASE_NAME: ${DATABASE_NAME:-soit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-soitminio}
+      MINIO_BUCKET: ${MINIO_BUCKET:-soit-artifacts}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+      VAULT_URL: ${VAULT_URL:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-soit-vault-root}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DATASET_INGEST_WORKER_POLL_INTERVAL: ${DATASET_INGEST_WORKER_POLL_INTERVAL:-1.0}
+      DATASET_INGEST_WORKER_MAX_TASKS: ${DATASET_INGEST_WORKER_MAX_TASKS:-}
+      DATASET_INGEST_WORKER_CONCURRENCY: ${DATASET_INGEST_WORKER_CONCURRENCY:-1}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    command: ["python", "scripts/ingest_worker.py"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-soitminio}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9000/minio/health/ready > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      until mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-soitminio} ${MINIO_SECRET_KEY:-soitminio};
+      do sleep 1; done;
+      mc mb -p local/${MINIO_BUCKET:-soit-artifacts};
+      mc anonymous set none local/${MINIO_BUCKET:-soit-artifacts};
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD-SHELL", "ETCDCTL_API=3 etcdctl endpoint health --endpoints=localhost:2379"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  milvus:
+    image: milvusdb/milvus:v2.5.11
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9091/healthz > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  vault:
+    image: hashicorp/vault:1.16
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:-soit-vault-root}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    command: ["server", "-dev"]
+    healthcheck:
+      test: ["CMD-SHELL", "VAULT_ADDR=http://localhost:8200 vault status -format=json > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ./app
+    ports:
+      - "9200:9200"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-soit}
+      DATABASE_PASS: ${DATABASE_PASS:-soit}
+      DATABASE_NAME: ${DATABASE_NAME:-soit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-soitminio}
+      MINIO_BUCKET: ${MINIO_BUCKET:-soit-artifacts}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9200/api/v1/health/ready', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:9200/api/v1}
+    environment:
+      PORT: 5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:5000/ > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  etcd_data:
+  milvus_data:

@@ -33,18 +33,32 @@ class LLMNodeExecutor(NodeExecutor):
         
         # Extract parameters
         prompt = inputs.get("prompt") or inputs.get("message")
-        if not prompt:
-            raise ValidationError("LLM node requires 'prompt' or 'message' input")
-        
-        model = inputs.get("model", "model:openai:gpt-3.5-turbo")
+        messages_input = inputs.get("messages")
+        model = inputs.get("model", "model:openai:gpt-5.1")
         temperature = inputs.get("temperature")
         max_tokens = inputs.get("max_tokens")
-        
+
         # Build messages
         messages = []
+        if messages_input is not None:
+            if not isinstance(messages_input, list):
+                raise ValidationError("LLM node 'messages' must be a list")
+            for msg in messages_input:
+                if not isinstance(msg, dict):
+                    raise ValidationError("LLM node message must be an object")
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                messages.append(ChatMessage(role=role, content=str(content)))
+        else:
+            if not prompt:
+                raise ValidationError("LLM node requires 'prompt', 'message', or 'messages' input")
+            messages.append(ChatMessage(role="user", content=str(prompt)))
+
         if inputs.get("system"):
-            messages.append(ChatMessage(role="system", content=inputs["system"]))
-        messages.append(ChatMessage(role="user", content=str(prompt)))
+            messages = [ChatMessage(role="system", content=inputs["system"])] + messages
+
+        if not messages:
+            raise ValidationError("LLM node requires at least one message")
         
         # Call LLM gateway
         response: ChatResponse = await context.llm_port.chat(
@@ -65,4 +79,3 @@ class LLMNodeExecutor(NodeExecutor):
             output["finish_reason"] = response.finish_reason
         
         return output
-

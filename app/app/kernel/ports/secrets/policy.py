@@ -7,7 +7,7 @@ import asyncio
 from typing import Optional, Any
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.secrets.interface import SecretsPort
-from app.kernel.identity.rbac import require_workspace_write
+from app.kernel.identity.rbac import require_workspace_write_async
 from app.kernel.commons.errors import TimeoutError
 
 
@@ -38,7 +38,7 @@ class SecretsPolicyGateway(SecretsPort):
     ) -> str:
         """Get secret with access control."""
         # Verify workspace write permission (secrets are sensitive)
-        require_workspace_write(self.ctx)
+        await require_workspace_write_async(self.ctx)
         # Apply timeout
         try:
             return await asyncio.wait_for(
@@ -58,7 +58,7 @@ class SecretsPolicyGateway(SecretsPort):
         **kwargs: Any,
     ) -> None:
         """Set secret with access control."""
-        require_workspace_write(self.ctx)
+        await require_workspace_write_async(self.ctx)
         # Apply timeout
         try:
             await asyncio.wait_for(
@@ -77,7 +77,7 @@ class SecretsPolicyGateway(SecretsPort):
         **kwargs: Any,
     ) -> None:
         """Delete secret with access control."""
-        require_workspace_write(self.ctx)
+        await require_workspace_write_async(self.ctx)
         # Apply timeout
         try:
             await asyncio.wait_for(

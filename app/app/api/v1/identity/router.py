@@ -36,6 +36,22 @@ router.add_api_route(
     tags=["users"],
 )
 
+router.add_api_route(
+    "/me",
+    handlers.update_current_user,
+    methods=["PATCH"],
+    summary="Update current user profile",
+    tags=["users"],
+)
+
+router.add_api_route(
+    "/me/password",
+    handlers.change_password,
+    methods=["POST"],
+    summary="Change current user password",
+    tags=["users"],
+)
+
 # Tenant endpoints
 router.add_api_route(
     "/tenants",
@@ -87,6 +103,22 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/workspaces/{workspace_id}",
+    handlers.update_workspace,
+    methods=["PATCH"],
+    summary="Update workspace",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
+    "/workspaces/{workspace_id}/members",
+    handlers.list_workspace_members,
+    methods=["GET"],
+    summary="List workspace members",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
     "/workspaces/{workspace_id}/members",
     handlers.add_workspace_member,
     methods=["POST"],
@@ -94,3 +126,76 @@ router.add_api_route(
     tags=["workspaces"],
 )
 
+router.add_api_route(
+    "/workspaces/{workspace_id}/members/{user_id}",
+    handlers.update_workspace_member,
+    methods=["PATCH"],
+    summary="Update workspace member role",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
+    "/workspaces/{workspace_id}/members/{user_id}",
+    handlers.remove_workspace_member,
+    methods=["DELETE"],
+    summary="Remove workspace member",
+    tags=["workspaces"],
+)
+
+# API key endpoints
+router.add_api_route(
+    "/api-keys",
+    handlers.create_api_key,
+    methods=["POST"],
+    summary="Create API key",
+    tags=["api_keys"],
+)
+
+router.add_api_route(
+    "/api-keys",
+    handlers.list_api_keys,
+    methods=["GET"],
+    summary="List API keys",
+    tags=["api_keys"],
+)
+
+router.add_api_route(
+    "/api-keys/{key_id}/revoke",
+    handlers.revoke_api_key,
+    methods=["POST"],
+    summary="Revoke API key",
+    tags=["api_keys"],
+)
+
+router.add_api_route(
+    "/api-keys/{key_id}/rotate",
+    handlers.rotate_api_key,
+    methods=["POST"],
+    summary="Rotate API key",
+    tags=["api_keys"],
+)
+
+# Resource grant endpoints
+router.add_api_route(
+    "/resource-grants",
+    handlers.create_resource_grant,
+    methods=["POST"],
+    summary="Create or update resource grant",
+    tags=["resource_grants"],
+)
+
+router.add_api_route(
+    "/resource-grants",
+    handlers.list_resource_grants,
+    methods=["GET"],
+    summary="List resource grants for a resource",
+    tags=["resource_grants"],
+)
+
+router.add_api_route(
+    "/resource-grants/{resource_type}/{resource_id}/{user_id}",
+    handlers.revoke_resource_grant,
+    methods=["DELETE"],
+    summary="Revoke resource grant",
+    tags=["resource_grants"],
+)

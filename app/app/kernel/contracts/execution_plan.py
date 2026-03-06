@@ -25,6 +25,9 @@ class ExecutionPlan:
     run_id: Optional[str] = None
     """Run ID."""
 
+    app_id: Optional[str] = None
+    """App ID."""
+
     app_version_id: Optional[str] = None
     """Optional app version ID."""
 
@@ -42,7 +45,7 @@ class StepPlan:
     """Step ID."""
     
     step_type: str
-    """Step type (llm/retrieve/tool/node/plan)."""
+    """Step type (llm/retrieval/rerank/tool/workflow_node/agent_plan/memory_write/io/other)."""
     
     node_id: Optional[str] = None
     """Optional node ID."""

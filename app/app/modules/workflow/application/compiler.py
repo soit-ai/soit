@@ -41,9 +41,11 @@ class WorkflowCompiler:
         # Validate spec
         self.validator.validate_workflow_spec(workflow_spec)
         
-        # Build DAG
-        nodes = {node["id"]: node for node in workflow_spec["nodes"]}
-        edges = workflow_spec.get("edges", [])
+        # Build DAG from canonical graph
+        graph = workflow_spec.get("graph") or {}
+        nodes_list = graph.get("nodes") or []
+        edges = graph.get("edges") or []
+        nodes = {node["id"]: self._normalize_node(node) for node in nodes_list}
         
         # Build graph structure
         graph = self._build_graph(nodes, edges)
@@ -79,9 +81,10 @@ class WorkflowCompiler:
         # Build execution plan
         plan_data = {
             "nodes": nodes,
-            "edges": edges,
+            "edges": self._normalize_edges(edges),
             "execution_order": execution_order,
             "semantics": workflow_spec.get("semantics", {}),
+            "policy": workflow_spec.get("policy", {}),
         }
         
         return ExecutionPlan(
@@ -108,8 +111,8 @@ class WorkflowCompiler:
         graph = defaultdict(list)
         
         for edge in edges:
-            from_id = edge["from"]
-            to_id = edge["to"]
+            from_id = edge.get("from")
+            to_id = edge.get("to")
             
             if from_id not in nodes or to_id not in nodes:
                 raise ValidationError(f"Edge references unknown node: {from_id} -> {to_id}")
@@ -223,3 +226,21 @@ class WorkflowCompiler:
             raise ValidationError("Graph has cycles or disconnected components")
         
         return result
+
+    def _normalize_node(self, node: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(node)
+        params = node.get("params")
+        if params is None and "input" in node:
+            params = node.get("input")
+        normalized["input"] = params or {}
+        normalized.setdefault("type", node.get("type"))
+        return normalized
+
+    def _normalize_edges(self, edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for edge in edges:
+            normalized = dict(edge)
+            if "when" not in normalized and "condition" in normalized:
+                normalized["when"] = normalized.get("condition")
+            out.append(normalized)
+        return out

@@ -14,7 +14,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel.commons.errors import (
     KernelError,
-    error_envelope,
     UnauthorizedError,
     NotFoundError,
     ForbiddenError,
@@ -22,6 +21,8 @@ from app.kernel.commons.errors import (
     ConflictError,
     TimeoutError,
 )
+from app.api.v1.schemas.response import error_envelope
+from app.kernel.observability.context import get_log_context
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,10 @@ ERROR_CODE_TO_STATUS: Dict[str, int] = {
     "BAD_REQUEST": 400,
     "DUPLICATE_NAME": 409,
     "INVALID_PARAMS": 400,
+    "INVALID_SOURCE_URI": 400,
+    "CRAWLER_EMPTY_CONTENT": 422,
+    "CRAWLER_CONTENT_TOO_LARGE": 413,
+    "CRAWLER_FETCH_FAILED": 502,
     "RATE_LIMIT_EXCEEDED": 429,
     "INTERNAL_ERROR": 500,
     "SERVICE_UNAVAILABLE": 503,
@@ -106,6 +111,12 @@ def sanitize_error_message(message: str) -> str:
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """Middleware to handle errors globally with enhanced error handling."""
     
+    def _resolve_trace_ids(self, request: Request) -> tuple[Optional[str], Optional[str]]:
+        log_ctx = get_log_context()
+        request_id = getattr(request.state, "request_id", None) or log_ctx.get("request_id")
+        run_id = getattr(request.state, "run_id", None) or log_ctx.get("run_id")
+        return request_id, run_id
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and handle errors."""
         try:
@@ -131,12 +142,13 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             # Sanitize error message
             sanitized_message = sanitize_error_message(e.message)
             
+            request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code=e.code,
                 message=sanitized_message,
                 details=filtered_details,
-                request_id=getattr(request.state, "request_id", None),
-                run_id=getattr(request.state, "run_id", None),
+                request_id=request_id,
+                run_id=run_id,
             )
             return JSONResponse(
                 status_code=status_code,
@@ -160,11 +172,13 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "type": error.get("type", "validation_error"),
                 })
             
+            request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code="VALIDATION_ERROR",
                 message="Request validation failed",
                 details={"errors": errors},
-                request_id=getattr(request.state, "request_id", None),
+                request_id=request_id,
+                run_id=run_id,
             )
             return JSONResponse(
                 status_code=400,
@@ -193,10 +207,12 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             }
             error_code = status_to_code.get(e.status_code, "HTTP_ERROR")
             
+            request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code=error_code,
                 message=str(e.detail) if e.detail else f"HTTP {e.status_code}",
-                request_id=getattr(request.state, "request_id", None),
+                request_id=request_id,
+                run_id=run_id,
             )
             return JSONResponse(
                 status_code=e.status_code,
@@ -225,14 +241,15 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "error_message": str(e),
                 }
             
+            request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code="INTERNAL_ERROR",
                 message=error_message,
                 details=error_details,
-                request_id=getattr(request.state, "request_id", None),
+                request_id=request_id,
+                run_id=run_id,
             )
             return JSONResponse(
                 status_code=500,
                 content=error_response,
             )
-

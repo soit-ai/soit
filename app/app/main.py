@@ -4,6 +4,9 @@ FastAPI application entry point.
 """
 
 import sys
+import asyncio
+import os
+from typing import Optional
 from pathlib import Path
 
 # Add project root to Python path
@@ -19,14 +22,37 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+def _load_env_file(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file(project_root / ".env")
+
 from app.settings.settings import settings as app_settings
 from app.kernel.commons.errors import KernelError
 from app.kernel.observability.logging import setup_logging
 from app.kernel.observability.sentry import setup_sentry
-from app.kernel.observability.tracing import setup_tracing
+from app.kernel.observability.context import get_log_context
 from app.infra.db.session import get_engine, create_tables
 from app.middleware.request_id import RequestIdMiddleware
-from app.middleware.error_handler import ErrorHandlerMiddleware
+from app.middleware.tracing import TracingMiddleware
+from app.middleware.error_handler import ErrorHandlerMiddleware, ERROR_CODE_TO_STATUS
+from app.middleware.response_envelope import ResponseEnvelopeMiddleware
+from app.api.v1.schemas.response import error_envelope
 
 
 # Setup logging
@@ -43,9 +69,6 @@ async def lifespan(app: FastAPI):
     # Create database tables if needed
     # create_tables()
     
-    # Setup tracing
-    setup_tracing(app)
-
     # Load installed plugins into runtime registry
     try:
         from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
@@ -53,11 +76,32 @@ async def lifespan(app: FastAPI):
     except Exception:
         # Best-effort; do not block app startup
         pass
+
+    dataset_worker_task = None
+    if getattr(app_settings, "dataset_ingest_worker_enabled", False):
+        try:
+            from app.modules.dataset.runtime.ingest_worker import GlobalDatasetIngestWorker
+            worker = GlobalDatasetIngestWorker()
+            dataset_worker_task = asyncio.create_task(
+                worker.run_loop(
+                    poll_interval=max(0.1, app_settings.dataset_ingest_worker_poll_interval),
+                    max_tasks=app_settings.dataset_ingest_worker_max_tasks,
+                    concurrency=app_settings.dataset_ingest_worker_concurrency,
+                )
+            )
+        except Exception:
+            dataset_worker_task = None
     
     yield
     
     # Shutdown
     # Cleanup resources if needed
+    if dataset_worker_task:
+        dataset_worker_task.cancel()
+        try:
+            await dataset_worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 # Create FastAPI application
@@ -74,8 +118,11 @@ app = FastAPI(
     tags_metadata=tags_metadata,
 )
 
+# Setup tracing middleware before app startup
+app.add_middleware(TracingMiddleware)
 # Add middleware (order matters: first added is last executed)
 app.add_middleware(ErrorHandlerMiddleware)
+app.add_middleware(ResponseEnvelopeMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 # Configure CORS
@@ -92,8 +139,76 @@ app.add_middleware(
 )
 
 
-# Exception handlers are handled by ErrorHandlerMiddleware
-# No need to register separate handlers
+# Exception handlers ensure consistent error envelopes across dependencies and routes.
+def _resolve_trace_ids(request: Request) -> tuple[Optional[str], Optional[str]]:
+    log_ctx = get_log_context()
+    request_id = getattr(request.state, "request_id", None) or log_ctx.get("request_id")
+    run_id = getattr(request.state, "run_id", None) or log_ctx.get("run_id")
+    return request_id, run_id
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    status_to_code = {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        429: "RATE_LIMIT_EXCEEDED",
+        500: "INTERNAL_ERROR",
+        503: "SERVICE_UNAVAILABLE",
+    }
+    error_code = status_to_code.get(exc.status_code, "HTTP_ERROR")
+    request_id, run_id = _resolve_trace_ids(request)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=error_envelope(
+            code=error_code,
+            message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
+            request_id=request_id,
+            run_id=run_id,
+        ),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "field": ".".join(str(loc) for loc in error.get("loc", [])),
+            "message": error.get("msg", "Validation error"),
+            "type": error.get("type", "validation_error"),
+        })
+    request_id, run_id = _resolve_trace_ids(request)
+    return JSONResponse(
+        status_code=400,
+        content=error_envelope(
+            code="VALIDATION_ERROR",
+            message="Request validation failed",
+            details={"errors": errors},
+            request_id=request_id,
+            run_id=run_id,
+        ),
+    )
+
+
+@app.exception_handler(KernelError)
+async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONResponse:
+    error_code = exc.code
+    status_code = ERROR_CODE_TO_STATUS.get(error_code, 500)
+    request_id, run_id = _resolve_trace_ids(request)
+    return JSONResponse(
+        status_code=status_code,
+        content=error_envelope(
+            code=error_code,
+            message=exc.message,
+            details=exc.details,
+            request_id=request_id,
+            run_id=run_id,
+        ),
+    )
 
 
 # Register routers
@@ -101,26 +216,41 @@ from app.api.v1.identity.router import router as identity_router
 from app.api.v1.workflow.router import router as workflow_router
 from app.api.v1.dataset.router import router as dataset_router
 from app.api.v1.chat.router import router as chat_router
+from app.api.v1.bot.router import router as bot_router
+from app.api.v1.memory.router import router as memory_router
 from app.api.v1.modelhub.router import router as modelhub_router
 from app.api.v1.pluginmarket.router import router as pluginmarket_router
+from app.api.v1.run.router import router as run_router
+from app.api.v1.security.router import router as security_router
+from app.api.v1.secrets.router import router as secrets_router
 from app.api.v1.websocket.router import router as websocket_router
 from app.api.v1.sse.router import router as sse_router
 from app.api.v1.health.router import router as health_router
+from app.api.v1.agent.router import router as agent_router
+from app.api.v1.appcenter.router import router as appcenter_router
+from app.api.v1.notification.router import router as notification_router
 
 # Register routers
 app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
 app.include_router(workflow_router, prefix="/api/v1/workflows", tags=["workflows"])
 app.include_router(dataset_router, prefix="/api/v1/datasets", tags=["datasets"])
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
-app.include_router(modelhub_router, prefix="/api/v1/models", tags=["models"])
+app.include_router(bot_router, prefix="/api/v1/bots", tags=["bots"])
+app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
+app.include_router(modelhub_router, prefix="/api/v1/modelhub", tags=["modelhub"])
 app.include_router(pluginmarket_router, prefix="/api/v1/plugins", tags=["plugins"])
+app.include_router(run_router, prefix="/api/v1/runs", tags=["runs"])
+app.include_router(security_router, prefix="/api/v1/security", tags=["security"])
+app.include_router(secrets_router, prefix="/api/v1/secrets", tags=["secrets"])
 app.include_router(websocket_router, prefix="/api/v1", tags=["websocket"])
 app.include_router(sse_router, prefix="/api/v1/sse", tags=["sse"])
 app.include_router(health_router, tags=["health"])
+app.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
+app.include_router(appcenter_router, prefix="/api/v1/apps", tags=["appcenter"])
+app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
 
 
 @app.get("/")
 async def root():
     """Root endpoint."""
     return {"message": "SOIT-Pro API", "version": "1.0.0"}
-

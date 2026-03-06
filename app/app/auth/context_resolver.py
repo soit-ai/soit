@@ -4,6 +4,7 @@ Resolve RequestContext from request + membership.
 """
 
 from typing import Optional
+import hashlib
 
 from fastapi import Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,6 +12,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.auth import JWTManager
 from app.kernel.commons.errors import UnauthorizedError, NotFoundError
+from app.kernel.commons.time import utc_now
 
 
 security = HTTPBearer()
@@ -32,6 +34,7 @@ class ContextResolver:
         request: Request,
         workspace_id_header: Optional[str] = Header(None, alias="X-Workspace-Id"),
         authorization: Optional[HTTPAuthorizationCredentials] = None,
+        api_key: Optional[str] = None,
     ) -> RequestContext:
         """Resolve RequestContext from FastAPI request.
         
@@ -51,6 +54,9 @@ class ContextResolver:
             UnauthorizedError: If authentication fails.
             NotFoundError: If workspace not found or user not member.
         """
+        if api_key:
+            return self.resolve_from_api_key(api_key)
+
         # Extract token from authorization header
         if not authorization:
             # Try to get from request headers directly
@@ -76,37 +82,67 @@ class ContextResolver:
         # Resolve workspace ID
         workspace_id = workspace_id_header
         if not workspace_id:
-            # Try to extract from path (e.g., /api/v1/workspaces/{workspace_id}/...)
             workspace_id = self._extract_workspace_from_path(request.url.path)
-        
+        if not workspace_id:
+            workspace_id = payload.get("workspace_id")
+
         if not workspace_id:
             raise NotFoundError("Workspace ID required but not provided")
         
         # Get workspace role from token or resolve from membership
         workspace_role = payload.get("workspace_role")
         
-        # If workspace_role not in token, query database for membership
-        if not workspace_role and workspace_id:
+        llm_rate_limit = None
+        tool_rate_limit = None
+        llm_daily_quota = None
+        tool_daily_quota = None
+
+        # Query database for membership and limits
+        if workspace_id:
             from app.infra.db.session import get_db_sync
-            from app.modules.identity.infra.repository import WorkspaceMembershipRepository
+            from app.modules.identity.infra.repository import (
+                WorkspaceMembershipRepository,
+                TenantRepository,
+                WorkspaceRepository,
+            )
             from app.kernel.contracts.context import RequestContext as RC
-            
-            # Create temporary context for repository
+
             temp_ctx = RC(
                 tenant_id=str(tenant_id),
                 workspace_id=str(workspace_id),
                 user_id=str(user_id),
                 tenant_role=tenant_role,
             )
-            
+
             db = get_db_sync()
             try:
-                membership_repo = WorkspaceMembershipRepository(db, temp_ctx)
-                membership = membership_repo.get(workspace_id, str(user_id))
-                if membership:
-                    workspace_role = membership.role
+                if not workspace_role:
+                    membership_repo = WorkspaceMembershipRepository(db, temp_ctx)
+                    membership = membership_repo.get(workspace_id, str(user_id))
+                    if membership:
+                        workspace_role = membership.role
+
+                tenant_repo = TenantRepository(db)
+                workspace_repo = WorkspaceRepository(db, temp_ctx)
+                tenant = tenant_repo.get_by_id(str(tenant_id))
+                workspace = workspace_repo.get_by_id(str(workspace_id))
+
+                if tenant:
+                    llm_rate_limit = tenant.llm_rate_limit_per_minute
+                    tool_rate_limit = tenant.tool_rate_limit_per_minute
+                    llm_daily_quota = tenant.llm_daily_quota
+                    tool_daily_quota = tenant.tool_daily_quota
+
+                if workspace:
+                    if workspace.llm_rate_limit_per_minute is not None:
+                        llm_rate_limit = workspace.llm_rate_limit_per_minute
+                    if workspace.tool_rate_limit_per_minute is not None:
+                        tool_rate_limit = workspace.tool_rate_limit_per_minute
+                    if workspace.llm_daily_quota is not None:
+                        llm_daily_quota = workspace.llm_daily_quota
+                    if workspace.tool_daily_quota is not None:
+                        tool_daily_quota = workspace.tool_daily_quota
             except Exception:
-                # If lookup fails, workspace_role remains None
                 pass
             finally:
                 db.close()
@@ -117,7 +153,91 @@ class ContextResolver:
             user_id=str(user_id),
             tenant_role=tenant_role,
             workspace_role=workspace_role,
+            llm_rate_limit_per_minute=llm_rate_limit,
+            tool_rate_limit_per_minute=tool_rate_limit,
+            llm_daily_quota=llm_daily_quota,
+            tool_daily_quota=tool_daily_quota,
         )
+
+    def resolve_from_api_key(
+        self,
+        api_key: str,
+    ) -> RequestContext:
+        """Resolve RequestContext from API key."""
+        if not api_key:
+            raise UnauthorizedError("Missing API key")
+
+        key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+        from app.infra.db.session import get_db_sync
+        from app.modules.identity.infra.repository import (
+            ApiKeyRepository,
+            TenantMembershipRepository,
+            WorkspaceMembershipRepository,
+            TenantRepository,
+            WorkspaceRepository,
+        )
+        from app.kernel.contracts.context import RequestContext as RC
+
+        db = get_db_sync()
+        try:
+            api_repo = ApiKeyRepository(db)
+            key = api_repo.get_by_hash(key_hash)
+            if not key or key.status != "active":
+                raise UnauthorizedError("Invalid or revoked API key")
+
+            key.last_used_at = utc_now()
+            key.updated_at = utc_now()
+            api_repo.update(key)
+
+            tenant_role = None
+            membership_repo = TenantMembershipRepository(db)
+            tenant_membership = membership_repo.get(key.tenant_id, key.user_id)
+            if tenant_membership:
+                tenant_role = tenant_membership.role
+
+            temp_ctx = RC(
+                tenant_id=key.tenant_id,
+                workspace_id=key.workspace_id,
+                user_id=key.user_id,
+                tenant_role=tenant_role,
+            )
+            workspace_role = None
+            workspace_membership_repo = WorkspaceMembershipRepository(db, temp_ctx)
+            workspace_membership = workspace_membership_repo.get(key.workspace_id, key.user_id)
+            if workspace_membership:
+                workspace_role = workspace_membership.role
+
+            tenant = TenantRepository(db).get_by_id(key.tenant_id)
+            workspace = WorkspaceRepository(db, temp_ctx).get_by_id(key.workspace_id)
+
+            llm_rate_limit = tenant.llm_rate_limit_per_minute if tenant else None
+            tool_rate_limit = tenant.tool_rate_limit_per_minute if tenant else None
+            llm_daily_quota = tenant.llm_daily_quota if tenant else None
+            tool_daily_quota = tenant.tool_daily_quota if tenant else None
+
+            if workspace:
+                if workspace.llm_rate_limit_per_minute is not None:
+                    llm_rate_limit = workspace.llm_rate_limit_per_minute
+                if workspace.tool_rate_limit_per_minute is not None:
+                    tool_rate_limit = workspace.tool_rate_limit_per_minute
+                if workspace.llm_daily_quota is not None:
+                    llm_daily_quota = workspace.llm_daily_quota
+                if workspace.tool_daily_quota is not None:
+                    tool_daily_quota = workspace.tool_daily_quota
+
+            return RequestContext(
+                tenant_id=key.tenant_id,
+                workspace_id=key.workspace_id,
+                user_id=key.user_id,
+                tenant_role=tenant_role,
+                workspace_role=workspace_role,
+                llm_rate_limit_per_minute=llm_rate_limit,
+                tool_rate_limit_per_minute=tool_rate_limit,
+                llm_daily_quota=llm_daily_quota,
+                tool_daily_quota=tool_daily_quota,
+            )
+        finally:
+            db.close()
     
     def _extract_workspace_from_path(self, path: str) -> Optional[str]:
         """Extract workspace ID from URL path.

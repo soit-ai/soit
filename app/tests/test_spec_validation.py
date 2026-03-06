@@ -24,7 +24,8 @@ def test_tool_spec_validation_with_refs():
         "output_schema": {},
         "policy": {"audit_level": "basic"},
         "endpoint_ref": "endpoint:default",
-        "auth": {"secret_refs": ["secret:demo_api_key"]},
+        "auth": {"type": "api_key", "secret_refs": ["secret:demo_api_key"], "api_key": {"in": "header", "name": "X-Api-Key", "secret_ref": "secret:demo_api_key"}},
+        "http": {"method": "GET"},
     }
     assert validate_spec(tool_doc, "tool_spec") is True
 
@@ -34,10 +35,10 @@ def test_plugin_spec_validation_with_refs():
         "name": "demo_plugin",
         "publisher": "soit",
         "version": "0.1.0",
-        "runtime_level": "standard",
-        "capabilities": {"tools": True},
+        "runtime_level": "L0",
+        "capabilities": ["tools"],
         "exports": {"tools": ["tool:http:demo_http_tool"]},
-        "permissions": {"egress": {"allow": ["https://api.example.com"]}},
+        "permissions": {"network": ["api.example.com"]},
         "integrity": {"digest": "sha256:deadbeef"},
     }
     assert validate_spec(plugin_doc, "plugin_spec") is True
@@ -47,9 +48,11 @@ def test_workflow_spec_validation_minimal():
     wf_doc = {
         "name": "demo_workflow",
         "inputs_schema": {},
-        "nodes": [{"id": "n1", "type": "output", "input": {}}],
-        "edges": [],
-        "outputs": {},
+        "outputs_schema": {},
+        "graph": {
+            "nodes": [{"id": "n1", "type": "output", "params": {"value": "ok"}}],
+            "edges": [],
+        },
     }
     assert validate_spec(wf_doc, "workflow_spec") is True
 
@@ -69,3 +72,15 @@ def test_invalid_tool_spec_returns_rich_errors():
     first = err.details["errors"][0]
     assert "instance_path" in first
     assert "schema_path" in first
+
+
+def test_node_spec_validation_with_refs():
+    node_doc = {
+        "name": "llm_chat",
+        "id": "node:builtin:llm_chat",
+        "adapter": "builtin",
+        "node_type": "llm",
+        "input_schema": {"type": "object", "properties": {"prompt": {"type": "string"}}, "required": ["prompt"]},
+        "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+    }
+    assert validate_spec(node_doc, "node_spec") is True

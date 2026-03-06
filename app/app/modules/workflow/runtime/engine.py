@@ -4,6 +4,8 @@ Execution engine core entry.
 """
 
 from typing import Dict, Any
+import asyncio
+import json
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
@@ -45,12 +47,20 @@ class ExecutionEngine:
         """
         if not plan.run_id:
             plan.run_id = generate_run_id()
+        if not plan.app_id or not plan.app_version_id:
+            raise ValueError("ExecutionPlan requires app_id and app_version_id")
 
         # Create run (metrics are recorded in trace_writer)
+        input_summary = None
+        if plan.inputs is not None:
+            input_summary = json.dumps(plan.inputs, ensure_ascii=True, default=str)[:8192]
+
         run = self.trace_writer.create_run(
             mode=plan.mode,
+            app_id=plan.app_id,
             app_version_id=plan.app_version_id,
-            input_summary=str(plan.inputs)[:8192] if plan.inputs else None,
+            app_type=plan.mode,
+            input_summary=input_summary,
             run_id=plan.run_id,
         )
         
@@ -60,7 +70,7 @@ class ExecutionEngine:
         
         try:
             # Execute based on mode
-            if plan.mode == "chat":
+            if plan.mode in ("chat", "bot"):
                 result = await self._execute_chat(plan)
             elif plan.mode == "workflow":
                 result = await self._execute_workflow(plan)
@@ -78,6 +88,11 @@ class ExecutionEngine:
             )
             
             return result
+        except asyncio.CancelledError:
+            # Transition to canceled
+            self.state_machine.transition_run(run, RunStatus.CANCELED.value)
+            self.trace_writer.update_run_status(run.id, run.status)
+            raise
         except Exception as e:
             # Transition to failed (metrics are recorded in trace_writer)
             error_message = str(e)
@@ -112,7 +127,7 @@ class ExecutionEngine:
         
         # Extract inputs
         messages_data = plan.inputs.get("messages", [])
-        model = plan.inputs.get("model", "model:openai:gpt-3.5-turbo")
+        model = plan.inputs.get("model", "model:openai:gpt-5.1")
         temperature = plan.inputs.get("temperature", 0.7)
         max_tokens = plan.inputs.get("max_tokens")
         top_p = plan.inputs.get("top_p")
@@ -177,6 +192,10 @@ class ExecutionEngine:
             ctx=self.ctx,
             trace_writer=self.trace_writer,
         )
+        plugin_runtime_port = container.get_plugin_runtime_port(
+            ctx=self.ctx,
+            trace_writer=self.trace_writer,
+        )
         
         # Initialize workflow executor
         workflow_executor = WorkflowExecutor(self)
@@ -190,6 +209,8 @@ class ExecutionEngine:
             llm_port=llm_port,
             tool_port=tool_port,
             vector_port=vector_port,
+            plugin_runtime_port=plugin_runtime_port,
+            workflow_policy=plan.plan_data.get("policy", {}),
         )
         
         # Execute workflow
@@ -253,7 +274,7 @@ class ExecutionEngine:
             # Create step for agent iteration
             step = self.trace_writer.create_step(
                 run_id=plan.run_id,
-                step_type="plan",
+                step_type="agent_plan",
                 input_summary=f"Agent iteration {iteration}",
             )
             

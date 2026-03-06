@@ -4,6 +4,7 @@ Dataset repositories using scope-aware base.
 """
 
 from typing import Optional, List
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, func
 
@@ -14,6 +15,7 @@ from app.modules.dataset.domain.models import (
     DatasetDocument,
     DatasetChunk,
     DatasetIndex,
+    DatasetIngestTask,
 )
 
 
@@ -28,6 +30,26 @@ class DatasetRepository(Repository[Dataset]):
             ctx: Request context.
         """
         super().__init__(Dataset, db, ctx)
+
+    def get_by_id(self, dataset_id: str) -> Optional[Dataset]:
+        """Get dataset by ID.
+
+        Args:
+            dataset_id: Dataset ID.
+
+        Returns:
+            Dataset instance or None.
+        """
+        query = select(Dataset).where(
+            and_(
+                Dataset.tenant_id == self.ctx.tenant_id,
+                Dataset.workspace_id == self.ctx.workspace_id,
+                Dataset.id == dataset_id,
+                Dataset.deleted_at.is_(None),
+            )
+        )
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def get_by_name(self, name: str) -> Optional[Dataset]:
         """Get dataset by name.
@@ -44,9 +66,11 @@ class DatasetRepository(Repository[Dataset]):
                 Dataset.tenant_id == self.ctx.tenant_id,
                 Dataset.workspace_id == self.ctx.workspace_id,
                 Dataset.name == name,
+                Dataset.deleted_at.is_(None),
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list(
         self,
@@ -66,16 +90,18 @@ class DatasetRepository(Repository[Dataset]):
             and_(
                 Dataset.tenant_id == self.ctx.tenant_id,
                 Dataset.workspace_id == self.ctx.workspace_id,
+                Dataset.deleted_at.is_(None),
             )
         ).order_by(Dataset.created_at.desc()).offset(offset).limit(limit)
-        
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def update_stats(
         self,
         dataset_id: str,
         doc_count: Optional[int] = None,
         chunk_count: Optional[int] = None,
+        last_indexed_at: Optional[datetime] = None,
     ) -> Dataset:
         """Update dataset statistics.
         
@@ -95,6 +121,8 @@ class DatasetRepository(Repository[Dataset]):
             dataset.doc_count = doc_count
         if chunk_count is not None:
             dataset.chunk_count = chunk_count
+        if last_indexed_at is not None:
+            dataset.last_indexed_at = last_indexed_at
         
         from app.kernel.commons.time import utc_now
         dataset.updated_at = utc_now()
@@ -115,6 +143,26 @@ class DocumentRepository(Repository[DatasetDocument]):
             ctx: Request context.
         """
         super().__init__(DatasetDocument, db, ctx)
+
+    def get_by_id(self, document_id: str) -> Optional[DatasetDocument]:
+        """Get document by ID.
+
+        Args:
+            document_id: Document ID.
+
+        Returns:
+            DatasetDocument instance or None.
+        """
+        query = select(DatasetDocument).where(
+            and_(
+                DatasetDocument.tenant_id == self.ctx.tenant_id,
+                DatasetDocument.workspace_id == self.ctx.workspace_id,
+                DatasetDocument.id == document_id,
+                DatasetDocument.deleted_at.is_(None),
+            )
+        )
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def get_by_key(
         self,
@@ -139,6 +187,7 @@ class DocumentRepository(Repository[DatasetDocument]):
                 DatasetDocument.workspace_id == self.ctx.workspace_id,
                 DatasetDocument.dataset_id == dataset_id,
                 DatasetDocument.doc_key == doc_key,
+                DatasetDocument.deleted_at.is_(None),
             )
         )
         
@@ -147,7 +196,8 @@ class DocumentRepository(Repository[DatasetDocument]):
         else:
             query = query.where(DatasetDocument.is_latest == True)
         
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list_by_dataset(
         self,
@@ -172,6 +222,7 @@ class DocumentRepository(Repository[DatasetDocument]):
                 DatasetDocument.tenant_id == self.ctx.tenant_id,
                 DatasetDocument.workspace_id == self.ctx.workspace_id,
                 DatasetDocument.dataset_id == dataset_id,
+                DatasetDocument.deleted_at.is_(None),
             )
         )
         
@@ -180,7 +231,8 @@ class DocumentRepository(Repository[DatasetDocument]):
         
         query = query.order_by(DatasetDocument.created_at.desc()).offset(offset).limit(limit)
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def get_next_version(self, dataset_id: str, doc_key: str) -> int:
         """Get next version number for document key.
@@ -201,6 +253,8 @@ class DocumentRepository(Repository[DatasetDocument]):
             )
         )
         max_version = self.db.exec(query).one()
+        if isinstance(max_version, (list, tuple)) or hasattr(max_version, "_mapping"):
+            max_version = max_version[0]
         return (max_version or 0) + 1
     
     def count_by_dataset(self, dataset_id: str) -> int:
@@ -218,9 +272,13 @@ class DocumentRepository(Repository[DatasetDocument]):
                 DatasetDocument.workspace_id == self.ctx.workspace_id,
                 DatasetDocument.dataset_id == dataset_id,
                 DatasetDocument.is_latest == True,
+                DatasetDocument.deleted_at.is_(None),
             )
         )
-        return self.db.exec(query).one()
+        result = self.db.exec(query).one()
+        if isinstance(result, (list, tuple)) or hasattr(result, "_mapping"):
+            return int(result[0] or 0)
+        return int(result or 0)
 
 
 class ChunkRepository(Repository[DatasetChunk]):
@@ -258,8 +316,8 @@ class ChunkRepository(Repository[DatasetChunk]):
                 DatasetChunk.document_id == document_id,
             )
         ).order_by(DatasetChunk.chunk_no).offset(offset).limit(limit)
-        
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def list_by_dataset(
         self,
@@ -292,7 +350,8 @@ class ChunkRepository(Repository[DatasetChunk]):
         
         query = query.order_by(DatasetChunk.created_at.desc()).offset(offset).limit(limit)
         
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
     
     def count_by_dataset(self, dataset_id: str) -> int:
         """Count chunks in dataset.
@@ -310,7 +369,10 @@ class ChunkRepository(Repository[DatasetChunk]):
                 DatasetChunk.dataset_id == dataset_id,
             )
         )
-        return self.db.exec(query).one()
+        result = self.db.exec(query).one()
+        if isinstance(result, (list, tuple)) or hasattr(result, "_mapping"):
+            return int(result[0] or 0)
+        return int(result or 0)
 
 
 class IndexRepository(Repository[DatasetIndex]):
@@ -324,6 +386,26 @@ class IndexRepository(Repository[DatasetIndex]):
             ctx: Request context.
         """
         super().__init__(DatasetIndex, db, ctx)
+
+    def get_by_id(self, index_id: str) -> Optional[DatasetIndex]:
+        """Get index by ID.
+
+        Args:
+            index_id: Index ID.
+
+        Returns:
+            DatasetIndex instance or None.
+        """
+        query = select(DatasetIndex).where(
+            and_(
+                DatasetIndex.tenant_id == self.ctx.tenant_id,
+                DatasetIndex.workspace_id == self.ctx.workspace_id,
+                DatasetIndex.id == index_id,
+                DatasetIndex.deleted_at.is_(None),
+            )
+        )
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def get_by_name(self, dataset_id: str, name: str) -> Optional[DatasetIndex]:
         """Get index by name.
@@ -341,9 +423,11 @@ class IndexRepository(Repository[DatasetIndex]):
                 DatasetIndex.workspace_id == self.ctx.workspace_id,
                 DatasetIndex.dataset_id == dataset_id,
                 DatasetIndex.name == name,
+                DatasetIndex.deleted_at.is_(None),
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def get_primary(self, dataset_id: str) -> Optional[DatasetIndex]:
         """Get primary index for dataset.
@@ -360,9 +444,11 @@ class IndexRepository(Repository[DatasetIndex]):
                 DatasetIndex.workspace_id == self.ctx.workspace_id,
                 DatasetIndex.dataset_id == dataset_id,
                 DatasetIndex.is_primary == True,
+                DatasetIndex.deleted_at.is_(None),
             )
         )
-        return self.db.exec(query).first()
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
     
     def list_by_dataset(
         self,
@@ -385,7 +471,129 @@ class IndexRepository(Repository[DatasetIndex]):
                 DatasetIndex.tenant_id == self.ctx.tenant_id,
                 DatasetIndex.workspace_id == self.ctx.workspace_id,
                 DatasetIndex.dataset_id == dataset_id,
+                DatasetIndex.deleted_at.is_(None),
             )
         ).order_by(DatasetIndex.created_at.desc()).offset(offset).limit(limit)
-        
-        return list(self.db.exec(query).all())
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
+
+class IngestTaskRepository(Repository[DatasetIngestTask]):
+    """Repository for DatasetIngestTask model."""
+
+    def __init__(self, db: Session, ctx: RequestContext):
+        """Initialize ingest task repository.
+
+        Args:
+            db: Database session.
+            ctx: Request context.
+        """
+        super().__init__(DatasetIngestTask, db, ctx)
+
+    def create(self, task: DatasetIngestTask) -> DatasetIngestTask:
+        """Create a new ingestion task."""
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def get_by_id(self, task_id: str) -> Optional[DatasetIngestTask]:
+        """Get task by ID."""
+        query = select(DatasetIngestTask).where(
+            and_(
+                DatasetIngestTask.tenant_id == self.ctx.tenant_id,
+                DatasetIngestTask.workspace_id == self.ctx.workspace_id,
+                DatasetIngestTask.id == task_id,
+            )
+        )
+        result = self.db.exec(query).first()
+        return self._unwrap_result(result)
+
+    def list_pending(self, limit: int = 20) -> List[DatasetIngestTask]:
+        """List queued tasks."""
+        query = select(DatasetIngestTask).where(
+            and_(
+                DatasetIngestTask.tenant_id == self.ctx.tenant_id,
+                DatasetIngestTask.workspace_id == self.ctx.workspace_id,
+                DatasetIngestTask.status == "queued",
+            )
+        ).order_by(DatasetIngestTask.created_at.asc()).limit(limit)
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
+    def list_by_dataset(
+        self,
+        dataset_id: str,
+        status: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[DatasetIngestTask]:
+        """List tasks by dataset."""
+        query = select(DatasetIngestTask).where(
+            and_(
+                DatasetIngestTask.tenant_id == self.ctx.tenant_id,
+                DatasetIngestTask.workspace_id == self.ctx.workspace_id,
+                DatasetIngestTask.dataset_id == dataset_id,
+            )
+        )
+        if status:
+            query = query.where(DatasetIngestTask.status == status)
+        query = query.order_by(DatasetIngestTask.created_at.desc()).offset(offset).limit(limit)
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
+    def claim_next(self) -> Optional[DatasetIngestTask]:
+        """Claim the next queued task."""
+        query = select(DatasetIngestTask).where(
+            and_(
+                DatasetIngestTask.tenant_id == self.ctx.tenant_id,
+                DatasetIngestTask.workspace_id == self.ctx.workspace_id,
+                DatasetIngestTask.status == "queued",
+            )
+        ).order_by(DatasetIngestTask.created_at.asc()).limit(1)
+        result = self.db.exec(query).first()
+        task = self._unwrap_result(result)
+        if not task:
+            return None
+        from app.kernel.commons.time import utc_now
+        task.status = "running"
+        task.started_at = utc_now()
+        task.updated_at = utc_now()
+        task.updated_by = self.ctx.user_id
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def update_status(
+        self,
+        task: DatasetIngestTask,
+        status: str,
+        *,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+        run_id: Optional[str] = None,
+        retry_count: Optional[int] = None,
+    ) -> DatasetIngestTask:
+        """Update task status and metadata."""
+        from app.kernel.commons.time import utc_now
+        task.status = status
+        task.updated_at = utc_now()
+        task.updated_by = self.ctx.user_id
+        if status == "queued":
+            task.started_at = None
+            task.finished_at = None
+        if status == "running" and task.started_at is None:
+            task.started_at = utc_now()
+        if status in ("succeeded", "failed", "canceled"):
+            task.finished_at = utc_now()
+        if error_code is not None:
+            task.error_code = error_code
+        if error_message is not None:
+            task.error_message = error_message
+        if run_id is not None:
+            task.run_id = run_id
+        if retry_count is not None:
+            task.retry_count = retry_count
+        self.db.commit()
+        self.db.refresh(task)
+        return task

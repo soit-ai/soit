@@ -5,9 +5,11 @@ Tracing hooks (OTel).
 This project keeps tracing pluggable. If OpenTelemetry is configured in the
 runtime environment, you can wire real OTel exporters/instrumentors here.
 
-For OSS/local runs, we provide a lightweight, safe default implementation that:
-- Creates a request_id/trace_id per request (middleware).
-- Emits structured trace events via Python logging.
+For OSS/local runs, we provide a lightweight, safe default implementation that
+emits structured trace events via Python logging.
+
+Note: FastAPI middleware integration has been moved to app.middleware.tracing
+to avoid coupling kernel to FastAPI.
 """
 
 from __future__ import annotations
@@ -15,9 +17,6 @@ from __future__ import annotations
 from typing import Optional, Dict, Any, Callable
 import json
 import logging
-import uuid
-
-from fastapi import FastAPI, Request, Response
 
 from app.kernel.trace.models import Run, RunStep
 
@@ -68,25 +67,3 @@ class OpenTelemetryTracer:
 
 # Global tracer instance
 tracer = OpenTelemetryTracer()
-
-
-def setup_tracing(app: FastAPI) -> None:
-    """Setup tracing for FastAPI application.
-
-    Adds a small middleware that:
-    - Ensures `X-Request-Id` exists (generates one if missing).
-    - Stores ids on `request.state` so downstream code can attach them to logs.
-    """
-
-    @app.middleware("http")
-    async def _trace_middleware(request: Request, call_next):
-        request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
-        trace_id = request.headers.get("X-Trace-Id") or request_id
-
-        request.state.request_id = request_id
-        request.state.trace_id = trace_id
-
-        response: Response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
-        response.headers["X-Trace-Id"] = trace_id
-        return response
