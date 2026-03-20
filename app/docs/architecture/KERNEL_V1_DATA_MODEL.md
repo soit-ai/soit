@@ -5,7 +5,7 @@ It is designed to be stable for years and to support:
 - `tenant_id + workspace_id` isolation
 - immutable versioning
 - unified execution traces (run/step/artifact/cost)
-- dataset pipeline (document/chunk/index) and future extension
+- knowledge ingestion and retrieval pipeline
 
 > Note: columns may be extended later, but the **core keys, constraints and index patterns**
 > should remain stable to minimize migrations.
@@ -53,47 +53,90 @@ It is designed to be stable for years and to support:
 
 ---
 
-## 2. App Center (apps and immutable versions)
+## 2. Agents (primary business object)
 
-### apps
+### agents
 Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`
-- `type` (chat/bot/workflow/agent/app)
 - `status` (active/archived)
 - `visibility` (private/workspace/public)
-- `name`, `description`
+- `name`, `description`, `icon_url`, `category`
+- `is_public`, `featured`
+- `downloads_count`, `rating`, `reviews_count`, `published_at`
 - `current_version_id` (nullable)
+- `published_version_id` (nullable)
 - UNIQUE `(tenant_id, workspace_id, name)`
-- INDEX `(tenant_id, workspace_id, type)`
+- INDEX `(tenant_id, workspace_id, status)`
 
-### app_versions (immutable)
+### agent_versions (immutable)
 - `id` PK
-- `tenant_id`, `workspace_id`, `app_id` FK → apps.id
-- `spec_json` (AppSpec)
+- `tenant_id`, `workspace_id`, `agent_id`
+- `spec_json` (agent.v1)
 - `created_by`, `created_at`
-- INDEX `(tenant_id, workspace_id, app_id, created_at DESC)`
+- INDEX `(tenant_id, workspace_id, agent_id, created_at DESC)`
 
 ---
 
 ## 3. Workflow (definition and immutable versions)
 
-Workflow definitions are stored in `apps/app_versions` with:
-- `apps.type = WORKFLOW`
-- `app_versions.spec_schema = workflow.v1`
+Workflow definitions are stored in dedicated `workflows/workflow_versions` tables:
+- `workflows.name`, `description`, `summary`
+- `workflows.visibility`, `icon_url`, `category`, `tags`
+- `workflows.owner_user_id`
+- `workflows.current_version_id`
+- `workflows.published_version_id`
+- `workflow_versions.spec_schema = workflow.v1`
 
 ---
 
 ## 4. Runtime Trace (unified execution)
 
+### threads
+Workspace-scoped session container.
+- `id` PK
+- `tenant_id`, `workspace_id`
+- `agent_id` nullable FK → agents.id
+- `thread_type`, `source`, `status`
+- `title`, `summary`
+- `system_prompt`
+- `default_model_ref`, `default_temperature`, `default_max_tokens`, `default_top_p`
+- `context_window`, `max_history_messages`, `max_history_chars`
+- `message_count`
+- `last_message_at`, `last_user_message_at`, `last_assistant_message_at`
+- `latest_run_id`
+- `knowledge_config_json`, `tool_config_json`
+- `metadata_json`
+- `pinned_at`, `archived_at`, `deleted_at`
+- INDEX `(tenant_id, workspace_id, updated_at DESC)`
+- INDEX `(agent_id, status, updated_at DESC)`
+
+### thread_messages
+Workspace-scoped message ledger.
+- `id` PK
+- `tenant_id`, `workspace_id`
+- `thread_id` FK → threads.id
+- `run_id` nullable FK → runs.id
+- `task_id` nullable FK → tasks.id
+- `response_id` nullable FK → responses.id
+- `parent_message_id` nullable self-FK
+- `sequence_no` within thread
+- `role`, `message_type`, `status`
+- `content`, `content_json`, `summary`
+- `model_ref`, `tokens_prompt`, `tokens_completion`, `finish_reason`
+- `citations_json`, `attachments_json`, `tool_calls_json`
+- `error_code`, `error_message`
+- `metadata_json`
+- `created_at`, `edited_at`, `deleted_at`
+- UNIQUE `(thread_id, sequence_no)`
+- INDEX `(thread_id, created_at)`
+
 ### runs
 Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`
-- `mode` (chat/bot/workflow/agent)
-- `app_id` FK → apps.id (required)
-- `app_version_id` FK → app_versions.id (required)
-- `app_type` (optional redundancy)
+- `mode` (chat/workflow/agent/knowledge/memory/task-domain modes)
+- `subject_kind` / `subject_id` / `subject_version_id` (primary execution subject)
 - `status` (queued/running/succeeded/failed/canceled)
 - `input_summary`, `output_summary` (bounded)
 - `started_at`, `ended_at`
@@ -131,12 +174,20 @@ Workspace-scoped.
 
 ---
 
-## 5. Dataset (knowledge base)
+## 5. Knowledge
 
-Kernel-level dataset skeleton. For detailed design see:
-- `docs/architecture/DATASET_DATA_MODEL.md`
+Kernel-level knowledge skeleton. Product, API, and persistence table names are
+now unified as `knowledge`.
 
-### dataset
+Public API rules:
+- create/read flows use `knowledge_type` as the stable upstream field
+- `source_type` is retained in responses as a compatibility alias for existing UI code
+- internal storage details must not leak into new product docs or APIs
+
+For detailed design see:
+- `app/app/app/modules/knowledge/KNOWLEDGE_DATA_MODEL.md`
+
+### knowledge base (`knowledge`)
 Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`
@@ -145,38 +196,38 @@ Workspace-scoped.
 - `default_embedding_model_ref`, `default_index_id`
 - UNIQUE `(tenant_id, workspace_id, name)`
 
-### dataset_documents
+### knowledge documents (`knowledge_documents`)
 Workspace-scoped.
 - `id` PK
-- `tenant_id`, `workspace_id`, `dataset_id`
+- `tenant_id`, `workspace_id`, `knowledge_id`
 - `doc_key`, `version`, `is_latest`
 - `source_type`, `source_uri`, `file_id`
 - `status`, `error_code`, `retry_count`
-- UNIQUE `(tenant_id, workspace_id, dataset_id, doc_key, version)`
-- INDEX `(tenant_id, workspace_id, dataset_id, is_latest)`
+- UNIQUE `(tenant_id, workspace_id, knowledge_id, doc_key, version)`
+- INDEX `(tenant_id, workspace_id, knowledge_id, is_latest)`
 
-### dataset_chunks
+### knowledge chunks (`knowledge_chunks`)
 Workspace-scoped.
 - `id` PK
-- `tenant_id`, `workspace_id`, `dataset_id`, `document_id`
+- `tenant_id`, `workspace_id`, `knowledge_id`, `document_id`
 - `document_version`, `chunk_no`
 - `text_preview`, `text_artifact_key`
 - `vector_ref`, `index_status`
 - UNIQUE `(tenant_id, workspace_id, document_id, chunk_no, document_version)`
 
-### dataset_indexs
+### knowledge indexes (`knowledge_indexes`)
 Workspace-scoped.
 - `id` PK
-- `tenant_id`, `workspace_id`, `dataset_id`
+- `tenant_id`, `workspace_id`, `knowledge_id`
 - `name`, `provider`
 - `embedding_model_ref`, `dimension`, `metric_type`
 - `index_params_json`, `search_params_json`
 - `status`, `build_version`
-- UNIQUE `(tenant_id, workspace_id, dataset_id, name)`
+- UNIQUE `(tenant_id, workspace_id, knowledge_id, name)`
 
 ---
 
-## 6. Tools & Plugins & Secrets
+## 6. Tools, Plugins, and Secrets
 
 ### tools (workspace-scoped)
 - `id` PK
@@ -190,6 +241,9 @@ Workspace-scoped.
 - `tenant_id`
 - `name`, `publisher`
 - `status`
+- `spec_json` stores the capability contract and compatibility surface
+- `manifest_json` stores package/release metadata
+- installation `config_json` stores environment-specific enablement and runtime config
 
 ### plugin_versions (immutable)
 - `id` PK

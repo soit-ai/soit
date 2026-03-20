@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { useTranslation } from '@/i18n'
 import { useNodeHandles } from '../hooks/use-node-handles'
+import type { TranslationKey } from '@/i18n/types'
 
 export const DataNodeInfo = {
   type: 'data-node',
@@ -38,7 +39,7 @@ const DataNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
       </div>
 
       <div className="text-xs text-muted-foreground mb-1">
-        {t('workflow.detail.nodes.data.fields.typeLabel')}: {t(`workflow.detail.nodes.data.dataTypes.${data.dataType || 'document'}`)}
+        {t('workflow.detail.nodes.data.fields.typeLabel')}: {t(`workflow.detail.nodes.data.dataTypes.${data.dataType || 'document'}` as TranslationKey)}
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">

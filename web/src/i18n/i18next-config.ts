@@ -20,12 +20,11 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
     const resources = {
       translation: {
         app: (await import(`./${lang}/app.ts`)).default,
-        bot: (await import(`./${lang}/bot.ts`)).default,
         chat: (await import(`./${lang}/chat.ts`)).default,
         common: (await import(`./${lang}/common.ts`)).default,
+        knowledge: (await import(`./${lang}/knowledge.ts`)).default,
         layout: (await import(`./${lang}/layout.ts`)).default,
         login: (await import(`./${lang}/login.ts`)).default,
-        dataset: (await import(`./${lang}/dataset.ts`)).default,
         run: (await import(`./${lang}/run.ts`)).default,
         plugin: (await import(`./${lang}/plugin.ts`)).default,
         tools: (await import(`./${lang}/tools.ts`)).default,

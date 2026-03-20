@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from '@/i18n'
 import { useParams } from 'react-router'
 import { useNavigate } from '@/hooks/use-navigate'
@@ -8,6 +8,13 @@ import '@xyflow/react/dist/style.css'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import useDialog from '@/hooks/use-dialog'
+import {
+  createWorkflowVersion,
+  getCurrentWorkflowVersion,
+  getWorkflow,
+  updateWorkflow,
+  type WorkflowVersion,
+} from '@/services/workflow-service'
 
 // Import node types and metadata.
 import { getDefaultNodeData } from './ui/build/nodes'
@@ -22,12 +29,249 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface BuildPageProps { }
 
+const runtimeNodeTypeMap: Record<string, string> = {
+  'text-node': 'transform',
+  'prompt-node': 'transform',
+  'llm-node': 'llm',
+  'tool-node': 'tool',
+  'data-node': 'transform',
+  'output-node': 'output',
+  'knowledge-search-node': 'retrieve',
+  'agent-node': 'node',
+  'question-classifier-node': 'llm',
+  'logic-node': 'condition',
+  'conditional-node': 'condition',
+  'delivery-node': 'transform',
+  'loop-node': 'condition',
+  'transform-node': 'transform',
+  'code-execution-node': 'transform',
+  'template-transform-node': 'transform',
+  'variable-aggregator-node': 'transform',
+  'document-extractor-node': 'transform',
+  'variable-assignment-node': 'set_var',
+  'parameter-extractor-node': 'transform',
+  'end-node': 'output',
+}
+
+const builderNodeTypeMap: Record<string, string> = {
+  transform: 'transform-node',
+  llm: 'llm-node',
+  tool: 'tool-node',
+  retrieve: 'knowledge-search-node',
+  condition: 'conditional-node',
+  output: 'output-node',
+  set_var: 'variable-assignment-node',
+  node: 'agent-node',
+}
+
+const normalizeBuilderType = (builderType?: string | null, runtimeType?: string | null) => {
+  if (builderType && getDefaultNodeData(builderType)) {
+    return builderType
+  }
+  if (runtimeType && builderNodeTypeMap[runtimeType]) {
+    return builderNodeTypeMap[runtimeType]
+  }
+  return 'transform-node'
+}
+
+const toModelRef = (value?: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return 'model:openai:gpt-5.1'
+  }
+  return trimmed
+}
+
+const toStepOutputRef = (nodeId: string, field?: string) => {
+  return field ? `{{ steps.${nodeId}.output.${field} }}` : `{{ steps.${nodeId}.output }}`
+}
+
+const buildRuntimeNodeParams = (node: Node, incomingNodeIds: string[]) => {
+  const data = (node.data || {}) as Record<string, any>
+  const primaryInput = incomingNodeIds[0]
+  const primaryTextRef = primaryInput ? toStepOutputRef(primaryInput, 'text') : undefined
+  const primaryOutputRef = primaryInput ? toStepOutputRef(primaryInput) : undefined
+
+  switch (node.type) {
+    case 'text-node':
+      return {
+        mapping: {
+          text: data.content || '',
+        },
+      }
+    case 'prompt-node':
+      return {
+        mapping: {
+          prompt: data.template || '',
+        },
+      }
+    case 'llm-node':
+      return {
+        prompt: data.prompt || primaryTextRef || primaryOutputRef || '',
+        system: data.systemPrompt || undefined,
+        model: toModelRef(data.modelName),
+        temperature: data.temperature,
+        max_tokens: data.maxTokens,
+      }
+    case 'knowledge-search-node':
+      return {
+        query: data.query || primaryTextRef || primaryOutputRef || '',
+        collection: data.customSource || data.source || data.dataSource || 'knowledge_base',
+        top_k: data.topK || 3,
+        embedding_model: toModelRef(data.embeddingModel || data.modelName || 'model:openai:text-embedding-3-small'),
+      }
+    case 'tool-node':
+      return {
+        tool_ref: data.toolName || '',
+        arguments: data.parameters || {},
+        input: primaryOutputRef || undefined,
+      }
+    case 'conditional-node':
+    case 'logic-node':
+      return {
+        condition: data.condition || data.expression || 'true',
+        value: primaryOutputRef || undefined,
+      }
+    case 'output-node':
+    case 'end-node':
+      return {
+        value: primaryOutputRef || undefined,
+      }
+    case 'variable-assignment-node':
+      return {
+        key: data.variableName || data.key || 'value',
+        value: data.value || primaryOutputRef || '',
+      }
+    case 'agent-node':
+      return {
+        node_ref: data.agentId || data.nodeRef || '',
+        input: primaryOutputRef || undefined,
+      }
+    default:
+      return {
+        mapping: {
+          value: primaryOutputRef || data.content || data.template || data.source || data.script || '',
+        },
+      }
+  }
+}
+
+const builderGraphToWorkflowSpec = (workflowName: string, workflowDescription: string, nodes: Node[], edges: Edge[]) => {
+  const incomingMap = new Map<string, string[]>()
+  edges.forEach((edge) => {
+    const current = incomingMap.get(edge.target) || []
+    current.push(edge.source)
+    incomingMap.set(edge.target, current)
+  })
+
+  return {
+    name: workflowName,
+    description: workflowDescription,
+    inputs_schema: { type: 'object', properties: {} },
+    outputs_schema: { type: 'object', properties: { value: { type: 'object' } } },
+    graph: {
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: runtimeNodeTypeMap[node.type || ''] || 'transform',
+        name: typeof node.data?.label === 'string' ? node.data.label : node.id,
+        params: buildRuntimeNodeParams(node, incomingMap.get(node.id) || []),
+        ui: {
+          position: node.position,
+          builder_type: node.type,
+          data: node.data,
+        },
+      })),
+      edges: edges.map((edge) => ({
+        id: edge.id,
+        from: edge.source,
+        to: edge.target,
+        from_port: edge.sourceHandle || null,
+        to_port: edge.targetHandle || null,
+        condition:
+          edge.sourceHandle === 'output-true'
+            ? 'true'
+            : edge.sourceHandle === 'output-false'
+              ? 'false'
+              : null,
+      })),
+    },
+  }
+}
+
+const workflowSpecToBuilderGraph = (version: WorkflowVersion | null) => {
+  const graph = version?.graph_json?.graph as Record<string, any> | undefined
+  const rawNodes = Array.isArray(graph?.nodes) ? graph?.nodes : []
+  const rawEdges = Array.isArray(graph?.edges) ? graph?.edges : []
+
+  if (!rawNodes.length) {
+    return null
+  }
+
+  const nodes: Node[] = rawNodes.map((node: Record<string, any>, index: number) => {
+    const ui = (node.ui || {}) as Record<string, any>
+    const builderType = normalizeBuilderType(typeof ui.builder_type === 'string' ? ui.builder_type : null, node.type)
+    const uiData = (ui.data || {}) as Record<string, any>
+    const defaultData = getDefaultNodeData(builderType)
+    const params = (node.params || {}) as Record<string, any>
+    const position = ui.position && typeof ui.position.x === 'number' && typeof ui.position.y === 'number'
+      ? ui.position
+      : { x: 120 + index * 240, y: 140 }
+
+    return {
+      id: node.id,
+      type: builderType,
+      position,
+      data: {
+        ...defaultData,
+        ...uiData,
+        label: uiData.label || node.name || defaultData.label || node.id,
+        content: uiData.content ?? params.mapping?.text ?? uiData.content,
+        template: uiData.template ?? params.mapping?.prompt ?? uiData.template,
+        modelName: uiData.modelName ?? params.model ?? uiData.modelName,
+        temperature: uiData.temperature ?? params.temperature ?? uiData.temperature,
+        maxTokens: uiData.maxTokens ?? params.max_tokens ?? uiData.maxTokens,
+        systemPrompt: uiData.systemPrompt ?? params.system ?? uiData.systemPrompt,
+        query: uiData.query ?? params.query ?? uiData.query,
+        customSource: uiData.customSource ?? params.collection ?? uiData.customSource,
+        topK: uiData.topK ?? params.top_k ?? uiData.topK,
+        toolName: uiData.toolName ?? params.tool_ref ?? uiData.toolName,
+        parameters: uiData.parameters ?? params.arguments ?? uiData.parameters,
+        condition: uiData.condition ?? params.condition ?? uiData.condition,
+      },
+    }
+  })
+
+  const edges: Edge[] = rawEdges.map((edge: Record<string, any>) => ({
+    id: edge.id,
+    source: edge.from,
+    target: edge.to,
+    sourceHandle:
+      typeof edge.from_port === 'string'
+        ? edge.from_port
+        : edge.condition === 'true'
+          ? 'output-true'
+          : edge.condition === 'false'
+            ? 'output-false'
+            : undefined,
+    targetHandle: typeof edge.to_port === 'string' ? edge.to_port : undefined,
+  }))
+
+  return {
+    name: typeof version?.graph_json?.name === 'string' ? version.graph_json.name : '',
+    description: typeof version?.graph_json?.description === 'string' ? version.graph_json.description : '',
+    nodes,
+    edges,
+  }
+}
+
 const BuildPage: React.FC<BuildPageProps> = () => {
   const { t } = useTranslation()
   const { id } = useParams()
   const navigate = useNavigate()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null)
+  const [pageLoading, setPageLoading] = useState(false)
+  const [savingWorkflow, setSavingWorkflow] = useState(false)
 
   // State management.
   const [workflowName, setWorkflowName] = useState(() => t('workflow.detail.build.defaultName'))
@@ -50,7 +294,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const dialog = useDialog()
 
   // Initial nodes and edges.
-  const initialNodes: Node[] = [
+  const initialNodes = useMemo<Node[]>(() => [
     {
       id: 'input-1',
       type: 'text-node',
@@ -69,12 +313,22 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       position: { x: 700, y: 100 },
       data: { ...getDefaultNodeData('output-node'), label: t('workflow.detail.nodes.output.label') },
     },
-  ]
+  ], [t])
 
-  const initialEdges: Edge[] = [
+  const initialEdges = useMemo<Edge[]>(() => [
     { id: 'e1-2', source: 'input-1', target: 'llm-1' },
     { id: 'e2-3', source: 'llm-1', target: 'output-1' },
-  ]
+  ], [])
+
+  const seedHistory = useCallback((nextNodes: Node[], nextEdges: Edge[]) => {
+    setHistory({
+      nodes: [[...nextNodes]],
+      edges: [[...nextEdges]],
+      currentIndex: 0,
+    })
+    setUndoable(false)
+    setRedoable(false)
+  }, [])
 
   // ReactFlow state hooks.
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -334,25 +588,82 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     })
   }, [])
 
+  const loadWorkflow = useCallback(async () => {
+    if (!id) {
+      seedHistory(initialNodes, initialEdges)
+      return
+    }
+
+    try {
+      setPageLoading(true)
+      const [workflow, currentVersion] = await Promise.all([
+        getWorkflow(id),
+        getCurrentWorkflowVersion(id).catch(() => null),
+      ])
+
+      setWorkflowName(workflow.name || t('workflow.detail.build.defaultName'))
+      setWorkflowDescription(workflow.description || '')
+
+      const restoredGraph = workflowSpecToBuilderGraph(currentVersion)
+      if (restoredGraph) {
+        setNodes(restoredGraph.nodes)
+        setEdges(restoredGraph.edges)
+        if (restoredGraph.name) {
+          setWorkflowName(restoredGraph.name)
+        }
+        if (restoredGraph.description) {
+          setWorkflowDescription(restoredGraph.description)
+        }
+        seedHistory(restoredGraph.nodes, restoredGraph.edges)
+        return
+      }
+
+      seedHistory(initialNodes, initialEdges)
+    } catch (error) {
+      toast.error('Failed to load workflow builder state.')
+      console.error('Failed to load workflow builder state:', error)
+      seedHistory(initialNodes, initialEdges)
+    } finally {
+      setPageLoading(false)
+    }
+  }, [id, initialEdges, initialNodes, seedHistory, setEdges, setNodes, t])
+
   // Save workflow.
-  const handleSaveWorkflow = useCallback(() => {
+  const handleSaveWorkflow = useCallback(async () => {
     if (!workflowName.trim()) {
       toast.error(t('workflow.detail.build.toast.nameRequired'))
       return
     }
 
-    // Persist workflow.
-    const workflow = {
-      id: id || Date.now().toString(),
-      name: workflowName,
-      description: workflowDescription,
-      nodes,
-      edges,
+    if (!id) {
+      toast.error('Workflow ID is missing.')
+      return
     }
 
-    console.log('Saving workflow:', workflow)
-    toast.success(t('workflow.detail.build.toast.saved'))
-  }, [id, workflowName, workflowDescription, nodes, edges, t])
+    try {
+      setSavingWorkflow(true)
+      const spec = builderGraphToWorkflowSpec(workflowName.trim(), workflowDescription.trim(), nodes, edges)
+      const createdBy =
+        (typeof window !== 'undefined' && (localStorage.getItem('user_id') || localStorage.getItem('username'))) ||
+        'system'
+
+      await updateWorkflow(id, {
+        name: workflowName.trim(),
+        description: workflowDescription.trim() || undefined,
+      })
+      await createWorkflowVersion(id, {
+        graph_json: spec,
+        created_by: createdBy,
+      })
+      toast.success(t('workflow.detail.build.toast.saved'))
+      await loadWorkflow()
+    } catch (error) {
+      toast.error('Failed to save workflow version.')
+      console.error('Failed to save workflow version:', error)
+    } finally {
+      setSavingWorkflow(false)
+    }
+  }, [id, loadWorkflow, nodes, edges, t, workflowDescription, workflowName])
 
   // Export workflow.
   const handleExportWorkflow = useCallback(() => {
@@ -441,17 +752,9 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     fileInput.click()
   }, [dialog, t])
 
-  // Initialize history.
   useEffect(() => {
-    // Seed initial state into history.
-    setHistory({
-      nodes: [initialNodes],
-      edges: [initialEdges],
-      currentIndex: 0,
-    })
-    setUndoable(false)
-    setRedoable(false)
-  }, [])
+    loadWorkflow()
+  }, [loadWorkflow])
 
   const renderLeftPanel = () => {
     return (

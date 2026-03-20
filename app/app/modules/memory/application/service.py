@@ -10,7 +10,6 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.trace.writer import TraceWriter
-from app.modules.appcenter.application.registry import AppRegistry
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.vector.interface import VectorPort
 from app.modules.memory.domain.models import MemoryItem
@@ -39,37 +38,10 @@ class MemoryService:
         self.llm_port = llm_port
         self.vector_port = vector_port
         self.trace_writer = trace_writer
-        self._system_app_cache: Optional[tuple[str, str]] = None
 
-    def _default_system_spec(self, name: str) -> Dict[str, Any]:
-        return {
-            "name": name,
-            "inputs_schema": {"type": "object", "properties": {}},
-            "nodes": [
-                {"id": "t1", "type": "transform", "input": {}},
-                {"id": "o1", "type": "output", "input": {"value": "{{ steps.t1.output }}"}},
-            ],
-            "edges": [{"from": "t1", "to": "o1"}],
-            "outputs": {"type": "object", "properties": {"value": {"type": "object"}}},
-        }
-
-    def _resolve_system_app_version(self) -> tuple[str, str]:
-        if self._system_app_cache:
-            return self._system_app_cache
-        registry = AppRegistry(self.db, self.ctx)
-        app = registry.get_or_create_app(
-            name="Memory Operations",
-            app_type="WORKFLOW",
-            description="Internal memory operations",
-        )
-        version = registry.get_or_create_version(
-            app,
-            spec_schema="workflow.v1",
-            spec_json=self._default_system_spec("Memory Operations"),
-            status="published",
-        )
-        self._system_app_cache = (app.id, version.id)
-        return self._system_app_cache
+    def _resolve_memory_trace_subject(self, user_id: Optional[str] = None) -> tuple[str, str]:
+        owner_id = user_id or self.ctx.user_id or self.ctx.workspace_id
+        return owner_id, "memory:v1"
 
     def _resolve_memory_owner_id(self, *args, **kwargs) -> str:
         """Resolve memory resource id for RBAC checks."""
@@ -93,13 +65,13 @@ class MemoryService:
         created_run = False
         if self.trace_writer and not run_id:
             summary = data.content_summary or str(data.content)
-            app_id, app_version_id = self._resolve_system_app_version()
+            subject_id, subject_version_id = self._resolve_memory_trace_subject(data.user_id)
             run = self.trace_writer.create_run(
                 mode="memory_write",
                 kind="batch",
-                app_id=app_id,
-                app_version_id=app_version_id,
-                app_type="memory",
+                subject_kind="memory",
+                subject_id=subject_id,
+                subject_version_id=subject_version_id,
                 input_summary=summary[:8192],
             )
             run_id = run.id
@@ -188,13 +160,13 @@ class MemoryService:
             raise ValidationError("Memory query requires LLM and vector ports")
         created_run = False
         if self.trace_writer and not run_id:
-            app_id, app_version_id = self._resolve_system_app_version()
+            subject_id, subject_version_id = self._resolve_memory_trace_subject(data.user_id)
             run = self.trace_writer.create_run(
                 mode="memory_query",
                 kind="tool",
-                app_id=app_id,
-                app_version_id=app_version_id,
-                app_type="memory",
+                subject_kind="memory",
+                subject_id=subject_id,
+                subject_version_id=subject_version_id,
                 input_summary=data.query[:8192],
             )
             run_id = run.id
@@ -302,13 +274,13 @@ class MemoryService:
         if self.vector_port:
             created_run = False
             if self.trace_writer and not run_id:
-                app_id, app_version_id = self._resolve_system_app_version()
+                subject_id, subject_version_id = self._resolve_memory_trace_subject(memory.user_id)
                 run = self.trace_writer.create_run(
                     mode="memory_delete",
                     kind="batch",
-                    app_id=app_id,
-                    app_version_id=app_version_id,
-                    app_type="memory",
+                    subject_kind="memory",
+                    subject_id=subject_id,
+                    subject_version_id=subject_version_id,
                     input_summary=f"memory_id={memory_id}",
                 )
                 run_id = run.id

@@ -34,8 +34,9 @@ def test_chat_execution_creates_trace(db: Session, ctx: RequestContext):
     
     plan = ExecutionPlan(
         mode="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-trace-chat",
+        subject_version_id="ver-chat",
         inputs={
             "messages": [
                 {"role": "user", "content": "Hello"}
@@ -77,8 +78,9 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
     
     plan = ExecutionPlan(
         mode="workflow",
-        app_id="app-workflow",
-        app_version_id="test_app_version",
+        subject_kind="workflow",
+        subject_id="wf-trace",
+        subject_version_id="test_app_version",
         inputs={},
     )
     
@@ -107,8 +109,9 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
     
     plan = ExecutionPlan(
         mode="agent",
-        app_id="app-agent",
-        app_version_id="ver-agent",
+        subject_kind="agent",
+        subject_id="agt-trace",
+        subject_version_id="ver-agent",
         inputs={
             "messages": [
                 {"role": "user", "content": "Hello"}
@@ -145,3 +148,5 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
     
     # Should have at least one planning step
     assert len(steps) >= 0  # May be 0 if execution failed early
+
+

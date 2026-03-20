@@ -1,0 +1,189 @@
+import { Bot, Database, ShieldAlert } from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
+import type { Agent } from '@/services/agent-service'
+import type { KnowledgeBase } from '@/services/knowledge-service'
+import type { Task } from '@/services/task-service'
+import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
+
+import { useHomeFormatters } from '../hooks/use-home-formatters'
+import type { DashboardSummary } from '../hooks/use-home-dashboard'
+import { FocusDecisionLane } from './focus-decision-lane'
+
+type FocusPanelProps = {
+  summary: DashboardSummary
+  agents: Agent[]
+  tasks: Task[]
+  knowledgeBases: KnowledgeBase[]
+  isLoading: boolean
+}
+
+const formatTimestamp = (value?: string | null) => {
+  if (!value) {
+    return '-'
+  }
+  return formatDateTime(isoToZonedDate(value))
+}
+
+export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }: FocusPanelProps) {
+  const navigate = useNavigate()
+  const { t } = useTranslation()
+  const { formatNumber } = useHomeFormatters()
+
+  const publishRate = summary.agentCount > 0 ? Math.round((summary.publishedAgents / summary.agentCount) * 100) : 0
+  const docsPerKnowledge = summary.knowledgeCount > 0 ? Math.round(summary.totalDocuments / summary.knowledgeCount) : 0
+
+  const statusKey =
+    summary.failedRunCount > 0 || summary.attentionTaskCount > 2
+      ? 'critical'
+      : summary.activeTaskCount > 0 || summary.draftAgents > 0
+        ? 'watch'
+        : 'stable'
+
+  const statusClassName =
+    statusKey === 'critical'
+      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200'
+      : statusKey === 'watch'
+        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
+
+  const taskItems = isLoading
+    ? [
+        {
+          primary: t('app.home.focus.tasksLoading'),
+          secondary: '...',
+        },
+      ]
+    : tasks.length > 0
+      ? tasks.slice(0, 2).map((task) => ({
+          primary: task.task_type,
+          secondary: t('app.home.focus.updatedAt', { timestamp: formatTimestamp(task.updated_at) }),
+          badge: task.status,
+          badgeClassName:
+            task.status === 'failed'
+              ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200'
+              : task.status === 'waiting_input' || task.status === 'waiting_approval'
+                ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200'
+                : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+        }))
+      : [
+          {
+            primary: t('app.home.focus.tasksEmpty'),
+            secondary: t('app.home.focus.laneTaskHint'),
+          },
+        ]
+
+  const agentItems =
+    agents.length > 0
+      ? agents.slice(0, 2).map((agent) => ({
+          primary: agent.name,
+          secondary: agent.description || t('app.home.focus.noDescription'),
+          badge: agent.published_version_id ? t('app.home.focus.publishedShort') : t('app.home.focus.draftShort'),
+          badgeClassName: agent.published_version_id
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
+            : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+        }))
+      : [
+          {
+            primary: t('app.home.focus.noAgents'),
+            secondary: t('app.home.focus.laneAgentHint'),
+          },
+        ]
+
+  const knowledgeItems =
+    knowledgeBases.length > 0
+      ? knowledgeBases.slice(0, 2).map((base) => ({
+          primary: base.name,
+          secondary: `${t('app.home.focus.docs', { count: formatNumber(base.doc_count) })} · ${t('app.home.focus.chunks', { count: formatNumber(base.chunk_count) })} · ${formatTimestamp(base.last_ingested_at)}`,
+          badge: base.status,
+          badgeClassName: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200',
+        }))
+      : [
+          {
+            primary: t('app.home.focus.noKnowledge'),
+            secondary: t('app.home.focus.laneKnowledgeHint'),
+          },
+        ]
+
+  return (
+    <Card className="overflow-hidden border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.84)_0%,rgba(248,250,252,0.76)_100%)] shadow-none backdrop-blur-sm dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.72)_0%,rgba(15,23,42,0.6)_100%)]">
+      <CardHeader className="space-y-3 border-b border-slate-200/70 dark:border-slate-800">
+        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
+          {t('app.home.focus.eyebrow')}
+        </div>
+        <CardTitle>{t('app.home.focus.title')}</CardTitle>
+        <CardDescription>{t('app.home.focus.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <section className="rounded-[28px] border border-slate-200/70 bg-[linear-gradient(135deg,rgba(10,15,30,0.96)_0%,rgba(17,47,73,0.9)_100%)] p-4 text-white dark:border-slate-800">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-cyan-100/70">
+                {t('app.home.focus.postureEyebrow')}
+              </div>
+              <div className="mt-2 text-lg font-semibold">{t('app.home.focus.postureTitle')}</div>
+              <div className="mt-1 text-sm text-slate-200/90">{t('app.home.focus.postureDescription')}</div>
+            </div>
+            <Badge className={statusClassName}>{t(`app.home.focus.status.${statusKey}` as const)}</Badge>
+          </div>
+
+          <div className="mt-4 grid gap-px overflow-hidden rounded-[24px] border border-white/10 bg-white/10 sm:grid-cols-3">
+            <div className="bg-slate-950/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+                {t('app.home.focus.summaryAttention')}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.attentionTaskCount)}</div>
+            </div>
+            <div className="bg-slate-950/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+                {t('app.home.focus.posturePublish')}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{formatNumber(publishRate)}%</div>
+            </div>
+            <div className="bg-slate-950/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+                {t('app.home.focus.postureKnowledge')}
+              </div>
+              <div className="mt-2 text-2xl font-semibold">{formatNumber(docsPerKnowledge)}</div>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid gap-4">
+          <FocusDecisionLane
+            title={t('app.home.focus.tasksTitle')}
+            metric={formatNumber(summary.attentionTaskCount)}
+            actionLabel={t('app.home.focus.openTasks')}
+            icon={ShieldAlert}
+            iconClassName="text-rose-500"
+            items={taskItems}
+            onAction={() => navigate('/tasks')}
+          />
+
+          <FocusDecisionLane
+            title={t('app.home.focus.releaseTitle')}
+            metric={`${formatNumber(summary.draftAgents)} / ${formatNumber(summary.agentCount)}`}
+            actionLabel={t('app.home.focus.openAgents')}
+            icon={Bot}
+            iconClassName="text-sky-500"
+            items={agentItems}
+            onAction={() => navigate('/agents')}
+          />
+
+          <FocusDecisionLane
+            title={t('app.home.focus.knowledgeTitle')}
+            metric={formatNumber(summary.knowledgeCount)}
+            actionLabel={t('app.home.focus.openKnowledge')}
+            icon={Database}
+            iconClassName="text-amber-500"
+            items={knowledgeItems}
+            onAction={() => navigate('/knowledge')}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

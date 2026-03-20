@@ -26,12 +26,15 @@ class SmokeContext:
 
     base_url: str
     token: str
+    tenant_id: str
     workspace_id: str
     user_id: str
     strict: bool
     timeout_seconds: int
     poll_interval: float
     embedding_model_ref: str
+    response_model_ref: str
+    inline_ingest_worker: bool
 
 
 def _parse_args() -> argparse.Namespace:
@@ -47,6 +50,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--embedding-model-ref",
         default=os.getenv("DEFAULT_EMBEDDING_MODEL_REF", "model:openai:text-embedding-3-small"),
+    )
+    parser.add_argument(
+        "--response-model-ref",
+        default=os.getenv("DEFAULT_LLM_MODEL_REF", "model:openai:gpt-5.1"),
+    )
+    parser.add_argument(
+        "--inline-ingest-worker",
+        action="store_true",
+        help="Run one local knowledge ingest worker pass after upload for local smoke runs.",
     )
     return parser.parse_args()
 
@@ -103,12 +115,37 @@ def _login(base_url: str, email: str, password: str) -> Tuple[str, str]:
     return token, workspace_id
 
 
-def _get_current_user(ctx: SmokeContext) -> str:
+def _get_current_actor(ctx: SmokeContext) -> Tuple[str, str]:
     data = _request(ctx, "GET", "/me")
     user_id = data.get("id")
-    if not user_id:
-        raise RuntimeError("Failed to resolve current user id.")
-    return user_id
+    tenant_id = data.get("tenant_id")
+    if not user_id or not tenant_id:
+        raise RuntimeError("Failed to resolve current user or tenant context.")
+    return user_id, tenant_id
+
+
+def _run_inline_ingest_worker(ctx: SmokeContext) -> None:
+    from app.infra.db.session import get_db_sync
+    from app.kernel.contracts.context import RequestContext
+    from app.modules.knowledge.runtime.ingest_worker import KnowledgeIngestWorker
+    from app.wiring.services import build_knowledge_service
+
+    db = get_db_sync()
+    try:
+        worker_ctx = RequestContext(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            user_id=ctx.user_id,
+            tenant_role="Owner",
+            workspace_role="Owner",
+        )
+        service = build_knowledge_service(db=db, ctx=worker_ctx)
+        worker = KnowledgeIngestWorker(service)
+        import asyncio
+
+        asyncio.run(worker.run_once())
+    finally:
+        db.close()
 
 
 def _ensure_llm_ready(strict: bool, label: str) -> bool:
@@ -128,8 +165,8 @@ def demo_workflow(ctx: SmokeContext) -> None:
         "/workflows",
         json={"name": f"smoke-workflow-{uuid.uuid4().hex[:8]}", "description": "smoke test"},
     )
-    app_id = workflow.get("id")
-    if not app_id:
+    workflow_id = workflow.get("id")
+    if not workflow_id:
         raise RuntimeError("Workflow creation did not return id.")
 
     spec = {
@@ -147,7 +184,7 @@ def demo_workflow(ctx: SmokeContext) -> None:
     version = _request(
         ctx,
         "POST",
-        f"/workflows/{app_id}/versions",
+        f"/workflows/{workflow_id}/versions",
         json={"graph_json": spec, "created_by": ctx.user_id},
     )
     version_id = version.get("id")
@@ -157,39 +194,39 @@ def demo_workflow(ctx: SmokeContext) -> None:
     _request(
         ctx,
         "POST",
-        f"/workflows/{app_id}/publish",
+        f"/workflows/{workflow_id}/publish",
         json={"version_id": version_id, "preflight": False},
     )
 
-    result = _request(ctx, "POST", f"/workflows/{app_id}/execute", json={})
+    result = _request(ctx, "POST", f"/workflows/{workflow_id}/execute", json={})
     run_id = result.get("run_id")
     if not run_id:
         raise RuntimeError("Workflow execution did not return run_id.")
     _log(f"[OK] Demo-1 workflow run_id={run_id}")
 
 
-def demo_dataset(ctx: SmokeContext) -> str:
-    _log("[RUN] Demo-2 dataset upload/ingest/query")
+def demo_knowledge(ctx: SmokeContext) -> str:
+    _log("[RUN] Demo-2 knowledge upload/ingest/query")
 
-    dataset = _request(
+    knowledge = _request(
         ctx,
         "POST",
-        "/datasets",
+        "/knowledge",
         json={
-            "name": f"smoke-dataset-{uuid.uuid4().hex[:8]}",
-            "type": "document",
+            "name": f"smoke-knowledge-{uuid.uuid4().hex[:8]}",
+            "knowledge_type": "document",
             "visibility": "workspace",
-            "description": "smoke test dataset",
+            "description": "smoke test knowledge base",
         },
     )
-    dataset_id = dataset.get("id")
-    if not dataset_id:
-        raise RuntimeError("Dataset creation did not return id.")
+    knowledge_id = knowledge.get("id")
+    if not knowledge_id:
+        raise RuntimeError("Knowledge creation did not return id.")
 
     index = _request(
         ctx,
         "POST",
-        f"/datasets/{dataset_id}/indexes",
+        f"/knowledge/{knowledge_id}/indexes",
         json={
             "name": "primary",
             "provider": "milvus",
@@ -202,7 +239,7 @@ def demo_dataset(ctx: SmokeContext) -> str:
     if not index.get("id"):
         raise RuntimeError("Index creation failed.")
 
-    sample_text = "SOIT smoke test document. This text is used for dataset ingestion."
+    sample_text = "SOIT smoke test document. This text is used for knowledge ingestion."
     files = {"file": ("smoke.txt", sample_text.encode("utf-8"), "text/plain")}
     data = {
         "doc_key": "smoke-doc",
@@ -213,13 +250,17 @@ def demo_dataset(ctx: SmokeContext) -> str:
     document = _request(
         ctx,
         "POST",
-        f"/datasets/{dataset_id}/documents",
+        f"/knowledge/{knowledge_id}/documents",
         files=files,
         data=data,
     )
     document_id = document.get("id")
     if not document_id:
         raise RuntimeError("Document upload did not return id.")
+
+    if ctx.inline_ingest_worker:
+        _log("[RUN] Demo-2 inline ingest worker pass")
+        _run_inline_ingest_worker(ctx)
 
     deadline = time.time() + ctx.timeout_seconds
     task_status = None
@@ -228,7 +269,7 @@ def demo_dataset(ctx: SmokeContext) -> str:
         tasks = _request(
             ctx,
             "GET",
-            f"/datasets/{dataset_id}/ingest-tasks",
+            f"/knowledge/{knowledge_id}/ingest-tasks",
             params={"limit": 20, "offset": 0},
         )
         task = next((item for item in tasks if item.get("document_id") == document_id), None)
@@ -247,32 +288,80 @@ def demo_dataset(ctx: SmokeContext) -> str:
     query = _request(
         ctx,
         "POST",
-        f"/datasets/{dataset_id}/query",
+        f"/knowledge/{knowledge_id}/query",
         json={"query": "smoke test document", "top_k": 3, "strategy": "keyword", "include_snippets": True},
     )
     if not query.get("results"):
-        raise RuntimeError("Dataset query returned no results.")
-    _log(f"[OK] Demo-2 dataset_id={dataset_id}")
-    return dataset_id
+        raise RuntimeError("Knowledge query returned no results.")
+    _log(f"[OK] Demo-2 knowledge_id={knowledge_id}")
+    return knowledge_id
 
 
-def demo_chat_rag(ctx: SmokeContext, dataset_id: str) -> None:
-    _log("[RUN] Demo-3 chat with RAG")
+def demo_chat_runtime(ctx: SmokeContext, knowledge_id: str) -> None:
+    _log("[RUN] Demo-3 responses runtime via thread")
+    thread = _request(
+        ctx,
+        "POST",
+        "/threads",
+        json={
+            "title": f"smoke-thread-{uuid.uuid4().hex[:8]}",
+            "thread_type": "chat",
+            "default_model_ref": ctx.response_model_ref,
+            "knowledge_config_json": {
+                "knowledge_ids": [knowledge_id],
+                "top_k": 3,
+                "strategy": "keyword",
+            },
+            "metadata_json": {
+                "source": "smoke",
+                "knowledge_id": knowledge_id,
+            },
+        },
+    )
+    thread_id = thread.get("id")
+    if not thread_id:
+        raise RuntimeError("Thread creation did not return id.")
+
     response = _request(
         ctx,
         "POST",
-        "/chat/completions",
+        "/responses",
         json={
-            "messages": [{"role": "user", "content": "What is this smoke test document about?"}],
-            "rag": {"dataset_ids": [dataset_id], "top_k": 3, "strategy": "keyword"},
+            "thread_id": thread_id,
+            "model": ctx.response_model_ref,
+            "input": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Summarize the smoke runtime in one short sentence.",
+                        "metadata": {"knowledge_id": knowledge_id},
+                    }
+                ]
+            },
+            "metadata": {
+                "source": "smoke.responses",
+                "knowledge_id": knowledge_id,
+            },
         },
     )
-    message = response.get("message", {})
-    metadata = message.get("metadata_json") or {}
-    citations = metadata.get("citations", [])
-    if not citations:
-        raise RuntimeError("RAG response missing citations.")
-    _log("[OK] Demo-3 chat citations returned")
+    response_id = response.get("id")
+    run_id = response.get("run_id")
+    output = response.get("output_json") or {}
+    if not response_id or not run_id:
+        raise RuntimeError("Response execution did not return response_id/run_id.")
+    if not output.get("text"):
+        raise RuntimeError("Response output is empty.")
+
+    thread_detail = _request(ctx, "GET", f"/threads/{thread_id}")
+    messages = thread_detail.get("messages") or []
+    if not any(item.get("role") == "assistant" and item.get("response_id") == response_id for item in messages):
+        raise RuntimeError("Thread detail is missing the assistant response message.")
+
+    timeline = _request(ctx, "GET", f"/responses/by-run/{run_id}")
+    if not timeline.get("items"):
+        raise RuntimeError("Response timeline returned no items for the run.")
+
+    _log(f"[OK] Demo-3 response_id={response_id}")
 
 
 def demo_secrets(ctx: SmokeContext) -> None:
@@ -307,14 +396,17 @@ def main() -> int:
     ctx = SmokeContext(
         base_url=args.base_url,
         token=token,
+        tenant_id="",
         workspace_id=workspace_id,
         user_id="",
         strict=args.strict,
         timeout_seconds=args.timeout,
         poll_interval=args.poll_interval,
         embedding_model_ref=args.embedding_model_ref,
+        response_model_ref=args.response_model_ref,
+        inline_ingest_worker=args.inline_ingest_worker,
     )
-    ctx.user_id = _get_current_user(ctx)
+    ctx.user_id, ctx.tenant_id = _get_current_actor(ctx)
 
     failures = 0
     try:
@@ -323,17 +415,17 @@ def main() -> int:
         failures += 1
         _log(f"[FAIL] Demo-1 workflow: {exc}")
 
-    dataset_id = None
-    if _ensure_llm_ready(ctx.strict, "Demo-2 dataset ingest"):
+    knowledge_id = None
+    if _ensure_llm_ready(ctx.strict, "Demo-2 knowledge ingest"):
         try:
-            dataset_id = demo_dataset(ctx)
+            knowledge_id = demo_knowledge(ctx)
         except Exception as exc:
             failures += 1
-            _log(f"[FAIL] Demo-2 dataset: {exc}")
+            _log(f"[FAIL] Demo-2 knowledge: {exc}")
 
-    if dataset_id and _ensure_llm_ready(ctx.strict, "Demo-3 chat RAG"):
+    if knowledge_id and _ensure_llm_ready(ctx.strict, "Demo-3 responses runtime"):
         try:
-            demo_chat_rag(ctx, dataset_id)
+            demo_chat_runtime(ctx, knowledge_id)
         except Exception as exc:
             failures += 1
             _log(f"[FAIL] Demo-3 chat: {exc}")

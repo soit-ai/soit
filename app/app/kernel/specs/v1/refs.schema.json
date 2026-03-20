@@ -15,10 +15,10 @@
       "pattern": "^model:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$",
       "description": "Model reference. Format: model:{provider}:{model_name_or_id}"
     },
-    "DatasetRef": {
+    "KnowledgeRef": {
       "type": "string",
-      "pattern": "^ds:[A-Za-z0-9_.:-]+$",
-      "description": "Dataset reference. Format: ds:{dataset_id_or_key}"
+      "pattern": "^knowledge:[A-Za-z0-9_.:-]+$",
+      "description": "Knowledge reference. Preferred format: knowledge:{knowledge_id_or_key}."
     },
     "ToolRef": {
       "type": "string",

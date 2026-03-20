@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { getWorkflow, updateWorkflow, deleteWorkflow } from '@/services/workflow'
+import { getWorkflow, updateWorkflow, deleteWorkflow } from '@/services/workflow-service'
 import { useNavigate } from '@/hooks/use-navigate'
 import {
   createResourceGrant,
@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import type { TranslationKey } from '@/i18n/types'
 
 type LimitSettings = {
   timeoutSeconds: number
@@ -457,7 +458,7 @@ function Page() {
                         checked={grantActions.includes(action)}
                         onCheckedChange={(checked) => handleGrantActionToggle(action, checked)}
                       />
-                      <span>{t(`workflow.detail.setting.permissions.actions.${action}`)}</span>
+                      <span>{t(`workflow.detail.setting.permissions.actions.${action}` as TranslationKey)}</span>
                     </label>
                   ))}
                 </div>

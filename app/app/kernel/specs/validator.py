@@ -22,7 +22,6 @@ JsonDict = Dict[str, Any]
 SPEC_SCHEMA_MAP = {
     "workflow.v1": "workflow_spec",
     "chat.v1": "chat_spec",
-    "bot.v1": "bot_spec",
     "agent.v1": "agent_spec",
 }
 

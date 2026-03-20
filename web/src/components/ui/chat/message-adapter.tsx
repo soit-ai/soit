@@ -1,14 +1,38 @@
 import {
   type ThreadMessage,
-  type TextContentPart,
-  type ThreadUserContentPart,
-  type ThreadAssistantContentPart,
+  type TextMessagePart,
+  type ThreadUserMessagePart,
+  type ThreadAssistantMessagePart,
   type ThreadSystemMessage,
   type ThreadUserMessage,
   type ThreadAssistantMessage,
   type MessageStatus,
 } from '@assistant-ui/react'
-import { type Message } from '@/services/chat-service'
+
+export interface ChatLedgerMessage {
+  id: string
+  parent_id?: string | null
+  role: 'system' | 'user' | 'assistant' | string
+  content: string
+  response_id?: string | null
+  task_id?: string | null
+  status?: string | null
+  sequence_no?: number | null
+  model_ref?: string | null
+  tokens_prompt?: number | null
+  tokens_completion?: number | null
+  finish_reason?: string | null
+  run_id?: string | null
+  summary?: string | null
+  citations_json?: Array<Record<string, any>> | null
+  attachments_json?: Array<Record<string, any>> | null
+  tool_calls_json?: Array<Record<string, any>> | null
+  error_code?: string | null
+  error_message?: string | null
+  created_by?: string | null
+  metadata_json?: Record<string, any>
+  created_at: string
+}
 
 type ExportedMessageRepositoryItem = {
   message: ThreadMessage
@@ -36,7 +60,6 @@ const roleMap: Record<string, NormalizedRole> = {
   human: 'user',
   assistant: 'assistant',
   ai: 'assistant',
-  bot: 'assistant',
   model: 'assistant',
   tool: 'tool',
   function: 'tool',
@@ -122,21 +145,30 @@ const splitReasoningContent = (
 }
 
 export const MessageConverter = {
-  toThreadMessage(message: Message): ThreadMessage {
+  toThreadMessage(message: ChatLedgerMessage): ThreadMessage {
     const metadata = message.metadata_json || {}
     const normalizedRole = normalizeRole(message.role, metadata)
     const customMetadata = {
       server_message_id: message.id,
       parent_id: message.parent_id ?? null,
       source_role: message.role,
+      response_id: message.response_id ?? metadata.response_id ?? undefined,
+      task_id: message.task_id ?? metadata.task_id ?? undefined,
+      message_status: message.status ?? metadata.status ?? undefined,
+      sequence_no: message.sequence_no ?? metadata.sequence_no ?? undefined,
       run_id: message.run_id ?? metadata.run_id ?? undefined,
       model_ref: message.model_ref ?? metadata.model ?? undefined,
       tokens_prompt: message.tokens_prompt ?? metadata.tokens_prompt ?? undefined,
       tokens_completion: message.tokens_completion ?? metadata.tokens_completion ?? undefined,
       finish_reason: message.finish_reason ?? metadata.finish_reason ?? undefined,
-      citations: metadata.citations ?? undefined,
+      citations: message.citations_json ?? metadata.citations ?? undefined,
+      attachments: message.attachments_json ?? metadata.attachments ?? undefined,
+      tool_calls: message.tool_calls_json ?? metadata.tool_calls ?? undefined,
+      summary: message.summary ?? metadata.summary ?? undefined,
       rag_query: metadata.rag_query ?? undefined,
-      rag_datasets: metadata.rag_datasets ?? undefined,
+      rag_knowledge: metadata.rag_knowledge ?? undefined,
+      error_code: message.error_code ?? metadata.error_code ?? undefined,
+      error_message: message.error_message ?? metadata.error_message ?? undefined,
       interrupted: metadata.interrupted ?? undefined,
     }
     const baseProps = {
@@ -152,20 +184,20 @@ export const MessageConverter = {
         return {
           ...baseProps,
           role: 'system',
-          content: [{ type: 'text', text: message.content }] as readonly [TextContentPart],
+          content: [{ type: 'text', text: message.content }] as readonly [TextMessagePart],
         } as ThreadSystemMessage
 
       case 'user':
         return {
           ...baseProps,
           role: 'user',
-          content: [{ type: 'text', text: message.content }] as readonly ThreadUserContentPart[],
+          content: [{ type: 'text', text: message.content }] as readonly ThreadUserMessagePart[],
           attachments: [],
         } as ThreadUserMessage
 
       case 'assistant': {
         const { reasoning, answer } = splitReasoningContent(message.content || '')
-        const assistantContent: ThreadAssistantContentPart[] = []
+        const assistantContent: ThreadAssistantMessagePart[] = []
         if (reasoning) {
           assistantContent.push({ type: 'reasoning', text: reasoning } as any)
         }
@@ -175,7 +207,7 @@ export const MessageConverter = {
         return {
           ...baseProps,
           role: 'assistant',
-          content: assistantContent as readonly ThreadAssistantContentPart[],
+          content: assistantContent as readonly ThreadAssistantMessagePart[],
           status: { type: 'complete', reason: 'stop' } as MessageStatus,
           metadata: {
             unstable_state: null,
@@ -191,7 +223,7 @@ export const MessageConverter = {
         return {
           ...baseProps,
           role: 'assistant',
-          content: [{ type: 'text', text: message.content }] as readonly ThreadAssistantContentPart[],
+          content: [{ type: 'text', text: message.content }] as readonly ThreadAssistantMessagePart[],
           status: { type: 'complete', reason: 'stop' } as MessageStatus,
           metadata: {
             unstable_state: null,
@@ -207,7 +239,7 @@ export const MessageConverter = {
     }
   },
 
-  toApiMessage(message: ThreadMessage, conversationId: string): Message {
+  toApiMessage(message: ThreadMessage, threadId: string): ChatLedgerMessage {
     const textPart = message.content?.find((part: any) => part?.type === 'text') as
       | { text?: string }
       | undefined
@@ -218,7 +250,10 @@ export const MessageConverter = {
       role: message.role as 'system' | 'user' | 'assistant',
       content,
       created_at: message.createdAt instanceof Date ? message.createdAt.toISOString() : new Date().toISOString(),
-      conversation_id: conversationId,
+      parent_id: null,
+      metadata_json: {
+        thread_id: threadId,
+      },
     }
   },
 }

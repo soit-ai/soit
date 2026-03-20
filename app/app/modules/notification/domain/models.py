@@ -45,7 +45,7 @@ class Notification(SQLModel, table=True):
     """Notification content/body."""
 
     source_module: Optional[str] = Field(default=None, index=True, max_length=64)
-    """Source module (workflow, dataset, modelhub, etc.)."""
+    """Source module (workflow, knowledge, modelhub, etc.)."""
 
     action: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     """Navigation action payload."""

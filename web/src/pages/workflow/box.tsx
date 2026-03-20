@@ -1,181 +1,178 @@
-import { useTranslation } from '@/i18n'
-import { useState, useMemo, useEffect } from 'react'
-import { Item } from './ui/item'
-import { BotMessageSquare, Search, SlidersHorizontal, Plus, Star, Tag, TrendingUp, Clock } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { Plus, RefreshCw, Search, Workflow as WorkflowIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { toast } from 'sonner'
+
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useNavLayout } from '@/components/layout/nav-layout'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { useNavigate } from '@/hooks/use-navigate'
+import { useQuery } from '@/hooks/use-query'
+import { createWorkflow, listWorkflows, type Workflow } from '@/services/workflow-service'
+import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 
-const _list = [
-  {
-    id: 1,
-    title: 'GPT-Researcher EN',
-    icon: <BotMessageSquare color="blue" />,
-    iconType: 'icon',
-    desc: 'GPT-Reasearcher is an expert in internet topic research. It can efficiently decompose a topic into sub-questions and provide a professional research report from a comprehensive perspective.',
-    tags: ['AI', 'Research', 'NLP'],
-    hot: true,
-  },
-  { id: 2, title: 'Azure', icon: '😊', iconType: 'emoji' },
-  { id: 2, title: 'Deepseek', icon: '🤖', iconType: 'emoji' },
-  { id: 3, title: 'Google', icon: '🥁', iconType: 'emoji' },
-  { id: 3, title: 'Grok', icon: 'https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/dark/google-brand-color.png', iconType: 'image' },
-]
-
-function WorkflowHeader() {
-  const { t } = useTranslation()
-  return (
-    <div className="flex flex-1 justify-between">
-      <div className="flex flex-col">
-        <h2 className="text-lg font-bold tracking-tight">{t('workflow.list.header.title')}</h2>
-        <p className="text-sm text-muted-foreground mt-1">{t('workflow.list.header.subtitle')}</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button className="gap-2" size={'sm'}>
-          <Plus className="h-4 w-4" />
-          {t('workflow.list.header.create')}
-        </Button>
-      </div>
-    </div>
-  )
+const formatTimestamp = (value?: string | null) => {
+  if (!value) {
+    return '-'
+  }
+  return formatDateTime(isoToZonedDate(value))
 }
 
-function BoxPage() {
-  const { t } = useTranslation()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState('all')
-  const [sortBy, setSortBy] = useState('default')
-  const [counts, setCounts] = useState({ all: 0, recent: 0, favorite: 0, created: 0 })
-  const { setHeaderContent } = useNavLayout()
+function WorkflowBoxPage() {
+  const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const [newWorkflowName, setNewWorkflowName] = useState('')
+  const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    setHeaderContent(<WorkflowHeader />)
-    return () => setHeaderContent(null)
-  }, [setHeaderContent])
+  const {
+    data: workflowPage,
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ['workflow', 'list'],
+    queryFn: () => listWorkflows({ page_size: 100 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
 
-  const filteredList = useMemo(() => {
-    let result = [..._list]
-    if (searchQuery) {
-      result = result.filter(item =>
-        item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.desc?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+  const workflows = useMemo(() => {
+    const items = workflowPage?.items || []
+    if (!search.trim()) {
+      return items
     }
-    if (activeCategory !== 'all') {
-      if (activeCategory === 'recent') {
-        result = result.slice(0, Math.floor(result.length * 0.6))
-      } else if (activeCategory === 'favorite') {
-        result = result.filter((_, index) => index % 3 === 0)
-      } else if (activeCategory === 'created') {
-        result = result.filter((_, index) => index % 5 !== 0)
-      }
-    }
-    if (sortBy === 'name') {
-      result.sort((a, b) => a.title.localeCompare(b.title))
-    } else if (sortBy === 'popular') {
-      result.sort((a, b) => (b.hot ? 1 : 0) - (a.hot ? 1 : 0))
-    }
-    return result
-  }, [searchQuery, activeCategory, sortBy])
-  
-  useEffect(() => {
-    const allCount = _list.length
-    const recentCount = Math.floor(_list.length * 0.6)
-    const favoriteCount = _list.filter((_, index) => index % 3 === 0).length
-    const createdCount = _list.filter((_, index) => index % 5 !== 0).length
-    
-    setCounts({
-      all: allCount,
-      recent: recentCount,
-      favorite: favoriteCount,
-      created: createdCount
+    const keyword = search.trim().toLowerCase()
+    return items.filter((workflow: Workflow) => {
+      const haystack = [workflow.name, workflow.description || '', JSON.stringify(workflow.metadata_json || {})]
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(keyword)
     })
-  }, [_list])
+  }, [search, workflowPage?.items])
+
+  const handleCreate = async () => {
+    const name = newWorkflowName.trim()
+    if (!name) {
+      return
+    }
+    try {
+      setCreating(true)
+      const workflow = await createWorkflow({
+        name,
+        description: 'Workflow builder entry created during agent-centered refactor.',
+      })
+      setNewWorkflowName('')
+      await refetch()
+      navigate(`/workflow/${workflow.id}/build`)
+    } catch (error) {
+      toast.error('Failed to create workflow')
+      console.error('Failed to create workflow:', error)
+    } finally {
+      setCreating(false)
+    }
+  }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-        <Tabs defaultValue="all" value={activeCategory} onValueChange={setActiveCategory}>
-          <TabsList>
-            <TabsTrigger value="all" className="flex items-center">
-              <Tag className="mr-2 h-4 w-4" />
-              {t('workflow.list.tabs.all')}
-              <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                {counts.all}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="recent" className="flex items-center">
-              <Clock className="mr-2 h-4 w-4" />
-              {t('workflow.list.tabs.recent')}
-              <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                {counts.recent}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="favorite" className="flex items-center">
-              <Star className="mr-2 h-4 w-4" />
-              {t('workflow.list.tabs.favorite')}
-              <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                {counts.favorite}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="created" className="flex items-center">
-              <Plus className="mr-2 h-4 w-4" />
-              {t('workflow.list.tabs.created')}
-              <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                {counts.created}
-              </span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <div className="relative w-full sm:w-[200px]">
-            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t('workflow.list.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8"
-            />
-          </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-full sm:w-[140px]">
-              <SlidersHorizontal className="mr-2 h-4 w-4" />
-              <SelectValue placeholder={t('workflow.list.sort.placeholder')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">
-                <div className="flex items-center">
-                  <Tag className="mr-2 h-4 w-4" />
-                  {t('workflow.list.sort.default')}
-                </div>
-              </SelectItem>
-              <SelectItem value="name">
-                <div className="flex items-center">
-                  <Tag className="mr-2 h-4 w-4" />
-                  {t('workflow.list.sort.name')}
-                </div>
-              </SelectItem>
-              <SelectItem value="popular">
-                <div className="flex items-center">
-                  <TrendingUp className="mr-2 h-4 w-4" />
-                  {t('workflow.list.sort.popular')}
-                </div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+    <div className="flex flex-1 flex-col gap-4 p-4">
+      <Card className="border-none bg-gradient-to-br from-sky-950 via-cyan-900 to-teal-800 text-white shadow-xl">
+        <CardHeader>
+          <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
+            Workflows
+          </Badge>
+          <CardTitle className="text-3xl font-semibold tracking-tight">
+            Workflows are becoming the agent orchestration surface.
+          </CardTitle>
+          <CardDescription className="max-w-2xl text-cyan-100/80">
+            Build multi-step execution graphs, keep versions visible, and route into the new runtime model.
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
-      <div className="grid-box">
-        {filteredList.map((item, index) => (
-          <Item key={index} item={item} index={index} />
-        ))}
-      </div>
+      <Card>
+        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CardTitle>Workflow Registry</CardTitle>
+            <CardDescription>Build, publish, and monitor workflow graphs from the agent-centered orchestration surface.</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search workflows"
+                className="w-[260px] pl-9"
+              />
+            </div>
+            <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-2 rounded-xl border border-dashed p-4 lg:flex-row">
+            <Input
+              value={newWorkflowName}
+              onChange={(event) => setNewWorkflowName(event.target.value)}
+              placeholder="New workflow name"
+              className="lg:max-w-sm"
+            />
+            <Button onClick={handleCreate} disabled={creating || !newWorkflowName.trim()}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Workflow
+            </Button>
+          </div>
+
+          {isLoading && <div className="text-sm text-muted-foreground">Loading workflows...</div>}
+          {!isLoading && workflows.length === 0 && (
+            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              No workflows found.
+            </div>
+          )}
+
+          {!isLoading && workflows.length > 0 && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {workflows.map((workflow: Workflow) => (
+                <Card key={workflow.id} className="transition-colors hover:border-primary/40">
+                  <CardHeader className="gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2 text-xl">
+                          <WorkflowIcon className="h-5 w-5" />
+                          {workflow.name}
+                        </CardTitle>
+                        <CardDescription>{workflow.description || 'No description yet.'}</CardDescription>
+                      </div>
+                      <Badge variant="outline">{workflow.current_version_id ? 'Versioned' : 'Draft'}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                      <div>Current version: {workflow.current_version_id || '-'}</div>
+                      <div>Updated: {formatTimestamp(workflow.updated_at)}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => navigate(`/workflow/${workflow.id}/build`)}>
+                        Open Builder
+                      </Button>
+                      <Button variant="outline" onClick={() => navigate(`/workflow/${workflow.id}/publish`)}>
+                        Publish
+                      </Button>
+                      <Button variant="outline" onClick={() => navigate(`/workflow/${workflow.id}/monitor`)}>
+                        Monitor
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-export default BoxPage
+export default WorkflowBoxPage

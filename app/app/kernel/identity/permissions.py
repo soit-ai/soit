@@ -13,15 +13,12 @@ from app.settings.settings import settings
 
 
 # Resource types
+RESOURCE_AGENT = "agent"
 RESOURCE_WORKFLOW = "workflow"
-RESOURCE_DATASET = "dataset"
+RESOURCE_KNOWLEDGE = "knowledge"
 RESOURCE_MODEL = "model"
 RESOURCE_PLUGIN = "plugin"
-RESOURCE_APP = "app"
-RESOURCE_BOT = "bot"
-RESOURCE_CHAT = "chat"
 RESOURCE_MEMORY = "memory"
-RESOURCE_AGENT = "agent"
 
 # Actions
 ACTION_READ = "read"
@@ -33,6 +30,11 @@ ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_RUN = "run"
 ACTION_EXECUTE_ALIAS = "execute"
+
+
+def _resource_type_aliases(resource_type: str) -> tuple[str, ...]:
+    normalized = (resource_type or "").strip().lower()
+    return (normalized,)
 
 
 class PermissionCache:
@@ -153,22 +155,23 @@ class PermissionCache:
             return
         
         try:
+            patterns: list[str] = []
+            aliases = _resource_type_aliases(resource_type) if resource_type else tuple()
             if user_id and resource_type and resource_id:
-                # Invalidate specific permission
-                pattern = f"perm:{user_id}:{resource_type}:{resource_id}:*"
+                patterns = [f"perm:{user_id}:{alias}:{resource_id}:*" for alias in aliases]
             elif user_id and resource_type:
-                # Invalidate all permissions for user+resource_type
-                pattern = f"perm:{user_id}:{resource_type}:*"
+                patterns = [f"perm:{user_id}:{alias}:*" for alias in aliases]
             elif user_id:
                 # Invalidate all permissions for user
-                pattern = f"perm:{user_id}:*"
+                patterns = [f"perm:{user_id}:*"]
             else:
                 # Invalidate all permissions (use with caution)
-                pattern = "perm:*"
+                patterns = ["perm:*"]
             
             # Redis SCAN and delete
-            async for key in redis.scan_iter(match=pattern):
-                await redis.delete(key)
+            for pattern in patterns:
+                async for key in redis.scan_iter(match=pattern):
+                    await redis.delete(key)
         except Exception:
             pass
 
@@ -198,7 +201,7 @@ async def check_resource_permission(
     
     Args:
         ctx: Request context.
-        resource_type: Resource type (workflow, dataset, model, etc.).
+        resource_type: Resource type (workflow, knowledge, model, etc.).
         resource_id: Resource ID.
         action: Action (read, write, delete, execute, publish, create, update, run).
         resource_owner_id: Optional resource owner ID (for ownership checks).
@@ -312,13 +315,16 @@ def _check_resource_grant(
     try:
         db = get_db_sync()
         repo = ResourceGrantRepository(db, ctx)
-        grant = repo.get_by_resource_user(resource_type, resource_id, ctx.user_id)
-        if not grant:
-            return False
-        allowed_actions = {_normalize_action(item) for item in (grant.actions or [])}
-        if "*" in allowed_actions:
-            return True
-        return action in allowed_actions or effective_action in allowed_actions
+        for alias in _resource_type_aliases(resource_type):
+            grant = repo.get_by_resource_user(alias, resource_id, ctx.user_id)
+            if not grant:
+                continue
+            allowed_actions = {_normalize_action(item) for item in (grant.actions or [])}
+            if "*" in allowed_actions:
+                return True
+            if action in allowed_actions or effective_action in allowed_actions:
+                return True
+        return False
     except Exception:
         return False
     finally:

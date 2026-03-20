@@ -12,13 +12,11 @@ from app.kernel.identity.permissions import (
     require_resource_read_async,
     require_resource_write_async,
     require_resource_delete_async,
+    RESOURCE_AGENT,
     RESOURCE_WORKFLOW,
-    RESOURCE_DATASET,
+    RESOURCE_KNOWLEDGE,
     RESOURCE_MODEL,
     RESOURCE_PLUGIN,
-    RESOURCE_APP,
-    RESOURCE_BOT,
-    RESOURCE_CHAT,
     RESOURCE_MEMORY,
 )
 
@@ -188,34 +186,34 @@ def check_workspace_access(ctx: RequestContext, target_workspace_id: str) -> Non
 
 
 # Resource-level permission helpers
-async def require_workflow_read(ctx: RequestContext, app_id: str, owner_id: Optional[str] = None) -> None:
+async def require_workflow_read(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
     """Require read permission on workflow (async)."""
-    await require_resource_read_async(ctx, RESOURCE_WORKFLOW, app_id, owner_id)
+    await require_resource_read_async(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
 
 
-async def require_workflow_write(ctx: RequestContext, app_id: str, owner_id: Optional[str] = None) -> None:
+async def require_workflow_write(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
     """Require write permission on workflow (async)."""
-    await require_resource_write_async(ctx, RESOURCE_WORKFLOW, app_id, owner_id)
+    await require_resource_write_async(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
 
 
-async def require_workflow_delete(ctx: RequestContext, app_id: str, owner_id: Optional[str] = None) -> None:
+async def require_workflow_delete(ctx: RequestContext, workflow_id: str, owner_id: Optional[str] = None) -> None:
     """Require delete permission on workflow (async)."""
-    await require_resource_delete_async(ctx, RESOURCE_WORKFLOW, app_id, owner_id)
+    await require_resource_delete_async(ctx, RESOURCE_WORKFLOW, workflow_id, owner_id)
 
 
-async def require_dataset_read(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
-    """Require read permission on dataset (async)."""
-    await require_resource_read_async(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+async def require_knowledge_read(ctx: RequestContext, knowledge_id: str, owner_id: Optional[str] = None) -> None:
+    """Require read permission on knowledge (async)."""
+    await require_resource_read_async(ctx, RESOURCE_KNOWLEDGE, knowledge_id, owner_id)
 
 
-async def require_dataset_write(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
-    """Require write permission on dataset (async)."""
-    await require_resource_write_async(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+async def require_knowledge_write(ctx: RequestContext, knowledge_id: str, owner_id: Optional[str] = None) -> None:
+    """Require write permission on knowledge (async)."""
+    await require_resource_write_async(ctx, RESOURCE_KNOWLEDGE, knowledge_id, owner_id)
 
 
-async def require_dataset_delete(ctx: RequestContext, dataset_id: str, owner_id: Optional[str] = None) -> None:
-    """Require delete permission on dataset (async)."""
-    await require_resource_delete_async(ctx, RESOURCE_DATASET, dataset_id, owner_id)
+async def require_knowledge_delete(ctx: RequestContext, knowledge_id: str, owner_id: Optional[str] = None) -> None:
+    """Require delete permission on knowledge (async)."""
+    await require_resource_delete_async(ctx, RESOURCE_KNOWLEDGE, knowledge_id, owner_id)
 
 
 async def require_model_read(ctx: RequestContext, model_id: str, owner_id: Optional[str] = None) -> None:
@@ -246,36 +244,6 @@ async def require_plugin_write(ctx: RequestContext, plugin_id: str, owner_id: Op
 async def require_plugin_delete(ctx: RequestContext, plugin_id: str, owner_id: Optional[str] = None) -> None:
     """Require delete permission on plugin (async)."""
     await require_resource_delete_async(ctx, RESOURCE_PLUGIN, plugin_id, owner_id)
-
-
-async def require_bot_read(ctx: RequestContext, bot_id: str, owner_id: Optional[str] = None) -> None:
-    """Require read permission on bot (async)."""
-    await require_resource_read_async(ctx, RESOURCE_BOT, bot_id, owner_id)
-
-
-async def require_bot_write(ctx: RequestContext, bot_id: str, owner_id: Optional[str] = None) -> None:
-    """Require write permission on bot (async)."""
-    await require_resource_write_async(ctx, RESOURCE_BOT, bot_id, owner_id)
-
-
-async def require_bot_delete(ctx: RequestContext, bot_id: str, owner_id: Optional[str] = None) -> None:
-    """Require delete permission on bot (async)."""
-    await require_resource_delete_async(ctx, RESOURCE_BOT, bot_id, owner_id)
-
-
-async def require_chat_read(ctx: RequestContext, conversation_id: str, owner_id: Optional[str] = None) -> None:
-    """Require read permission on chat conversation (async)."""
-    await require_resource_read_async(ctx, RESOURCE_CHAT, conversation_id, owner_id)
-
-
-async def require_chat_write(ctx: RequestContext, conversation_id: str, owner_id: Optional[str] = None) -> None:
-    """Require write permission on chat conversation (async)."""
-    await require_resource_write_async(ctx, RESOURCE_CHAT, conversation_id, owner_id)
-
-
-async def require_chat_delete(ctx: RequestContext, conversation_id: str, owner_id: Optional[str] = None) -> None:
-    """Require delete permission on chat conversation (async)."""
-    await require_resource_delete_async(ctx, RESOURCE_CHAT, conversation_id, owner_id)
 
 
 async def require_memory_read(ctx: RequestContext, memory_id: str, owner_id: Optional[str] = None) -> None:

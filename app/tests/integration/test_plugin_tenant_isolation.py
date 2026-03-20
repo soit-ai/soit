@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from app.kernel.registry.deps import get_registry
-from app.modules.pluginmarket.infra.installer import PluginInstaller
-from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
+from app.modules.plugin.infra.installer import PluginInstaller
+from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 
 
 def _make_plugin_zip(plugin_name: str, version: str) -> bytes:

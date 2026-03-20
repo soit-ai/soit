@@ -104,14 +104,14 @@ class RegistryToolRouterPort(ToolPort):
                 "policy": {"audit_level": "basic"},
                 "function": {"entrypoint": "app.utils.builtin_tools:random_int"},
             }
-        if tool_ref == "tool:function:dataset_query":
+        if tool_ref == "tool:function:knowledge_query":
             return {
-                "name": "dataset_query",
+                "name": "knowledge_query",
                 "adapter": "function",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "dataset_id": {"type": "string"},
+                        "knowledge_id": {"type": "string"},
                         "query": {"type": "string"},
                         "top_k": {"type": "integer", "minimum": 1, "maximum": 100},
                         "index_id": {"type": ["string", "null"]},
@@ -119,11 +119,11 @@ class RegistryToolRouterPort(ToolPort):
                         "include_snippets": {"type": "boolean"},
                         "strategy": {"type": ["string", "null"]},
                     },
-                    "required": ["dataset_id", "query"],
+                    "required": ["knowledge_id", "query"],
                 },
                 "output_schema": {"type": "object"},
                 "policy": {"audit_level": "basic"},
-                "function": {"entrypoint": "app.modules.dataset.application.tools:dataset_query"},
+                "function": {"entrypoint": "app.modules.knowledge.application.tools:knowledge_query"},
             }
         return None
 
@@ -285,7 +285,7 @@ class RegistryToolRouterPort(ToolPort):
                 }
 
         self._validate_inputs(tool_ref, tool_spec, tool_inputs)
-        if adapter == "function" and tool_ref == "tool:function:dataset_query":
+        if adapter == "function" and tool_ref == "tool:function:knowledge_query":
             tool_inputs = {
                 **tool_inputs,
                 "ctx": {

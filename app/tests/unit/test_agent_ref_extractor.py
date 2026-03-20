@@ -14,11 +14,11 @@ def test_build_agent_refs_extracts_model_tool_and_secret():
             "allowlist": ["tool:http:demo"],
             "configs": {"auth": {"secret_ref": "secret:demo"}},
         },
-        "rag": {"datasets": ["ds:dataset_1"]},
+        "rag": {"knowledges": ["knowledge:kb_1"]},
     }
     refs = build_agent_refs(spec)
     types = {(ref.get("ref_type"), ref.get("ref_key"), ref.get("ref_id")) for ref in refs}
     assert ("model", "model:openai:gpt-4", None) in types
     assert ("tool", "tool:http:demo", None) in types
-    assert ("dataset", "ds:dataset_1", None) in types
+    assert ("knowledge", "knowledge:kb_1", None) in types
     assert ("secret", "secret:demo", None) in types

@@ -10,21 +10,20 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import { DevToolsModal } from '@assistant-ui/react-devtools'
 import { Thread, type ThreadProps } from '@/components/ui/chat/thread'
 import { localRuntime } from '@/components/ui/chat/local-runtime'
-import { MessageConverter } from '@/components/ui/chat/message-adapter'
+import { MessageConverter, type ChatLedgerMessage } from '@/components/ui/chat/message-adapter'
 import { useQuery } from '@/hooks/use-query'
-import { listMessages, type Message } from '@/services/chat-service'
+import { getThread, type ThreadMessage as RuntimeThreadMessage } from '@/services/thread-service'
 import { API_BASE_URL } from '@/utils/request'
-import { useChatStore } from '@/stores/chat'
 import {
   DEFAULT_CHAT_PROVIDER,
-  isDeepThinkingEnabled,
   resolveRuntimeChatModel,
   resolveStoredChatProvider,
+  isDeepThinkingEnabled,
 } from '@/components/ui/chat/defaults'
 
 export type ChatBoxProps = ThreadProps & {
-  appId: string
-  conversationId?: string
+  agentId: string
+  threadId?: string
   modelName?: string
   historyReloadKey?: number | string
 }
@@ -51,37 +50,25 @@ const AuiBridge = forwardRef<AssistantClient>((_, ref) => {
 
 AuiBridge.displayName = 'AuiBridge'
 
-const fetchConversationMessages = async (
-  conversationId: string
+const fetchThreadMessages = async (
+  threadId: string
 ): Promise<ExportedMessageRepository> => {
-  if (!conversationId) {
+  if (!threadId) {
     return { messages: [], headId: null }
   }
 
-  const allItems: Message[] = []
-  let pageToken: string | undefined
-  const maxPages = 10
+  const detail = await getThread(threadId)
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const response = await listMessages({
-      conversation_id: conversationId,
-      page_size: 100,
-      page_token: pageToken,
-    })
-    allItems.push(...(response.items || []))
-    pageToken = response.next_page_token || undefined
-    if (!pageToken) {
-      break
+  const sortedItems = [...(detail.messages || [])].sort((a, b) => {
+    if (typeof a.sequence_no === 'number' && typeof b.sequence_no === 'number' && a.sequence_no !== b.sequence_no) {
+      return a.sequence_no - b.sequence_no
     }
-  }
-
-  const sortedItems = [...allItems].sort((a, b) => {
     const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
     const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
     return aTime - bTime
   })
 
-  const dedupedItems: Message[] = []
+  const dedupedItems: RuntimeThreadMessage[] = []
   const seen = new Set<string>()
   for (const item of sortedItems) {
     if (!item.id || seen.has(item.id)) {
@@ -91,26 +78,52 @@ const fetchConversationMessages = async (
     dedupedItems.push(item)
   }
 
-  const messageIdSet = new Set(dedupedItems.map((message) => message.id))
-  const hasExplicitParent = dedupedItems.some((message) => Boolean(message.parent_id))
-
-  const mappedMessages: ExportedMessageRepositoryItem[] = []
-  let previousMessageId: string | null = null
-  for (const message of dedupedItems) {
-    const threadMessage = MessageConverter.toThreadMessage(message)
-    const mappedParentId =
-      hasExplicitParent && message.parent_id && messageIdSet.has(message.parent_id)
-        ? message.parent_id
-        : previousMessageId
-    mappedMessages.push({
-      message: threadMessage,
-      parentId: mappedParentId ?? null,
-    })
-    previousMessageId = threadMessage.id
-  }
+  const mappedMessages: ExportedMessageRepositoryItem[] = dedupedItems.map((message) => {
+    const normalizedMessage: ChatLedgerMessage = {
+      id: message.id,
+      parent_id: message.parent_message_id || undefined,
+      role: message.role,
+      content: message.content,
+      model_ref:
+        message.model_ref ||
+        (typeof message.metadata_json?.model_ref === 'string' ? message.metadata_json.model_ref : undefined),
+      tokens_prompt:
+        typeof message.tokens_prompt === 'number'
+          ? message.tokens_prompt
+          : typeof message.metadata_json?.tokens_prompt === 'number'
+            ? message.metadata_json.tokens_prompt
+            : undefined,
+      tokens_completion:
+        typeof message.tokens_completion === 'number'
+          ? message.tokens_completion
+          : typeof message.metadata_json?.tokens_completion === 'number'
+            ? message.metadata_json.tokens_completion
+            : undefined,
+      finish_reason:
+        message.finish_reason ||
+        (typeof message.metadata_json?.finish_reason === 'string' ? message.metadata_json.finish_reason : undefined),
+      run_id: message.run_id || undefined,
+      created_by: message.created_by || undefined,
+      metadata_json: {
+        ...message.metadata_json,
+        citations: Array.isArray(message.citations_json) ? message.citations_json : message.metadata_json?.citations,
+        attachments: Array.isArray(message.attachments_json) ? message.attachments_json : message.metadata_json?.attachments,
+        tool_calls: Array.isArray(message.tool_calls_json) ? message.tool_calls_json : message.metadata_json?.tool_calls,
+        response_id: message.response_id || message.metadata_json?.response_id,
+        task_id: message.task_id || message.metadata_json?.task_id,
+        status: message.status || message.metadata_json?.status,
+        sequence_no: message.sequence_no,
+      },
+      created_at: message.created_at,
+    }
+    return {
+      message: MessageConverter.toThreadMessage(normalizedMessage),
+      parentId: normalizedMessage.parent_id || null,
+    }
+  })
 
   const headId =
-    dedupedItems.length > 0 ? dedupedItems[dedupedItems.length - 1]?.id ?? null : null
+    mappedMessages.length > 0 ? mappedMessages[mappedMessages.length - 1]?.message.id ?? null : null
 
   return {
     headId,
@@ -119,30 +132,29 @@ const fetchConversationMessages = async (
 }
 
 const ThreadSyncEffect = ({
-  appId,
-  conversationId,
+  agentId,
+  threadId,
   historyReloadKey,
 }: {
-  appId: string
-  conversationId?: string
+  agentId: string
+  threadId?: string
   historyReloadKey?: number | string
 }) => {
   const aui = useAui()
   const importedAtRef = useRef<number>(0)
 
   useEffect(() => {
-    useChatStore.getState().setConversationId(appId, conversationId || '')
-    if (!conversationId) {
+    if (!threadId) {
       importedAtRef.current = 0
       aui.thread().import({ messages: [] })
     }
-  }, [appId, conversationId, aui])
+  }, [agentId, threadId, aui])
 
   const { data: repository, dataUpdatedAt, error } = useQuery<ExportedMessageRepository>({
-    queryKey: ['chat-messages', conversationId || '', historyReloadKey || 0],
-    queryFn: () => fetchConversationMessages(conversationId || ''),
+    queryKey: ['chat-messages', threadId || '', historyReloadKey || 0],
+    queryFn: () => fetchThreadMessages(threadId || ''),
     options: {
-      enabled: Boolean(conversationId),
+      enabled: Boolean(threadId),
       staleTime: Number.POSITIVE_INFINITY,
       retry: false,
       refetchOnWindowFocus: false,
@@ -150,7 +162,7 @@ const ThreadSyncEffect = ({
   })
 
   useEffect(() => {
-    if (!conversationId || !dataUpdatedAt) {
+    if (!threadId || !dataUpdatedAt) {
       return
     }
     if (importedAtRef.current === dataUpdatedAt) {
@@ -160,11 +172,11 @@ const ThreadSyncEffect = ({
     aui.thread().import({ messages: [] })
     aui.thread().import(repository ?? { messages: [], headId: null })
     importedAtRef.current = dataUpdatedAt
-  }, [aui, conversationId, dataUpdatedAt, repository])
+  }, [aui, threadId, dataUpdatedAt, repository])
 
   useEffect(() => {
     if (error) {
-      console.error('Failed to load conversation messages:', error)
+      console.error('Failed to load thread messages:', error)
     }
   }, [error])
 
@@ -172,31 +184,30 @@ const ThreadSyncEffect = ({
 }
 
 export const ChatBox = forwardRef<AssistantClient, ChatBoxProps>(
-  ({ appId, conversationId, modelName, historyReloadKey, ...threadProps }, ref) => {
-    const runtime = localRuntime({ appId })
-    const activeConversationId = conversationId || ''
+  ({ agentId, threadId, modelName, historyReloadKey, ...threadProps }, ref) => {
+    const runtime = localRuntime({ agentId })
 
     const getModelContext = useCallback((): ModelContext => {
       const deepThinkingEnabled = isDeepThinkingEnabled()
       const resolvedModelName = resolveRuntimeChatModel(modelName, deepThinkingEnabled)
       return {
         config: {
-          appId,
+          agentId,
           modelName: resolvedModelName,
           provider: resolveStoredChatProvider() || DEFAULT_CHAT_PROVIDER,
           apiKey: import.meta.env.VITE_ASSISTANT_API_KEY || 'demo-key',
-          baseUrl: '/chat/completions',
-          streamBaseUrl: `${API_BASE_URL}/chat/stream`,
+          baseUrl: '/responses',
+          streamBaseUrl: `${API_BASE_URL}/responses`,
           authorization:
             import.meta.env.VITE_ASSISTANT_HEADER_AUTH ||
             'Bearer ' + (localStorage.getItem('token') || 'demo-token'),
           stream: true,
           deepThinking: deepThinkingEnabled,
           reasoningEffort: deepThinkingEnabled ? 'high' : undefined,
-          conversation_id: activeConversationId,
-        },
+          thread_id: threadId,
+        } as any,
       }
-    }, [activeConversationId, appId, modelName])
+    }, [agentId, modelName, threadId])
 
     return (
       <AssistantRuntimeProvider runtime={runtime}>
@@ -204,8 +215,8 @@ export const ChatBox = forwardRef<AssistantClient, ChatBoxProps>(
         <ModelContextBridge getModelContext={getModelContext} />
         <AuiBridge ref={ref} />
         <ThreadSyncEffect
-          appId={appId}
-          conversationId={conversationId}
+          agentId={agentId}
+          threadId={threadId}
           historyReloadKey={historyReloadKey}
         />
         <Thread {...threadProps} />

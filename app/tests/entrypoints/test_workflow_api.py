@@ -3,8 +3,11 @@
 Integration tests for Workflow API endpoints.
 """
 
+from sqlalchemy import select
 import pytest
 from fastapi import status
+
+from app.kernel.responses.models import Response
 
 
 class TestWorkflowAPI:
@@ -17,6 +20,11 @@ class TestWorkflowAPI:
             json={
                 "name": "test_workflow",
                 "description": "Test workflow description",
+                "summary": "Workflow summary",
+                "visibility": "workspace",
+                "icon_url": "https://example.com/workflow.png",
+                "category": "automation",
+                "tags": ["ops", "etl"],
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -32,13 +40,28 @@ class TestWorkflowAPI:
             "workspace_id",
             "name",
             "description",
+            "summary",
+            "status",
+            "visibility",
+            "icon_url",
+            "category",
+            "tags",
+            "owner_user_id",
             "current_version_id",
+            "published_version_id",
             "metadata_json",
+            "created_by",
+            "updated_by",
             "created_at",
             "updated_at",
         }
         for key in required_keys:
             assert key in payload
+        assert payload["summary"] == "Workflow summary"
+        assert payload["visibility"] == "workspace"
+        assert payload["icon_url"] == "https://example.com/workflow.png"
+        assert payload["category"] == "automation"
+        assert payload["tags"] == ["ops", "etl"]
     
     def test_list_workflows(self, client):
         """Test listing workflows."""
@@ -77,18 +100,18 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        app_id = create_response.json()["data"]["id"]
+        workflow_id = create_response.json()["data"]["id"]
         
         # Get workflow
         response = client.get(
-            f"/api/v1/workflows/{app_id}",
+            f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["success"] is True
         payload = data["data"]
-        assert payload["id"] == app_id
+        assert payload["id"] == workflow_id
         assert payload["name"] == "test_workflow_get"
         for key in ("tenant_id", "workspace_id", "created_at", "updated_at"):
             assert key in payload
@@ -104,10 +127,10 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        app_id = create_response.json()["data"]["id"]
+        workflow_id = create_response.json()["data"]["id"]
 
         version_response = client.post(
-            f"/api/v1/workflows/{app_id}/versions",
+            f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
                     "name": "version-spec",
@@ -155,14 +178,18 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        app_id = create_response.json()["data"]["id"]
+        workflow_id = create_response.json()["data"]["id"]
         
         # Update workflow
         response = client.put(
-            f"/api/v1/workflows/{app_id}",
+            f"/api/v1/workflows/{workflow_id}",
             json={
                 "name": "test_workflow_updated",
                 "description": "Updated description",
+                "summary": "Updated summary",
+                "visibility": "tenant",
+                "category": "updated-category",
+                "tags": ["updated"],
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -172,6 +199,10 @@ class TestWorkflowAPI:
         payload = data["data"]
         assert payload["name"] == "test_workflow_updated"
         assert payload["description"] == "Updated description"
+        assert payload["summary"] == "Updated summary"
+        assert payload["visibility"] == "tenant"
+        assert payload["category"] == "updated-category"
+        assert payload["tags"] == ["updated"]
     
     def test_delete_workflow(self, client):
         """Test deleting a workflow."""
@@ -185,18 +216,18 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        app_id = create_response.json()["data"]["id"]
+        workflow_id = create_response.json()["data"]["id"]
         
         # Delete workflow
         response = client.delete(
-            f"/api/v1/workflows/{app_id}",
+            f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_204_NO_CONTENT
         
         # Verify workflow is deleted
         get_response = client.get(
-            f"/api/v1/workflows/{app_id}",
+            f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         # Should return 404 or handle soft delete appropriately
@@ -252,12 +283,12 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        app_id = create_response.json()["data"]["id"]
+        workflow_id = create_response.json()["data"]["id"]
 
         # List runs (should be empty initially)
         response = client.get(
             "/api/v1/runs",
-            params={"app_version_id": app_id, "mode": "workflow"},
+            params={"workflow_id": workflow_id, "mode": "workflow"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_200_OK
@@ -288,3 +319,142 @@ class TestWorkflowAPI:
         )
         # Should return 404 for non-existent run
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_sse_execution_creates_linked_response(self, client, db):
+        """Workflow SSE execution should reuse the response-aware engine wiring."""
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "test_workflow_sse_execute",
+                "description": "SSE workflow execution",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        workflow_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={
+                "graph_json": {
+                    "name": "sse-llm-flow",
+                    "inputs_schema": {"type": "object", "properties": {}},
+                    "outputs_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
+                    "graph": {
+                        "nodes": [
+                            {"id": "llm1", "type": "llm", "params": {"prompt": "hello from sse"}},
+                            {"id": "out1", "type": "output", "params": {"value": "{{ steps.llm1.output.text }}"}},
+                        ],
+                        "edges": [{"id": "e1", "from": "llm1", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        with client.stream(
+            "POST",
+            "/api/v1/sse/execution",
+            json={"workflow_id": workflow_id, "inputs": {}},
+            headers=headers,
+        ) as response:
+            assert response.status_code == status.HTTP_200_OK
+            body = response.read().decode("utf-8")
+
+        assert "event: start" in body
+        assert "event: compiled" in body
+        assert "event: complete" in body
+
+        run_id = None
+        for raw_line in body.splitlines():
+            if not raw_line.startswith("data: "):
+                continue
+            payload = raw_line[6:]
+            if '"run_id"' not in payload:
+                continue
+            import json
+
+            parsed = json.loads(payload)
+            run_id = parsed.get("run_id") or run_id
+            if run_id:
+                break
+
+        assert run_id is not None
+        rows = db.exec(
+            select(Response).where(
+                Response.tenant_id == "test-tenant",
+                Response.workspace_id == "test-workspace",
+                Response.run_id == run_id,
+            )
+        ).all()
+        linked_responses = [item if isinstance(item, Response) else item[0] for item in rows]
+        assert len(linked_responses) >= 1
+        assert any(item.status == "completed" for item in linked_responses)
+
+    def test_sse_chat_streams_responses_semantic_events(self, client):
+        """Legacy SSE chat endpoint should now emit response semantic events."""
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "test_workflow_sse_chat",
+                "description": "SSE chat response stream",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        workflow_id = create_response.json()["data"]["id"]
+
+        with client.stream(
+            "POST",
+            "/api/v1/sse/chat",
+            json={
+                "workflow_id": workflow_id,
+                "messages": [{"role": "user", "content": "hello semantic sse"}],
+            },
+            headers=headers,
+        ) as response:
+            assert response.status_code == status.HTTP_200_OK
+            body = response.read().decode("utf-8")
+
+        assert "event: response.created" in body
+        assert "event: response.input.added" in body
+        assert "event: response.output_text.delta" in body
+        assert "event: response.output_text.completed" in body
+        assert "event: response.completed" in body
+        assert "[DONE]" in body
+
+        response_id = None
+        for raw_line in body.splitlines():
+            if not raw_line.startswith("data: "):
+                continue
+            payload = raw_line[6:]
+            if payload == "[DONE]":
+                continue
+            import json
+
+            parsed = json.loads(payload)
+            response_id = parsed.get("response_id") or response_id
+            if response_id:
+                break
+
+        assert response_id is not None
+        get_response = client.get(
+            f"/api/v1/responses/{response_id}",
+            headers=headers,
+        )
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["data"]["status"] == "completed"
+
+

@@ -21,8 +21,8 @@ const translation = {
           message: '您的自定义模型已成功部署并可以使用',
           time: '10 分钟前',
         },
-        datasetWarning: {
-          title: '数据集处理警告',
+        knowledgeWarning: {
+          title: '知识库处理警告',
           message: '数据集「客户反馈」处理过程中发现异常数据',
           time: '1 小时前',
         },

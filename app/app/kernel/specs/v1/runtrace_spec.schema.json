@@ -37,7 +37,7 @@
         },
         "mode": {
           "type": "string",
-          "description": "Domain-specific execution mode (e.g., chat, dataset_ingest)."
+          "description": "Domain-specific execution mode (e.g., chat, knowledge_ingest)."
         },
         "kind": {
           "type": [
@@ -46,7 +46,6 @@
           ],
           "enum": [
             "chat",
-            "bot",
             "workflow",
             "agent",
             "tool",
@@ -54,7 +53,19 @@
             null
           ]
         },
-        "app_version_id": {
+        "subject_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject_version_id": {
           "type": [
             "string",
             "null"

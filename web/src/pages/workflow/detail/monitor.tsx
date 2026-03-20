@@ -7,7 +7,7 @@ import { useTranslation } from '@/i18n'
 import { toast } from 'sonner'
 import { getRunDetail, type RunDetailResponse, type RunStepResponse } from '@/services/run-service'
 import { useNavigate } from '@/hooks/use-navigate'
-import { streamWorkflowExecution } from '@/services/workflow'
+import { streamWorkflowExecution } from '@/services/workflow-service'
 
 type MonitorStep = {
   id: string
@@ -240,7 +240,7 @@ function Page() {
               {t('workflow.detail.monitor.actions.refresh')}
             </Button>
             {runId && (
-              <Button variant="ghost" onClick={() => navigate(`/run/${runId}`)}>
+              <Button variant="ghost" onClick={() => navigate(`/observability/runs/${runId}`)}>
                 {t('workflow.detail.monitor.actions.viewRun')}
               </Button>
             )}

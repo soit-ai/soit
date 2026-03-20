@@ -47,7 +47,7 @@ const translation = {
     needAnswerNode: 'The Answer block must be added',
     workflowProcess: 'Workflow Process',
     notRunning: 'Not running yet',
-    previewPlaceholder: 'Enter content in the box below to start debugging the Chatbot',
+    previewPlaceholder: 'Enter content in the box below to start debugging the assistant',
     effectVarConfirm: {
       title: 'Remove Variable',
       content: 'The variable is used in other nodes. Do you still want to remove it?',
@@ -1184,7 +1184,7 @@ const translation = {
           env: '.env.example updated and docs aligned',
           compose: 'docker-compose demo passes scenarios A/B/C',
           apiDocs: 'Key APIs documented (OpenAPI or README)',
-          ui: 'Runs/Workflow/Dataset pages verified',
+          ui: 'Runs/Workflow/Knowledge pages verified',
           security: 'Logs/trace free of plaintext secrets',
           changelog: 'Version tag and changelog updated',
         },

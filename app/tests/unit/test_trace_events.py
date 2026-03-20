@@ -23,9 +23,9 @@ def test_trace_writer_emits_events(db, ctx):
     run = writer.create_run(
         mode="workflow",
         kind="workflow",
-        app_id="app_workflow",
-        app_version_id="ver_workflow",
-        app_type="workflow",
+        subject_kind="workflow",
+        subject_id="wf_trace",
+        subject_version_id="ver_workflow",
     )
     step = writer.create_step(run_id=run.id, step_type="workflow_node")
     writer.update_step_status(step.id, "succeeded", output_summary="ok")
@@ -46,3 +46,5 @@ def test_trace_writer_emits_events(db, ctx):
     assert cost_event.payload["run_id"] == run.id
     assert cost_event.payload["step_id"] == step.id
     assert cost_event.payload["unit"] == "requests"
+
+

@@ -10,7 +10,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { BoxHeader } from '@/components/ui/app/box-card'
 import { Label } from '@/components/ui/label'
-import { listConversations, deleteConversation, updateConversation } from '@/services/chat-service'
+import { deleteThread, listThreads, type Thread as RuntimeThread, updateThread } from '@/services/thread-service'
 import { useQuery } from '@/hooks/use-query'
 import { useMitt } from '@/hooks/use-mitt'
 import { useTranslation } from '@/i18n'
@@ -23,8 +23,10 @@ import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // Extend the Conversation type from service with required fields
-interface Conversation extends Omit<import('@/services/chat-service').Conversation, 'created_at'> {
+interface Conversation extends Omit<RuntimeThread, 'created_at' | 'updated_at'> {
   created_at: string
+  updated_at: string
+  default_model_ref?: string | null
 }
 
 interface GroupedConversations {
@@ -36,7 +38,7 @@ interface GroupedConversations {
 const PAGE_SIZE = 100
 
 type BoxSidebarProps = {
-  appId: string
+  agentId: string
   id: string
   title: string
   setTitle: (title: string) => void
@@ -48,7 +50,7 @@ type BoxSidebarProps = {
 }
 
 export function BoxSidebar({
-  appId,
+  agentId,
   id,
   title,
   setTitle,
@@ -83,12 +85,13 @@ export function BoxSidebar({
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ['chat-conversations', pageToken, appId, statusFilter],
+    queryKey: ['chat-conversations', pageToken, agentId, statusFilter],
     queryFn: () =>
-      listConversations({
+      listThreads({
         page_token: pageToken,
         page_size: PAGE_SIZE,
         status: statusFilter === 'all' ? undefined : statusFilter,
+        agent_id: agentId === 'default' ? undefined : agentId,
       }),
     options: {
       enabled: false,
@@ -101,40 +104,38 @@ export function BoxSidebar({
     setPageToken(undefined)
     setNextPageToken(null)
     refetch()
-  }, [appId, statusFilter, refetch])
+  }, [agentId, statusFilter, refetch])
 
   useEffect(() => {
     if (conversations) {
-      const response = conversations as import('@/services/chat-service').PaginatedResponse<Conversation>
+      const response = conversations as import('@/services/thread-service').PaginatedResponse<RuntimeThread>
       setNextPageToken(response.next_page_token || null)
       setHasMore(Boolean(response.next_page_token))
-
-      // Convert service returned Conversation to our required format
-      const formattedItems = response.items.map((item) => {
-        let created_at = ''
+      const formattedItems = response.items
+        .map((item) => {
+        let created_at = item.created_at || item.updated_at || new Date().toISOString()
+        let updated_at = item.updated_at || item.created_at || created_at
         try {
-          // created_at is already in ISO string format
           if (item.created_at && typeof item.created_at === 'string') {
-            // Use the string time directly from service
             created_at = item.created_at
-          } else {
-            // If created_at is a numeric timestamp
-            if (item.created_at && typeof item.created_at === 'number') {
-              created_at = new Date(item.created_at * 1000).toISOString()
-            } else {
-              // If created_at is invalid, use current time
-              created_at = new Date().toISOString()
-              console.warn('Invalid created_at value:', item.id, item.created_at, item)
-            }
+          }
+          if (item.updated_at && typeof item.updated_at === 'string') {
+            updated_at = item.updated_at
           }
         } catch (error) {
-          console.error('Error converting created_at time:', error)
+          console.error('Error converting thread time:', error)
           created_at = new Date().toISOString()
+          updated_at = created_at
         }
 
         return {
           ...item,
           created_at,
+          updated_at,
+          default_model_ref:
+            typeof item.metadata_json?.default_model_ref === 'string'
+              ? item.metadata_json.default_model_ref
+              : undefined,
         }
       })
 
@@ -147,16 +148,23 @@ export function BoxSidebar({
   }, [conversations, pageToken])
 
   const filteredConversations = useMemo(() => {
+    const scopedConversations =
+      agentId === 'default'
+        ? allConversations
+        : allConversations.filter(
+            (conversation) => conversation.agent_id === agentId || conversation.metadata_json?.agent_id === agentId
+          )
+
     if (!selectedProvider || !modelProviderMap?.size) {
-      return allConversations
+      return scopedConversations
     }
-    return allConversations.filter((conversation) => {
+    return scopedConversations.filter((conversation) => {
       if (!conversation.default_model_ref) {
         return false
       }
       return modelProviderMap.get(conversation.default_model_ref) === selectedProvider
     })
-  }, [allConversations, modelProviderMap, selectedProvider])
+  }, [agentId, allConversations, modelProviderMap, selectedProvider])
 
   const searchedConversations = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -238,7 +246,7 @@ export function BoxSidebar({
       setTitle(t('chat.sidebar.defaultTitle'))
       await onNewChat?.()
       // Navigate to an empty conversation.
-      navigate(`/chat/${appId}`)
+      navigate(`/chat/${agentId}`)
     } catch (error) {
       console.error('Failed to create new conversation:', error)
     }
@@ -251,11 +259,11 @@ export function BoxSidebar({
   }
 
   const handleRename = async (id: string): Promise<void> => {
-    const conversation = allConversations.find(conv => conv.id === id)
+    const conversation = allConversations.find((conv) => conv.id === id)
     if (conversation) {
       setNewTitle(conversation.title || '')
     }
-    setConversationToRename(id)
+    setConversationToRename(conversation?.id || null)
     setIsRenameDialogOpen(true)
   }
 
@@ -265,17 +273,18 @@ export function BoxSidebar({
     }
     try {
       setRenaming(true)
-      const updated = await updateConversation(conversationToRename, {
+      const updated = await updateThread(conversationToRename, {
         title: newTitle.trim(),
       })
       setAllConversations((prev) =>
         prev.map((conversation) =>
           conversation.id === updated.id
-            ? { ...conversation, title: updated.title || conversation.title }
+            ? { ...conversation, title: updated.title || conversation.title, status: updated.status }
             : conversation
         )
       )
-      if (updated.id === id && updated.title) {
+      const renamedThread = allConversations.find((conversation) => conversation.id === updated.id)
+      if (renamedThread?.id === id && updated.title) {
         setTitle(updated.title)
       }
       setPageToken(undefined)
@@ -303,20 +312,19 @@ export function BoxSidebar({
     }
     try {
       setDeleting(true)
-      const deletedConversationId = conversationToDelete.id
-      await deleteConversation(deletedConversationId)
+      await deleteThread(conversationToDelete.id)
       const remainingConversations = allConversations.filter(
-        (conversation) => conversation.id !== deletedConversationId
+        (conversation) => conversation.id !== conversationToDelete.id
       )
       setAllConversations(remainingConversations)
-      if (id === deletedConversationId) {
+      if (id === conversationToDelete.id) {
         const nextConversation = remainingConversations[0]
         if (nextConversation) {
           setTitle(nextConversation.title || t('chat.sidebar.untitled'))
-          navigate(`/chat/${appId}/${nextConversation.id}`)
+          navigate(`/chat/${agentId}/${nextConversation.id}`)
         } else {
           setTitle(t('chat.header.defaultTitle'))
-          navigate(`/chat/${appId}`)
+          navigate(`/chat/${agentId}`)
         }
       }
       setPageToken(undefined)
@@ -334,13 +342,13 @@ export function BoxSidebar({
   }
 
   const handleArchive = async (conversation: Conversation) => {
-    await updateConversation(conversation.id, { status: 'archived' })
+    await updateThread(conversation.id, { status: 'archived' })
     setPageToken(undefined)
     await refetch()
   }
 
   const handleUnarchive = async (conversation: Conversation) => {
-    await updateConversation(conversation.id, { status: 'active' })
+    await updateThread(conversation.id, { status: 'active' })
     setPageToken(undefined)
     await refetch()
   }
@@ -348,7 +356,7 @@ export function BoxSidebar({
   // Add effect to update title when id changes
   useEffect(() => {
     if (id && allConversations.length > 0) {
-      const currentConversation = allConversations.find(conv => conv.id === id)
+      const currentConversation = allConversations.find((conv) => conv.id === id)
       if (currentConversation && currentConversation.title) {
         setTitle(currentConversation.title)
       }
@@ -419,13 +427,13 @@ export function BoxSidebar({
                     projects={group.conversations.map((conv: Conversation) => {
                       const createdDate = toZonedDate(conv.created_at)
                       
-                      return {
-                        id: conv.id,
-                        name: conv.title || t('chat.sidebar.untitled'),
-                        url: `/chat/${appId}/${conv.id}`,
-                        icon: Bot,
-                        time: formatDate(createdDate.toISOString(), 'HH:mm'),
-                        isActive: conv.id === id,
+                        return {
+                          id: conv.id,
+                          name: conv.title || t('chat.sidebar.untitled'),
+                        url: `/chat/${agentId}/${conv.id}`,
+                          icon: Bot,
+                          time: formatDate(createdDate.toISOString(), 'HH:mm'),
+                          isActive: conv.id === id,
                         moreActions: [
                           {
                             icon: Pencil,

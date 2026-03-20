@@ -38,9 +38,9 @@ class RetrieveNodeExecutor(NodeExecutor):
         if not query:
             raise ValidationError("Retrieve node requires 'query' input")
         
-        collection = inputs.get("collection") or inputs.get("dataset")
+        collection = inputs.get("collection") or inputs.get("knowledge")
         if not collection:
-            raise ValidationError("Retrieve node requires 'collection' or 'dataset' input")
+            raise ValidationError("Retrieve node requires 'collection' or 'knowledge' input")
         
         top_k = inputs.get("top_k", 10)
         embedding_model = inputs.get("embedding_model") or inputs.get("model")

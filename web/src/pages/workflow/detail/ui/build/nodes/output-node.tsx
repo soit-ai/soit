@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { useTranslation } from '@/i18n'
 import { useNodeHandles } from '../hooks/use-node-handles'
+import type { TranslationKey } from '@/i18n/types'
 
 export const OutputNodeInfo = {
   type: 'output-node',
@@ -39,7 +40,7 @@ const OutputNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">
-        {t('workflow.detail.nodes.output.fields.formatLabel')}: {t(`workflow.detail.nodes.output.formats.${data.format || 'text'}`)}
+        {t('workflow.detail.nodes.output.fields.formatLabel')}: {t(`workflow.detail.nodes.output.formats.${data.format || 'text'}` as TranslationKey)}
       </div>
 
       {/* Input handle. */}

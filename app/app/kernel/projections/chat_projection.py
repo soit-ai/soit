@@ -33,10 +33,16 @@ def build_chat_refs(spec_json: Dict[str, Any], *, base_path: str = "$") -> List[
 
     rag = spec_json.get("rag") or {}
     if isinstance(rag, dict):
-        dataset_ids = rag.get("dataset_ids") or rag.get("datasets") or []
-        if isinstance(dataset_ids, list):
-            for idx, dataset in enumerate(dataset_ids):
-                entry = _build_ref_entry("dataset", dataset, f"{base_path}.rag.dataset_ids[{idx}]")
+        knowledge_ids = rag.get("knowledge_ids") or rag.get("knowledges") or rag.get("knowledge_refs") or []
+        if rag.get("knowledge_ids") is not None:
+            knowledge_path = f"{base_path}.rag.knowledge_ids"
+        elif rag.get("knowledges") is not None:
+            knowledge_path = f"{base_path}.rag.knowledges"
+        else:
+            knowledge_path = f"{base_path}.rag.knowledge_refs"
+        if isinstance(knowledge_ids, list):
+            for idx, knowledge in enumerate(knowledge_ids):
+                entry = _build_ref_entry("knowledge", knowledge, f"{knowledge_path}[{idx}]")
                 if entry:
                     refs.append(entry)
         reranker_ref = rag.get("reranker_ref")
@@ -72,8 +78,8 @@ def _extract_inline_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
     if isinstance(value, dict):
         for key, val in value.items():
             path = f"{base_path}.{key}"
-            if key in {"tool_ref", "dataset_ref", "model_ref", "plugin_ref", "secret_ref", "app_ref"}:
-                ref_type = key.replace("_ref", "")
+            if key in {"tool_ref", "knowledge_ref", "model_ref", "plugin_ref", "secret_ref", "app_ref"}:
+                ref_type = "knowledge" if key == "knowledge_ref" else key.replace("_ref", "")
                 entry = _build_ref_entry(ref_type, val, path)
                 if entry:
                     refs.append(entry)
@@ -109,7 +115,7 @@ def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> Optional[Dict[
 
 
 def _looks_like_ref_key(value: str) -> bool:
-    prefixes = ("tool:", "dataset:", "ds:", "model:", "plugin:", "secret:", "app:")
+    prefixes = ("tool:", "knowledge:", "model:", "plugin:", "secret:", "app:")
     if value.startswith(prefixes):
         return True
     return ":" in value

@@ -17,6 +17,21 @@ class WorkflowCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     """Workflow description."""
 
+    summary: Optional[str] = Field(None, max_length=1000)
+    """Workflow summary for listings."""
+
+    visibility: str = Field(default="private", pattern="^(private|workspace|tenant|public)$")
+    """Workflow visibility."""
+
+    icon_url: Optional[str] = Field(None, max_length=2000)
+    """Workflow icon URL."""
+
+    category: Optional[str] = Field(None, max_length=128)
+    """Workflow category."""
+
+    tags: Optional[list[str]] = None
+    """Workflow tags."""
+
 
 class WorkflowUpdate(BaseModel):
     """Schema for updating a workflow."""
@@ -26,6 +41,24 @@ class WorkflowUpdate(BaseModel):
     
     description: Optional[str] = Field(None, max_length=1000)
     """Workflow description."""
+
+    summary: Optional[str] = Field(None, max_length=1000)
+    """Workflow summary for listings."""
+
+    status: Optional[str] = Field(None, pattern="^(active|archived|disabled)$")
+    """Workflow status."""
+
+    visibility: Optional[str] = Field(None, pattern="^(private|workspace|tenant|public)$")
+    """Workflow visibility."""
+
+    icon_url: Optional[str] = Field(None, max_length=2000)
+    """Workflow icon URL."""
+
+    category: Optional[str] = Field(None, max_length=128)
+    """Workflow category."""
+
+    tags: Optional[list[str]] = None
+    """Workflow tags."""
 
     metadata_json: Optional[Dict[str, Any]] = None
     """Workflow metadata."""
@@ -52,10 +85,21 @@ class WorkflowResponse(BaseModel):
     workspace_id: str
     name: str
     description: Optional[str]
+    summary: Optional[str]
+    status: str
+    visibility: str
+    icon_url: Optional[str]
+    category: Optional[str]
+    tags: Optional[list[str]]
+    owner_user_id: Optional[str]
     current_version_id: Optional[str]
+    published_version_id: Optional[str] = None
     metadata_json: Optional[Dict[str, Any]] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    deleted_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
 

@@ -22,11 +22,13 @@ import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 import { useNavigate } from '@/hooks/use-navigate'
 import { toast } from 'sonner'
 import type { DateRange } from 'react-day-picker'
+import { useSearchParams } from 'react-router'
 
 type RunFilters = {
   status: string
   mode: string
-  appVersionId: string
+  subjectId: string
+  subjectVersionId: string
   workflowId: string
   userId: string
   dateRange: DateRange
@@ -35,7 +37,8 @@ type RunFilters = {
 const createDefaultFilters = (): RunFilters => ({
   status: 'all',
   mode: '',
-  appVersionId: '',
+  subjectId: '',
+  subjectVersionId: '',
   workflowId: '',
   userId: '',
   dateRange: { from: undefined, to: undefined },
@@ -53,7 +56,8 @@ const buildFilters = (activeFilters: RunFilters) => {
   const params: {
     mode?: string
     status?: string
-    app_version_id?: string
+    subject_id?: string
+    subject_version_id?: string
     workflow_id?: string
     user_id?: string
     started_after?: string
@@ -63,9 +67,13 @@ const buildFilters = (activeFilters: RunFilters) => {
   if (trimmedMode) {
     params.mode = trimmedMode
   }
-  const trimmedApp = activeFilters.appVersionId.trim()
-  if (trimmedApp) {
-    params.app_version_id = trimmedApp
+  const trimmedSubject = activeFilters.subjectId.trim()
+  if (trimmedSubject) {
+    params.subject_id = trimmedSubject
+  }
+  const trimmedSubjectVersion = activeFilters.subjectVersionId.trim()
+  if (trimmedSubjectVersion) {
+    params.subject_version_id = trimmedSubjectVersion
   }
   const trimmedWorkflow = activeFilters.workflowId.trim()
   if (trimmedWorkflow) {
@@ -95,6 +103,7 @@ const formatTimestamp = (value?: string | null) => {
 function Page() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [filters, setFilters] = useState<RunFilters>(() => createDefaultFilters())
   const [appliedFilters, setAppliedFilters] = useState<RunFilters>(() => createDefaultFilters())
   const [runs, setRuns] = useState<RunResponse[]>([])
@@ -138,7 +147,8 @@ function Page() {
     setAppliedFilters({
       status: filters.status,
       mode: filters.mode,
-      appVersionId: filters.appVersionId,
+      subjectId: filters.subjectId,
+      subjectVersionId: filters.subjectVersionId,
       workflowId: filters.workflowId,
       userId: filters.userId,
       dateRange: { ...filters.dateRange },
@@ -154,6 +164,18 @@ function Page() {
   useEffect(() => {
     fetchRuns(appliedFilters)
   }, [appliedFilters, fetchRuns])
+
+  useEffect(() => {
+    const nextFilters = createDefaultFilters()
+    nextFilters.mode = searchParams.get('mode') || ''
+    nextFilters.status = searchParams.get('status') || 'all'
+    nextFilters.subjectId = searchParams.get('subject_id') || ''
+    nextFilters.subjectVersionId = searchParams.get('subject_version_id') || ''
+    nextFilters.workflowId = searchParams.get('workflow_id') || ''
+    nextFilters.userId = searchParams.get('user_id') || ''
+    setFilters(nextFilters)
+    setAppliedFilters(nextFilters)
+  }, [searchParams])
 
   const fetchCosts = useCallback(
     async (activeFilters: RunFilters) => {
@@ -220,10 +242,19 @@ function Page() {
               />
             </div>
             <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Subject ID</span>
+              <Input
+                value={filters.subjectId}
+                onChange={(event) => setFilters((prev) => ({ ...prev, subjectId: event.target.value }))}
+                placeholder="Filter by subject ID"
+                className="w-full sm:w-[220px]"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{t('run.list.filters.app.label')}</span>
               <Input
-                value={filters.appVersionId}
-                onChange={(event) => setFilters((prev) => ({ ...prev, appVersionId: event.target.value }))}
+                value={filters.subjectVersionId}
+                onChange={(event) => setFilters((prev) => ({ ...prev, subjectVersionId: event.target.value }))}
                 placeholder={t('run.list.filters.app.placeholder')}
                 className="w-full sm:w-[220px]"
               />
@@ -423,14 +454,14 @@ function Page() {
                   <TableRow key={run.id}>
                     <TableCell className="font-medium">{run.id}</TableCell>
                     <TableCell>{run.mode}</TableCell>
-                    <TableCell>{run.app_version_id ?? '-'}</TableCell>
+                    <TableCell>{run.subject_version_id ?? '-'}</TableCell>
                     <TableCell>{run.user_id ?? '-'}</TableCell>
                     <TableCell>{run.status}</TableCell>
                     <TableCell>{formatTimestamp(run.started_at)}</TableCell>
                     <TableCell>{run.duration_ms ? `${run.duration_ms} ms` : '-'}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{run.input_summary || '-'}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/run/${run.id}`)}>
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/observability/runs/${run.id}`)}>
                         {t('run.list.table.view')}
                       </Button>
                     </TableCell>

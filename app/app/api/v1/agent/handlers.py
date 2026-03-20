@@ -6,8 +6,8 @@ Agent handlers (thin orchestration).
 from typing import Optional
 
 from app.kernel.contracts.context import RequestContext
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.service import AgentService
-from app.modules.agent.application.app_facade import AgentAppFacadeService
 from app.modules.agent.application.schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -16,6 +16,7 @@ from app.modules.agent.application.schemas import (
     AgentResponse,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentBindingResponse,
     AgentPublishRequest,
 )
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
@@ -33,9 +34,9 @@ class AgentHandlers:
 
 
 class AgentAppHandlers:
-    """Handlers for agent app CRUD endpoints."""
+    """Handlers for agent CRUD endpoints."""
 
-    def __init__(self, service: AgentAppFacadeService):
+    def __init__(self, service: AgentApplicationService):
         self.service = service
 
     def _as_agent_response(self, app) -> AgentResponse:
@@ -47,6 +48,14 @@ class AgentAppHandlers:
             description=app.description,
             status=app.status,
             visibility=app.visibility,
+            icon_url=app.icon_url,
+            category=app.category,
+            is_public=app.is_public,
+            featured=app.featured,
+            downloads_count=app.downloads_count,
+            rating=app.rating,
+            reviews_count=app.reviews_count,
+            published_at=app.published_at,
             tags=app.tags,
             current_version_id=app.current_version_id,
             published_version_id=app.published_version_id,
@@ -60,7 +69,7 @@ class AgentAppHandlers:
     def _as_version_response(self, version) -> AgentVersionResponse:
         return AgentVersionResponse(
             id=version.id,
-            agent_id=version.app_id,
+            agent_id=version.agent_id,
             version=version.version,
             status=version.status,
             spec_schema=version.spec_schema,
@@ -132,11 +141,23 @@ class AgentAppHandlers:
         agent = await self.service.publish_version(agent_id, data.version_id)
         return self._as_agent_response(agent)
 
+    async def list_bindings(
+        self,
+        ctx: RequestContext,
+        agent_id: str,
+        version_id: Optional[str],
+    ) -> list[AgentBindingResponse]:
+        bindings = await self.service.list_bindings(agent_id, version_id)
+        return [AgentBindingResponse.model_validate(binding) for binding in bindings]
+
     async def execute_agent(self, ctx: RequestContext, agent_id: str, data: AgentRunRequest) -> AgentRunResponse:
         payload = data.model_dump(exclude_none=True)
         result = await self.service.execute_agent(agent_id, payload)
         return AgentRunResponse(
             run_id=result.get("run_id"),
+            response_id=result.get("response_id"),
+            thread_id=result.get("thread_id"),
+            task_id=result.get("task_id"),
             output=result.get("output") or "",
             model=result.get("model") or "",
             iterations=result.get("iterations") or 0,

@@ -16,11 +16,12 @@ from app.modules.agent.application.schemas import (
     AgentResponse,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentBindingResponse,
     AgentPublishRequest,
 )
 from app.modules.agent.application.service import AgentService
-from app.modules.agent.application.app_facade import AgentAppFacadeService
-from app.api.v1.agent.dependencies import get_agent_service, get_agent_app_service
+from app.modules.agent.application.application_service import AgentApplicationService
+from app.api.v1.agent.dependencies import get_agent_service, get_agent_application_service
 from app.api.v1.agent.handlers import AgentHandlers, AgentAppHandlers
 from app.infra.db.pagination import PaginatedResponse
 
@@ -42,7 +43,7 @@ async def run_agent(
 async def create_agent(
     agent_in: AgentCreate,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.create_agent(ctx, agent_in)
@@ -53,7 +54,7 @@ async def list_agents(
     page_token: Optional[str] = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.list_agents(ctx, page_token=page_token, page_size=page_size)
@@ -63,7 +64,7 @@ async def list_agents(
 async def get_agent(
     agent_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.get_agent(ctx, agent_id)
@@ -74,7 +75,7 @@ async def update_agent(
     agent_id: str,
     agent_in: AgentUpdate,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.update_agent(ctx, agent_id, agent_in)
@@ -84,7 +85,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: str,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     await handlers.delete_agent(ctx, agent_id)
@@ -95,7 +96,7 @@ async def create_version(
     agent_id: str,
     version_in: AgentVersionCreate,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.create_version(ctx, agent_id, version_in)
@@ -107,10 +108,21 @@ async def list_versions(
     page_token: Optional[str] = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.list_versions(ctx, agent_id, page_token=page_token, page_size=page_size)
+
+
+@router.get("/{agent_id}/bindings", response_model=list[AgentBindingResponse])
+async def list_bindings(
+    agent_id: str,
+    version_id: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.list_bindings(ctx, agent_id, version_id)
 
 
 @router.post("/{agent_id}/publish", response_model=AgentResponse)
@@ -118,7 +130,7 @@ async def publish_version(
     agent_id: str,
     data: AgentPublishRequest = Body(...),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.publish_version(ctx, agent_id, data)
@@ -129,7 +141,7 @@ async def execute_agent(
     agent_id: str,
     data: AgentRunRequest = Body(...),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentAppFacadeService = Depends(get_agent_app_service),
+    service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.execute_agent(ctx, agent_id, data)

@@ -14,6 +14,31 @@ from openai import AsyncOpenAI
 class ProviderCatalogAdapter:
     """Adapter for fetching provider model catalogs and performing tests."""
 
+    @staticmethod
+    def _extract_anthropic_text(payload: Dict[str, Any]) -> str:
+        contents = payload.get("content", []) or []
+        parts: List[str] = []
+        for item in contents:
+            if isinstance(item, dict) and item.get("type") == "text" and item.get("text"):
+                parts.append(str(item["text"]))
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _extract_gemini_text(payload: Dict[str, Any]) -> str:
+        candidates = payload.get("candidates", []) or []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content") or {}
+            parts = content.get("parts", []) or []
+            texts: List[str] = []
+            for part in parts:
+                if isinstance(part, dict) and part.get("text"):
+                    texts.append(str(part["text"]))
+            if texts:
+                return "\n".join(texts).strip()
+        return ""
+
     async def list_models(
         self,
         *,
@@ -98,26 +123,84 @@ class ProviderCatalogAdapter:
         input_text: str,
     ) -> Dict[str, Any]:
         """Run a lightweight chat completion test."""
-        if provider_kind not in {"openai", "openai_compat"}:
-            raise ValueError(f"Chat test not supported for provider: {provider_kind}")
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        token_limit_param = (
-            "max_completion_tokens"
-            if model_id.lower().startswith(("gpt-5", "o1", "o3", "o4"))
-            else "max_tokens"
-        )
-        response = await client.chat.completions.create(
-            model=model_id,
-            messages=[{"role": "user", "content": input_text}],
-            **{token_limit_param: 32},
-        )
-        choice = response.choices[0]
-        return {
-            "response": choice.message.content or "",
-            "tokens_prompt": response.usage.prompt_tokens if response.usage else None,
-            "tokens_completion": response.usage.completion_tokens if response.usage else None,
-            "request_id": getattr(response, "id", None),
-        }
+        if provider_kind in {"openai", "openai_compat"}:
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            token_limit_param = (
+                "max_completion_tokens"
+                if model_id.lower().startswith(("gpt-5", "o1", "o3", "o4"))
+                else "max_tokens"
+            )
+            response = await client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": input_text}],
+                **{token_limit_param: 32},
+            )
+            choice = response.choices[0]
+            return {
+                "response": choice.message.content or "",
+                "tokens_prompt": response.usage.prompt_tokens if response.usage else None,
+                "tokens_completion": response.usage.completion_tokens if response.usage else None,
+                "request_id": getattr(response, "id", None),
+            }
+
+        if provider_kind == "anthropic":
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            payload = {
+                "model": model_id,
+                "max_tokens": 64,
+                "messages": [{"role": "user", "content": input_text}],
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+            usage = body.get("usage") or {}
+            return {
+                "response": self._extract_anthropic_text(body),
+                "tokens_prompt": usage.get("input_tokens"),
+                "tokens_completion": usage.get("output_tokens"),
+                "request_id": body.get("id"),
+            }
+
+        if provider_kind == "gemini":
+            endpoint = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_id}:generateContent"
+            )
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": input_text}],
+                    }
+                ],
+                "generationConfig": {"maxOutputTokens": 64},
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    endpoint,
+                    params={"key": api_key},
+                    json=payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+            usage = body.get("usageMetadata") or {}
+            return {
+                "response": self._extract_gemini_text(body),
+                "tokens_prompt": usage.get("promptTokenCount"),
+                "tokens_completion": usage.get("candidatesTokenCount"),
+                "request_id": body.get("responseId"),
+            }
+
+        raise ValueError(f"Chat test not supported for provider: {provider_kind}")
 
     async def test_embeddings(
         self,

@@ -36,7 +36,7 @@ function LayoutPage(props: LayoutPageProps) {
     )
   }
   return (
-    <NavLayout left={<NavSidebar appid={params?.id}  ></NavSidebar>} fixed>
+    <NavLayout left={<NavSidebar appid={(params as any)?.id || ''}  ></NavSidebar>} fixed>
       <div className="flex flex-1 flex-col gap-4 h-full">
         <Outlet />
       </div>

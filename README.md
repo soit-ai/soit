@@ -1,10 +1,10 @@
 # SOIT-Pro
 
-企业级 AI 可编排平台 - 提供完整的 AI 应用构建、部署和管理能力。
+企业级 Agent 中心 AI 编排平台，提供 Agent、Knowledge、Workflow、Task、Plugin 与 Observability 的统一构建和运行能力。
 
 ## 项目概述
 
-SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构，支持多租户、知识库管理、工作流编排、插件系统等核心功能。项目遵循 Clean/Hexagonal 架构设计，确保核心层稳定、领域层快速迭代。
+SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
 
 ## 技术栈
 
@@ -100,20 +100,19 @@ SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构，
 ```
 soit-pro/
 ├── app/                    # 后端应用
-│   ├── kernel/            # 核心稳定层（Kernel）
-│   │   ├── identity/      # 身份认证与上下文
-│   │   ├── execution/     # 执行引擎
-│   │   ├── gateways/      # 统一网关（LLM/Tools/Vector/Storage/Secrets）
-│   │   ├── observability/ # 可观测性（日志/指标/追踪）
-│   │   ├── trace/         # 执行追踪模型
-│   │   ├── db/            # 数据库抽象层
-│   │   ├── security/      # 安全策略与审计
-│   │   └── specs/         # JSON Schema 规范
-│   ├── modules/           # 领域层（Modules）
-│   │   ├── domains/       # 业务领域（Workflow/Dataset/Plugin/ModelHub）
-│   │   └── entrypoints/   # API 入口（REST/WebSocket/SSE）
-│   ├── adapters/          # 外部服务适配器
-│   └── docs/              # 文档（架构/工程规范）
+│   ├── app/               # 应用代码
+│   │   ├── api/           # HTTP/WS/SSE 入口
+│   │   ├── kernel/        # 稳定核心（identity/runtime/trace/specs）
+│   │   ├── modules/       # 业务域（agent/chat/workflow/knowledge/plugin 等）
+│   │   ├── adapters/      # 外部依赖适配器
+│   │   ├── infra/         # 基础设施实现
+│   │   ├── middleware/    # 中间件
+│   │   ├── wiring/        # 依赖装配
+│   │   └── main.py        # FastAPI 入口
+│   ├── docs/              # 后端文档
+│   ├── tests/             # 后端测试
+│   ├── scripts/           # 开发脚本
+│   └── alembic/           # 数据库迁移
 └── web/                   # 前端应用
 ```
 
@@ -128,9 +127,13 @@ soit-pro/
 ## 开发规范
 
 详细开发规范请参考：
+- [后端架构文档](app/docs/architecture/PROJECT_STRUCTURE.md)
+- [前端结构文档](web/docs/PROJECT_STRUCTURE.md)
+- [AGENTS规范文档](AGENTS.md)
 - [开发规范文档](dev.md)
-- [工程指南](app/ENGINEERING_GUIDE.md)
+- [工程指南](app/docs/engineering/ENGINEERING_GUIDE.md)
 - [架构文档](app/docs/architecture/)
+- [历史规划归档](docs/archive/README.md)
 
 ## 快速开始
 
@@ -159,7 +162,7 @@ docker compose up -d
 启动后默认行为：
 - 自动执行数据库迁移（alembic upgrade head）。
 - 自动初始化默认管理员/租户（可通过环境变量覆盖）。
-- 自动启动 dataset ingest worker（后台消费任务）。
+- 自动启动 knowledge ingest worker。
 - Web 默认端口：`http://localhost:5000`
 - API 默认端口：`http://localhost:9200`
 

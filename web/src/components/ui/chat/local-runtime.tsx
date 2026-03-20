@@ -11,8 +11,8 @@ import { ChatAdapter } from './chat-adapter'
 
 export type LocalRuntime = AssistantRuntime
 
-export const localRuntime = ({ appId = 'default' }: { appId?: string }): LocalRuntime => {
-  void appId
+export const localRuntime = ({ agentId = 'default' }: { agentId?: string }): LocalRuntime => {
+  void agentId
   const adapters = useMemo(
     () => ({
       attachments: new CompositeAttachmentAdapter([

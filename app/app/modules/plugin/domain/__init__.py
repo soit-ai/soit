@@ -1,0 +1,1 @@
+"""Plugin domain compatibility surface."""

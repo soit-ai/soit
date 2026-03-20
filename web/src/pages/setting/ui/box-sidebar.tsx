@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { 
+  LayoutDashboard,
   BookOpen, 
   Bot, 
   FileText, 
@@ -75,11 +76,19 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   
   const menuItems: MenuItem[] = React.useMemo(() => ([
     {
+      id: 'overview',
+      icon: <LayoutDashboard size={16} />,
+      label: 'Overview',
+      description: 'Workspace-level defaults, roles, and main chain settings.',
+      url: '/settings',
+      section: 'account',
+    },
+    {
       id: 'account',
       icon: <User size={16} />,
       label: t('system.settings.sidebar.menu.account.label'),
       description: t('system.settings.sidebar.menu.account.description'),
-      url: '/setting/account',
+      url: '/settings/account',
       section: 'account',
     },
     {
@@ -87,7 +96,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Globe size={16} />,
       label: t('system.settings.sidebar.menu.lang.label'),
       description: t('system.settings.sidebar.menu.lang.description'),
-      url: '/setting/lang',
+      url: '/settings/lang',
       section: 'account',
     },
     {
@@ -95,7 +104,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Key size={16} />,
       label: t('system.settings.sidebar.menu.api.label'),
       description: t('system.settings.sidebar.menu.api.description'),
-      url: '/setting/api',
+      url: '/settings/api',
       section: 'account',
     },
     {
@@ -103,7 +112,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Users size={16} />,
       label: t('system.settings.sidebar.menu.team.label'),
       description: t('system.settings.sidebar.menu.team.description'),
-      url: '/setting/team',
+      url: '/settings/team',
       section: 'account',
     },
     {
@@ -111,7 +120,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Shield size={16} />,
       label: t('system.settings.sidebar.menu.security.label'),
       description: t('system.settings.sidebar.menu.security.description'),
-      url: '/setting/security',
+      url: '/settings/security',
       section: 'system',
     },
     {
@@ -119,7 +128,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Lock size={16} />,
       label: t('system.settings.sidebar.menu.secrets.label'),
       description: t('system.settings.sidebar.menu.secrets.description'),
-      url: '/setting/secrets',
+      url: '/settings/secrets',
       section: 'system',
     },
     {
@@ -127,7 +136,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Lock size={16} />,
       label: t('system.settings.sidebar.menu.privacy.label'),
       description: t('system.settings.sidebar.menu.privacy.description'),
-      url: '/setting/privacy',
+      url: '/settings/privacy',
       section: 'system',
     },
     {
@@ -135,7 +144,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <CreditCard size={16} />,
       label: t('system.settings.sidebar.menu.billing.label'),
       description: t('system.settings.sidebar.menu.billing.description'),
-      url: '/setting/billing',
+      url: '/settings/billing',
       section: 'system',
       badge: 1,
       status: 'warning',
@@ -145,7 +154,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Bell size={16} />,
       label: t('system.settings.sidebar.menu.notifications.label'),
       description: t('system.settings.sidebar.menu.notifications.description'),
-      url: '/setting/notifications',
+      url: '/settings/notifications',
       section: 'system',
     },
     {
@@ -153,7 +162,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Palette size={16} />,
       label: t('system.settings.sidebar.menu.appearance.label'),
       description: t('system.settings.sidebar.menu.appearance.description'),
-      url: '/setting/appearance',
+      url: '/settings/appearance',
       section: 'advanced',
     },
     {
@@ -161,7 +170,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <BarChart size={16} />,
       label: t('system.settings.sidebar.menu.analytics.label'),
       description: t('system.settings.sidebar.menu.analytics.description'),
-      url: '/setting/analytics',
+      url: '/settings/analytics',
       section: 'advanced',
     },
     {
@@ -169,7 +178,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: <Info size={16} />,
       label: t('system.settings.sidebar.menu.about.label'),
       description: t('system.settings.sidebar.menu.about.description'),
-      url: '/setting/about',
+      url: '/settings/about',
       section: 'advanced',
     },
   ]), [t])
@@ -186,9 +195,13 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Update the active menu item based on the current path.
   useEffect(() => {
     const path = window.location.pathname
+    if (path === '/settings') {
+      setActiveTab('overview')
+      return
+    }
     const pathSegments = path.split('/')
     if (pathSegments.length >= 3) {
-      const tabId = pathSegments[2] // e.g. /setting/account -> account
+      const tabId = pathSegments[2] // e.g. /settings/account -> account
       setActiveTab(tabId)
     }
   }, [])

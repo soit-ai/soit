@@ -218,7 +218,7 @@ const system = {
           high: '高',
         },
         pluginEndpointPath: '插件端点路径',
-        pluginEndpointPathPlaceholder: '例如 /v1/chat/completions',
+        pluginEndpointPathPlaceholder: '例如 /api/v1/responses',
         pluginTimeoutMs: '插件超时(ms)',
         pluginTimeoutMsPlaceholder: '例如 30000',
         description: '描述',

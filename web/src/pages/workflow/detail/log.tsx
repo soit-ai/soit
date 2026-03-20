@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { useTranslation } from '@/i18n'
 import { listRuns, listRunSteps, type RunResponse, type RunStepResponse } from '@/services/run-service'
-import { pauseRun, replayRun, resumeRun, retryRun } from '@/services/workflow'
+import { pauseRun, replayRun, resumeRun, retryRun } from '@/services/workflow-service'
 import { toast } from 'sonner'
 import { useNavigate } from '@/hooks/use-navigate'
 
@@ -53,7 +53,7 @@ function Page() {
     try {
       setLoadingRuns(true)
       const data = await listRuns({
-        app_version_id: workflowId,
+        workflow_id: workflowId,
         mode: 'workflow',
         page_size: 50,
       })
@@ -339,7 +339,7 @@ function Page() {
                 <div className="text-sm font-medium">{step.step_type}</div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">{step.status}</span>
-                  <Button size="sm" variant="ghost" onClick={() => navigate(`/run/${step.run_id}`)}>
+                  <Button size="sm" variant="ghost" onClick={() => navigate(`/observability/runs/${step.run_id}`)}>
                     {t('workflow.detail.log.actions.viewRun')}
                   </Button>
                 </div>

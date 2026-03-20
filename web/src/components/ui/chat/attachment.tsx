@@ -116,7 +116,9 @@ const AttachmentThumb: FC = () => {
 };
 
 const AttachmentUI: FC = () => {
-  const canRemove = useAuiState(({ attachment }) => attachment.source !== "message");
+  const canRemove = useAuiState(({ attachment }) => {
+    return (attachment as { source?: string }).source !== "message";
+  });
   const typeLabel = useAuiState(({ attachment }) => {
     const type = attachment.type;
     switch (type) {
@@ -127,8 +129,7 @@ const AttachmentUI: FC = () => {
       case "file":
         return "File";
       default:
-        const _exhaustiveCheck: never = type;
-        throw new Error(`Unknown attachment type: ${_exhaustiveCheck}`);
+        return "Attachment";
     }
   });
   return (

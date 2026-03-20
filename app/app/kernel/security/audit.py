@@ -26,7 +26,7 @@ class AuditEvent:
         Args:
             event_type: Event type (create, update, delete, access, etc.).
             ctx: Request context.
-            resource_type: Resource type (run, workflow, dataset, etc.).
+            resource_type: Resource type (run, workflow, knowledge, etc.).
             resource_id: Resource ID.
             action: Action performed.
             details: Optional additional details.

@@ -32,9 +32,9 @@ export const uploadRemoteFile = (url: string, sceneId?: string, sceneType?: stri
 
 // Get file content
 export const getFile = (fileId: string): Promise<Blob> => {
-  return get(`/files/${fileId}`, {
+  return get<Blob>(`/files/${fileId}`, {
     responseType: 'blob'
-  })
+  }) as unknown as Promise<Blob>
 }
 
 // Delete file

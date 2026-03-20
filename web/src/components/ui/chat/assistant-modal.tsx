@@ -138,7 +138,7 @@ export const AssistantModal: FC = () => {
           sideOffset={16}
           className="bg-popover text-popover-foreground z-50 h-[700px] w-[400px] overflow-clip rounded-xl border p-0 shadow-md outline-none [&>.aui-thread-root]:bg-inherit data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out data-[state=open]:zoom-in data-[state=open]:slide-in-from-bottom-1/2 data-[state=open]:slide-in-from-right-1/2 data-[state=closed]:slide-out-to-bottom-1/2 data-[state=closed]:slide-out-to-right-1/2"
         >
-          <ChatBox appId="default" initInputPosition="bottom" isInModal={true} />
+          <ChatBox agentId="default" initInputPosition="bottom" isInModal={true} />
         </AssistantModalPrimitive.Content>
       </AssistantModalPrimitive.Root>
   )

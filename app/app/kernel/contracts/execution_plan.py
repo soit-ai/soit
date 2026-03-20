@@ -14,7 +14,7 @@ class ExecutionPlan:
     """Execution plan for a run."""
 
     mode: str
-    """Execution mode (chat/bot/workflow/agent)."""
+    """Execution mode (chat/workflow/agent/knowledge/memory/etc.)."""
 
     inputs: Dict[str, Any] = field(default_factory=dict)
     """Input parameters."""
@@ -25,11 +25,14 @@ class ExecutionPlan:
     run_id: Optional[str] = None
     """Run ID."""
 
-    app_id: Optional[str] = None
-    """App ID."""
+    subject_kind: Optional[str] = None
+    """Execution subject kind (agent/workflow/chat/thread/knowledge/memory/etc.)."""
 
-    app_version_id: Optional[str] = None
-    """Optional app version ID."""
+    subject_id: Optional[str] = None
+    """Execution subject ID."""
+
+    subject_version_id: Optional[str] = None
+    """Optional execution subject version ID."""
 
     def __post_init__(self) -> None:
         """Ensure run_id is available."""

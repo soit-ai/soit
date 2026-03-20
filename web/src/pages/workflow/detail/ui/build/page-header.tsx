@@ -33,7 +33,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         </BreadcrumbList>
       </Breadcrumb>
       <div className="flex items-center space-x-2">
-        <Button variant="outline" onClick={() => navigate(`/bot/${id || ''}`)}>{t('workflow.build.header.cancel')}</Button>
+        <Button variant="outline" onClick={() => navigate('/workflow')}>{t('workflow.build.header.cancel')}</Button>
         <Button onClick={handleSave}>
           {t('workflow.build.header.save')} <Save className="ml-2 h-4 w-4" />
         </Button>

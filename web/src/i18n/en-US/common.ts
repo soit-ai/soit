@@ -192,10 +192,10 @@ const translation = {
     plugins: 'Plugins',
     exploreMarketplace: 'Explore Marketplace',
     pluginsTips: 'Integrate third-party plugins or create ChatGPT-compatible AI-Plugins.',
-    datasets: 'Knowledge',
-    datasetsTips: 'COMING SOON: Import your own text data or write data in real-time via Webhook for LLM context enhancement.',
+    knowledge: 'Knowledge',
+    knowledgeTips: 'COMING SOON: Import your own text data or write data in real-time via Webhook for LLM context enhancement.',
     newApp: 'New App',
-    newDataset: 'Create Knowledge',
+    newKnowledge: 'Create Knowledge',
     tools: 'Tools',
   },
   userProfile: {
@@ -274,8 +274,8 @@ const translation = {
     builderTip: 'Can build & edit own apps',
     editor: 'Editor',
     editorTip: 'Can build & edit apps',
-    datasetOperator: 'Knowledge Admin',
-    datasetOperatorTip: 'Only can manage the knowledge base',
+    knowledgeOperator: 'Knowledge Admin',
+    knowledgeOperatorTip: 'Only can manage the knowledge base',
     inviteTeamMember: 'Add team member',
     inviteTeamMemberTip: 'They can access your team data directly after signing in.',
     emailNotSetup: 'Email server is not set up, so invitation emails cannot be sent. Please notify users of the invitation link that will be issued after invitation instead.',
@@ -556,7 +556,7 @@ const translation = {
     completionApp: 'Text Generator',
     chatApp: 'Chat App',
   },
-  datasetMenus: {
+  knowledgeMenus: {
     documents: 'Documents',
     hitTesting: 'Retrieval Testing',
     settings: 'Settings',

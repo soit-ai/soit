@@ -12,7 +12,9 @@ export interface RunResponse {
   user_id?: string | null
   mode: string
   kind?: string | null
-  app_version_id?: string | null
+  subject_kind?: string | null
+  subject_id?: string | null
+  subject_version_id?: string | null
   status: string
   input_summary?: string | null
   output_summary?: string | null
@@ -130,7 +132,8 @@ export interface RunAuditLogResponse {
 export const listRuns = (params?: {
   mode?: string
   kind?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   trace_id?: string
@@ -146,7 +149,8 @@ export const listRuns = (params?: {
 export const getRunCostSummary = (params?: {
   mode?: string
   kind?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   started_after?: string
@@ -157,7 +161,8 @@ export const getRunCostSummary = (params?: {
 
 export const getRunCostByMode = (params?: {
   mode?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   started_after?: string
@@ -170,7 +175,8 @@ export const getRunCostByMode = (params?: {
 export const getRunCostByDay = (params?: {
   mode?: string
   kind?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   started_after?: string
@@ -182,7 +188,8 @@ export const getRunCostByDay = (params?: {
 export const getRunCostByProvider = (params?: {
   mode?: string
   kind?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   started_after?: string
@@ -194,7 +201,8 @@ export const getRunCostByProvider = (params?: {
 export const getRunCostByModel = (params?: {
   mode?: string
   kind?: string
-  app_version_id?: string
+  subject_id?: string
+  subject_version_id?: string
   workflow_id?: string
   status?: string
   started_after?: string

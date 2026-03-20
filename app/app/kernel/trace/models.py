@@ -18,7 +18,7 @@ class Run(SQLModel, table=True):
     
     __tablename__ = "runs"
     __table_args__ = (
-        Index("ix_runs_scope_app_started", "tenant_id", "workspace_id", "app_id", "started_at"),
+        Index("ix_runs_scope_subject_started", "tenant_id", "workspace_id", "subject_kind", "subject_id", "started_at"),
     )
     
     id: str = Field(primary_key=True)
@@ -37,19 +37,19 @@ class Run(SQLModel, table=True):
     """Trace ID for request correlation."""
     
     mode: str = Field()
-    """Execution mode (domain-specific): chat, bot, workflow, agent, dataset_*."""
+    """Execution mode (domain-specific): chat, workflow, agent, knowledge, memory, etc."""
 
     kind: Optional[str] = Field(default=None, index=True)
     """Stable execution kind: chat, workflow, agent, tool, batch."""
 
-    app_id: str = Field(foreign_key="apps.id", index=True)
-    """App ID (foreign key)."""
+    subject_kind: Optional[str] = Field(default=None, index=True)
+    """Primary execution subject kind (agent/workflow/chat/thread/knowledge/memory/etc.)."""
 
-    app_version_id: str = Field(foreign_key="app_versions.id", index=True)
-    """App version ID (foreign key)."""
+    subject_id: Optional[str] = Field(default=None, index=True)
+    """Primary execution subject ID."""
 
-    app_type: Optional[str] = Field(default=None, index=True)
-    """App type (workflow/chat/bot/agent)."""
+    subject_version_id: Optional[str] = Field(default=None, index=True)
+    """Primary execution subject version ID."""
     
     status: str = Field()
     """Status: queued, running, paused, succeeded, failed, canceled."""

@@ -22,11 +22,10 @@ def upgrade() -> None:
     from app.modules.identity.domain import models as _identity_models  # noqa: F401
     from app.modules.security.domain import models as _security_models  # noqa: F401
     from app.modules.secrets.domain import models as _secrets_models  # noqa: F401
-    from app.modules.dataset.domain import models as _dataset_models  # noqa: F401
+    from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
     from app.modules.chat.domain import models as _chat_models  # noqa: F401
     from app.modules.memory.domain import models as _memory_models  # noqa: F401
     from app.modules.pluginmarket.domain import models as _pluginmarket_models  # noqa: F401
-    from app.modules.appcenter.domain import models as _appcenter_models  # noqa: F401
     from app.modules.notification.domain import models as _notification_models  # noqa: F401
     from app.modules.modelhub.domain import models as _modelhub_models  # noqa: F401
 

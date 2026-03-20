@@ -16,9 +16,10 @@ import {
   listWorkflowVersions,
   publishWorkflowVersion,
   type WorkflowVersion,
-} from '@/services/workflow'
+} from '@/services/workflow-service'
 import { listRuns, type RunResponse } from '@/services/run-service'
 import { useNavigate } from '@/hooks/use-navigate'
+import type { TranslationKey } from '@/i18n/types'
 
 type ChecklistItem = {
   key: string
@@ -102,7 +103,7 @@ function Page() {
     try {
       const data = await listRuns({
         mode: 'workflow',
-        app_version_id: workflowId,
+        workflow_id: workflowId,
         page_size: 5,
       })
       setRuns(data.items || [])
@@ -334,7 +335,7 @@ function Page() {
                     checked={checklistState[item.key] || false}
                     onCheckedChange={(checked) => handleChecklistToggle(item.key, checked)}
                   />
-                  <span className="leading-5">{t(item.labelKey)}</span>
+                  <span className="leading-5">{t(item.labelKey as TranslationKey)}</span>
                 </label>
               ))}
             </div>
@@ -346,7 +347,7 @@ function Page() {
                     checked={checklistState[item.key] || false}
                     onCheckedChange={(checked) => handleChecklistToggle(item.key, checked)}
                   />
-                  <span className="leading-5">{t(item.labelKey)}</span>
+                  <span className="leading-5">{t(item.labelKey as TranslationKey)}</span>
                 </label>
               ))}
             </div>

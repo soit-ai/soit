@@ -7,7 +7,7 @@ type TranslationKeys = {
   layout: typeof import('./en-US/layout').default
   login: typeof import('./en-US/login').default
   chat: typeof import('./en-US/chat').default
-  dataset: typeof import('./en-US/dataset').default
+  knowledge: typeof import('./en-US/knowledge').default
   run: typeof import('./en-US/run').default
   plugin: typeof import('./en-US/plugin').default
   tools: typeof import('./en-US/tools').default

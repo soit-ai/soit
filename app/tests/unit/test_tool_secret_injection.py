@@ -45,9 +45,9 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     run = trace_writer.create_run(
         mode="workflow",
         kind="workflow",
-        app_id="app_workflow",
-        app_version_id="ver_workflow",
-        app_type="workflow",
+        subject_kind="workflow",
+        subject_id="wf_secret",
+        subject_version_id="ver_workflow",
     )
 
     gateway = ToolPolicyGateway(
@@ -86,3 +86,5 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     audit_json = (step.metrics_json or {}).get("audit_json", "")
     assert "supersecret" not in audit_json
     assert "secret:test_token" in audit_json
+
+

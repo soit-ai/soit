@@ -20,7 +20,7 @@ def _sample_spec() -> dict:
                 {
                     "id": "tool1",
                     "type": "tool",
-                    "params": {"tool_ref": "tool:http:demo", "dataset_ref": "dataset:ds_1"},
+                    "params": {"tool_ref": "tool:http:demo", "knowledge_ref": "knowledge:kb_1"},
                 },
                 {
                     "id": "llm1",
@@ -52,5 +52,5 @@ def test_build_components_edges_refs():
 
     ref_types = {(r["ref_type"], r.get("ref_key") or r.get("ref_id")) for r in refs}
     assert ("tool", "tool:http:demo") in ref_types
-    assert ("dataset", "dataset:ds_1") in ref_types
+    assert ("knowledge", "knowledge:kb_1") in ref_types
     assert ("model", "model:openai:gpt-4") in ref_types

@@ -21,28 +21,52 @@ def custom_openapi() -> Dict[str, Any]:
 # OpenAPI tags for API grouping
 tags_metadata = [
     {
+        "name": "identity",
+        "description": "Identity, tenant, workspace, and access management endpoints.",
+    },
+    {
         "name": "workflows",
         "description": "Workflow management and execution endpoints.",
     },
     {
-        "name": "datasets",
-        "description": "Dataset and knowledge base management endpoints.",
-    },
-    {
-        "name": "chat",
-        "description": "Chat completion and conversation endpoints.",
+        "name": "knowledge",
+        "description": "Knowledge base lifecycle and retrieval observability endpoints.",
     },
     {
         "name": "runs",
         "description": "Run history and cost summary endpoints.",
     },
     {
-        "name": "bots",
-        "description": "Bot definition and execution endpoints.",
+        "name": "tasks",
+        "description": "Background task control and runtime task inspection endpoints.",
+    },
+    {
+        "name": "threads",
+        "description": "Thread lifecycle and message history endpoints.",
     },
     {
         "name": "memory",
         "description": "Memory storage and retrieval endpoints.",
+    },
+    {
+        "name": "modelhub",
+        "description": "Model registry and provider synchronization endpoints.",
+    },
+    {
+        "name": "plugins",
+        "description": "Plugin marketplace, installation, and registry endpoints.",
+    },
+    {
+        "name": "skills",
+        "description": "Skill definition, versioning, and publish endpoints.",
+    },
+    {
+        "name": "mcp",
+        "description": "MCP server registration and capability catalog endpoints.",
+    },
+    {
+        "name": "observability",
+        "description": "Approval, feedback, replay, and governance inspection endpoints.",
     },
     {
         "name": "security",
@@ -55,10 +79,6 @@ tags_metadata = [
     {
         "name": "agents",
         "description": "Agent runtime endpoints.",
-    },
-    {
-        "name": "appcenter",
-        "description": "App center management and marketplace endpoints.",
     },
     {
         "name": "notifications",

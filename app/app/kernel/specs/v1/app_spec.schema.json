@@ -21,7 +21,6 @@
       "type": "string",
       "enum": [
         "chat",
-        "bot",
         "workflow",
         "agent",
         "app"
@@ -62,15 +61,15 @@
         "model_ref": {
           "$ref": "refs.schema.json#/$defs/ModelRef"
         },
-        "datasets": {
+        "knowledges": {
           "type": [
             "array",
             "null"
           ],
           "items": {
-            "$ref": "refs.schema.json#/$defs/DatasetRef"
+            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
           },
-          "description": "Dataset references"
+          "description": "Knowledge references"
         },
         "tools": {
           "type": [
@@ -190,13 +189,13 @@
             "$ref": "refs.schema.json#/$defs/ToolRef"
           }
         },
-        "datasets": {
+        "knowledges": {
           "type": [
             "array",
             "null"
           ],
           "items": {
-            "$ref": "refs.schema.json#/$defs/DatasetRef"
+            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
           }
         },
         "models": {
@@ -218,8 +217,8 @@
       "name": "Customer Support",
       "bindings": {
         "model_ref": "model:openai:gpt-5.1",
-        "datasets": [
-          "ds:kb_support"
+        "knowledges": [
+          "knowledge:kb_support"
         ],
         "tools": [
           "tool:http:ticket_create"

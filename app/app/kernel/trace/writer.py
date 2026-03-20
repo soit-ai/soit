@@ -98,26 +98,29 @@ class TraceWriter:
     def create_run(
         self,
         mode: str,
-        app_id: str,
-        app_version_id: str,
         *,
         kind: Optional[str] = None,
-        app_type: Optional[str] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
+        subject_version_id: Optional[str] = None,
         input_summary: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> Run:
         """Create a new run.
         
         Args:
-            mode: Execution mode (chat/bot/workflow/agent).
-            app_id: App ID.
-            app_version_id: App version ID.
-            app_type: Optional app type (workflow/chat/bot/agent).
+            mode: Execution mode (chat/workflow/agent/knowledge/memory/etc.).
+            subject_kind: Optional primary execution subject kind.
+            subject_id: Optional primary execution subject ID.
+            subject_version_id: Optional primary execution subject version ID.
             input_summary: Optional input summary (max 8KB).
             
         Returns:
             Created Run instance.
         """
+        resolved_subject_kind = subject_kind or mode
+        resolved_subject_id = subject_id
+
         run = Run(
             id=run_id or generate_run_id(),
             tenant_id=self.ctx.tenant_id,
@@ -126,9 +129,9 @@ class TraceWriter:
             trace_id=getattr(self.ctx, "trace_id", None),
             mode=mode,
             kind=kind or mode,
-            app_id=app_id,
-            app_version_id=app_version_id,
-            app_type=app_type or mode,
+            subject_kind=resolved_subject_kind,
+            subject_id=resolved_subject_id,
+            subject_version_id=subject_version_id,
             status="queued",
             input_summary=input_summary[:8192] if input_summary else None,
             started_at=utc_now(),
@@ -148,9 +151,9 @@ class TraceWriter:
                 "status": run.status,
                 "mode": run.mode,
                 "kind": run.kind,
-                "app_id": run.app_id,
-                "app_version_id": run.app_version_id,
-                "app_type": run.app_type,
+                "subject_kind": run.subject_kind,
+                "subject_id": run.subject_id,
+                "subject_version_id": run.subject_version_id,
             },
             run_id=run.id,
         )
@@ -231,10 +234,10 @@ class TraceWriter:
                 "status": run.status,
                 "mode": run.mode,
                 "kind": run.kind,
-                "app_id": run.app_id,
                 "output_summary": run.output_summary,
-                "app_version_id": run.app_version_id,
-                "app_type": run.app_type,
+                "subject_kind": run.subject_kind,
+                "subject_id": run.subject_id,
+                "subject_version_id": run.subject_version_id,
                 "error_code": run.error_code,
                 "error_message": run.error_message,
                 "error_step_id": run.error_step_id,
@@ -248,10 +251,10 @@ class TraceWriter:
                 "status": run.status,
                 "mode": run.mode,
                 "kind": run.kind,
-                "app_id": run.app_id,
                 "output_summary": run.output_summary,
-                "app_version_id": run.app_version_id,
-                "app_type": run.app_type,
+                "subject_kind": run.subject_kind,
+                "subject_id": run.subject_id,
+                "subject_version_id": run.subject_version_id,
                 "error_code": run.error_code,
                 "error_message": run.error_message,
                 "error_step_id": run.error_step_id,

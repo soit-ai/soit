@@ -1,0 +1,2 @@
+"""MCP integration domain placeholder."""
+

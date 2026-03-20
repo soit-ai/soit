@@ -85,7 +85,7 @@ def require_permission(resource_type: str, action: str):
     """Dependency to require a specific permission.
     
     Args:
-        resource_type: Resource type (e.g., "workflow", "dataset").
+        resource_type: Resource type (e.g., "workflow", "knowledge").
         action: Action (e.g., "create", "read", "update", "delete").
         
     Returns:
@@ -103,4 +103,3 @@ def require_permission(resource_type: str, action: str):
         return ctx
     
     return permission_checker
-

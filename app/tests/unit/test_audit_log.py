@@ -12,9 +12,9 @@ async def test_log_gateway_request_inline(db, ctx):
     trace_writer = TraceWriter(db, ctx)
     run = trace_writer.create_run(
         mode="tool",
-        app_id="app_tool",
-        app_version_id="app_v1",
-        app_type="tool",
+        subject_kind="tool",
+        subject_id="tool_inline",
+        subject_version_id="app_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_a")
 
@@ -37,9 +37,9 @@ async def test_log_gateway_request_truncates_without_storage(db, ctx):
     trace_writer = TraceWriter(db, ctx)
     run = trace_writer.create_run(
         mode="tool",
-        app_id="app_tool",
-        app_version_id="app_v1",
-        app_type="tool",
+        subject_kind="tool",
+        subject_id="tool_truncate",
+        subject_version_id="app_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_b")
 
@@ -65,9 +65,9 @@ async def test_log_gateway_request_redacts_sensitive_fields(db, ctx):
     trace_writer = TraceWriter(db, ctx)
     run = trace_writer.create_run(
         mode="tool",
-        app_id="app_tool",
-        app_version_id="app_v1",
-        app_type="tool",
+        subject_kind="tool",
+        subject_id="tool_redact",
+        subject_version_id="app_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_redact")
 
@@ -88,3 +88,5 @@ async def test_log_gateway_request_redacts_sensitive_fields(db, ctx):
     audit_json = (refreshed.metrics_json or {}).get("audit_json", "")
     assert "supersecret" not in audit_json
     assert "***REDACTED***" in audit_json
+
+

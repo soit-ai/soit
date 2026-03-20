@@ -8,8 +8,10 @@ import asyncio
 import json
 from sqlalchemy.orm import Session
 
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
+from app.kernel.responses.service import ResponseService
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.execution.state_machine import StateMachine, RunStatus
 from app.kernel.commons.ids import generate_run_id
@@ -23,6 +25,7 @@ class ExecutionEngine:
         db: Session,
         ctx: RequestContext,
         trace_writer: TraceWriter,
+        response_service: ResponseService | None = None,
     ):
         """Initialize execution engine.
         
@@ -34,7 +37,74 @@ class ExecutionEngine:
         self.db = db
         self.ctx = ctx
         self.trace_writer = trace_writer
+        self.response_service = response_service
         self.state_machine = StateMachine()
+
+    @staticmethod
+    def _resolve_provider(model: str | None) -> str | None:
+        if not model or not model.startswith("model:"):
+            return None
+        parts = model.split(":")
+        if len(parts) >= 3:
+            return parts[1]
+        return None
+
+    def _response_output_payload(
+        self,
+        *,
+        text: str,
+        model: str | None,
+        finish_reason: str | None = None,
+        iterations: int | None = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "text": text,
+            "model": model,
+        }
+        if finish_reason:
+            payload["finish_reason"] = finish_reason
+        if iterations is not None:
+            payload["iterations"] = iterations
+        return payload
+
+    @staticmethod
+    def _response_usage_payload(
+        *,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        tool_calls: int = 0,
+    ) -> Dict[str, Any]:
+        return {
+            "prompt_tokens": int(prompt_tokens or 0),
+            "completion_tokens": int(completion_tokens or 0),
+            "total_tokens": int(prompt_tokens or 0) + int(completion_tokens or 0),
+            "tool_calls": int(tool_calls or 0),
+        }
+
+    @staticmethod
+    def _tool_metrics(
+        *,
+        tool_ref: str,
+        parameters: Dict[str, Any],
+        status: str,
+        result: Dict[str, Any] | None = None,
+        metadata: Dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> Dict[str, Any]:
+        return {
+            "tool_call": {
+                "tool_name": tool_ref,
+                "tool_ref": tool_ref,
+                "tool_type": "builtin",
+                "status": status,
+                "arguments": parameters,
+                "result": result or {},
+                "metadata": metadata or {},
+                "error_code": error_code,
+                "error_message": error_message,
+            }
+        }
     
     async def execute(self, plan: ExecutionPlan) -> Dict[str, Any]:
         """Execute an execution plan.
@@ -47,8 +117,8 @@ class ExecutionEngine:
         """
         if not plan.run_id:
             plan.run_id = generate_run_id()
-        if not plan.app_id or not plan.app_version_id:
-            raise ValueError("ExecutionPlan requires app_id and app_version_id")
+        if not (plan.subject_kind and plan.subject_id):
+            raise ValueError("ExecutionPlan requires subject_kind and subject_id")
 
         # Create run (metrics are recorded in trace_writer)
         input_summary = None
@@ -57,9 +127,9 @@ class ExecutionEngine:
 
         run = self.trace_writer.create_run(
             mode=plan.mode,
-            app_id=plan.app_id,
-            app_version_id=plan.app_version_id,
-            app_type=plan.mode,
+            subject_kind=plan.subject_kind,
+            subject_id=plan.subject_id,
+            subject_version_id=plan.subject_version_id,
             input_summary=input_summary,
             run_id=plan.run_id,
         )
@@ -70,7 +140,7 @@ class ExecutionEngine:
         
         try:
             # Execute based on mode
-            if plan.mode in ("chat", "bot"):
+            if plan.mode == "chat":
                 result = await self._execute_chat(plan)
             elif plan.mode == "workflow":
                 result = await self._execute_workflow(plan)
@@ -140,9 +210,36 @@ class ExecutionEngine:
         
         if not all_messages:
             raise ValueError("No messages provided for chat execution")
-        
+        step = self.trace_writer.create_step(
+            run_id=plan.run_id,
+            step_type="llm",
+            input_summary=str(messages_data)[:8192] if messages_data else None,
+        )
+        self.state_machine.transition_step(step, "running")
+        self.trace_writer.update_step_status(step.id, step.status)
+
+        linked_response = None
+        if self.response_service:
+            linked_response = self.response_service.create_linked_response(
+                run_id=plan.run_id,
+                model=model,
+                provider=self._resolve_provider(model),
+                input_json={
+                    "messages": messages_data,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "top_p": top_p,
+                    "source": "execution_engine.chat",
+                },
+                metadata_json={
+                    "source": "execution_engine.chat",
+                    "step_id": step.id,
+                },
+            )
+            linked_response.status = "in_progress"
+            linked_response = self.response_service.save_response(linked_response)
+
         try:
-            # Call LLM port
             response = await llm_port.chat(
                 messages=all_messages,
                 model=model,
@@ -151,18 +248,88 @@ class ExecutionEngine:
                 top_p=top_p,
                 run_id=plan.run_id,
             )
-            
-            # Extract response text
             response_text = response.text
-            
+
+            self.state_machine.transition_step(step, "succeeded")
+            self.trace_writer.update_step_status(
+                step.id,
+                step.status,
+                output_summary=response_text[:8192] if response_text else None,
+                metrics={
+                    "tokens_prompt": response.tokens_prompt,
+                    "tokens_completion": response.tokens_completion,
+                },
+            )
+
+            if linked_response:
+                linked_response.output_json = self._response_output_payload(
+                    text=response_text,
+                    model=response.model or model,
+                    finish_reason=response.finish_reason,
+                )
+                linked_response.usage_json = self._response_usage_payload(
+                    prompt_tokens=response.tokens_prompt,
+                    completion_tokens=response.tokens_completion,
+                )
+                linked_response.status = "completed"
+                linked_response.completed_at = utc_now()
+                linked_response = self.response_service.save_response(linked_response)
+                self.response_service.append_event(
+                    response=linked_response,
+                    event_type="response.output_text.completed",
+                    payload={
+                        "response_id": linked_response.id,
+                        "run_id": linked_response.run_id,
+                        "output": linked_response.output_json,
+                        "usage": linked_response.usage_json,
+                    },
+                    source="execution_engine",
+                )
+                self.response_service.append_event(
+                    response=linked_response,
+                    event_type="response.completed",
+                    payload={
+                        "response_id": linked_response.id,
+                        "run_id": linked_response.run_id,
+                        "status": linked_response.status,
+                        "usage": linked_response.usage_json,
+                    },
+                    source="execution_engine",
+                )
+
             return {
                 "text": response_text,
                 "model": response.model or model,
                 "tokens_prompt": response.tokens_prompt,
                 "tokens_completion": response.tokens_completion,
                 "finish_reason": response.finish_reason,
+                "response_id": linked_response.id if linked_response else None,
             }
         except Exception as e:
+            self.state_machine.transition_step(step, "failed")
+            self.trace_writer.update_step_status(
+                step.id,
+                step.status,
+                output_summary=str(e)[:8192],
+                error_code="CHAT_EXECUTION_ERROR",
+                error_message=str(e),
+            )
+            if linked_response:
+                linked_response.status = "failed"
+                linked_response.error_code = "chat_execution_failed"
+                linked_response.error_message = str(e)
+                linked_response = self.response_service.save_response(linked_response)
+                self.response_service.append_event(
+                    response=linked_response,
+                    event_type="response.failed",
+                    payload={
+                        "response_id": linked_response.id,
+                        "run_id": linked_response.run_id,
+                        "status": linked_response.status,
+                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
+                    },
+                    source="execution_engine",
+                )
             raise
     
     async def _execute_workflow(self, plan: ExecutionPlan) -> Dict[str, Any]:
@@ -210,6 +377,7 @@ class ExecutionEngine:
             tool_port=tool_port,
             vector_port=vector_port,
             plugin_runtime_port=plugin_runtime_port,
+            response_service=self.response_service,
             workflow_policy=plan.plan_data.get("policy", {}),
         )
         
@@ -248,6 +416,23 @@ class ExecutionEngine:
         temperature = plan.inputs.get("temperature", 0.7)
         max_iterations = plan.inputs.get("max_iterations", 10)
         tools = plan.inputs.get("tools", [])
+        linked_response = None
+        if self.response_service:
+            linked_response = self.response_service.create_linked_response(
+                run_id=plan.run_id,
+                model=model,
+                provider=self._resolve_provider(model),
+                input_json={
+                    "messages": messages_data,
+                    "temperature": temperature,
+                    "max_iterations": max_iterations,
+                    "tools": tools,
+                    "source": "execution_engine.agent",
+                },
+                metadata_json={"source": "execution_engine.agent"},
+            )
+            linked_response.status = "in_progress"
+            linked_response = self.response_service.save_response(linked_response)
         
         # Convert messages to ChatMessage format
         messages = [
@@ -267,6 +452,10 @@ class ExecutionEngine:
         # Agent planning loop
         iteration = 0
         final_response = None
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        tool_call_count = 0
+        finish_reason = None
         
         while iteration < max_iterations:
             iteration += 1
@@ -292,6 +481,9 @@ class ExecutionEngine:
                 )
                 
                 response_text = response.text
+                total_prompt_tokens += int(response.tokens_prompt or 0)
+                total_completion_tokens += int(response.tokens_completion or 0)
+                finish_reason = response.finish_reason or finish_reason
                 
                 # Check if response contains tool call
                 tool_call = None
@@ -320,6 +512,7 @@ class ExecutionEngine:
                     parameters = tool_call.get("parameters", {})
                     
                     if tool_ref and tool_ref in [t.get("ref") or t.get("name") for t in tools]:
+                        tool_call_count += 1
                         # Create step for tool execution
                         tool_step = self.trace_writer.create_step(
                             run_id=plan.run_id,
@@ -329,6 +522,45 @@ class ExecutionEngine:
                         
                         self.state_machine.transition_step(tool_step, "running")
                         self.trace_writer.update_step_status(tool_step.id, tool_step.status)
+                        if linked_response:
+                            self.response_service.append_event(
+                                response=linked_response,
+                                event_type="tool.call.requested",
+                                payload={
+                                    "response_id": linked_response.id,
+                                    "run_id": linked_response.run_id,
+                                    "tool_call_id": tool_step.id,
+                                    "tool_name": tool_ref,
+                                    "tool_type": "builtin",
+                                    "step_id": tool_step.id,
+                                    "status": "requested",
+                                    "arguments": parameters,
+                                },
+                                source="execution_engine",
+                            )
+                            self.response_service.append_event(
+                                response=linked_response,
+                                event_type="tool.call.started",
+                                payload={
+                                    "response_id": linked_response.id,
+                                    "run_id": linked_response.run_id,
+                                    "tool_call_id": tool_step.id,
+                                    "tool_name": tool_ref,
+                                    "tool_type": "builtin",
+                                    "step_id": tool_step.id,
+                                    "status": "started",
+                                },
+                                source="execution_engine",
+                            )
+                        self.trace_writer.update_step_metrics(
+                            tool_step.id,
+                            self._tool_metrics(
+                                tool_ref=tool_ref,
+                                parameters=parameters,
+                                status="started",
+                                metadata={"source": "execution_engine.agent", "iteration": iteration},
+                            ),
+                        )
                         
                         try:
                             # Invoke tool
@@ -352,7 +584,37 @@ class ExecutionEngine:
                                 tool_step.id,
                                 "succeeded",
                                 output_summary=str(tool_response.result)[:8192] if tool_response.success else tool_response.error,
+                                metrics=self._tool_metrics(
+                                    tool_ref=tool_ref,
+                                    parameters=parameters,
+                                    status="completed" if tool_response.success else "failed",
+                                    result={"result": tool_response.result} if tool_response.success else {},
+                                    metadata={"source": "execution_engine.agent", "iteration": iteration, **(tool_response.metadata or {})},
+                                    error_code=None if tool_response.success else "tool_execution_failed",
+                                    error_message=None if tool_response.success else tool_response.error,
+                                ),
                             )
+                            if linked_response:
+                                self.response_service.append_event(
+                                    response=linked_response,
+                                    event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
+                                    payload={
+                                        "response_id": linked_response.id,
+                                        "run_id": linked_response.run_id,
+                                        "tool_call_id": tool_step.id,
+                                        "tool_name": tool_ref,
+                                        "tool_type": "builtin",
+                                        "step_id": tool_step.id,
+                                        "status": "completed" if tool_response.success else "failed",
+                                        "result": {"result": tool_response.result} if tool_response.success else {},
+                                        "metadata": tool_response.metadata or {},
+                                        "error": None if tool_response.success else {
+                                            "code": "tool_execution_failed",
+                                            "message": tool_response.error,
+                                        },
+                                    },
+                                    source="execution_engine",
+                                )
                         except Exception as e:
                             # Tool execution failed
                             error_message = str(e)
@@ -360,9 +622,33 @@ class ExecutionEngine:
                             self.trace_writer.update_step_status(
                                 tool_step.id,
                                 "failed",
+                                metrics=self._tool_metrics(
+                                    tool_ref=tool_ref,
+                                    parameters=parameters,
+                                    status="failed",
+                                    metadata={"source": "execution_engine.agent", "iteration": iteration},
+                                    error_code="tool_execution_failed",
+                                    error_message=error_message,
+                                ),
                                 error_code="TOOL_ERROR",
                                 error_message=error_message[:1024],
                             )
+                            if linked_response:
+                                self.response_service.append_event(
+                                    response=linked_response,
+                                    event_type="tool.call.failed",
+                                    payload={
+                                        "response_id": linked_response.id,
+                                        "run_id": linked_response.run_id,
+                                        "tool_call_id": tool_step.id,
+                                        "tool_name": tool_ref,
+                                        "tool_type": "builtin",
+                                        "step_id": tool_step.id,
+                                        "status": "failed",
+                                        "error": {"code": "tool_execution_failed", "message": error_message},
+                                    },
+                                    source="execution_engine",
+                                )
                             # Add error to messages
                             messages.append(ChatMessage(
                                 role="user",
@@ -399,9 +685,49 @@ class ExecutionEngine:
         
         if not final_response:
             final_response = "Agent reached maximum iterations without completing task."
+
+        if linked_response:
+            linked_response.output_json = self._response_output_payload(
+                text=final_response,
+                model=model,
+                finish_reason=finish_reason,
+                iterations=iteration,
+            )
+            linked_response.usage_json = self._response_usage_payload(
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
+                tool_calls=tool_call_count,
+            )
+            linked_response.status = "completed"
+            linked_response.completed_at = utc_now()
+            linked_response = self.response_service.save_response(linked_response)
+            self.response_service.append_event(
+                response=linked_response,
+                event_type="response.output_text.completed",
+                payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "output": linked_response.output_json,
+                    "usage": linked_response.usage_json,
+                },
+                source="execution_engine",
+            )
+            self.response_service.append_event(
+                response=linked_response,
+                event_type="response.completed",
+                payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "status": linked_response.status,
+                    "usage": linked_response.usage_json,
+                    "tool_calls": tool_call_count,
+                },
+                source="execution_engine",
+            )
         
         return {
             "output": final_response,
             "iterations": iteration,
             "model": model,
+            "response_id": linked_response.id if linked_response else None,
         }

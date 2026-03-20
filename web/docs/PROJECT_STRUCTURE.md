@@ -39,3 +39,16 @@ src/
 ├── entry.client.tsx          # Client entry
 └── app.css                   # Global styles
 ```
+
+## Current Route Focus
+
+- `src/pages/agents`: Agent-centered workspace landing page
+- `src/pages/chat`: Threaded chat execution surface
+- `src/pages/workflow`: Workflow design surface
+- `src/pages/knowledge`: Knowledge list, detail, documents, and analytics pages
+- `src/pages/tasks`: Task execution list and task detail control surface
+- `src/pages/observability`: Approval, feedback, and runtime inspection entry point
+- `src/pages/plugin`: plugin management surface mounted through `/plugins`
+- `src/pages/model`: model management surface mounted through `/models`
+- `src/pages/setting`: settings surface mounted through `/settings`
+- `src/pages/run`: Run list/detail pages mounted only through the observability route namespace

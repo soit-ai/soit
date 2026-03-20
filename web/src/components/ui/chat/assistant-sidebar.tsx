@@ -10,7 +10,7 @@ export const AssistantSidebar: FC<PropsWithChildren> = ({ children }) => {
         {/* <ResizablePanel>{children}</ResizablePanel> */}
         <ResizableHandle />
         <ResizablePanel>
-          <ChatBox appId="default" conversationId="" initInputPosition="center" />
+          <ChatBox agentId="default" initInputPosition="center" />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

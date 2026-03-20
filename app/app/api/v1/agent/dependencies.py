@@ -11,11 +11,11 @@ from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
 from app.middleware.auth import get_current_context
 from app.modules.agent.application.service import AgentService
-from app.modules.agent.application.app_facade import AgentAppFacadeService
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.memory.application.service import MemoryService
 from app.wiring import get_container
 from app.kernel.trace.writer import TraceWriter
-from app.wiring.services import build_memory_service, build_agent_app_service
+from app.wiring.services import build_memory_service, build_agent_service
 
 
 def get_agent_service(
@@ -38,9 +38,9 @@ def get_agent_service(
     )
 
 
-def get_agent_app_service(
+def get_agent_application_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
     db: Annotated[Session, Depends(get_db)],
-) -> AgentAppFacadeService:
-    """Get agent app facade service instance."""
-    return build_agent_app_service(db=db, ctx=ctx)
+) -> AgentApplicationService:
+    """Get agent application service instance."""
+    return build_agent_service(db=db, ctx=ctx)

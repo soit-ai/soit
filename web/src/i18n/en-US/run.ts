@@ -22,8 +22,8 @@ const translation = {
         placeholder: 'Enter mode',
       },
       app: {
-        label: 'App Version ID',
-        placeholder: 'Enter app version id',
+        label: 'Subject Version ID',
+        placeholder: 'Enter subject version id',
       },
       workflow: {
         label: 'Workflow ID',
@@ -45,7 +45,7 @@ const translation = {
     table: {
       id: 'Run ID',
       mode: 'Mode',
-      app: 'App/Workflow',
+      app: 'Subject Version',
       user: 'User',
       status: 'Status',
       startedAt: 'Started At',
@@ -95,7 +95,7 @@ const translation = {
     fields: {
       id: 'Run ID',
       mode: 'Mode',
-      app: 'App/Workflow ID',
+      app: 'Subject Version ID',
       trace: 'Trace ID',
       user: 'User ID',
       status: 'Status',
@@ -135,6 +135,21 @@ const translation = {
       storageKey: 'Storage key: {{key}}',
       mime: 'MIME: {{mime}}',
       size: 'Size: {{size}} bytes',
+    },
+    responses: {
+      title: 'Response Timeline',
+      description: 'Semantic response events projected for this run',
+      empty: 'No response projections',
+      meta: 'Status: {{status}} · Model: {{model}} · Provider: {{provider}}',
+      createdAt: 'Created: {{createdAt}}',
+      completedAt: 'Completed: {{completedAt}}',
+      output: 'Output: {{output}}',
+      eventsTitle: 'Semantic events',
+      eventsEmpty: 'No semantic events',
+      toolsTitle: 'Tool projections',
+      toolsEmpty: 'No tool projections',
+      toolArgs: 'Args: {{args}}',
+      toolResult: 'Result: {{result}}',
     },
   },
 }

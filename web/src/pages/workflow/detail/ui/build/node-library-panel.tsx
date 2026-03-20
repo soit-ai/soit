@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageSquare, Cpu, Wrench, Database, BotMessageSquare, Workflow } from 'lucide-react'
 import { nodeCategories, nodeTypeInfo } from './nodes'
 import { useTranslation } from '@/i18n'
+import type { TranslationKey } from '@/i18n/types'
 
 interface NodeLibraryPanelProps {
   onDragStart: (event: React.DragEvent<HTMLDivElement>, nodeType: string, nodeLabel: string) => void
@@ -60,7 +61,7 @@ const NodeLibraryPanel: React.FC<NodeLibraryPanelProps> = ({
                 const firstNodeType = category.types[0];
                 const firstNodeInfo = nodeTypeInfo[firstNodeType as keyof typeof nodeTypeInfo];
                 const icon = getIconComponent(firstNodeInfo.icon);
-                const categoryLabel = t(`workflow.nodeLibrary.categories.${category.id}`)
+                const categoryLabel = t(`workflow.nodeLibrary.categories.${category.id}` as TranslationKey)
                 
                 return (
                   <div key={category.id} className="space-y-2">

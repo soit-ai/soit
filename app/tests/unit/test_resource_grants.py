@@ -28,8 +28,8 @@ async def test_resource_grant_allows_action(monkeypatch, db):
     repo = ResourceGrantRepository(db, ctx)
     repo.create(
         ResourceGrant(
-            resource_type="dataset",
-            resource_id="ds-1",
+            resource_type="knowledge",
+            resource_id="kb-1",
             user_id=ctx.user_id,
             actions=["WRITE"],
         )
@@ -43,5 +43,5 @@ async def test_resource_grant_allows_action(monkeypatch, db):
         )
     )
 
-    await check_resource_permission(ctx, "dataset", "ds-1", "update")
+    await check_resource_permission(ctx, "knowledge", "kb-1", "update")
     await check_resource_permission(ctx, "workflow", "wf-1", "run")

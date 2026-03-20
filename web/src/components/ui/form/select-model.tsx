@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 
 import { useTranslation } from '@/i18n'
+import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -350,7 +351,7 @@ function ModelInfoCard({ model }: { model: ModelProps }) {
       toolCalling: 'toolCalling',
     }
     const key = capabilityKeys[capability]
-    return key ? t(`common.model.selector.capability.${key}`) : capability
+    return key ? t(`common.model.selector.capability.${key}` as TranslationKey) : capability
   }
 
   const getTagLabel = (tag: string) => {
@@ -359,7 +360,7 @@ function ModelInfoCard({ model }: { model: ModelProps }) {
       premium: 'premium',
     }
     const key = tagKeys[tag]
-    return key ? t(`common.model.selector.tag.${key}`) : tag
+    return key ? t(`common.model.selector.tag.${key}` as TranslationKey) : tag
   }
 
   return (

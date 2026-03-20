@@ -104,22 +104,30 @@
       ],
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["dataset_ids"] },
-        { "required": ["datasets"] }
+        { "required": ["knowledge_ids"] },
+        { "required": ["knowledges"] },
+        { "required": ["knowledge_refs"] }
       ],
       "properties": {
-        "dataset_ids": {
+        "knowledge_ids": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "string"
           }
         },
-        "datasets": {
+        "knowledges": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "string"
+            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
+          }
+        },
+        "knowledge_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
           }
         },
         "query": {

@@ -45,7 +45,7 @@ class TestNotificationAPI:
             "/api/v1/notifications",
             json={
                 "title": "Alert",
-                "content": "Dataset warning",
+                "content": "Knowledge warning",
                 "type": "alert",
                 "severity": "warning",
             },

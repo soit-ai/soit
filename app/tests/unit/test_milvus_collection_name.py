@@ -7,9 +7,9 @@ from app.adapters.vector.milvus import MilvusVectorPort
 
 
 def test_normalize_collection_name_strips_invalid_chars():
-    name = "ds:ds_id_abcd:idx_id_1234"
+    name = "knowledge:kb_id_abcd:idx_id_1234"
     normalized = MilvusVectorPort._normalize_collection_name(name)
-    assert normalized == "ds_ds_id_abcd_idx_id_1234"
+    assert normalized == "knowledge_kb_id_abcd_idx_id_1234"
 
 
 def test_normalize_collection_name_prefixes_digit_start():

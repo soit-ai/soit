@@ -18,6 +18,7 @@ import {
 } from '@/services/notification-service'
 import { AlertTriangle, CheckCircle2, Info, RefreshCw, Bell, Archive, Filter, Search } from 'lucide-react'
 import { useNavigate } from '@/hooks/use-navigate'
+import type { TranslationKey } from '@/i18n/types'
 
 const PAGE_SIZE = 20
 const statusOptions = [
@@ -248,7 +249,7 @@ export default function NotificationsPage() {
                 <SelectContent>
                   {statusOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {t(option.labelKey)}
+                      {t(option.labelKey as TranslationKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -260,7 +261,7 @@ export default function NotificationsPage() {
                 <SelectContent>
                   {severityOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {t(option.labelKey)}
+                      {t(option.labelKey as TranslationKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>

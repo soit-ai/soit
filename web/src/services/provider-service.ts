@@ -1,6 +1,6 @@
 import { get, post, patch, del } from '@/utils/request'
 import type { ModelConfig } from '@/pages/model/setting/ui/types'
-import type { ProviderConfig } from '@/pages/model/setting/ui/provider-types'
+import type { ProviderConfig } from '@/pages/model/setting/ui/types'
 
 interface PaginatedResponse<T> {
   items: T[]
@@ -139,6 +139,8 @@ const mapProviderToConfig = (provider: ProviderResponse): ProviderConfig => {
     baseUrl: provider.base_url || '',
     credentialRef: provider.credential_ref || '',
     status: provider.status as ProviderConfig['status'],
+    lastHealthcheckAt: provider.last_healthcheck_at || undefined,
+    lastHealthcheckError: provider.last_healthcheck_error || undefined,
     syncPolicy,
     source: (meta._source as ProviderConfig['source']) || 'builtin',
     templateId: (meta._template_id as string) || undefined,

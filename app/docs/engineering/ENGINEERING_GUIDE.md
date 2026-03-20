@@ -107,7 +107,7 @@ Kernel MUST NOT:
 ### 2.2 Modules (domains, fast iteration)
 Modules own:
 - domain models (SQLModel), domain schemas (Pydantic), repositories, services/use-cases
-- state machines for domain objects (dataset pipeline, workflow versions, market listings)
+- state machines for domain objects (knowledge ingestion, workflow versions, plugin installations)
 
 Modules MUST:
 - call external systems only via kernel ports
@@ -391,7 +391,7 @@ Rules:
 ### Enable/disable
 
 - `manifest.json` carries `enabled: true|false` (restart-safe).
-- `POST /v1/pluginmarket/{plugin_id}/enabled` updates both DB (`config_json.enabled`) and FS (`manifest.json.enabled`).
+- `POST /api/v1/plugins/{plugin_id}/enabled` updates both DB (`config_json.enabled`) and FS (`manifest.json.enabled`).
 
 ### Runtime registry & tool routing
 
@@ -402,8 +402,8 @@ Rules:
   - Otherwise it falls back to raw HTTP tool invocation.
 
 Runtime introspection endpoints:
-- `POST /v1/pluginmarket/runtime/reload`
-- `GET  /v1/pluginmarket/runtime/tools`
+- `POST /api/v1/plugins/runtime/reload`
+- `GET  /api/v1/plugins/runtime/tools`
 
 
 ## 7. Specs & Refs

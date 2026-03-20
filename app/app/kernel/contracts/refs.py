@@ -1,5 +1,4 @@
 """ refs
 
-Reference models (ModelRef/DatasetRef/ToolRef/SecretRef/etc).
+Reference models (ModelRef/KnowledgeRef/ToolRef/SecretRef/etc).
 """
-

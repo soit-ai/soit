@@ -25,8 +25,9 @@ async def test_export_runs_csv_returns_rows(db, ctx):
         trace_id="trace_csv",
         mode="chat",
         kind="chat",
-        app_id="app_chat",
-        app_version_id="app_v1",
+        subject_kind="thread",
+        subject_id="thr_chat",
+        subject_version_id="app_v1",
         status="succeeded",
         started_at=utc_now(),
     )
@@ -45,7 +46,7 @@ async def test_export_runs_csv_returns_rows(db, ctx):
 
 @pytest.mark.asyncio
 async def test_list_runs_accepts_workflow_id_alias(db, ctx):
-    """workflow_id acts as app_id alias for run filters."""
+    """workflow_id resolves to workflow subject filters."""
     run = Run(
         id=generate_run_id(),
         tenant_id=ctx.tenant_id,
@@ -54,8 +55,9 @@ async def test_list_runs_accepts_workflow_id_alias(db, ctx):
         trace_id="trace_workflow",
         mode="workflow",
         kind="workflow",
-        app_id="app_workflow",
-        app_version_id="app_v1",
+        subject_kind="workflow",
+        subject_id="wf_workflow",
+        subject_version_id="app_v1",
         status="succeeded",
         started_at=utc_now(),
     )
@@ -65,7 +67,7 @@ async def test_list_runs_accepts_workflow_id_alias(db, ctx):
     service = RunService(db, ctx)
     handlers = RunHandlers(service)
 
-    response = await handlers.list_runs(ctx, workflow_id="app_workflow", page_size=10)
+    response = await handlers.list_runs(ctx, workflow_id="wf_workflow", page_size=10)
     assert response.items
     assert response.items[0].id == run.id
 
@@ -76,9 +78,9 @@ async def test_list_audits_returns_entries(db, ctx):
     trace_writer = TraceWriter(db, ctx)
     run = trace_writer.create_run(
         mode="tool",
-        app_id="app_tool",
-        app_version_id="app_v1",
-        app_type="tool",
+        subject_kind="tool",
+        subject_id="tool_runtime",
+        subject_version_id="app_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_audit")
 
@@ -97,3 +99,5 @@ async def test_list_audits_returns_entries(db, ctx):
 
     assert response.items
     assert response.items[0].run_id == run.id
+
+

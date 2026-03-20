@@ -33,7 +33,7 @@ class NotificationAction:
     """Logical module or view target."""
 
     route: Optional[str] = None
-    """Frontend route path (e.g., /datasets/{dataset_id})."""
+    """Frontend route path (e.g., /knowledge/{knowledge_id})."""
 
     params: Optional[Dict[str, Any]] = None
     """Optional query/path params for client routing."""
@@ -42,4 +42,4 @@ class NotificationAction:
     """Optional absolute URL for deep linking."""
 
     resource_ref: Optional[str] = None
-    """Stable resource ref (e.g., wf:xxx, ds:xxx)."""
+    """Stable resource ref (e.g., wf:xxx, knowledge:xxx)."""

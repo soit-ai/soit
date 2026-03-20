@@ -353,7 +353,7 @@ export const RootHeader = () => {
         {/* Settings */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/setting')}>
+            <Button variant="ghost" size="icon" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/settings')}>
               <Settings className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError
 from app.kernel.commons.ids import generate_run_id
+from app.kernel.responses.service import ResponseService
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.llm.interface import LLMPort, ChatMessage
@@ -22,7 +23,6 @@ from app.modules.agent.runtime.executor import AgentExecutor
 from app.modules.agent.runtime.verifier import AgentVerifier
 from app.modules.memory.application.service import MemoryService
 from app.kernel.identity.guard import workspace_guard
-from app.modules.appcenter.application.registry import AppRegistry
 
 
 class AgentService:
@@ -35,6 +35,7 @@ class AgentService:
         llm_port: LLMPort,
         tool_port: ToolPort,
         memory_service: Optional[MemoryService] = None,
+        response_service: Optional[ResponseService] = None,
         trace_writer: Optional[TraceWriter] = None,
         rate_limiter: Optional[RateLimiter] = None,
     ):
@@ -43,69 +44,26 @@ class AgentService:
         self.llm_port = llm_port
         self.tool_port = tool_port
         self.memory_service = memory_service
+        self.response_service = response_service
         self.trace_writer = trace_writer
         self.rate_limiter = rate_limiter or RateLimiter()
         self.planner = AgentPlanner(llm_port)
         self.executor = AgentExecutor(tool_port)
         self.verifier = AgentVerifier(llm_port)
-        self._system_app_cache: Optional[tuple[str, str]] = None
 
-    def _default_agent_spec(self) -> Dict[str, Any]:
-        return {
-            "runtime": "agent_runtime_v1",
-            "system_prompt": None,
-            "planner": None,
-            "model": {
-                "ref_key": "model:openai:gpt-5.1",
-                "params": {"temperature": 0.7},
-            },
-            "tools": {
-                "allowlist": None,
-                "configs": None,
-            },
-            "memory": None,
-            "rag": None,
-            "limits": {
-                "max_iterations": 8,
-                "max_tool_calls": 8,
-                "max_llm_calls": 16,
-                "max_failures": 2,
-                "timeout_ms": None,
-                "budget": None,
-                "max_tokens": None,
-            },
-            "policies": {
-                "verify": True,
-            },
-        }
-
-    def _resolve_agent_app_version(self) -> tuple[str, str]:
-        if self._system_app_cache:
-            return self._system_app_cache
-        registry = AppRegistry(self.db, self.ctx)
-        app = registry.get_or_create_app(
-            name="Agent Default",
-            app_type="AGENT",
-            description="Default agent configuration",
-        )
-        version = registry.get_or_create_version(
-            app,
-            spec_schema="agent.v1",
-            spec_json=self._default_agent_spec(),
-            status="published",
-        )
-        if not version.checksum:
-            from app.modules.appcenter.application.publish_service import AppPublishService
-            publisher = AppPublishService(self.db, self.ctx)
-            publisher.publish(app.id, version.id)
-            self.db.refresh(version)
-        self._system_app_cache = (app.id, version.id)
-        return self._system_app_cache
+    def _resolve_agent_trace_subject(self) -> tuple[str, str]:
+        return self.ctx.workspace_id, "agent-runtime:v1"
 
     @workspace_guard("write")
-    async def run(self, data: AgentRunRequest) -> Dict[str, Any]:
+    async def run(
+        self,
+        data: AgentRunRequest,
+        *,
+        existing_run_id: Optional[str] = None,
+        response_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Run agent loop."""
-        run_id = generate_run_id()
+        run_id = existing_run_id or generate_run_id()
         if settings.agent_rate_limit_per_minute:
             await self.rate_limiter.check_rate_limit(
                 key=f"agent:run:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id or 'anonymous'}",
@@ -113,17 +71,20 @@ class AgentService:
                 window_seconds=60,
             )
         if self.trace_writer:
-            app_id, app_version_id = self._resolve_agent_app_version()
-            run = self.trace_writer.create_run(
-                mode="agent",
-                app_id=app_id,
-                app_version_id=app_version_id,
-                app_type="agent",
-                input_summary=data.messages[-1].content[:8192],
-                run_id=run_id,
-            )
-            run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
+            if existing_run_id:
+                self.trace_writer.update_run_status(run_id, "running")
+            else:
+                subject_id, subject_version_id = self._resolve_agent_trace_subject()
+                run = self.trace_writer.create_run(
+                    mode="agent",
+                    subject_kind="agent",
+                    subject_id=subject_id,
+                    subject_version_id=subject_version_id,
+                    input_summary=data.messages[-1].content[:8192],
+                    run_id=run_id,
+                )
+                run_id = run.id
+                self.trace_writer.update_run_status(run_id, "running")
 
         messages = [ChatMessage(role=m.role, content=m.content) for m in data.messages]
         messages = self._apply_context_window(
@@ -207,6 +168,30 @@ class AgentService:
             final_response = message
             finish_reason = reason
             return True
+
+        def build_tool_metrics(
+            *,
+            tool_ref: str,
+            parameters: Dict[str, Any],
+            status: str,
+            result: Optional[Dict[str, Any]] = None,
+            metadata: Optional[Dict[str, Any]] = None,
+            error_code: Optional[str] = None,
+            error_message: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            return {
+                "tool_call": {
+                    "tool_name": tool_ref,
+                    "tool_ref": tool_ref,
+                    "tool_type": "builtin",
+                    "status": status,
+                    "arguments": parameters or {},
+                    "result": result or {},
+                    "metadata": metadata or {},
+                    "error_code": error_code,
+                    "error_message": error_message,
+                }
+            }
 
         try:
             while iterations < data.max_iterations:
@@ -294,6 +279,47 @@ class AgentService:
                         self.trace_writer.update_step_status(tool_step_id, "running")
 
                     tool_calls += 1
+                    if self.trace_writer and tool_step_id:
+                        self.trace_writer.update_step_metrics(
+                            tool_step_id,
+                            build_tool_metrics(
+                                tool_ref=tool_ref,
+                                parameters=plan.parameters,
+                                status="started",
+                                metadata={"source": "agent.tool", "iteration": iterations},
+                            ),
+                        )
+                    if self.response_service and response_id:
+                        response = self.response_service.get_response(response_id)
+                        self.response_service.append_event(
+                            response=response,
+                            event_type="tool.call.requested",
+                            payload={
+                                "response_id": response_id,
+                                "run_id": run_id,
+                                "tool_call_id": tool_step_id,
+                                "tool_name": tool_ref,
+                                "tool_type": "builtin",
+                                "step_id": tool_step_id,
+                                "status": "requested",
+                                "arguments": plan.parameters,
+                            },
+                            source="agent",
+                        )
+                        self.response_service.append_event(
+                            response=response,
+                            event_type="tool.call.started",
+                            payload={
+                                "response_id": response_id,
+                                "run_id": run_id,
+                                "tool_call_id": tool_step_id,
+                                "tool_name": tool_ref,
+                                "tool_type": "builtin",
+                                "step_id": tool_step_id,
+                                "status": "started",
+                            },
+                            source="agent",
+                        )
                     try:
                         tool_response = await self.executor.execute_tool(
                             tool_ref=tool_ref,
@@ -306,7 +332,32 @@ class AgentService:
                             self.trace_writer.update_step_status(
                                 tool_step_id,
                                 "failed",
+                                metrics=build_tool_metrics(
+                                    tool_ref=tool_ref,
+                                    parameters=plan.parameters,
+                                    status="failed",
+                                    metadata={"source": "agent.tool", "iteration": iterations},
+                                    error_code="tool_execution_failed",
+                                    error_message=str(exc),
+                                ),
                                 error_message=str(exc),
+                            )
+                        if self.response_service and response_id:
+                            response = self.response_service.get_response(response_id)
+                            self.response_service.append_event(
+                                response=response,
+                                event_type="tool.call.failed",
+                                payload={
+                                    "response_id": response_id,
+                                    "run_id": run_id,
+                                    "tool_call_id": tool_step_id,
+                                    "tool_name": tool_ref,
+                                    "tool_type": "builtin",
+                                    "step_id": tool_step_id,
+                                    "status": "failed",
+                                    "error": {"code": "tool_execution_failed", "message": str(exc)},
+                                },
+                                source="agent",
                             )
                         raise
                     tool_content = (
@@ -324,8 +375,41 @@ class AgentService:
                             tool_step_id,
                             status,
                             output_summary=tool_content[:8192],
-                            metrics=tool_response.metadata,
+                            metrics={
+                                **(tool_response.metadata or {}),
+                                **build_tool_metrics(
+                                    tool_ref=tool_ref,
+                                    parameters=plan.parameters,
+                                    status="completed" if tool_response.success else "failed",
+                                    result={"result": tool_response.result} if tool_response.success else {},
+                                    metadata={"source": "agent.tool", "iteration": iterations, **(tool_response.metadata or {})},
+                                    error_code=None if tool_response.success else "tool_execution_failed",
+                                    error_message=None if tool_response.success else tool_response.error,
+                                ),
+                            },
                             error_message=None if tool_response.success else tool_response.error,
+                        )
+                    if self.response_service and response_id:
+                        response = self.response_service.get_response(response_id)
+                        self.response_service.append_event(
+                            response=response,
+                            event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
+                            payload={
+                                "response_id": response_id,
+                                "run_id": run_id,
+                                "tool_call_id": tool_step_id,
+                                "tool_name": tool_ref,
+                                "tool_type": "builtin",
+                                "step_id": tool_step_id,
+                                "status": "completed" if tool_response.success else "failed",
+                                "result": {"result": tool_response.result} if tool_response.success else {},
+                                "metadata": tool_response.metadata or {},
+                                "error": None if tool_response.success else {
+                                    "code": "tool_execution_failed",
+                                    "message": tool_response.error,
+                                },
+                            },
+                            source="agent",
                         )
 
                     if not tool_response.success:

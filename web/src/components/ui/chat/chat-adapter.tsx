@@ -1,31 +1,29 @@
 'use client'
 
-import { sse, post, ContentType } from '@/utils/request'
-import type { SseEvent } from '@/utils/request'
+import { ContentType } from '@/utils/request'
 import { globalMitt } from '@/hooks/use-mitt'
-import { useChatStore } from '@/stores/chat'
 import { type ChatModelAdapter } from '@assistant-ui/react'
-import { listMessages } from '@/services/chat-service'
+import { createThread, getThread } from '@/services/thread-service'
+import { cancelResponse, createResponse, createStreamResponse, type ResponseRead } from '@/services/responses-service'
 import { toast } from 'sonner'
-import {
-  DEFAULT_CHAT_PROVIDER,
-  resolveRuntimeChatModel,
-  resolveStoredChatProvider,
-} from './defaults'
+import { DEFAULT_CHAT_PROVIDER, resolveRuntimeChatModel, resolveStoredChatProvider } from './defaults'
 
 const THINK_OPEN_TAG = '<think>'
 const THINK_CLOSE_TAG = '</think>'
 const STREAM_EMIT_INTERVAL_MS = 40
 
-// Typed SSE events from server (align with MyRuntimeProvider-style event handling)
-type SSEStreamEvent =
-  | { type: 'start'; conversation_id?: string; run_id?: string }
-  | { type: 'delta'; run_id?: string; delta: string }
-  | { type: 'text'; content: string }
-  | { type: 'tool_call'; id: string; name: string; arguments: string }
-  | { type: 'tool_result'; id: string; result: string }
-  | { type: 'complete'; run_id?: string; message_id?: string; model?: string; tokens_prompt?: number; tokens_completion?: number; finish_reason?: string; metadata?: Record<string, unknown> }
-  | { type: 'error'; error: string }
+type AssistantContentPart =
+  | { type: 'reasoning'; text: string; duration?: number }
+  | { type: 'text'; text: string; duration?: number }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args?: unknown; argsText?: string; result?: unknown }
+
+type ResponseStreamEvent =
+  | { type: 'response.created'; responseId?: string; runId?: string; threadId?: string }
+  | { type: 'response.output_text.delta'; delta: string }
+  | { type: 'response.output_text.completed'; text: string }
+  | { type: 'response.completed'; responseId?: string; runId?: string; model?: string; finishReason?: string; usage?: Record<string, unknown> }
+  | { type: 'response.failed'; error: string }
+  | { type: 'tool.call.requested' | 'tool.call.started' | 'tool.call.completed' | 'tool.call.failed'; toolCallId: string; toolName: string; argumentsText: string; resultText: string }
 
 const safeJsonParse = <T = unknown>(value: string): T | null => {
   try {
@@ -35,123 +33,84 @@ const safeJsonParse = <T = unknown>(value: string): T | null => {
   }
 }
 
-/** Parse raw SSE stream into typed events for clear switch-based handling */
-async function* parseChatSSEStream(
-  stream: AsyncGenerator<SseEvent, void, unknown>
-): AsyncGenerator<SSEStreamEvent, void, unknown> {
+const toJsonText = (value: unknown): string => {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+async function* parseResponseSSEStream(stream: AsyncGenerator<{ event: string; data: string }, void, unknown>): AsyncGenerator<ResponseStreamEvent, void, unknown> {
   for await (const part of stream) {
     if (!part) continue
-    const event = part.event
-    const data = part.data
-
-    // Server sends [DONE] to signal end of stream (align with MyRuntimeProvider)
-    if (typeof data === 'string' && data.trim() === '[DONE]') {
-      return
-    }
-
-    if (event === 'error') {
-      const parsed = safeJsonParse<{ error?: string }>(data)
-      yield { type: 'error', error: parsed?.error || 'Streaming error' }
-      return
-    }
-
-    if (event === 'start') {
-      const parsed = safeJsonParse<{ conversation_id?: string; run_id?: string }>(data)
-      if (parsed) {
-        yield { type: 'start', conversation_id: parsed.conversation_id, run_id: parsed.run_id }
+    if (typeof part.data === 'string' && part.data.trim() === '[DONE]') return
+    const payload = safeJsonParse<Record<string, unknown>>(part.data) || {}
+    if (part.event === 'response.created') {
+      yield {
+        type: 'response.created',
+        responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        threadId: typeof payload.thread_id === 'string' ? payload.thread_id : undefined,
       }
       continue
     }
-
-    if (event === 'complete') {
-      const parsed = safeJsonParse<{
-        run_id?: string
-        message_id?: string
-        model?: string
-        tokens_prompt?: number
-        tokens_completion?: number
-        finish_reason?: string
-        metadata?: Record<string, unknown>
-      }>(data)
-      if (parsed) {
-        yield {
-          type: 'complete',
-          run_id: parsed.run_id,
-          message_id: parsed.message_id,
-          model: parsed.model,
-          tokens_prompt: parsed.tokens_prompt,
-          tokens_completion: parsed.tokens_completion,
-          finish_reason: parsed.finish_reason,
-          metadata: parsed.metadata,
-        }
+    if (part.event === 'response.output_text.delta') {
+      yield { type: 'response.output_text.delta', delta: typeof payload.delta === 'string' ? payload.delta : '' }
+      continue
+    }
+    if (part.event === 'response.output_text.completed') {
+      yield { type: 'response.output_text.completed', text: typeof payload.text === 'string' ? payload.text : '' }
+      continue
+    }
+    if (part.event === 'response.completed') {
+      yield {
+        type: 'response.completed',
+        responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        model: typeof payload.model === 'string' ? payload.model : undefined,
+        finishReason: typeof payload.finish_reason === 'string' ? payload.finish_reason : undefined,
+        usage: payload.usage && typeof payload.usage === 'object' ? (payload.usage as Record<string, unknown>) : undefined,
       }
       continue
     }
-
-    if (event === 'delta') {
-      const parsed = safeJsonParse<{ run_id?: string; delta?: string }>(data)
-      if (parsed && typeof parsed.delta === 'string') {
-        yield { type: 'delta', run_id: parsed.run_id, delta: parsed.delta }
+    if (part.event === 'response.failed') {
+      const errorPayload = payload.error && typeof payload.error === 'object' ? (payload.error as Record<string, unknown>) : {}
+      yield {
+        type: 'response.failed',
+        error:
+          (typeof payload.error_message === 'string' && payload.error_message) ||
+          (typeof errorPayload.message === 'string' && errorPayload.message) ||
+          'Response failed',
       }
       continue
     }
-
-    if (event === 'text') {
-      const parsed = safeJsonParse<{ content?: string; run_id?: string }>(data)
-      if (parsed && typeof parsed.content === 'string') {
-        yield { type: 'text', content: parsed.content }
-      }
-      continue
-    }
-
-    if (event === 'tool_call') {
-      const parsed = safeJsonParse<{ id?: string; name?: string; arguments?: string; run_id?: string }>(data)
-      if (parsed && typeof parsed.id === 'string' && typeof parsed.name === 'string') {
-        yield {
-          type: 'tool_call',
-          id: parsed.id,
-          name: parsed.name,
-          arguments: typeof parsed.arguments === 'string' ? parsed.arguments : '{}',
-        }
-      }
-      continue
-    }
-
-    if (event === 'tool_result') {
-      const parsed = safeJsonParse<{ id?: string; result?: string; run_id?: string }>(data)
-      if (parsed && typeof parsed.id === 'string') {
-        yield {
-          type: 'tool_result',
-          id: parsed.id,
-          result: typeof parsed.result === 'string' ? parsed.result : '',
-        }
+    if (part.event.startsWith('tool.call.')) {
+      yield {
+        type: part.event as 'tool.call.requested' | 'tool.call.started' | 'tool.call.completed' | 'tool.call.failed',
+        toolCallId:
+          (typeof payload.tool_call_id === 'string' && payload.tool_call_id) ||
+          (typeof payload.step_id === 'string' && payload.step_id) ||
+          '',
+        toolName: typeof payload.tool_name === 'string' ? payload.tool_name : 'tool',
+        argumentsText: toJsonText(payload.arguments),
+        resultText: toJsonText(payload.result || payload.error),
       }
     }
   }
 }
 
-const normalizeThinkTags = (content: string): string => {
-  return content
-    .replace(/\\u003c/gi, '<')
-    .replace(/\\u003e/gi, '>')
-}
+const normalizeThinkTags = (content: string): string => content.replace(/\\u003c/gi, '<').replace(/\\u003e/gi, '>')
 
-const splitReasoningContent = (
-  content: string
-): { reasoning: string; text: string } => {
+const splitReasoningContent = (content: string): { reasoning: string; text: string } => {
   const normalized = normalizeThinkTags(content || '')
-  if (!normalized.includes(THINK_OPEN_TAG)) {
-    return {
-      reasoning: '',
-      text: normalized,
-    }
-  }
-
+  if (!normalized.includes(THINK_OPEN_TAG)) return { reasoning: '', text: normalized }
   let reasoning = ''
   let text = ''
   let remaining = normalized
   let inReasoning = false
-
   while (remaining.length > 0) {
     if (inReasoning) {
       const closeIdx = remaining.indexOf(THINK_CLOSE_TAG)
@@ -164,47 +123,25 @@ const splitReasoningContent = (
       inReasoning = false
       continue
     }
-
     const openIdx = remaining.indexOf(THINK_OPEN_TAG)
     if (openIdx < 0) {
       text += remaining
       break
     }
-    if (openIdx > 0) {
-      text += remaining.slice(0, openIdx)
-    }
+    if (openIdx > 0) text += remaining.slice(0, openIdx)
     remaining = remaining.slice(openIdx + THINK_OPEN_TAG.length)
     inReasoning = true
   }
-
   const normalizedReasoning = reasoning.trim()
-  const normalizedText =
-    normalizedReasoning.length > 0 ? text.replace(/^\s+/, '') : text
-  return {
-    reasoning: normalizedReasoning,
-    text: normalizedText,
-  }
+  return { reasoning: normalizedReasoning, text: normalizedReasoning ? text.replace(/^\s+/, '') : text }
 }
 
 const toBoolean = (value: unknown): boolean => {
-  if (typeof value === 'boolean') {
-    return value
-  }
-  if (typeof value === 'number') {
-    return value === 1
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    return ['1', 'true', 'on', 'yes', 'enabled'].includes(normalized)
-  }
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') return ['1', 'true', 'on', 'yes', 'enabled'].includes(value.trim().toLowerCase())
   return false
 }
-
-// Assistant content part: reasoning, text, or tool-call (align with assistant-ui / MyRuntimeProvider)
-type AssistantContentPart =
-  | { type: 'reasoning'; text: string; duration?: number }
-  | { type: 'text'; text: string; duration?: number }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; args?: unknown; argsText?: string; result?: unknown }
 
 const buildAssistantContent = (
   reasoning: string,
@@ -214,173 +151,77 @@ const buildAssistantContent = (
   toolCalls: Array<{ toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown }> = []
 ): AssistantContentPart[] => {
   const content: AssistantContentPart[] = []
-  if (reasoning) {
-    content.push({ type: 'reasoning', text: reasoning, duration: reasoningDuration })
-  }
-  if (text || !content.length) {
-    content.push({ type: 'text', text, duration })
-  }
+  if (reasoning) content.push({ type: 'reasoning', text: reasoning, duration: reasoningDuration })
+  if (text || !content.length) content.push({ type: 'text', text, duration })
   for (const tc of toolCalls) {
-    content.push({
-      type: 'tool-call',
-      toolCallId: tc.toolCallId,
-      toolName: tc.toolName,
-      args: tc.args,
-      argsText: tc.argsText,
-      result: tc.result,
-    })
+    content.push({ type: 'tool-call', toolCallId: tc.toolCallId, toolName: tc.toolName, args: tc.args, argsText: tc.argsText, result: tc.result })
   }
   return content
 }
 
-export const ChatAdapter: ChatModelAdapter = {
-  // async run({ messages, abortSignal, context, runConfig }) {
-  //   console.log('context', context, runConfig)
-  //   let baseUrl: string = context?.config?.baseUrl || ''
-  //   let model: string = context?.config?.modelName || ''
-  //   // @ts-ignore
-  //   let authorization: string = (context?.config?.authorization as string) || ''
-  //   try {
-  //     let _messages: any = messages || []
-  //     const result = await post(
-  //       baseUrl,
-  //       { messages: _messages, context, model, stream: false },
-  //       {
-  //         signal: abortSignal,
-  //         headers: {
-  //           'Content-Type': ContentType.json,
-  //           authorization: authorization,
-  //         },
-  //       }
-  //     )
+const resolveResponseOutputText = (response: ResponseRead): string => {
+  if (typeof response.output_json?.text === 'string') return response.output_json.text as string
+  const items = response.output_json?.items
+  if (!Array.isArray(items)) return ''
+  for (const item of items) {
+    const content = item && typeof item === 'object' ? (item as Record<string, unknown>).content : null
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      const text = part && typeof part === 'object' ? (part as Record<string, unknown>).text : null
+      if (typeof text === 'string') return text
+    }
+  }
+  return ''
+}
 
-  //     console.log('result', result)
-  //     if (!result.status || result.status !== 200) {
-  //       const data = await result.data
-  //       return {
-  //         content: [
-  //           {
-  //             type: 'text',
-  //             text: data?.error || 'An error occurred. Please try again later.',
-  //           },
-  //         ],
-  //       }
-  //     }
-  //     const data = result?.data
-  //     return {
-  //       content: [
-  //         {
-  //           type: 'text',
-  //           text: data?.choices?.[0]?.message?.content || '',
-  //         },
-  //       ],
-  //     }
-  //   } catch (error) {
-  //     return {
-  //       content: [
-  //         {
-  //           type: 'text',
-  //           text: 'An error occurred. Please try again later.',
-  //         },
-  //       ],
-  //     }
-  //   }
-  // },
+export const ChatAdapter: ChatModelAdapter = {
   async *run({ messages, abortSignal, context, runConfig }) {
     void runConfig
-    // remove reasoning
-    messages = messages.filter((message) => {
-      return message.role !== 'assistant' || !message.content.some((content) => content.type === 'reasoning')
-    })
-    const config = (context?.config || {}) as Record<string, any>
-    let baseUrl: string = config.baseUrl || ''
-    let streamBaseUrl: string = config.streamBaseUrl || ''
-    const deepThinking = toBoolean(
-      config.deepThinking ?? localStorage.getItem('chat_deep_thinking')
-    )
-    let model: string = resolveRuntimeChatModel(config.modelName, deepThinking)
-    const resolvedProvider =
-      (typeof config.provider === 'string' && config.provider) ||
-      resolveStoredChatProvider() ||
-      DEFAULT_CHAT_PROVIDER
-    const reasoningEffort =
-      deepThinking ? config.reasoningEffort || 'high' : undefined
-    // @ts-ignore
-    let authorization: string = (context?.config?.authorization as string) || ''
-    // @ts-ignore
-    let stream: boolean = context?.config?.stream !== undefined ? (context?.config?.stream as boolean) : true
-    const appId = config.appId || 'default'
-    const conversationStore = useChatStore.getState()
-    const storedConversationId = conversationStore.getConversationId(appId)
-    const conversationId = storedConversationId || config.conversation_id || ''
+    messages = messages.filter((message) => message.role !== 'assistant' || !message.content.some((content) => content.type === 'reasoning'))
+    const rawContext = context as { config?: Record<string, any> } | undefined
+    const config = (rawContext?.config || {}) as Record<string, any>
+    const deepThinking = toBoolean(config.deepThinking ?? localStorage.getItem('chat_deep_thinking'))
+    const model = resolveRuntimeChatModel(config.modelName, deepThinking)
+    const provider = (typeof config.provider === 'string' && config.provider) || resolveStoredChatProvider() || DEFAULT_CHAT_PROVIDER
+    const reasoningEffort = deepThinking ? config.reasoningEffort || 'high' : undefined
+    const authorization = (config.authorization as string) || ''
+    const stream = config.stream !== undefined ? Boolean(config.stream) : true
+    const agentId = config.agentId || 'default'
+    let activeThreadId = config.thread_id || ''
     const workspaceId = localStorage.getItem('workspace_id') || ''
-    const updateConversationContext = (nextConversationId: string, emitEvent: boolean) => {
-      if (!nextConversationId) {
-        return
-      }
-      const currentId = conversationStore.getConversationId(appId)
-      if (currentId !== nextConversationId) {
-        conversationStore.setConversationId(appId, nextConversationId)
-        if (emitEvent) {
-          globalMitt.emit('chat_conversation_created', {
-            appId,
-            conversationId: nextConversationId,
-          })
-        }
-      }
+
+    const emitThreadCreated = (threadId: string) => {
+      if (!threadId) return
+      globalMitt.emit('chat_thread_created', { agentId, threadId })
     }
-    const resolveMessageText = (message: any): string => {
-      return message?.content?.find((content: any) => content.type === 'text')?.text || ''
-    }
-    const resolveMessageAttachments = (message: any) => {
-      if (!Array.isArray(message?.attachments)) {
-        return []
-      }
-      return message.attachments.map((attachment: any) => ({
-        id: attachment.id,
-        name: attachment.name,
-        type: attachment.type,
-        size: attachment.size,
-        url: attachment.url,
-      }))
-    }
+
+    const resolveMessageText = (message: any): string => message?.content?.find((content: any) => content.type === 'text')?.text || ''
+    const resolveMessageAttachments = (message: any) => Array.isArray(message?.attachments) ? message.attachments.map((attachment: any) => ({ id: attachment.id, name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url })) : []
     const resolveServerMessageId = (message: any): string | undefined => {
       const custom = (message?.metadata?.custom || {}) as Record<string, any>
       const byMetadata = custom.server_message_id || custom.message_id
-      if (typeof byMetadata === 'string' && byMetadata) {
-        return byMetadata
-      }
-      if (typeof message?.id === 'string' && message.id.startsWith('id_')) {
-        return message.id
-      }
+      if (typeof byMetadata === 'string' && byMetadata) return byMetadata
+      if (typeof message?.id === 'string' && message.id.startsWith('id_')) return message.id
       return undefined
     }
-    const toPayloadMessage = (message: any) => {
-      return {
-        role: message.role,
-        content: resolveMessageText(message),
-        metadata: {
-          attachments: resolveMessageAttachments(message),
-          provider: resolvedProvider || DEFAULT_CHAT_PROVIDER,
-          model_ref: model || undefined,
-          deep_thinking: deepThinking || undefined,
-          reasoning_effort: reasoningEffort,
-        },
-      }
-    }
+    const toPayloadMessage = (message: any) => ({
+      role: message.role,
+      content: resolveMessageText(message),
+      metadata: {
+        attachments: resolveMessageAttachments(message),
+        agent_id: agentId !== 'default' ? agentId : undefined,
+        provider,
+        model_ref: model || undefined,
+        deep_thinking: deepThinking || undefined,
+        reasoning_effort: reasoningEffort,
+      },
+    })
+
     const buildCompletionPayload = () => {
       const normalizedMessages = [...messages]
-      if (!normalizedMessages.length) {
-        return {
-          payloadMessages: [] as Array<Record<string, any>>,
-          parentMessageId: undefined as string | undefined,
-        }
-      }
-
+      if (!normalizedMessages.length) return { payloadMessages: [] as Array<Record<string, any>>, parentMessageId: undefined as string | undefined }
       const lastMessage = normalizedMessages[normalizedMessages.length - 1]
-      const payloadMessages =
-        lastMessage?.role === 'user' ? [toPayloadMessage(lastMessage)] : ([] as Array<Record<string, any>>)
-
+      const payloadMessages = lastMessage?.role === 'user' ? [toPayloadMessage(lastMessage)] : ([] as Array<Record<string, any>>)
       let parentMessageId: string | undefined
       const parentSearchStart = lastMessage?.role === 'user' ? normalizedMessages.length - 2 : normalizedMessages.length - 1
       for (let i = parentSearchStart; i >= 0; i -= 1) {
@@ -390,392 +231,246 @@ export const ChatAdapter: ChatModelAdapter = {
           break
         }
       }
+      return { payloadMessages, parentMessageId }
+    }
 
-      return {
-        payloadMessages,
-        parentMessageId,
-      }
+    const ensureThread = async (): Promise<string> => {
+      if (activeThreadId) return activeThreadId
+      const createdThread = await createThread({
+        agent_id: agentId !== 'default' ? agentId : undefined,
+        default_model_ref: model || undefined,
+        metadata_json: {
+          agent_id: agentId !== 'default' ? agentId : undefined,
+          provider,
+          model_ref: model || undefined,
+          deep_thinking: deepThinking || undefined,
+          reasoning_effort: reasoningEffort,
+          source: 'chat.responses',
+        },
+      })
+      activeThreadId = createdThread.id
+      emitThreadCreated(activeThreadId)
+      return activeThreadId
     }
-    const resolveLatestMessage = async (runId?: string) => {
-      const resolvedConversationId = conversationStore.getConversationId(appId) || conversationId
-      if (!resolvedConversationId) {
-        return null
-      }
-      let pageToken: string | undefined = undefined
-      let lastMessage: any = null
-      for (let page = 0; page < 5; page += 1) {
-        const response = await listMessages({
-          conversation_id: resolvedConversationId,
-          page_size: 100,
-          page_token: pageToken,
-        })
-        const items = response?.items || []
-        items.forEach((item: any) => {
-          if (item.role === 'assistant') {
-            if (!runId || item.run_id === runId) {
-              lastMessage = item
-            }
-          }
-        })
-        pageToken = response?.next_page_token || undefined
-        if (!pageToken) {
-          break
-        }
-      }
-      return lastMessage
+
+    const resolveLatestMessage = async (runId?: string, threadId?: string) => {
+      if (!threadId) return null
+      const threadDetail = await getThread(threadId)
+      const assistantMessages = (threadDetail?.messages || []).filter((item) => item.role === 'assistant' && (!runId || item.run_id === runId))
+      return assistantMessages[assistantMessages.length - 1] || null
     }
+
     const { payloadMessages, parentMessageId } = buildCompletionPayload()
-    const debugPayload = {
-      appId,
-      conversationId,
-      parentMessageId: parentMessageId || null,
-      model,
-      stream,
-      deepThinking,
-      reasoningEffort: reasoningEffort || null,
-      provider: resolvedProvider || DEFAULT_CHAT_PROVIDER,
-      messageCount: payloadMessages.length,
-    }
-    console.debug('[chat-adapter] request', debugPayload)
+
     try {
+      activeThreadId = await ensureThread()
+      const requestPayload = {
+        model,
+        provider,
+        thread_id: activeThreadId,
+        agent_id: agentId !== 'default' ? agentId : undefined,
+        input: { messages: payloadMessages },
+        stream,
+        metadata: {
+          agent_id: agentId !== 'default' ? agentId : undefined,
+          provider,
+          model_ref: model || undefined,
+          deep_thinking: deepThinking || undefined,
+          reasoning_effort: reasoningEffort,
+          parent_message_id: parentMessageId,
+          source: 'chat.responses',
+        },
+      }
+
       if (stream) {
-        const url = streamBaseUrl || baseUrl
         let activeRunId = ''
+        let activeResponseId = ''
+        let cancelSent = false
         let completionMeta: Record<string, any> | null = null
-        const streamResult = await sse(
-          url,
-          {
-            messages: payloadMessages,
-            conversation_id: conversationId,
-            parent_message_id: parentMessageId,
-            model,
-            stream: true,
-            metadata: {
-              provider: resolvedProvider || DEFAULT_CHAT_PROVIDER,
-              model_ref: model || undefined,
-              deep_thinking: deepThinking || undefined,
-              reasoning_effort: reasoningEffort,
-            },
-          },
-          {
-            signal: abortSignal,
-            headers: {
-              'Content-Type': ContentType.json,
-              authorization: authorization,
-              ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}),
-            },
-          }
-        )
+        const streamResult = createStreamResponse(requestPayload, {
+          signal: abortSignal,
+          headers: { 'Content-Type': ContentType.json, authorization, ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}) },
+        })
         let reasoning = ''
         let text = ''
         let duration = 0
         let reasoningDuration = 0
         let rawResponse = ''
-        let startTime = Date.now()
+        const startTime = Date.now()
         let reasoningStartAt: number | null = null
         let latestRunId = ''
         let lastEmitAt = 0
         let lastEmittedReasoning = ''
         let lastEmittedText = ''
         const toolCalls: Array<{ toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown }> = []
+        const cancelActiveResponse = async () => {
+          if (cancelSent || !activeResponseId) {
+            return
+          }
+          cancelSent = true
+          try {
+            await cancelResponse(activeResponseId)
+          } catch (cancelError) {
+            console.error('Failed to cancel response:', cancelError)
+          }
+        }
+
+        if (abortSignal) {
+          abortSignal.addEventListener(
+            'abort',
+            () => {
+              void cancelActiveResponse()
+            },
+            { once: true }
+          )
+        }
 
         const appendDelta = (rawDelta: string) => {
           const normalizedDelta = normalizeThinkTags(rawDelta || '')
-          if (!normalizedDelta) {
-            return
-          }
+          if (!normalizedDelta) return
           rawResponse += normalizedDelta
-          if (reasoningStartAt === null && rawResponse.includes(THINK_OPEN_TAG)) {
-            reasoningStartAt = Date.now()
-          }
+          if (reasoningStartAt === null && rawResponse.includes(THINK_OPEN_TAG)) reasoningStartAt = Date.now()
           const parsed = splitReasoningContent(rawResponse)
           reasoning = parsed.reasoning
           text = parsed.text
-          if (reasoningStartAt !== null && (reasoning || rawResponse.includes(THINK_CLOSE_TAG))) {
-            reasoningDuration = (Date.now() - reasoningStartAt) / 1000
+          if (reasoningStartAt !== null && (reasoning || rawResponse.includes(THINK_CLOSE_TAG))) reasoningDuration = (Date.now() - reasoningStartAt) / 1000
+        }
+
+        const upsertToolCall = (toolCallId: string, toolName: string, argumentsText: string, resultText?: string) => {
+          let args: unknown = {}
+          try { args = argumentsText ? JSON.parse(argumentsText) : {} } catch { args = argumentsText }
+          const existing = toolCalls.find((item) => item.toolCallId === toolCallId)
+          if (existing) {
+            existing.toolName = toolName || existing.toolName
+            existing.argsText = argumentsText || existing.argsText
+            existing.args = args
+            if (resultText) { try { existing.result = JSON.parse(resultText) } catch { existing.result = resultText } }
+            return
+          }
+          const nextToolCall = { toolCallId, toolName, args, argsText: argumentsText || '{}' } as { toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown }
+          if (resultText) { try { nextToolCall.result = JSON.parse(resultText) } catch { nextToolCall.result = resultText } }
+          toolCalls.push(nextToolCall)
+        }
+
+        for await (const ev of parseResponseSSEStream(streamResult)) {
+          if (ev.type === 'response.created') {
+            if (ev.threadId) activeThreadId = ev.threadId
+            if (ev.responseId) activeResponseId = ev.responseId
+            if (ev.runId) activeRunId = ev.runId
+            if (abortSignal?.aborted) {
+              void cancelActiveResponse()
+            }
+            continue
+          }
+          if (ev.type === 'response.output_text.delta') {
+            latestRunId = activeRunId || latestRunId
+            appendDelta(ev.delta)
+            if (reasoning === '\n\n') { reasoning = ''; reasoningDuration = 0 }
+            duration = (Date.now() - startTime) / 1000
+            if ((!reasoning && !text && !toolCalls.length) || (reasoning === lastEmittedReasoning && text === lastEmittedText)) continue
+            const now = Date.now()
+            if (now - lastEmitAt < STREAM_EMIT_INTERVAL_MS) continue
+            yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
+            lastEmitAt = now
+            lastEmittedReasoning = reasoning
+            lastEmittedText = text
+            continue
+          }
+          if (ev.type === 'response.output_text.completed') {
+            if (ev.text) {
+              rawResponse = ev.text
+              const parsed = splitReasoningContent(ev.text)
+              reasoning = parsed.reasoning
+              text = parsed.text
+            }
+            continue
+          }
+          if (
+            (ev.type === 'tool.call.requested' ||
+              ev.type === 'tool.call.started' ||
+              ev.type === 'tool.call.completed' ||
+              ev.type === 'tool.call.failed') &&
+            ev.toolCallId
+          ) {
+            upsertToolCall(ev.toolCallId, ev.toolName, ev.argumentsText, ev.resultText)
+            duration = (Date.now() - startTime) / 1000
+            yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
+            lastEmittedReasoning = reasoning
+            lastEmittedText = text
+            continue
+          }
+          if (ev.type === 'response.completed') {
+            if (ev.responseId) activeResponseId = ev.responseId
+            if (ev.runId) activeRunId = ev.runId
+            completionMeta = {
+              run_id: ev.runId || activeRunId,
+              response_id: ev.responseId || activeResponseId,
+              model: ev.model || model,
+              finish_reason: ev.finishReason,
+              tokens_prompt: typeof ev.usage?.prompt_tokens === 'number' ? ev.usage.prompt_tokens : undefined,
+              tokens_completion: typeof ev.usage?.completion_tokens === 'number' ? ev.usage.completion_tokens : undefined,
+            }
+            globalMitt.emit('refresh_chat_sidebar')
+            globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...completionMeta })
+            continue
+          }
+          if (ev.type === 'response.failed') throw new Error(ev.error)
+        }
+
+        if (!completionMeta) {
+          try {
+            const recovered = await resolveLatestMessage(activeRunId || undefined, activeThreadId)
+            if (recovered?.content) {
+              const recoveredMeta = ('metadata_json' in recovered ? recovered.metadata_json : {}) || {}
+              const recoveredContent = splitReasoningContent(recovered.content)
+              yield {
+                content: buildAssistantContent(recoveredContent.reasoning, recoveredContent.text, reasoningDuration, duration, toolCalls) as any,
+                metadata: { custom: { server_message_id: recovered.id, run_id: ('run_id' in recovered ? recovered.run_id : undefined) || activeRunId || '', response_id: (typeof recoveredMeta.response_id === 'string' && recoveredMeta.response_id) || activeResponseId || '', thread_id: activeThreadId || null, tokens_prompt: 'tokens_prompt' in recovered ? recovered.tokens_prompt : undefined, tokens_completion: 'tokens_completion' in recovered ? recovered.tokens_completion : undefined, finish_reason: 'finish_reason' in recovered ? recovered.finish_reason : undefined, ...(recoveredMeta as Record<string, unknown>) } },
+              }
+            } else if (text || toolCalls.length) {
+              yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null, interrupted: true } } }
+            }
+          } catch {
+            if (text || toolCalls.length) yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null, interrupted: true } } }
           }
         }
 
-        const typedStream = parseChatSSEStream(streamResult)
-        for await (const ev of typedStream) {
-          switch (ev.type) {
-            case 'error':
-              throw new Error(ev.error)
-            case 'start':
-              if (ev.conversation_id) {
-                updateConversationContext(ev.conversation_id, false)
-              }
-              if (ev.run_id) {
-                activeRunId = ev.run_id
-              }
-              break
-            case 'complete': {
-              console.debug('[chat-adapter] stream complete', {
-                appId,
-                conversationId: conversationStore.getConversationId(appId) || conversationId || null,
-                runId: ev.run_id || activeRunId || null,
-                modelRequested: model,
-                modelUsed: ev.model || null,
-              })
-              if (ev.run_id) {
-                activeRunId = ev.run_id
-              }
-              const resolvedConversationId = conversationStore.getConversationId(appId) || conversationId
-              if (resolvedConversationId) {
-                globalMitt.emit('chat_conversation_created', {
-                  appId,
-                  conversationId: resolvedConversationId,
-                })
-              }
-              completionMeta = {
-                run_id: ev.run_id || activeRunId,
-                message_id: ev.message_id,
-                server_message_id: ev.message_id,
-                model: ev.model,
-                tokens_prompt: ev.tokens_prompt,
-                tokens_completion: ev.tokens_completion,
-                finish_reason: ev.finish_reason,
-              }
-              if (ev.metadata) {
-                completionMeta = { ...completionMeta, ...ev.metadata }
-              }
-              globalMitt.emit('refresh_chat_sidebar')
-              globalMitt.emit('chat_completion_finished', {
-                appId,
-                conversationId: conversationStore.getConversationId(appId) || conversationId,
-                ...completionMeta,
-              })
-              break
-            }
-            case 'delta': {
-              const runId = ev.run_id || activeRunId
-              latestRunId = runId || latestRunId
-              appendDelta(ev.delta)
-              if (reasoning === '\n\n') {
-                reasoning = ''
-                reasoningDuration = 0
-              }
-              duration = (Date.now() - startTime) / 1000
-              if (!reasoning && !text && !toolCalls.length) break
-              if (reasoning === lastEmittedReasoning && text === lastEmittedText) break
-              const now = Date.now()
-              if (now - lastEmitAt < STREAM_EMIT_INTERVAL_MS) break
-              const content = buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls)
-              yield {
-                content: content as any,
-                metadata: { custom: { run_id: runId || '' } },
-              }
-              lastEmitAt = now
-              lastEmittedReasoning = reasoning
-              lastEmittedText = text
-              break
-            }
-            case 'text': {
-              const runId = activeRunId
-              latestRunId = runId || latestRunId
-              text += ev.content
-              duration = (Date.now() - startTime) / 1000
-              if (!reasoning && !text && !toolCalls.length) break
-              const now = Date.now()
-              if (now - lastEmitAt < STREAM_EMIT_INTERVAL_MS && reasoning === lastEmittedReasoning && text === lastEmittedText) break
-              const content = buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls)
-              yield {
-                content: content as any,
-                metadata: { custom: { run_id: runId || '' } },
-              }
-              lastEmitAt = now
-              lastEmittedReasoning = reasoning
-              lastEmittedText = text
-              break
-            }
-            case 'tool_call': {
-              const runId = activeRunId
-              latestRunId = runId || latestRunId
-              let args: unknown = {}
-              try {
-                args = JSON.parse(ev.arguments)
-              } catch {
-                args = ev.arguments
-              }
-              toolCalls.push({
-                toolCallId: ev.id,
-                toolName: ev.name,
-                args,
-                argsText: ev.arguments,
-              })
-              duration = (Date.now() - startTime) / 1000
-              const content = buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls)
-              yield {
-                content: content as any,
-                metadata: { custom: { run_id: runId || '' } },
-              }
-              lastEmittedReasoning = reasoning
-              lastEmittedText = text
-              break
-            }
-            case 'tool_result': {
-              const runId = activeRunId
-              latestRunId = runId || latestRunId
-              const tc = toolCalls.find((t) => t.toolCallId === ev.id)
-              if (tc) {
-                try {
-                  tc.result = JSON.parse(ev.result)
-                } catch {
-                  tc.result = ev.result
-                }
-              }
-              duration = (Date.now() - startTime) / 1000
-              const content = buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls)
-              yield {
-                content: content as any,
-                metadata: { custom: { run_id: runId || '' } },
-              }
-              lastEmittedReasoning = reasoning
-              lastEmittedText = text
-              break
-            }
-          }
-        }
-        if (!completionMeta) {
-          try {
-            const recovered = await resolveLatestMessage(activeRunId || undefined)
-            if (recovered?.content) {
-              const recoveredMeta = recovered.metadata_json || {}
-              const recoveredContent = splitReasoningContent(recovered.content)
-              yield {
-                content: buildAssistantContent(
-                  recoveredContent.reasoning,
-                  recoveredContent.text,
-                  reasoningDuration,
-                  duration,
-                  toolCalls
-                ) as any,
-                metadata: {
-                  custom: {
-                    server_message_id: recovered.id,
-                    run_id: recovered.run_id || activeRunId || '',
-                    tokens_prompt: recovered.tokens_prompt,
-                    tokens_completion: recovered.tokens_completion,
-                    finish_reason: recovered.finish_reason,
-                    ...recoveredMeta,
-                  },
-                },
-              }
-            } else if (text || toolCalls.length) {
-              yield {
-                content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any,
-                metadata: {
-                  custom: {
-                    run_id: activeRunId || '',
-                    interrupted: true,
-                  },
-                },
-              }
-            }
-          } catch (error) {
-            if (text || toolCalls.length) {
-              yield {
-                content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any,
-                metadata: {
-                  custom: {
-                    run_id: activeRunId || '',
-                    interrupted: true,
-                  },
-                },
-              }
-            }
-          }
-        }
         if (completionMeta && (reasoning || text || toolCalls.length)) {
-          const needFinalEmit =
-            reasoning !== lastEmittedReasoning || text !== lastEmittedText
-          const customMeta = Object.assign({}, completionMeta, { run_id: completionMeta.run_id || latestRunId })
+          const needFinalEmit = reasoning !== lastEmittedReasoning || text !== lastEmittedText
           yield {
-            content: needFinalEmit
-              ? (buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any)
-              : (buildAssistantContent(
-                  lastEmittedReasoning,
-                  lastEmittedText,
-                  reasoningDuration,
-                  duration,
-                  toolCalls
-                ) as any),
-            metadata: {
-              custom: customMeta,
-            },
+            content: needFinalEmit ? (buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any) : (buildAssistantContent(lastEmittedReasoning, lastEmittedText, reasoningDuration, duration, toolCalls) as any),
+            metadata: { custom: { ...(completionMeta as Record<string, unknown>), thread_id: activeThreadId || null } },
           }
         }
       } else {
-        const url = baseUrl
-        const result = await post(
-          url,
-          {
-            messages: payloadMessages,
-            conversation_id: conversationId,
-            parent_message_id: parentMessageId,
-            model,
-            stream: false,
-            metadata: {
-              provider: resolvedProvider || DEFAULT_CHAT_PROVIDER,
-              model_ref: model || undefined,
-              deep_thinking: deepThinking || undefined,
-              reasoning_effort: reasoningEffort,
-            },
-          },
-          {
-            signal: abortSignal,
-            headers: {
-              'Content-Type': ContentType.json,
-              authorization: authorization,
-              ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}),
-            },
+        const response = await createResponse(requestPayload)
+        const recovered = await resolveLatestMessage(response.run_id || undefined, activeThreadId)
+        globalMitt.emit('refresh_chat_sidebar')
+        globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, run_id: response.run_id || '', response_id: response.id })
+        if (recovered?.content) {
+          const parsedMessage = splitReasoningContent(recovered.content)
+          const messageMeta = ('metadata_json' in recovered ? recovered.metadata_json : {}) || {}
+          yield {
+            content: buildAssistantContent(parsedMessage.reasoning, parsedMessage.text, 0, 0) as any,
+            metadata: { custom: { server_message_id: recovered.id, run_id: ('run_id' in recovered ? recovered.run_id : undefined) || response.run_id || '', response_id: (typeof messageMeta.response_id === 'string' && messageMeta.response_id) || response.id, thread_id: activeThreadId || null, tokens_prompt: ('tokens_prompt' in recovered ? recovered.tokens_prompt : undefined) || response.usage_json?.prompt_tokens, tokens_completion: ('tokens_completion' in recovered ? recovered.tokens_completion : undefined) || response.usage_json?.completion_tokens, finish_reason: ('finish_reason' in recovered ? recovered.finish_reason : undefined) || response.output_json?.finish_reason, ...(messageMeta as Record<string, unknown>) } },
           }
-        )
-        const data: any = result
-        console.debug('[chat-adapter] completion', {
-          appId,
-          conversationId: data?.conversation_id || conversationId || null,
-          runId: data?.run_id || null,
-          modelRequested: model,
-          modelUsed: data?.model || data?.message?.model_ref || null,
-        })
-        if (data?.conversation_id) {
-          updateConversationContext(data.conversation_id, true)
-          globalMitt.emit('refresh_chat_sidebar')
-        }
-
-        const parsedMessage = splitReasoningContent(data?.message?.content || '')
-        const messageMeta = data?.message?.metadata_json || {}
-        yield {
-          content: buildAssistantContent(parsedMessage.reasoning, parsedMessage.text, 0, 0) as any,
-          metadata: {
-            custom: {
-              server_message_id: data?.message?.id,
-              run_id: data?.run_id || '',
-              tokens_prompt: data?.tokens_prompt ?? messageMeta.tokens_prompt,
-              tokens_completion: data?.tokens_completion ?? messageMeta.tokens_completion,
-              finish_reason: data?.finish_reason ?? messageMeta.finish_reason,
-              ...messageMeta,
-            },
-          },
+        } else {
+          const parsedResponse = splitReasoningContent(resolveResponseOutputText(response))
+          yield {
+            content: buildAssistantContent(parsedResponse.reasoning, parsedResponse.text, 0, 0) as any,
+            metadata: { custom: { run_id: response.run_id || '', response_id: response.id, thread_id: activeThreadId || null, tokens_prompt: typeof response.usage_json?.prompt_tokens === 'number' ? response.usage_json.prompt_tokens : undefined, tokens_completion: typeof response.usage_json?.completion_tokens === 'number' ? response.usage_json.completion_tokens : undefined, finish_reason: typeof response.output_json?.finish_reason === 'string' ? response.output_json.finish_reason : undefined } },
+          }
         }
       }
     } catch (error: any) {
+      const aborted = abortSignal?.aborted || error?.name === 'AbortError'
+      if (aborted) {
+        toast.info('Generation cancelled')
+        return
+      }
       console.error('*run error', error)
       toast.error(error?.message || 'Chat request failed')
-      yield {
-        content: [
-          {
-            type: 'text',
-            text: `An error occurred. ${error?.message || ''} . Please try again later.`,
-          },
-        ],
-        metadata: {
-          custom: {
-            id: '',
-          },
-        },
-      }
+      yield { content: [{ type: 'text', text: `An error occurred. ${error?.message || ''} . Please try again later.` }], metadata: { custom: { id: '' } } }
     }
   },
 }

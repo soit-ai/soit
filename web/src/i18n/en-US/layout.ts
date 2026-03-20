@@ -1,7 +1,7 @@
 const translation = {
   header: {
     githubLabel: 'GitHub repository',
-    searchPlaceholder: 'Search models, datasets, workflows...',
+    searchPlaceholder: 'Search models, knowledge, workflows...',
     apiKey: {
       label: 'API keys',
       title: 'API Key Management',
@@ -21,8 +21,8 @@ const translation = {
           message: 'Your custom model has been deployed and is ready to use.',
           time: '10 minutes ago',
         },
-        datasetWarning: {
-          title: 'Dataset processing warning',
+        knowledgeWarning: {
+          title: 'Knowledge processing warning',
           message: 'Anomalies detected while processing “Customer Feedback”.',
           time: '1 hour ago',
         },

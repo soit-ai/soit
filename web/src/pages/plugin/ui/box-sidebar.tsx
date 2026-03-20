@@ -50,7 +50,7 @@ const navData = {
     {
       id: 'overview',
       titleKey: 'plugin.sidebar.main.overview',
-      url: '/plugin/dashboard',
+      url: '/plugins/dashboard',
       icon: Puzzle,
       isActive: true,
       items: [],
@@ -58,30 +58,30 @@ const navData = {
     {
       id: 'browse',
       titleKey: 'plugin.sidebar.main.browse',
-      url: '/plugin/browse',
+      url: '/plugins/browse',
       icon: BrainCog,
       items: [
         {
           id: 'all',
           titleKey: 'plugin.sidebar.browse.all',
-          url: '/plugin/browse/all',
+          url: '/plugins/browse/all',
         },
         {
           id: 'recent',
           titleKey: 'plugin.sidebar.browse.recent',
-          url: '/plugin/browse/recent',
+          url: '/plugins/browse/recent',
           icon: Clock,
         },
         {
           id: 'favorites',
           titleKey: 'plugin.sidebar.browse.favorites',
-          url: '/plugin/browse/favorites',
+          url: '/plugins/browse/favorites',
           icon: Star,
         },
         {
           id: 'uploads',
           titleKey: 'plugin.sidebar.browse.uploads',
-          url: '/plugin/browse/uploads',
+          url: '/plugins/browse/uploads',
           icon: Upload,
         },
       ],
@@ -89,23 +89,23 @@ const navData = {
     {
       id: 'development',
       titleKey: 'plugin.sidebar.main.development',
-      url: '/plugin/development',
+      url: '/plugins/development',
       icon: Code,
       items: [
         {
           id: 'editor',
           titleKey: 'plugin.sidebar.development.editor',
-          url: '/plugin/development/editor',
+          url: '/plugins/development/editor',
         },
         {
           id: 'debug',
           titleKey: 'plugin.sidebar.development.debug',
-          url: '/plugin/development/debug',
+          url: '/plugins/development/debug',
         },
         {
           id: 'version',
           titleKey: 'plugin.sidebar.development.version',
-          url: '/plugin/development/version',
+          url: '/plugins/development/version',
           icon: GitBranch,
         },
       ],
@@ -113,19 +113,19 @@ const navData = {
     {
       id: 'integration',
       titleKey: 'plugin.sidebar.main.integration',
-      url: '/plugin/integration',
+      url: '/plugins/integration',
       icon: Zap,
       items: [
         {
           id: 'api',
           titleKey: 'plugin.sidebar.integration.api',
-          url: '/plugin/integration/api',
+          url: '/plugins/integration/api',
           icon: Cloud,
         },
         {
           id: 'workflow',
           titleKey: 'plugin.sidebar.integration.workflow',
-          url: '/plugin/integration/workflow',
+          url: '/plugins/integration/workflow',
           icon: Workflow,
         },
       ],
@@ -133,24 +133,24 @@ const navData = {
     {
       id: 'management',
       titleKey: 'plugin.sidebar.main.management',
-      url: '/plugin/management',
+      url: '/plugins/management',
       icon: Settings2,
       items: [
         {
           id: 'dependencies',
           titleKey: 'plugin.sidebar.management.dependencies',
-          url: '/plugin/management/dependencies',
+          url: '/plugins/management/dependencies',
           icon: Package,
         },
         {
           id: 'permissions',
           titleKey: 'plugin.sidebar.management.permissions',
-          url: '/plugin/management/permissions',
+          url: '/plugins/management/permissions',
         },
         {
           id: 'analytics',
           titleKey: 'plugin.sidebar.management.analytics',
-          url: '/plugin/management/analytics',
+          url: '/plugins/management/analytics',
           icon: BarChart,
         },
       ],
@@ -166,7 +166,7 @@ const navData = {
     {
       id: 'feedback',
       titleKey: 'plugin.sidebar.secondary.feedback',
-      url: '/feedback',
+      url: '/observability/feedback',
       icon: Send,
     },
   ],
@@ -174,19 +174,19 @@ const navData = {
     {
       id: 'favorites',
       nameKey: 'plugin.sidebar.projects.favorites',
-      url: '/plugin/favorites',
+      url: '/plugins/favorites',
       icon: Star,
     },
     {
       id: 'recent',
       nameKey: 'plugin.sidebar.projects.recent',
-      url: '/plugin/recent',
+      url: '/plugins/recent',
       icon: Clock,
     },
     {
       id: 'mine',
       nameKey: 'plugin.sidebar.projects.mine',
-      url: '/plugin/my',
+      url: '/plugins/my',
       icon: Puzzle,
     },
   ],

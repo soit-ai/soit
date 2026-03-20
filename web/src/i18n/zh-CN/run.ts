@@ -22,8 +22,8 @@ const translation = {
         placeholder: '请输入模式',
       },
       app: {
-        label: '应用版本 ID',
-        placeholder: '请输入应用版本 ID',
+        label: '主体版本 ID',
+        placeholder: '请输入主体版本 ID',
       },
       workflow: {
         label: '工作流 ID',
@@ -45,7 +45,7 @@ const translation = {
     table: {
       id: '运行 ID',
       mode: '模式',
-      app: '应用/工作流',
+      app: '主体版本',
       user: '用户',
       status: '状态',
       startedAt: '开始时间',
@@ -95,7 +95,7 @@ const translation = {
     fields: {
       id: '运行 ID',
       mode: '模式',
-      app: '应用/工作流 ID',
+      app: '主体版本 ID',
       trace: 'Trace ID',
       user: '用户 ID',
       status: '状态',
@@ -135,6 +135,21 @@ const translation = {
       storageKey: '存储路径：{{key}}',
       mime: 'MIME：{{mime}}',
       size: '大小：{{size}} bytes',
+    },
+    responses: {
+      title: '响应语义时间线',
+      description: '查看本次运行对应的 Responses 语义投影',
+      empty: '暂无响应投影',
+      meta: '状态：{{status}} · 模型：{{model}} · 供应商：{{provider}}',
+      createdAt: '创建时间：{{createdAt}}',
+      completedAt: '完成时间：{{completedAt}}',
+      output: '输出：{{output}}',
+      eventsTitle: '语义事件',
+      eventsEmpty: '暂无语义事件',
+      toolsTitle: '工具投影',
+      toolsEmpty: '暂无工具投影',
+      toolArgs: '参数：{{args}}',
+      toolResult: '结果：{{result}}',
     },
   },
 }

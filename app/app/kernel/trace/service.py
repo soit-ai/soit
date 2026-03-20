@@ -21,7 +21,7 @@ from app.kernel.trace.schemas import (
     RunDetailResponse,
     RunCostSummaryResponse,
     RunCostDailyResponse,
-    RunCostByAppResponse,
+    RunCostBySubjectResponse,
     RunCostByModeResponse,
     RunCostByProviderResponse,
     RunCostByModelResponse,
@@ -41,9 +41,10 @@ class RunService:
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         trace_id: Optional[str] = None,
         user_id: Optional[str] = None,
@@ -61,12 +62,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if trace_id:
@@ -429,9 +432,10 @@ class RunService:
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
@@ -448,12 +452,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:
@@ -485,9 +491,10 @@ class RunService:
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
@@ -504,12 +511,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:
@@ -552,18 +561,20 @@ class RunService:
             )
         return results
 
-    def summarize_costs_by_app(
+    def summarize_costs_by_subject(
         self,
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
+        subject_version_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
-    ) -> List[RunCostByAppResponse]:
-        """Aggregate cost metrics per app version."""
+    ) -> List[RunCostBySubjectResponse]:
+        """Aggregate cost metrics per subject version."""
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
@@ -575,10 +586,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:
@@ -588,7 +603,7 @@ class RunService:
 
         query = (
             select(
-                Run.app_version_id,
+                Run.subject_version_id,
                 func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
                 func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
                 func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
@@ -599,14 +614,14 @@ class RunService:
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
             .where(and_(*clauses))
-            .group_by(Run.app_version_id)
-            .order_by(Run.app_version_id)
+            .group_by(Run.subject_version_id)
+            .order_by(Run.subject_version_id)
         )
 
         rows = list(self.db.exec(query).all())
         return [
-            RunCostByAppResponse(
-                app_version_id=row[0],
+            RunCostBySubjectResponse(
+                subject_version_id=row[0],
                 tokens_prompt=int(row[1] or 0),
                 tokens_completion=int(row[2] or 0),
                 embedding_count=int(row[3] or 0),
@@ -621,9 +636,10 @@ class RunService:
         self,
         *,
         mode: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
@@ -639,12 +655,14 @@ class RunService:
         ]
         if mode:
             clauses.append(Run.mode == mode)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:
@@ -690,9 +708,10 @@ class RunService:
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
@@ -709,12 +728,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:
@@ -758,9 +779,10 @@ class RunService:
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        app_id: Optional[str] = None,
-        app_version_id: Optional[str] = None,
-        app_version_ids: Optional[List[str]] = None,
+        subject_version_id: Optional[str] = None,
+        subject_version_ids: Optional[List[str]] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
         status: Optional[str] = None,
         started_after: Optional[datetime] = None,
         started_before: Optional[datetime] = None,
@@ -777,12 +799,14 @@ class RunService:
             clauses.append(Run.mode == mode)
         if kind:
             clauses.append(Run.kind == kind)
-        if app_id:
-            clauses.append(Run.app_id == app_id)
-        if app_version_id:
-            clauses.append(Run.app_version_id == app_version_id)
-        if app_version_ids:
-            clauses.append(Run.app_version_id.in_(app_version_ids))
+        if subject_kind:
+            clauses.append(Run.subject_kind == subject_kind)
+        if subject_id:
+            clauses.append(Run.subject_id == subject_id)
+        if subject_version_id:
+            clauses.append(Run.subject_version_id == subject_version_id)
+        if subject_version_ids:
+            clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
         if started_after:

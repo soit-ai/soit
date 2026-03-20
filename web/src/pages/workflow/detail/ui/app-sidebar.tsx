@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLocation } from 'react-router'
+import type { TranslationKey } from '@/i18n/types'
 
 export interface NavSidebarProps extends React.ComponentProps<typeof Sidebar> {
   appid?: string
@@ -114,7 +115,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
   }, [navigate])
 
   const handleNavItemHover = useCallback((item: NavItem) => {
-    return t(item.descriptionKey)
+    return t(item.descriptionKey as TranslationKey)
   }, [t])
 
   const openRunChat = useCallback(() => {
@@ -143,7 +144,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
                   className: cn('h-4 w-4', item.isActive ? 'text-primary' : ''),
                 })}
                 <span className={cn('ml-2', item.isActive ? 'font-medium' : '')}>
-                  {t(item.titleKey)}
+                  {t(item.titleKey as TranslationKey)}
                 </span>
               </span>
               {item.badge ? (

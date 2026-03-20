@@ -45,18 +45,18 @@ export const listPlugins = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<Plugin>> => {
-  return get('/plugins', params)
+  return get<PaginatedResponse<Plugin>>('/plugins', params) as unknown as Promise<PaginatedResponse<Plugin>>
 }
 
 export const getPlugin = (pluginId: string): Promise<Plugin> => {
-  return get(`/plugins/${pluginId}`)
+  return get<Plugin>(`/plugins/${pluginId}`) as unknown as Promise<Plugin>
 }
 
 export const installPlugin = (
   pluginId: string,
   config_json?: Record<string, any>
 ): Promise<PluginInstallResponse> => {
-  return post(`/plugins/${pluginId}/install`, { config_json })
+  return post<PluginInstallResponse>(`/plugins/${pluginId}/install`, { config_json }) as unknown as Promise<PluginInstallResponse>
 }
 
 export const uninstallPlugin = (pluginId: string): Promise<void> => {
@@ -67,7 +67,7 @@ export const setPluginEnabled = (
   pluginId: string,
   enabled: boolean
 ): Promise<PluginInstallationResponse> => {
-  return post(`/plugins/${pluginId}/enabled`, { enabled })
+  return post<PluginInstallationResponse>(`/plugins/${pluginId}/enabled`, { enabled }) as unknown as Promise<PluginInstallationResponse>
 }
 
 export interface PluginRuntimeReloadResponse {
@@ -75,5 +75,5 @@ export interface PluginRuntimeReloadResponse {
 }
 
 export const reloadPluginRuntime = (): Promise<PluginRuntimeReloadResponse> => {
-  return post('/plugins/runtime/reload', {})
+  return post<PluginRuntimeReloadResponse>('/plugins/runtime/reload', {}) as unknown as Promise<PluginRuntimeReloadResponse>
 }

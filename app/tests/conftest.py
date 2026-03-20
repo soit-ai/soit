@@ -73,6 +73,9 @@ def db():
     # Ensure models are imported so SQLModel.metadata is populated.
     # Importing modules is safe in test env and keeps create_all deterministic.
     import app.modules  # noqa: F401
+    import app.kernel.trace.models  # noqa: F401
+    import app.kernel.runtime.models  # noqa: F401
+    import app.kernel.responses.models  # noqa: F401
     import app.kernel.observability.idempotency  # noqa: F401
 
     engine = create_engine(

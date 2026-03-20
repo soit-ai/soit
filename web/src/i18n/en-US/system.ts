@@ -218,7 +218,7 @@ const system = {
           high: 'High',
         },
         pluginEndpointPath: 'Plugin endpoint path',
-        pluginEndpointPathPlaceholder: 'e.g. /v1/chat/completions',
+        pluginEndpointPathPlaceholder: 'e.g. /api/v1/responses',
         pluginTimeoutMs: 'Plugin timeout (ms)',
         pluginTimeoutMsPlaceholder: 'e.g. 30000',
         description: 'Description',

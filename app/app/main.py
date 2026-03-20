@@ -71,35 +71,35 @@ async def lifespan(app: FastAPI):
     
     # Load installed plugins into runtime registry
     try:
-        from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
+        from app.modules.plugin.runtime.loader import PluginRuntimeLoader
         PluginRuntimeLoader().load_all()
     except Exception:
         # Best-effort; do not block app startup
         pass
 
-    dataset_worker_task = None
-    if getattr(app_settings, "dataset_ingest_worker_enabled", False):
+    knowledge_worker_task = None
+    if getattr(app_settings, "knowledge_ingest_worker_enabled", False):
         try:
-            from app.modules.dataset.runtime.ingest_worker import GlobalDatasetIngestWorker
-            worker = GlobalDatasetIngestWorker()
-            dataset_worker_task = asyncio.create_task(
+            from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+            worker = GlobalKnowledgeIngestWorker()
+            knowledge_worker_task = asyncio.create_task(
                 worker.run_loop(
-                    poll_interval=max(0.1, app_settings.dataset_ingest_worker_poll_interval),
-                    max_tasks=app_settings.dataset_ingest_worker_max_tasks,
-                    concurrency=app_settings.dataset_ingest_worker_concurrency,
+                    poll_interval=max(0.1, app_settings.knowledge_ingest_worker_poll_interval),
+                    max_tasks=app_settings.knowledge_ingest_worker_max_tasks,
+                    concurrency=app_settings.knowledge_ingest_worker_concurrency,
                 )
             )
         except Exception:
-            dataset_worker_task = None
+            knowledge_worker_task = None
     
     yield
     
     # Shutdown
     # Cleanup resources if needed
-    if dataset_worker_task:
-        dataset_worker_task.cancel()
+    if knowledge_worker_task:
+        knowledge_worker_task.cancel()
         try:
-            await dataset_worker_task
+            await knowledge_worker_task
         except asyncio.CancelledError:
             pass
 
@@ -214,12 +214,13 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
 # Register routers
 from app.api.v1.identity.router import router as identity_router
 from app.api.v1.workflow.router import router as workflow_router
-from app.api.v1.dataset.router import router as dataset_router
-from app.api.v1.chat.router import router as chat_router
-from app.api.v1.bot.router import router as bot_router
 from app.api.v1.memory.router import router as memory_router
+from app.api.v1.knowledge.router import router as knowledge_router
 from app.api.v1.modelhub.router import router as modelhub_router
-from app.api.v1.pluginmarket.router import router as pluginmarket_router
+from app.api.v1.plugin.router import router as plugin_router
+from app.api.v1.skill.router import router as skill_router
+from app.api.v1.mcp.router import router as mcp_router
+from app.api.v1.observability.router import router as observability_router
 from app.api.v1.run.router import router as run_router
 from app.api.v1.security.router import router as security_router
 from app.api.v1.secrets.router import router as secrets_router
@@ -227,18 +228,21 @@ from app.api.v1.websocket.router import router as websocket_router
 from app.api.v1.sse.router import router as sse_router
 from app.api.v1.health.router import router as health_router
 from app.api.v1.agent.router import router as agent_router
-from app.api.v1.appcenter.router import router as appcenter_router
+from app.api.v1.task.router import router as task_router
+from app.api.v1.thread.router import router as thread_router
 from app.api.v1.notification.router import router as notification_router
+from app.api.v1.responses.router import router as responses_router
 
 # Register routers
 app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
 app.include_router(workflow_router, prefix="/api/v1/workflows", tags=["workflows"])
-app.include_router(dataset_router, prefix="/api/v1/datasets", tags=["datasets"])
-app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
-app.include_router(bot_router, prefix="/api/v1/bots", tags=["bots"])
 app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
+app.include_router(knowledge_router, prefix="/api/v1/knowledge", tags=["knowledge"])
 app.include_router(modelhub_router, prefix="/api/v1/modelhub", tags=["modelhub"])
-app.include_router(pluginmarket_router, prefix="/api/v1/plugins", tags=["plugins"])
+app.include_router(plugin_router, prefix="/api/v1/plugins", tags=["plugins"])
+app.include_router(skill_router, prefix="/api/v1/skills", tags=["skills"])
+app.include_router(mcp_router, prefix="/api/v1/mcp", tags=["mcp"])
+app.include_router(observability_router, prefix="/api/v1/observability", tags=["observability"])
 app.include_router(run_router, prefix="/api/v1/runs", tags=["runs"])
 app.include_router(security_router, prefix="/api/v1/security", tags=["security"])
 app.include_router(secrets_router, prefix="/api/v1/secrets", tags=["secrets"])
@@ -246,8 +250,10 @@ app.include_router(websocket_router, prefix="/api/v1", tags=["websocket"])
 app.include_router(sse_router, prefix="/api/v1/sse", tags=["sse"])
 app.include_router(health_router, tags=["health"])
 app.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
-app.include_router(appcenter_router, prefix="/api/v1/apps", tags=["appcenter"])
+app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
+app.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
 app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
+app.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
 
 
 @app.get("/")

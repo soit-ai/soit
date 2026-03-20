@@ -134,7 +134,7 @@ const chat = {
       title: '引用来源',
       empty: '暂无引用',
       source: '来源',
-      dataset: '数据集',
+      knowledge: '知识库',
     },
   },
 }

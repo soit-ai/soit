@@ -6,7 +6,7 @@ Unit tests for plugin runtime loader.
 import json
 
 from app.kernel.registry.deps import get_registry
-from app.modules.pluginmarket.runtime.loader import PluginRuntimeLoader
+from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 from app.settings.settings import settings
 
 

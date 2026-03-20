@@ -63,7 +63,7 @@ const data = {
     {
       id: 'overview',
       titleKey: 'system.model.sidebar.menu.overview',
-      url: '/model/dashboard',
+      url: '/models/dashboard',
       icon: PieChart,
       isActive: true,
       items: [],
@@ -71,43 +71,43 @@ const data = {
     {
       id: 'types',
       titleKey: 'system.model.sidebar.menu.types',
-      url: '/model/types',
+      url: '/models/types',
       icon: Cpu,
       items: [
         {
           id: 'llm',
           titleKey: 'system.model.sidebar.menu.typesItems.llm',
-          url: '/model/types/llm',
+          url: '/models/types/llm',
           icon: Bot,
         },
         {
           id: 'embedding',
           titleKey: 'system.model.sidebar.menu.typesItems.embedding',
-          url: '/model/types/embedding',
+          url: '/models/types/embedding',
           icon: Code,
         },
         {
           id: 'speech2text',
           titleKey: 'system.model.sidebar.menu.typesItems.speech2text',
-          url: '/model/types/speech2text',
+          url: '/models/types/speech2text',
           icon: FileText,
         },
         {
           id: 'moderation',
           titleKey: 'system.model.sidebar.menu.typesItems.moderation',
-          url: '/model/types/moderation',
+          url: '/models/types/moderation',
           icon: Search,
         },
         {
           id: 'tts',
           titleKey: 'system.model.sidebar.menu.typesItems.tts',
-          url: '/model/types/tts',
+          url: '/models/types/tts',
           icon: Scroll,
         },
         {
           id: 'vision',
           titleKey: 'system.model.sidebar.menu.typesItems.vision',
-          url: '/model/types/vision',
+          url: '/models/types/vision',
           icon: SquareTerminal,
         },
       ],
@@ -115,25 +115,25 @@ const data = {
     {
       id: 'management',
       titleKey: 'system.model.sidebar.menu.management',
-      url: '/model/management',
+      url: '/models/management',
       icon: Settings2,
       items: [
         {
           id: 'deployment',
           titleKey: 'system.model.sidebar.menu.managementItems.deployment',
-          url: '/model/management/deployment',
+          url: '/models/management/deployment',
           icon: GitBranch,
         },
         {
           id: 'performance',
           titleKey: 'system.model.sidebar.menu.managementItems.performance',
-          url: '/model/management/performance',
+          url: '/models/management/performance',
           icon: Zap,
         },
         {
           id: 'versions',
           titleKey: 'system.model.sidebar.menu.managementItems.versions',
-          url: '/model/management/versions',
+          url: '/models/management/versions',
           icon: Clock,
         },
       ],
@@ -141,18 +141,18 @@ const data = {
     {
       id: 'usage',
       titleKey: 'system.model.sidebar.menu.usage',
-      url: '/model/usage',
+      url: '/models/usage',
       icon: BarChart,
       items: [
         {
           id: 'apiUsage',
           titleKey: 'system.model.sidebar.menu.usageItems.apiUsage',
-          url: '/model/usage/api',
+          url: '/models/usage/api',
         },
         {
           id: 'userAnalysis',
           titleKey: 'system.model.sidebar.menu.usageItems.userAnalysis',
-          url: '/model/usage/users',
+          url: '/models/usage/users',
           icon: Users,
         },
       ],
@@ -168,7 +168,7 @@ const data = {
     {
       id: 'feedback',
       titleKey: 'system.model.sidebar.secondary.feedback',
-      url: '/feedback',
+      url: '/observability/feedback',
       icon: Send,
     },
   ],
@@ -176,19 +176,19 @@ const data = {
     {
       id: 'favorites',
       nameKey: 'system.model.sidebar.projects.favorites',
-      url: '/model/favorites',
+      url: '/models/favorites',
       icon: Star,
     },
     {
       id: 'recent',
       nameKey: 'system.model.sidebar.projects.recent',
-      url: '/model/recent',
+      url: '/models/recent',
       icon: Clock,
     },
     {
       id: 'mine',
       nameKey: 'system.model.sidebar.projects.mine',
-      url: '/model/my',
+      url: '/models/my',
       icon: Database,
     },
   ],

@@ -192,10 +192,10 @@ const translation = {
     plugins: '插件',
     exploreMarketplace: '探索 Marketplace',
     pluginsTips: '集成第三方插件或创建与 ChatGPT 兼容的 AI 插件。',
-    datasets: '知识库',
-    datasetsTips: '即将到来: 上传自己的长文本数据，或通过 Webhook 集成自己的数据源',
+    knowledge: '知识库',
+    knowledgeTips: '即将到来: 上传自己的长文本数据，或通过 Webhook 集成自己的数据源',
     newApp: '创建应用',
-    newDataset: '创建知识库',
+    newKnowledge: '创建知识库',
     tools: '工具',
   },
   userProfile: {
@@ -272,8 +272,8 @@ const translation = {
     normalTip: '只能使用应用程序，不能建立应用程序',
     editor: '编辑',
     editorTip: '能够建立并编辑应用程序，不能管理团队设置',
-    datasetOperator: '知识库管理员',
-    datasetOperatorTip: '只能管理知识库',
+    knowledgeOperator: '知识库管理员',
+    knowledgeOperatorTip: '只能管理知识库',
     inviteTeamMember: '添加团队成员',
     inviteTeamMemberTip: '对方在登录后可以访问你的团队数据。',
     emailNotSetup: '由于邮件服务器未设置，无法发送邀请邮件。请将邀请后生成的邀请链接通知用户。',
@@ -556,7 +556,7 @@ const translation = {
     completionApp: '文本生成型应用',
     chatApp: '对话型应用',
   },
-  datasetMenus: {
+  knowledgeMenus: {
     documents: '文档',
     hitTesting: '召回测试',
     settings: '设置',

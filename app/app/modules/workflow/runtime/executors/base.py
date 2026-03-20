@@ -11,6 +11,7 @@ from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.ports.plugins.interface import PluginRuntimePort
+from app.kernel.responses.service import ResponseService
 from app.kernel.trace.writer import TraceWriter
 from app.modules.workflow.application.variable_resolver import VariableResolver
 
@@ -28,6 +29,7 @@ class ExecutionContext:
         tool_port: Optional[ToolPort] = None,
         vector_port: Optional[VectorPort] = None,
         plugin_runtime_port: Optional[PluginRuntimePort] = None,
+        response_service: Optional[ResponseService] = None,
         workflow_policy: Optional[Dict[str, Any]] = None,
         steps_outputs: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
@@ -52,6 +54,7 @@ class ExecutionContext:
         self.tool_port = tool_port
         self.vector_port = vector_port
         self.plugin_runtime_port = plugin_runtime_port
+        self.response_service = response_service
         self.workflow_policy = workflow_policy or {}
         self.steps_outputs = steps_outputs or {}
 

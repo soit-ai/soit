@@ -21,9 +21,9 @@ class RunResponse(BaseModel):
     trace_id: Optional[str]
     mode: str
     kind: Optional[str]
-    app_id: str
-    app_version_id: str
-    app_type: Optional[str]
+    subject_kind: Optional[str]
+    subject_id: Optional[str]
+    subject_version_id: Optional[str]
     status: str
     input_summary: Optional[str]
     output_summary: Optional[str]
@@ -113,10 +113,10 @@ class RunCostDailyResponse(BaseModel):
     storage_bytes: int
 
 
-class RunCostByAppResponse(BaseModel):
-    """Aggregated cost summary by app version."""
+class RunCostBySubjectResponse(BaseModel):
+    """Aggregated cost summary by subject version."""
 
-    app_version_id: Optional[str]
+    subject_version_id: Optional[str]
     tokens_prompt: int
     tokens_completion: int
     embedding_count: int

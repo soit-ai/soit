@@ -1184,7 +1184,7 @@ const translation = {
           env: '.env.example 已更新且文档一致',
           compose: 'docker-compose demo 场景 A/B/C 通过',
           apiDocs: '关键 API 已有文档（OpenAPI 或 README）',
-          ui: 'Runs/Workflow/Dataset 页面已验证',
+          ui: 'Runs/Workflow/Knowledge 页面已验证',
           security: '日志/Trace 无明文 secrets',
           changelog: '版本标记与变更日志已更新',
         },

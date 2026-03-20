@@ -1,0 +1,2 @@
+"""Plugin installation layer placeholder."""
+

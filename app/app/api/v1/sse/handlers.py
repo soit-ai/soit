@@ -9,41 +9,46 @@ import json
 import asyncio
 
 from app.kernel.contracts.context import RequestContext
-from app.modules.workflow.application.app_facade import WorkflowAppFacadeService
+from app.kernel.responses.schemas import ResponseCreateRequest
+from app.modules.workflow.application.service import WorkflowService
 from app.wiring import get_container
+from app.wiring.services import build_response_projection_coordinator
 
 
 class SSEHandlers:
     """Handlers for SSE endpoints."""
 
-    def __init__(self, workflow_service: WorkflowAppFacadeService):
+    def __init__(self, workflow_service: WorkflowService):
         """Initialize SSE handlers.
         
         Args:
-            workflow_service: WorkflowAppFacadeService instance.
+            workflow_service: WorkflowService instance.
         """
         self.workflow_service = workflow_service
         self.logger = logging.getLogger(__name__)
+
+    async def _compile_execution_plan(self, workflow_id: str, inputs: dict, run_id: str):
+        """Compile workflow from the new workflow domain."""
+
+        return await self.workflow_service.compile_workflow(workflow_id, inputs, run_id)
     
     async def stream_execution(
         self,
         ctx: RequestContext,
-        app_id: str,
+        workflow_id: str,
         inputs: dict,
     ) -> AsyncGenerator[str, None]:
         """Stream workflow execution updates (SSE).
         
         Args:
             ctx: Request context.
-            app_id: App ID.
+            workflow_id: Workflow ID.
             inputs: Workflow inputs.
             
         Yields:
             SSE formatted data chunks.
         """
         from app.kernel.commons.ids import generate_run_id
-        from app.modules.workflow.runtime.engine import ExecutionEngine
-        from app.kernel.trace.writer import TraceWriter
         from app.kernel.trace.models import RunStep, Run
         from sqlalchemy import select, and_
         
@@ -84,9 +89,10 @@ class SSEHandlers:
                 "status": payload.get("status"),
                 "mode": payload.get("mode"),
                 "kind": payload.get("kind"),
-                "app_id": payload.get("app_id"),
-                "app_version_id": payload.get("app_version_id"),
-                "app_type": payload.get("app_type"),
+                "workflow_id": payload.get("subject_id"),
+                "subject_kind": payload.get("subject_kind"),
+                "subject_id": payload.get("subject_id"),
+                "subject_version_id": payload.get("subject_version_id"),
                 "output_summary": payload.get("output_summary"),
                 "error_code": payload.get("error_code"),
                 "error_message": payload.get("error_message"),
@@ -120,21 +126,15 @@ class SSEHandlers:
 
         try:
             # Compile workflow
-            execution_plan = await self.workflow_service.compile_workflow(app_id, inputs, run_id)
+            execution_plan = await self._compile_execution_plan(workflow_id, inputs, run_id)
             
             yield f"event: compiled\n"
             yield f"data: {json.dumps({'run_id': run_id, 'status': 'compiled'})}\n\n"
             
-            # Initialize execution engine
+            # Reuse the workflow service engine so SSE execution matches normal runtime wiring.
             db = self.workflow_service.db
             container = get_container()
-            trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
-            execution_engine = ExecutionEngine(
-                db=db,
-                ctx=ctx,
-                trace_writer=trace_writer,
-            )
-
+            execution_engine = self.workflow_service.engine
             event_bus = container.get_event_bus()
             subscription_id = await event_bus.subscribe(
                 _event_handler,
@@ -291,9 +291,10 @@ class SSEHandlers:
                 "status": payload.get("status"),
                 "mode": payload.get("mode"),
                 "kind": payload.get("kind"),
-                "app_id": payload.get("app_id"),
-                "app_version_id": payload.get("app_version_id"),
-                "app_type": payload.get("app_type"),
+                "workflow_id": payload.get("subject_id"),
+                "subject_kind": payload.get("subject_kind"),
+                "subject_id": payload.get("subject_id"),
+                "subject_version_id": payload.get("subject_version_id"),
                 "output_summary": payload.get("output_summary"),
                 "error_code": payload.get("error_code"),
                 "error_message": payload.get("error_message"),
@@ -339,8 +340,8 @@ class SSEHandlers:
                 yield f"data: {json.dumps({'run_id': run_id, 'error': 'Run not found'})}\n\n"
                 return
 
-            if run.mode == "workflow" and run.app_id:
-                await self.workflow_service.get_workflow(run.app_id)
+            if run.mode == "workflow" and run.subject_id:
+                await self.workflow_service.get_workflow(run.subject_id)
 
             last_step_time = None
             if last_event_id:
@@ -388,9 +389,10 @@ class SSEHandlers:
                     "status": run.status,
                     "mode": run.mode,
                     "kind": run.kind,
-                    "app_id": run.app_id,
-                    "app_version_id": run.app_version_id,
-                    "app_type": run.app_type,
+                    "workflow_id": run.subject_id,
+                    "subject_kind": run.subject_kind,
+                    "subject_id": run.subject_id,
+                    "subject_version_id": run.subject_version_id,
                     "output_summary": run.output_summary,
                     "error_code": run.error_code,
                     "error_message": run.error_message,
@@ -497,22 +499,31 @@ class SSEHandlers:
     async def stream_chat(
         self,
         ctx: RequestContext,
-        app_id: str,
+        workflow_id: str,
         messages: list,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion (SSE).
         
         Args:
             ctx: Request context.
-            app_id: App ID.
+            workflow_id: Workflow ID.
             messages: Chat messages.
             
         Yields:
             SSE formatted data chunks.
         """
-        inputs = {
-            "messages": messages,
-        }
-        
-        async for chunk in self.stream_execution(ctx, app_id, inputs):
-            yield chunk
+        await self.workflow_service.get_workflow(workflow_id)
+        projection_coordinator = build_response_projection_coordinator(db=self.workflow_service.db, ctx=ctx)
+        payload = ResponseCreateRequest(
+            input={"messages": messages},
+            stream=True,
+            metadata={
+                "source": "sse.chat",
+                "workflow_id": workflow_id,
+            },
+        )
+
+        async for item in projection_coordinator.execute_stream(payload):
+            yield f"event: {item['event']}\n"
+            yield f"data: {json.dumps(item['data'])}\n\n"
+        yield "data: [DONE]\n\n"

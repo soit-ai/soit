@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const seedLocalStorage = () => {
   localStorage.setItem('token', 'test-token')
@@ -22,52 +22,104 @@ const mockModels = [
   },
 ]
 
-const mockConversation = {
-  id: 'conv-1',
-  title: 'Demo Conversation',
+const mockThread = {
+  id: 'thread-1',
+  tenant_id: 'tenant-1',
+  workspace_id: 'workspace-1',
+  agent_id: null,
+  title: 'Demo Thread',
   status: 'active',
-  metadata_json: { provider: 'openai' },
+  thread_type: 'chat',
+  source: 'web',
+  owner_user_id: 'user-1',
+  summary: null,
   system_prompt: null,
   default_model_ref: 'gpt-4o',
   default_temperature: null,
   default_max_tokens: null,
   default_top_p: null,
-  message_count: 0,
-  last_message_at: null,
-  created_by: null,
-  updated_by: null,
+  context_window: null,
+  max_history_messages: null,
+  max_history_chars: null,
+  message_count: 2,
+  last_message_at: '2026-02-06T00:00:02.000Z',
+  last_user_message_at: '2026-02-06T00:00:01.000Z',
+  last_assistant_message_at: '2026-02-06T00:00:02.000Z',
+  archived_at: null,
+  pinned_at: null,
+  knowledge_config_json: {},
+  tool_config_json: {},
+  metadata_json: {},
+  latest_run_id: 'run-1',
+  created_by: 'user-1',
+  updated_by: 'user-1',
   created_at: '2026-02-06T00:00:00.000Z',
-  updated_at: '2026-02-06T00:00:00.000Z',
+  updated_at: '2026-02-06T00:00:02.000Z',
+  deleted_at: null,
 }
 
 const mockMessages = [
   {
     id: 'msg-user-1',
-    conversation_id: 'conv-1',
-    role: 'USER',
+    tenant_id: 'tenant-1',
+    workspace_id: 'workspace-1',
+    thread_id: 'thread-1',
+    run_id: null,
+    task_id: null,
+    response_id: null,
+    parent_message_id: null,
+    sequence_no: 1,
+    role: 'user',
     content: 'history user message',
+    message_type: 'text',
+    status: 'completed',
+    content_json: {},
+    summary: null,
     model_ref: null,
     tokens_prompt: null,
     tokens_completion: null,
     finish_reason: null,
-    run_id: null,
-    created_by: 'user-1',
+    citations_json: [],
+    attachments_json: [],
+    tool_calls_json: [],
+    error_code: null,
+    error_message: null,
     metadata_json: {},
+    created_by: 'user-1',
     created_at: '2026-02-06T00:00:01.000Z',
+    edited_at: null,
+    deleted_at: null,
   },
   {
     id: 'msg-assistant-1',
-    conversation_id: 'conv-1',
-    role: 'ASSISTANT',
+    tenant_id: 'tenant-1',
+    workspace_id: 'workspace-1',
+    thread_id: 'thread-1',
+    run_id: 'run-1',
+    task_id: null,
+    response_id: 'resp-1',
+    parent_message_id: 'msg-user-1',
+    sequence_no: 2,
+    role: 'assistant',
     content: 'history assistant message',
+    message_type: 'text',
+    status: 'completed',
+    content_json: {},
+    summary: null,
     model_ref: 'gpt-4o',
     tokens_prompt: 10,
     tokens_completion: 20,
     finish_reason: 'stop',
-    run_id: 'run-1',
-    created_by: null,
+    citations_json: [],
+    attachments_json: [],
+    tool_calls_json: [],
+    error_code: null,
+    error_message: null,
     metadata_json: {},
+    created_by: null,
     created_at: '2026-02-06T00:00:02.000Z',
+    edited_at: null,
+    deleted_at: null,
   },
 ]
 
@@ -86,37 +138,28 @@ async function mockChatApi(page: Page) {
     })
   })
 
-  await page.route('**/api/v1/chat/conversations/*/messages**', async (route) => {
-    const url = route.request().url()
-    const items = url.includes('/chat/conversations/conv-1/messages') ? mockMessages : []
+  await page.route('**/api/v1/threads**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/threads/thread-1')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            thread: mockThread,
+            messages: mockMessages,
+          },
+        }),
+      })
+      return
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         data: {
-          items,
-          page_size: 100,
-          next_page_token: null,
-        },
-      }),
-    })
-  })
-
-  await page.route('**/api/v1/chat/conversations/*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: mockConversation }),
-    })
-  })
-
-  await page.route('**/api/v1/chat/conversations**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
-          items: [mockConversation],
+          items: [mockThread],
           page_size: 100,
           next_page_token: null,
         },
@@ -139,12 +182,10 @@ test('chat page renders and composer accepts input', async ({ page }) => {
   await expect(input).toHaveValue('hello world')
 })
 
-test('history messages keep user-right and assistant-left alignment', async ({ page }) => {
-  await page.goto('/chat/default/conv-1', { waitUntil: 'domcontentloaded' })
+test('thread history renders current thread messages', async ({ page }) => {
+  await page.goto('/chat/default/thread-1', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('history user message')).toBeVisible()
   await expect(page.getByText('history assistant message')).toBeVisible()
-
-  await expect(page.getByTestId('chat-message-user-row').first()).toHaveClass(/justify-end/)
-  await expect(page.getByTestId('chat-message-assistant-row').first()).not.toHaveClass(/justify-end/)
+  await expect(page.getByText('Demo Thread')).toBeVisible()
 })

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AudioWaveform, Send, Bot, Command, GalleryVerticalEnd, LifeBuoy, Unplug, ShoppingBag, Workflow, ScrollText, BrainCog, MessageCircleMore, ShieldCheck, Activity, Settings } from 'lucide-react'
+import { AudioWaveform, Bot, Command, GalleryVerticalEnd, Workflow, ScrollText, BrainCog, MessageCircleMore, Activity, Settings, LayoutDashboard, Send, Unplug } from 'lucide-react'
 
 import { NavUser } from '@/components/common/nav-user'
 import { TeamSwitcher } from '@/components/common/team-switcher'
@@ -44,31 +44,31 @@ const data = {
   ],
   navApp: [
     {
-      title: 'Chat',
-      url: '/chat',
-      type: 'chat',
-      icon: MessageCircleMore,
+      title: 'Dashboard',
+      url: '/',
+      type: 'dashboard',
+      icon: LayoutDashboard,
       isActive: true,
       isNav: true,
     },
     {
-      title: 'Bot',
-      url: '/bot',
-      type: 'bot',
+      title: 'Agents',
+      url: '/agents',
+      type: 'agents',
       icon: Bot,
+      isActive: true,
+      isNav: true,
+    },
+    {
+      title: 'Chat',
+      url: '/chat',
+      type: 'chat',
+      icon: MessageCircleMore,
       isActive: false,
       isNav: true,
     },
     {
-      title: 'Dataset',
-      url: '/dataset',
-      type: 'dataset',
-      icon: ScrollText,
-      isActive: false,
-      isNav: true,
-    },
-    {
-      title: 'Workflow',
+      title: 'Workflows',
       url: '/workflow',
       type: 'workflow',
       icon: Workflow,
@@ -76,42 +76,42 @@ const data = {
       isNav: true,
     },
     {
-      title: 'Runs',
-      url: '/run',
-      type: 'run',
+      title: 'Knowledge',
+      url: '/knowledge',
+      type: 'knowledge',
+      icon: ScrollText,
+      isActive: false,
+      isNav: true,
+    },
+    {
+      title: 'Tasks',
+      url: '/tasks',
+      type: 'tasks',
+      icon: Command,
+      isActive: false,
+      isNav: true,
+    },
+    {
+      title: 'Observability',
+      url: '/observability',
+      type: 'observability',
       icon: Activity,
       isActive: false,
       isNav: true,
     },
     {
-      title: 'Model',
-      url: '/model',
-      type: 'model',
+      title: 'Models',
+      url: '/models',
+      type: 'models',
       icon: BrainCog,
       isActive: false,
       isNav: true,
     },
     {
-      title: 'Plugin',
-      url: '/plugin',
-      type: 'plugin',
+      title: 'Plugins',
+      url: '/plugins',
+      type: 'plugins',
       icon: Unplug,
-      isActive: false,
-      isNav: true,
-    },
-    {
-      title: 'Safe',
-      url: '/safe',
-      type: 'safe',
-      icon: ShieldCheck,
-      isActive: false,
-      isNav: true,
-    },
-    {
-      title: 'Store',
-      url: '/store',
-      type: 'store',
-      icon: ShoppingBag,
       isActive: false,
       isNav: true,
     },
@@ -119,18 +119,18 @@ const data = {
   navSecondary: [
     {
       title: 'Feedback',
-      url: '/system/feedback',
+      url: '/observability/feedback',
       icon: Send,
     },
     {
       title: 'Monitor',
-      url: '/system/monitor',
+      url: '/observability/monitor',
       icon: Activity,
     },
     {
-      title: 'Setting',
-      url: '/setting',
-      type: 'setting',
+      title: 'Settings',
+      url: '/settings',
+      type: 'settings',
       icon: Settings,
       isActive: false,
       isNav: true,
@@ -148,12 +148,11 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
 
   // Check if the current path matches.
   const checkActive = (type?: string) => {
-    // Match a specific path segment.
-    const isMatch = (_path: string) => window.location.pathname.indexOf(_path) > -1
-    if (isMatch('/' + type)) {
-      return true
+    const pathname = window.location.pathname
+    if (type === 'dashboard') {
+      return pathname === '/' || pathname.startsWith('/dashboard')
     }
-    return false
+    return pathname.startsWith(`/${type}`)
   }
   return (
     <div className={cn('bg-sidebar', props.className)}>
@@ -216,7 +215,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             </SidebarGroup>
           </div>
         </ScrollArea>
-        <NavSecondary items={data.navSecondary} className="mt-auto " />
+        <NavSecondary items={data.navSecondary||[]} className="mt-auto " />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

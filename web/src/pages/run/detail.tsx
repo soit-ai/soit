@@ -8,6 +8,12 @@ import { toast } from 'sonner'
 import { useNavigate } from '@/hooks/use-navigate'
 import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 import { getRunDetail, type RunDetailResponse, type RunStepResponse } from '@/services/run-service'
+import {
+  getRunResponseTimeline,
+  type ResponseEventRead,
+  type ResponseTimelineItemRead,
+  type RunResponseTimelineRead,
+} from '@/services/responses-service'
 
 const formatTimestamp = (value?: string | null) => {
   if (!value) return '-'
@@ -27,23 +33,48 @@ const getStepDuration = (step: RunStepResponse) => {
   return `${Math.max(0, endedAt - startedAt)} ms`
 }
 
+const formatPayloadPreview = (payload?: Record<string, unknown> | null) => {
+  if (!payload || Object.keys(payload).length === 0) return '-'
+  try {
+    const serialized = JSON.stringify(payload)
+    return serialized.length > 220 ? `${serialized.slice(0, 220)}...` : serialized
+  } catch {
+    return '[unserializable payload]'
+  }
+}
+
+const getResponseTextPreview = (item: ResponseTimelineItemRead) => {
+  const directText = item.response.output_json?.text
+  if (typeof directText === 'string' && directText) return directText
+  const completedEvent = item.events.find((event) => event.type === 'response.output_text.completed')
+  const completedText = completedEvent?.payload_json?.text
+  return typeof completedText === 'string' && completedText ? completedText : '-'
+}
+
+const getEventKey = (event: ResponseEventRead) => `${event.response_id}:${event.sequence}:${event.id}`
+
 function Page() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { runId } = useParams<{ runId: string }>()
   const [detail, setDetail] = useState<RunDetailResponse | null>(null)
+  const [responseTimeline, setResponseTimeline] = useState<RunResponseTimelineRead | null>(null)
   const [loading, setLoading] = useState(false)
 
   const fetchDetail = async () => {
     if (!runId) return
     try {
       setLoading(true)
-      const data = await getRunDetail(runId, {
-        include_steps: true,
-        include_cost: true,
-        include_artifacts: true,
-      })
-      setDetail(data)
+      const [runDetail, timeline] = await Promise.all([
+        getRunDetail(runId, {
+          include_steps: true,
+          include_cost: true,
+          include_artifacts: true,
+        }),
+        getRunResponseTimeline(runId),
+      ])
+      setDetail(runDetail)
+      setResponseTimeline(timeline)
     } catch (error) {
       toast.error(t('run.detail.toast.fetchError'))
       console.error('Failed to fetch run detail:', error)
@@ -88,7 +119,7 @@ function Page() {
     <div className="flex flex-1 flex-col gap-4 p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => navigate('/run')}>
+          <Button variant="ghost" onClick={() => navigate('/observability/runs')}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             {t('run.detail.actions.back')}
           </Button>
@@ -117,7 +148,7 @@ function Page() {
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('run.detail.fields.app')}</div>
-              <div className="text-sm font-medium">{run?.app_version_id ?? '-'}</div>
+              <div className="text-sm font-medium">{run?.subject_version_id ?? '-'}</div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('run.detail.fields.trace')}</div>
@@ -281,6 +312,102 @@ function Page() {
                   {t('run.detail.artifacts.size', { size: artifact.size_bytes })}
                 </div>
               )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('run.detail.responses.title')}</CardTitle>
+          <CardDescription>{t('run.detail.responses.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!responseTimeline?.items?.length && (
+            <div className="text-sm text-muted-foreground">{t('run.detail.responses.empty')}</div>
+          )}
+          {responseTimeline?.items?.map((item) => (
+            <div key={item.response.id} className="rounded-md border p-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">{item.response.id}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t('run.detail.responses.meta', {
+                      status: item.response.status,
+                      model: item.response.model || '-',
+                      provider: item.response.provider || '-',
+                    })}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t('run.detail.responses.createdAt', {
+                      createdAt: formatTimestamp(item.response.created_at),
+                    })}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t('run.detail.responses.completedAt', {
+                      completedAt: formatTimestamp(item.response.completed_at),
+                    })}
+                  </div>
+                </div>
+                <div className="max-w-2xl text-xs text-muted-foreground">
+                  {t('run.detail.responses.output', {
+                    output: getResponseTextPreview(item),
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {t('run.detail.responses.eventsTitle')}
+                </div>
+                {item.events.length === 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    {t('run.detail.responses.eventsEmpty')}
+                  </div>
+                )}
+                {item.events.map((event) => (
+                  <div key={getEventKey(event)} className="rounded border bg-muted/30 p-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-medium">{event.type}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        #{event.sequence} · {formatTimestamp(event.created_at)}
+                      </div>
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                      {formatPayloadPreview(event.payload_json)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {t('run.detail.responses.toolsTitle')}
+                </div>
+                {item.tool_calls.length === 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    {t('run.detail.responses.toolsEmpty')}
+                  </div>
+                )}
+                {item.tool_calls.map((toolCall) => (
+                  <div key={toolCall.id} className="rounded border bg-muted/30 p-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-medium">{toolCall.tool_name}</div>
+                      <div className="text-[11px] text-muted-foreground">{toolCall.status}</div>
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                      {t('run.detail.responses.toolArgs', {
+                        args: formatPayloadPreview(toolCall.arguments_json),
+                      })}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                      {t('run.detail.responses.toolResult', {
+                        result: formatPayloadPreview(toolCall.result_json),
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </CardContent>

@@ -22,6 +22,18 @@ class AgentCreate(BaseModel):
     visibility: str = Field(default="private", pattern="^(private|workspace|tenant|public)$")
     """Agent visibility."""
 
+    icon_url: Optional[str] = Field(default=None, max_length=2000)
+    """Agent icon URL."""
+
+    category: Optional[str] = Field(default=None, max_length=128)
+    """Agent category."""
+
+    is_public: bool = False
+    """Whether the agent is publicly discoverable."""
+
+    featured: bool = False
+    """Whether the agent is featured in listings."""
+
     tags: Optional[List[str]] = None
     """Agent tags."""
 
@@ -41,6 +53,18 @@ class AgentUpdate(BaseModel):
     visibility: Optional[str] = Field(default=None, pattern="^(private|workspace|tenant|public)$")
     """Agent visibility."""
 
+    icon_url: Optional[str] = Field(default=None, max_length=2000)
+    """Agent icon URL."""
+
+    category: Optional[str] = Field(default=None, max_length=128)
+    """Agent category."""
+
+    is_public: Optional[bool] = None
+    """Whether the agent is publicly discoverable."""
+
+    featured: Optional[bool] = None
+    """Whether the agent is featured in listings."""
+
     tags: Optional[List[str]] = None
     """Agent tags."""
 
@@ -55,6 +79,14 @@ class AgentResponse(BaseModel):
     description: Optional[str]
     status: str
     visibility: str
+    icon_url: Optional[str]
+    category: Optional[str]
+    is_public: bool
+    featured: bool
+    downloads_count: int
+    rating: Optional[float]
+    reviews_count: int
+    published_at: Optional[datetime]
     tags: Optional[List[str]]
     current_version_id: Optional[str]
     published_version_id: Optional[str]
@@ -75,6 +107,9 @@ class AgentVersionCreate(BaseModel):
 
     model_ref: str
     """Model reference."""
+
+    knowledge_refs: Optional[List[str]] = None
+    """Optional knowledge base refs bound into agent RAG config."""
 
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     """Temperature."""
@@ -141,6 +176,23 @@ class AgentVersionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AgentBindingResponse(BaseModel):
+    """Agent binding response schema."""
+
+    id: str
+    agent_id: str
+    agent_version_id: Optional[str]
+    binding_type: str
+    target_id: Optional[str]
+    target_key: Optional[str]
+    config_json: Dict[str, Any]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AgentPublishRequest(BaseModel):
     """Publish agent version request."""
 
@@ -153,6 +205,12 @@ class AgentRunRequest(BaseModel):
 
     messages: List[ChatMessageInput] = Field(..., min_length=1)
     """Conversation messages."""
+
+    thread_id: Optional[str] = None
+    """Existing thread ID to append messages into."""
+
+    thread_title: Optional[str] = Field(default=None, max_length=512)
+    """Optional title used when a new thread is created."""
 
     model: Optional[str] = None
     """Model reference."""
@@ -219,6 +277,9 @@ class AgentRunResponse(BaseModel):
     """Run agent response."""
 
     run_id: str
+    response_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    task_id: Optional[str] = None
     output: str
     model: str
     iterations: int

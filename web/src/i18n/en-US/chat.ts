@@ -135,7 +135,7 @@ const chat = {
       title: 'Citations',
       empty: 'No citations',
       source: 'Source',
-      dataset: 'Dataset',
+      knowledge: 'Knowledge',
     },
   },
 }

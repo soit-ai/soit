@@ -11,40 +11,27 @@ export default [
     // index
     index('./pages/index/index.tsx'),
 
+    ...prefix('/agents', [
+      index('./pages/agents/index.tsx'),
+      route(':agentId', './pages/agents/detail.tsx'),
+    ]),
+
     // chat layout
-    ...prefix('/chat/:appId?/:id?', [
+    ...prefix('/chat/:agentId?/:threadId?', [
       index('./pages/chat/index.tsx'),
     ]),
 
-    // bot module route.
-    ...prefix('/bot', [
-      index('./pages/bot/index.tsx'),
-      layout('./pages/bot/detail/ui/layout.tsx', [
-        route(':id/build?', './pages/bot/detail/build.tsx'),
-        route(':id/log', './pages/bot/detail/log.tsx'),
-        route(':id/monitor', './pages/bot/detail/monitor.tsx'),
-        route(':id/publish', './pages/bot/detail/publish.tsx'),
-        route(':id/setting', './pages/bot/detail/setting.tsx'),
-      ]),
-    ]),
-
-    // dataset module route.
-    ...prefix('/dataset', [
-      index('./pages/dataset/index.tsx'),
-      // layout('./pages/dataset/detail/ui/layout.tsx', [
-      //   route(':id/build?', './pages/dataset/detail/build.tsx'),
-      // ]),
-      layout('./pages/dataset/detail/ui/layout.tsx', [
-        route(':datasetId/document', './pages/dataset/detail/document.tsx'),
-        route(':datasetId/document/:documentId/chunk', './pages/dataset/detail/chunk.tsx'),
-        route(':datasetId/log', './pages/dataset/detail/log.tsx'),
-        route(':datasetId/monitor', './pages/dataset/detail/monitor.tsx'),
-        route(':datasetId/publish', './pages/dataset/detail/publish.tsx'),
-        route(':datasetId/setting', './pages/dataset/detail/setting.tsx'),
-        route(':datasetId/application', './pages/dataset/detail/application.tsx'),
-        route(':datasetId/crawler', './pages/dataset/detail/crawler.tsx'),
-        route(':datasetId/analytics', './pages/dataset/detail/analytics.tsx'),
-        route(':datasetId/runs/:runId', './pages/dataset/detail/run-detail.tsx'),
+    ...prefix('/knowledge', [
+      index('./pages/knowledge/index.tsx'),
+      route(':knowledgeId', './pages/knowledge/detail.tsx'),
+      route(':knowledgeId/documents', './pages/knowledge/documents.tsx'),
+      layout('./pages/knowledge/detail/ui/layout.tsx', [
+        route(':knowledgeId/document', './pages/knowledge/detail/document.tsx'),
+        route(':knowledgeId/document/:documentId/chunk', './pages/knowledge/detail/chunk.tsx'),
+        route(':knowledgeId/application', './pages/knowledge/detail/application.tsx'),
+        route(':knowledgeId/setting', './pages/knowledge/detail/setting.tsx'),
+        route(':knowledgeId/analytics', './pages/knowledge/analytics.tsx'),
+        route(':knowledgeId/runs/:runId', './pages/knowledge/detail/run-detail.tsx'),
       ]),
     ]),
 
@@ -60,54 +47,52 @@ export default [
       ]),
     ]),
 
-    // run module route.
-    ...prefix('/run', [
-      index('./pages/run/index.tsx'),
-      route(':runId', './pages/run/detail.tsx'),
+    ...prefix('/tasks', [
+      index('./pages/tasks/index.tsx'),
+      route(':taskId', './pages/tasks/detail.tsx'),
+    ]),
+
+    ...prefix('/observability', [
+      index('./pages/observability/index.tsx'),
+      route('runs', './pages/run/index.tsx'),
+      route('runs/:runId', './pages/run/detail.tsx'),
+      route('feedback', './pages/system/feedback.tsx'),
+      route('monitor', './pages/system/monitor.tsx'),
+    ]),
+
+    // legacy aliases kept for active browser sessions during the IA cutover.
+    ...prefix('/system', [
+      route('*', './pages/system/legacy-redirect.tsx'),
     ]),
 
     // plugin module route.
-    ...prefix('/plugin', [
+    ...prefix('/plugins', [
       index('./pages/plugin/index.tsx'),
       // layout('./pages/plugin/detail/ui/layout.tsx', [
       //   route(':id/build?', './pages/plugin/detail/build.tsx'),
       // ]),
     ]),
 
+    ...prefix('/plugin', [
+      route('*', './pages/plugin/legacy-redirect.tsx'),
+    ]),
+
     // model module route.
-    ...prefix('/model', [
+    ...prefix('/models', [
       index('./pages/model/index.tsx'),
       // layout('./pages/model/detail/ui/layout.tsx', [
       //   route(':id/build?', './pages/model/detail/build.tsx'),
       // ]),
     ]),
 
-    // safe module route.
-    ...prefix('/safe', [
-      index('./pages/safe/index.tsx'),
-      // layout('./pages/safe/detail/ui/layout.tsx', [
-      //   route(':id/build?', './pages/safe/detail/build.tsx'),
-      // ]),
-    ]),
-
-    // store module route.
-    ...prefix('/store', [
-      index('./pages/store/index.tsx'),
-      // layout('./pages/store/detail/ui/layout.tsx', [
-      //   route(':id/build?', './pages/store/detail/build.tsx'),
-      // ]),
-    ]),
-
-    // system module route.
-    ...prefix('/system', [
-      route('feedback', './pages/system/feedback.tsx'),
-      route('monitor', './pages/system/monitor.tsx'),
+    ...prefix('/model', [
+      route('*', './pages/model/legacy-redirect.tsx'),
     ]),
 
     route('/notifications', './pages/notifications/index.tsx'),
 
     // setting module route.
-    ...prefix('/setting', [
+    ...prefix('/settings', [
       layout('./pages/setting/index.tsx', [
         index('./pages/setting/item/index.tsx'),
         route('account', './pages/setting/item/account.tsx'),
@@ -125,11 +110,10 @@ export default [
       ]),
     ]),
 
-    // route('/welcome', './pages/welcome/welcome.tsx'),
-  ]),
+    ...prefix('/setting', [
+      route('*', './pages/setting/legacy-redirect.tsx'),
+    ]),
 
-  // only app layout
-  layout('./components/layout/app-layout.tsx', [
-    route('/app/:type?/:id?', './pages/app/index.tsx'),
+    // route('/welcome', './pages/welcome/welcome.tsx'),
   ]),
 ] satisfies RouteConfig

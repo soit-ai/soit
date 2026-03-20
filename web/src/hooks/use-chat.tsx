@@ -4,14 +4,14 @@ import { ChatBox, type ChatBoxProps } from '@/components/ui/chat/chat-box'
 import { Thread, type ThreadProps } from '@/components/ui/chat/thread'
 
 interface UseChatOptions {
-  appId?: string
-  conversationId?: string
+  agentId?: string
+  threadId?: string
   modelName?: string
   historyReloadKey?: number | string
 }
 
 type HookChatBoxProps = ThreadProps & {
-  conversationId?: string
+  threadId?: string
   modelName?: string
   historyReloadKey?: number | string
 }
@@ -26,21 +26,21 @@ ChatUI.displayName = 'ChatUI'
 
 export const useChat = (options: UseChatOptions = {}) => {
   const {
-    appId = 'default',
-    conversationId: initialConversationId,
+    agentId = 'default',
+    threadId: initialThreadId,
     modelName: initialModelName,
     historyReloadKey: initialHistoryReloadKey = 0,
   } = options
 
-  const [conversationId, setConversationId] = useState(initialConversationId || '')
+  const [threadId, setThreadId] = useState(initialThreadId || '')
   const [modelName, setModelName] = useState(initialModelName || '')
   const [historyReloadKey, setHistoryReloadKey] = useState<number | string>(
     initialHistoryReloadKey
   )
 
   useEffect(() => {
-    setConversationId(initialConversationId || '')
-  }, [initialConversationId])
+    setThreadId(initialThreadId || '')
+  }, [initialThreadId])
 
   useEffect(() => {
     setModelName(initialModelName || '')
@@ -57,13 +57,13 @@ export const useChat = (options: UseChatOptions = {}) => {
   }, [])
 
   const chatBoxProps = useMemo(
-    (): Omit<ChatBoxProps, keyof ThreadProps> & Pick<ChatBoxProps, 'appId'> => ({
-      appId,
-      conversationId: conversationId || undefined,
+    (): Omit<ChatBoxProps, keyof ThreadProps> & Pick<ChatBoxProps, 'agentId'> => ({
+      agentId,
+      threadId: threadId || undefined,
       modelName: modelName || undefined,
       historyReloadKey,
     }),
-    [appId, conversationId, modelName, historyReloadKey]
+    [agentId, threadId, modelName, historyReloadKey]
   )
 
   const HookChatBox = useMemo(
@@ -71,7 +71,7 @@ export const useChat = (options: UseChatOptions = {}) => {
       forwardRef<AssistantClient, HookChatBoxProps>(
         (
           {
-            conversationId: propConversationId,
+            threadId: propThreadId,
             modelName: propModelName,
             historyReloadKey: propHistoryReloadKey,
             ...threadProps
@@ -81,8 +81,8 @@ export const useChat = (options: UseChatOptions = {}) => {
           return (
             <ChatBox
               ref={ref}
-              appId={appId}
-              conversationId={(propConversationId ?? conversationId) || undefined}
+              agentId={agentId}
+              threadId={(propThreadId ?? threadId) || undefined}
               modelName={(propModelName ?? modelName) || undefined}
               historyReloadKey={propHistoryReloadKey ?? historyReloadKey}
               {...threadProps}
@@ -90,17 +90,17 @@ export const useChat = (options: UseChatOptions = {}) => {
           )
         }
       ),
-    [appId, conversationId, modelName, historyReloadKey]
+    [agentId, threadId, modelName, historyReloadKey]
   )
 
   HookChatBox.displayName = 'HookChatBox'
 
   return {
-    appId,
-    conversationId,
+    agentId,
+    threadId,
     modelName,
     historyReloadKey,
-    setConversationId,
+    setThreadId,
     setModelName,
     setHistoryReloadKey,
     refreshHistory,

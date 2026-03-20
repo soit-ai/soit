@@ -23,28 +23,30 @@ def test_run_cost_summary_filters(db):
     )
 
     run_id_chat = generate_run_id()
-    run_id_bot = generate_run_id()
+    run_id_agent = generate_run_id()
 
     run_chat = Run(
         id=run_id_chat,
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
-        app_version_id="conv-1",
+        subject_kind="thread",
+        subject_id="thr-chat",
+        subject_version_id="conv-1",
         status="succeeded",
     )
-    run_bot = Run(
-        id=run_id_bot,
+    run_agent = Run(
+        id=run_id_agent,
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
-        mode="bot",
-        app_id="app-bot",
-        app_version_id="bot-1",
+        mode="agent",
+        subject_kind="agent",
+        subject_id="agt-runtime",
+        subject_version_id="agtv-1",
         status="succeeded",
     )
     db.add(run_chat)
-    db.add(run_bot)
+    db.add(run_agent)
 
     cost_chat = RunCostEntry(
         run_id=run_id_chat,
@@ -61,8 +63,8 @@ def test_run_cost_summary_filters(db):
         completion_tokens=7,
         total_tokens=19,
     )
-    cost_bot = RunCostEntry(
-        run_id=run_id_bot,
+    cost_agent = RunCostEntry(
+        run_id=run_id_agent,
         step_id=None,
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -77,7 +79,7 @@ def test_run_cost_summary_filters(db):
         total_tokens=6,
     )
     db.add(cost_chat)
-    db.add(cost_bot)
+    db.add(cost_agent)
     db.commit()
 
     service = RunService(db, ctx)
@@ -106,8 +108,9 @@ def test_list_runs_scope_filtering(db):
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-local",
+        subject_version_id="ver-chat",
         status="succeeded",
     )
     run_other = Run(
@@ -115,8 +118,9 @@ def test_list_runs_scope_filtering(db):
         tenant_id="other_tenant",
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-other",
+        subject_version_id="ver-chat",
         status="succeeded",
     )
     db.add(run_local)
@@ -150,8 +154,9 @@ def test_get_run_includes_steps_artifacts_costs(db):
         workspace_id=ctx.workspace_id,
         mode="chat",
         kind="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-detail",
+        subject_version_id="ver-chat",
         status="succeeded",
         trace_id="trace-1",
     )
@@ -224,8 +229,9 @@ def test_list_runs_filters_by_trace_id(db):
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-a",
+        subject_version_id="ver-chat",
         status="succeeded",
         trace_id="trace-a",
     )
@@ -234,8 +240,9 @@ def test_list_runs_filters_by_trace_id(db):
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
-        app_version_id="ver-chat",
+        subject_kind="thread",
+        subject_id="thr-b",
+        subject_version_id="ver-chat",
         status="succeeded",
         trace_id="trace-b",
     )
@@ -250,8 +257,8 @@ def test_list_runs_filters_by_trace_id(db):
     assert runs[0].id == run_a.id
 
 
-def test_cost_summaries_group_by_day_mode_app(db):
-    """Cost summaries aggregate by day, mode, and app."""
+def test_cost_summaries_group_by_day_mode_subject(db):
+    """Cost summaries aggregate by day, mode, and subject."""
     SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
@@ -265,9 +272,10 @@ def test_cost_summaries_group_by_day_mode_app(db):
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="chat",
-        app_id="app-chat",
         status="succeeded",
-        app_version_id="app-1",
+        subject_kind="thread",
+        subject_id="thr-day-1",
+        subject_version_id="subj-1",
         started_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     run_day2 = Run(
@@ -275,9 +283,10 @@ def test_cost_summaries_group_by_day_mode_app(db):
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         mode="workflow",
-        app_id="app-workflow",
         status="succeeded",
-        app_version_id="app-2",
+        subject_kind="workflow",
+        subject_id="wf-day-2",
+        subject_version_id="subj-2",
         started_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
     )
     db.add(run_day1)
@@ -334,8 +343,8 @@ def test_cost_summaries_group_by_day_mode_app(db):
     assert len(by_mode_filtered) == 1
     assert by_mode_filtered[0].mode == "chat"
 
-    by_app = service.summarize_costs_by_app()
-    assert {item.app_version_id for item in by_app} == {"app-1", "app-2"}
+    by_subject = service.summarize_costs_by_subject()
+    assert {item.subject_version_id for item in by_subject} == {"subj-1", "subj-2"}
 
     by_provider = service.summarize_costs_by_provider()
     assert {item.provider for item in by_provider} == {"openai", "anthropic"}
@@ -363,8 +372,9 @@ def test_list_steps_filters_by_run_and_scope(db):
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             mode="workflow",
-            app_id="app-workflow",
-            app_version_id="ver-workflow",
+            subject_kind="workflow",
+            subject_id="wf-steps-a",
+            subject_version_id="ver-workflow",
             status="succeeded",
         )
     )
@@ -374,8 +384,9 @@ def test_list_steps_filters_by_run_and_scope(db):
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             mode="workflow",
-            app_id="app-workflow",
-            app_version_id="ver-workflow",
+            subject_kind="workflow",
+            subject_id="wf-steps-b",
+            subject_version_id="ver-workflow",
             status="succeeded",
         )
     )
@@ -436,8 +447,9 @@ def test_summarize_step_metrics(db):
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             mode="workflow",
-            app_id="app-workflow",
-            app_version_id="ver-workflow",
+            subject_kind="workflow",
+            subject_id="wf-metrics",
+            subject_version_id="ver-workflow",
             status="succeeded",
         )
     )
@@ -500,3 +512,4 @@ def test_summarize_step_metrics(db):
     assert tool_ok.avg_latency_ms == 200.0
     assert summary_map[("tool", "failed")].count == 1
     assert summary_map[("llm", "succeeded")].count == 1
+

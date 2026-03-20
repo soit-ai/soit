@@ -14,6 +14,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useQuery } from '@/hooks/use-query'
 import { listModels, type ModelLibraryItem } from '@/services/provider-service'
+import { getAgent, listAgents, type Agent } from '@/services/agent-service'
+import { getThread } from '@/services/thread-service'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DEFAULT_CHAT_PROVIDER,
   resolveDefaultChatModel,
@@ -30,7 +33,7 @@ type ProviderOption = {
 function IndexPage() {
   const { emit, useSubcribe } = useMitt()
   const { t } = useTranslation()
-  const { appId = 'default', id = '' } = useParams()
+  const { agentId = 'default', threadId = '' } = useParams()
   const navigate = useNavigate()
   const [selectedProvider, setSelectedProvider] = useState(() => {
     return resolveStoredChatProvider()
@@ -38,15 +41,43 @@ function IndexPage() {
   const [selectedModel, setSelectedModel] = useState(() => {
     return resolveStoredChatModel()
   })
+  const { data: activeThread } = useQuery({
+    queryKey: ['chat-thread', threadId],
+    queryFn: () => getThread(threadId),
+    options: {
+      enabled: Boolean(threadId),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
   const chat = useChat({
-    appId,
-    conversationId: id,
+    agentId,
+    threadId,
     modelName: selectedModel,
   })
 
   const { data: modelConfigs = [] } = useQuery<ModelLibraryItem[]>({
     queryKey: ['chat-models'],
     queryFn: () => listModels(),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const { data: activeAgent } = useQuery<Agent | null>({
+    queryKey: ['agent', agentId],
+    queryFn: () => (agentId && agentId !== 'default' ? getAgent(agentId) : Promise.resolve(null)),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const { data: agentPage } = useQuery({
+    queryKey: ['chat-agents'],
+    queryFn: () => listAgents({ page_size: 100 }),
     options: {
       retry: false,
       refetchOnWindowFocus: false,
@@ -86,6 +117,17 @@ function IndexPage() {
         contextSize: model.contextLength,
       }))
   }, [modelConfigs])
+
+  const agentOptions = useMemo(() => {
+    const items = agentPage?.items || []
+    return [
+      { id: 'default', label: 'General Chat' },
+      ...items.map((agent) => ({
+        id: agent.id,
+        label: `${agent.name}${agent.published_version_id ? '' : ' · Draft'}`,
+      })),
+    ]
+  }, [agentPage?.items])
 
   const [title, setTitle] = useState(t('chat.header.defaultTitle'))
 
@@ -158,24 +200,30 @@ function IndexPage() {
     }
   }, [chatModels, selectedProvider, selectedModel])
 
-  useSubcribe('chat_conversation_created', (payload: any) => {
-    if (!payload || payload.appId !== appId) {
+  useSubcribe('chat_thread_created', (payload: any) => {
+    if (!payload || payload.agentId !== agentId) {
       return
     }
-    if (payload.conversationId && payload.conversationId !== id) {
-      navigate(`/chat/${appId}/${payload.conversationId}`)
+    if (payload.threadId && payload.threadId !== threadId) {
+      navigate(`/chat/${agentId}/${payload.threadId}`)
     }
   })
 
   useSubcribe('chat_completion_finished', (payload: any) => {
-    if (!payload || payload.appId !== appId) {
+    if (!payload || payload.agentId !== agentId) {
       return
     }
-    if (payload.conversationId && payload.conversationId === id) {
+    if (payload.threadId && payload.threadId === threadId) {
       chat.refreshHistory()
     }
     emit('refresh_chat_sidebar')
   })
+
+  useEffect(() => {
+    if (activeThread?.thread?.title) {
+      setTitle(activeThread.thread.title)
+    }
+  }, [activeThread?.thread?.title])
 
   const handleRefresh = () => {
     chat.refreshHistory()
@@ -183,15 +231,15 @@ function IndexPage() {
   }
 
   const handleNewChat = useCallback(() => {
-    navigate(`/chat/${appId}`)
-  }, [appId, navigate])
+    navigate(`/chat/${agentId}`)
+  }, [agentId, navigate])
 
   // Share a conversation.
   const handleShareChat = async () => {
     if (typeof window === 'undefined') {
       return
     }
-    if (!id) {
+    if (!threadId) {
       toast.info(t('chat.header.shareEmpty'))
       return
     }
@@ -208,6 +256,13 @@ function IndexPage() {
     setTitle(title)
   }
 
+  const handleAgentChange = (nextAgentId: string) => {
+    if (nextAgentId === agentId) {
+      return
+    }
+    navigate(nextAgentId === 'default' ? '/chat' : `/chat/${nextAgentId}`)
+  }
+
   const renderHeader = () => {
     return (
       <div className="flex flex-1 justify-between items-center bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -215,12 +270,29 @@ function IndexPage() {
           <div className="flex items-center">
             <Button variant="ghost" size="sm" className="gap-2">
               <PlusCircle className="h-4 w-4" />
-              <span className="hidden sm:inline">{title}</span>
+              <span className="hidden sm:inline">
+                {activeAgent?.name ? `${activeAgent.name} · ${title}` : title}
+              </span>
             </Button>
           </div>
         </div>
 
         <div className="flex items-center gap-3 mr-2">
+          <div className="flex items-center w-[220px]">
+            <Select value={agentId} onValueChange={handleAgentChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {agentOptions.map((agentOption) => (
+                  <SelectItem key={agentOption.id} value={agentOption.id}>
+                    {agentOption.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Model selector */}
           <div className="flex items-center w-[320px]">
             <SelectModel
@@ -272,8 +344,8 @@ function IndexPage() {
     <NavLayout
       left={
         <BoxSidebar
-          appId={appId}
-          id={id}
+          agentId={agentId}
+          id={threadId}
           title={title}
           setTitle={handleTitleChange}
           providers={providers}
@@ -290,7 +362,8 @@ function IndexPage() {
       <div className="flex flex-col h-full w-full">
         <div className="flex-1 overflow-hidden">
           <chat.ChatBox
-            key={appId}
+            key={`${agentId}:${threadId || 'new'}`}
+            threadId={threadId || undefined}
             initInputPosition="center"
             className="p-0 h-full"
           />

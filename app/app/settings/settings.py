@@ -121,20 +121,20 @@ class Settings(BaseSettings):
     agent_rate_limit_per_minute: Optional[int] = None
     """Optional rate limit for agent runs (per minute)."""
 
-    # Dataset ingest worker
-    dataset_ingest_worker_enabled: bool = False
-    """Enable background dataset ingestion worker."""
+    # Knowledge ingest worker
+    knowledge_ingest_worker_enabled: bool = False
+    """Enable background knowledge ingestion worker."""
 
-    dataset_ingest_worker_poll_interval: float = 1.0
-    """Polling interval (seconds) for dataset ingestion worker."""
+    knowledge_ingest_worker_poll_interval: float = 1.0
+    """Polling interval (seconds) for knowledge ingestion worker."""
 
-    dataset_ingest_worker_max_tasks: int = 10
+    knowledge_ingest_worker_max_tasks: int = 10
     """Max tasks to process before worker exits."""
 
-    dataset_ingest_worker_concurrency: int = 1
+    knowledge_ingest_worker_concurrency: int = 1
     """Max concurrent ingestion tasks per worker loop."""
 
-    dataset_ingest_worker_heartbeat_seconds: int = 30
+    knowledge_ingest_worker_heartbeat_seconds: int = 30
     """Heartbeat interval (seconds) for ingest worker logs."""
 
     # Plugins

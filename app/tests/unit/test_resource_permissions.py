@@ -46,3 +46,20 @@ async def test_resource_permission_denies_viewer_write():
             resource_type="workflow",
             resource_id="wf-1",
         )
+
+
+@pytest.mark.asyncio
+async def test_knowledge_resource_alias_allows_owner_read():
+    """Knowledge public resource type allows the same owner read path."""
+    ctx = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="user-1",
+        workspace_role="Owner",
+    )
+
+    await require_resource_read_async(
+        ctx,
+        resource_type="knowledge",
+        resource_id="kb-1",
+    )

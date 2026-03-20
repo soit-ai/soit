@@ -18,6 +18,33 @@ export interface ModelConfig {
   updatedAt: string
 }
 
+export interface ProviderConfig {
+  id: string
+  name: string
+  kind: 'openai' | 'anthropic' | 'gemini' | 'openai_compat'
+  baseUrl?: string
+  credentialRef?: string
+  status: 'active' | 'disabled' | 'error'
+  lastHealthcheckAt?: string
+  lastHealthcheckError?: string
+  syncPolicy?: {
+    auto_sync?: boolean
+    interval_minutes?: number
+    recreate_deleted?: boolean
+    default_enabled?: boolean
+  }
+  source?: 'builtin' | 'plugin' | 'template'
+  templateId?: string
+  pluginId?: string
+  pluginName?: string
+  pluginVersion?: string
+  metadata?: {
+    modelHints?: string[]
+  }
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface ModelListProps {
   onSaveModel: (model: ModelConfig) => void
   onDeleteModel: (id: string) => void

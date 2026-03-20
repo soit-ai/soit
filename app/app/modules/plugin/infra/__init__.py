@@ -1,0 +1,1 @@
+"""Plugin infra compatibility surface."""

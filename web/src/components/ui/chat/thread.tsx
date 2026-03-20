@@ -735,7 +735,7 @@ const AssistantMeta: FC = () => {
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-xs"
-          onClick={() => navigate(`/run/${runId}`)}
+          onClick={() => navigate(`/observability/runs/${runId}`)}
         >
           <Activity className="mr-1 h-3 w-3" />
           {t('chat.thread.run.viewRun')}
@@ -792,8 +792,8 @@ const AssistantCitations: FC = () => {
               <div className="flex flex-wrap gap-2">
                 <span className="text-muted-foreground">#{index + 1}</span>
                 <span>{`${t('chat.thread.citations.source')}: ${source}`}</span>
-                {citation.dataset_id ? (
-                  <span>{`${t('chat.thread.citations.dataset')}: ${citation.dataset_id}`}</span>
+                {citation.knowledge_id ? (
+                  <span>{`${t('chat.thread.citations.knowledge')}: ${citation.knowledge_id}`}</span>
                 ) : null}
               </div>
               {citation.snippet ? (

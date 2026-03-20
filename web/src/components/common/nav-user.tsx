@@ -8,7 +8,6 @@ import { cn } from '@/lib/utils'
 import { useNavigate } from '@/hooks/use-navigate'
 import { storage } from '@/utils/storage'
 import { useUserStore } from '@/stores/user'
-import { useChatStore } from '@/stores/chat'
 
 export function NavUser({
   user,
@@ -27,7 +26,6 @@ export function NavUser({
 
   const handleLogout = async () => {
     clearUser()
-    useChatStore.getState().reset()
     await storage.delete('token')
     await storage.delete('workspace_id')
     navigate('/sign-in')

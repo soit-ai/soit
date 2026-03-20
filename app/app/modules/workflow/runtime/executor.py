@@ -195,6 +195,7 @@ class WorkflowExecutor:
                     tool_port=context.tool_port,
                     vector_port=context.vector_port,
                     plugin_runtime_port=context.plugin_runtime_port,
+                    response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
                 )
@@ -394,6 +395,7 @@ class WorkflowExecutor:
                     tool_port=context.tool_port,
                     vector_port=context.vector_port,
                     plugin_runtime_port=context.plugin_runtime_port,
+                    response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
                 )

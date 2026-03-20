@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/i18n'
 import { useNodeHandles } from '../hooks/use-node-handles'
+import type { TranslationKey } from '@/i18n/types'
 
 export const KnowledgeSearchNodeInfo = {
   type: 'knowledge-search-node',
@@ -45,7 +46,7 @@ const KnowledgeSearchNodeComponent = ({ data, isConnectable, selected }: NodePro
       <div className="text-xs text-muted-foreground mb-2">
         {data.dataSource
           ? t('workflow.detail.nodes.knowledgeSearch.previewSource', {
-            value: t(`workflow.detail.nodes.knowledgeSearch.dataSources.${data.dataSource}`),
+            value: t(`workflow.detail.nodes.knowledgeSearch.dataSources.${data.dataSource}` as TranslationKey),
           })
           : t('workflow.detail.nodes.knowledgeSearch.description')}
       </div>
