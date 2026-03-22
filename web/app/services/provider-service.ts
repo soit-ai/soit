@@ -1,6 +1,6 @@
 import { get, post, patch, del } from '@/utils/request'
-import type { ModelConfig } from '@/pages/model/setting/ui/types'
-import type { ProviderConfig } from '@/pages/model/setting/ui/types'
+import type { ModelConfig } from '@/routes/model/setting/ui/types'
+import type { ProviderConfig } from '@/routes/model/setting/ui/types'
 
 interface PaginatedResponse<T> {
   items: T[]

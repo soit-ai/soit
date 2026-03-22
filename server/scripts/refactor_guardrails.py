@@ -9,26 +9,26 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED_FILES = (
-    Path("app/docs/README.md"),
+    Path("server/docs/README.md"),
     Path("docs/architecture/soit-refactor-principles.md"),
     Path("docs/architecture/soit-object-mapping.md"),
     Path("docs/architecture/soit-phase-checklist.md"),
 )
 
 GUARDED_DIRS = (
-    Path("app/app/kernel/runtime"),
-    Path("app/app/modules/agent/domain"),
-    Path("app/app/modules/skill"),
-    Path("app/app/modules/knowledge"),
-    Path("app/app/modules/plugin"),
-    Path("app/app/modules/integrations/mcp"),
-    Path("web/src/pages/agents"),
-    Path("web/src/pages/knowledge"),
-    Path("web/src/pages/tasks"),
-    Path("web/src/pages/observability"),
-    Path("web/src/modules/agents"),
-    Path("web/src/modules/knowledge"),
-    Path("web/src/modules/runs"),
+    Path("server/app/kernel/runtime"),
+    Path("server/app/modules/agent/domain"),
+    Path("server/app/modules/skill"),
+    Path("server/app/modules/knowledge"),
+    Path("server/app/modules/plugin"),
+    Path("server/app/modules/integrations/mcp"),
+    Path("web/app/routes/agents"),
+    Path("web/app/routes/knowledge"),
+    Path("web/app/routes/tasks"),
+    Path("web/app/routes/observability"),
+    Path("web/app/modules/agents"),
+    Path("web/app/modules/knowledge"),
+    Path("web/app/modules/runs"),
 )
 
 FORBIDDEN_IMPORT_PATTERNS = (

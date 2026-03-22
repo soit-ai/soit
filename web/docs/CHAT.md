@@ -5,11 +5,11 @@ This document summarizes the web chat module and highlights areas that still nee
 ## Scope
 
 - Route: `/chat/:agentId?/:threadId?`
-- Pages: `web/src/pages/chat/index.tsx`, `web/src/pages/chat/ui/box-sidebar.tsx`
-- Core UI: `web/src/components/ui/chat/*`
-- Services: `web/src/services/thread-service.ts`, `web/src/services/responses-service.ts`
-- Unified entry component: `web/src/components/ui/chat/chat-box.tsx`
-- Hook: `web/src/hooks/use-chat.tsx`
+- Pages: `web/app/routes/chat/index.tsx`, `web/app/routes/chat/ui/box-sidebar.tsx`
+- Core UI: `web/app/components/ui/chat/*`
+- Services: `web/app/services/thread-service.ts`, `web/app/services/responses-service.ts`
+- Unified entry component: `web/app/components/ui/chat/chat-box.tsx`
+- Hook: `web/app/hooks/use-chat.tsx`
 
 ## Main Flow
 
@@ -22,20 +22,20 @@ This document summarizes the web chat module and highlights areas that still nee
 
 ## Key Components
 
-- `ChatAdapter` (`web/src/components/ui/chat/chat-adapter.tsx`)
+- `ChatAdapter` (`web/app/components/ui/chat/chat-adapter.tsx`)
   - Creates threads on demand and sends messages to `/responses`.
   - Parses semantic SSE events (`response.created`, `response.output_text.delta`, `response.completed`, `tool.call.*`).
   - Emits `chat_thread_created`, `refresh_chat_sidebar`, `chat_completion_finished`.
-- `Thread` (`web/src/components/ui/chat/thread.tsx`)
+- `Thread` (`web/app/components/ui/chat/thread.tsx`)
   - UI for composer, message list, reasoning block, actions.
   - Placeholder toggles for "deep thinking / web search / code mode".
-- `ChatBox` (`web/src/components/ui/chat/chat-box.tsx`)
+- `ChatBox` (`web/app/components/ui/chat/chat-box.tsx`)
   - Owns runtime and AUI provider boundary.
   - Exposes `AssistantClient` by `ref` for external thread control.
   - Handles thread switching + history import on thread changes.
-- `BoxSidebar` (`web/src/pages/chat/ui/box-sidebar.tsx`)
+- `BoxSidebar` (`web/app/routes/chat/ui/box-sidebar.tsx`)
   - Lists threads, rename, archive, delete, load more, grouped by date.
-- `MessageConverter` (`web/src/components/ui/chat/message-adapter.tsx`)
+- `MessageConverter` (`web/app/components/ui/chat/message-adapter.tsx`)
   - Converts runtime thread messages to Assistant UI thread messages.
 
 ## APIs Used

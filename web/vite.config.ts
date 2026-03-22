@@ -11,7 +11,7 @@ export default defineConfig(({ command, mode }) => ({
   appType: 'spa',
   resolve: {
     alias: {
-      '@/': path.resolve(__dirname, 'src/'),
+      '@/': path.resolve(__dirname, 'app/'),
       '@dagrejs/dagre': path.resolve(__dirname, 'node_modules/@dagrejs/dagre/dist/dagre.cjs.js'),
     },
   },

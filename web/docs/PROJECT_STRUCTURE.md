@@ -6,7 +6,7 @@ This page summarizes the web frontend layout and main module responsibilities.
 
 ```
 web/
-├── src/                      # Frontend source code
+├── app/                      # Frontend source code
 ├── public/                   # Static assets
 ├── docs/                     # Frontend docs
 ├── build/                    # Build output
@@ -16,11 +16,11 @@ web/
 └── tsconfig.json             # TypeScript config
 ```
 
-## src/ Layout
+## app/ Layout
 
 ```
-src/
-├── pages/                    # Route pages
+app/
+├── routes/                    # Route pages
 ├── components/               # Shared components
 ├── services/                 # API clients and service wrappers
 ├── stores/                   # Zustand stores
@@ -42,13 +42,13 @@ src/
 
 ## Current Route Focus
 
-- `src/pages/agents`: Agent-centered workspace landing page
-- `src/pages/chat`: Threaded chat execution surface
-- `src/pages/workflow`: Workflow design surface
-- `src/pages/knowledge`: Knowledge list, detail, documents, and analytics pages
-- `src/pages/tasks`: Task execution list and task detail control surface
-- `src/pages/observability`: Approval, feedback, and runtime inspection entry point
-- `src/pages/plugin`: plugin management surface mounted through `/plugins`
-- `src/pages/model`: model management surface mounted through `/models`
-- `src/pages/setting`: settings surface mounted through `/settings`
-- `src/pages/run`: Run list/detail pages mounted only through the observability route namespace
+- `app/routes/agents`: Agent-centered workspace landing page
+- `app/routes/chat`: Threaded chat execution surface
+- `app/routes/workflow`: Workflow design surface
+- `app/routes/knowledge`: Knowledge list, detail, documents, and analytics pages
+- `app/routes/tasks`: Task execution list and task detail control surface
+- `app/routes/observability`: Approval, feedback, and runtime inspection entry point
+- `app/routes/plugin`: plugin management surface mounted through `/plugins`
+- `app/routes/model`: model management surface mounted through `/models`
+- `app/routes/setting`: settings surface mounted through `/settings`
+- `app/routes/run`: Run list/detail pages mounted only through the observability route namespace

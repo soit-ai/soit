@@ -20,7 +20,7 @@ services:
 
   migrate:
     build:
-      context: ./app
+      context: ./server
     env_file:
       - .env
     environment:
@@ -33,12 +33,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["/bin/sh", "-c", "sh /app/scripts/migrate.sh"]
+    command: ["/bin/sh", "-c", "sh /server/scripts/migrate.sh"]
     restart: "no"
 
   bootstrap:
     build:
-      context: ./app
+      context: ./server
     env_file:
       - .env
     environment:
@@ -65,7 +65,7 @@ services:
 
   dataset-worker:
     build:
-      context: ./app
+      context: ./server
     env_file:
       - .env
     environment:
@@ -216,7 +216,7 @@ services:
 
   api:
     build:
-      context: ./app
+      context: ./server
     ports:
       - "9200:9200"
     env_file:

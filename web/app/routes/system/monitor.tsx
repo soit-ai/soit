@@ -15,7 +15,7 @@ import {
   MonitorChart,
   HeartbeatChart,
   MetricStatCard
-} from '@/pages/system/ui/monitor'
+} from '@/routes/system/ui/monitor'
 
 // 导入数据生成器
 import {
@@ -27,11 +27,11 @@ import {
   generateSystemAvailability,
   generateServiceMetrics,
   generateAlertStats
-} from '@/pages/system/ui/monitor/data-generator'
+} from '@/routes/system/ui/monitor/data-generator'
 
-import type { Service } from '@/pages/system/ui/monitor/service-status-table'
-import type { Alert } from '@/pages/system/ui/monitor/alert-list'
-import type { HeartbeatData } from '@/pages/system/ui/monitor/heartbeat-chart'
+import type { Service } from '@/routes/system/ui/monitor/service-status-table'
+import type { Alert } from '@/routes/system/ui/monitor/alert-list'
+import type { HeartbeatData } from '@/routes/system/ui/monitor/heartbeat-chart'
 
 function IndexPage() {
   const { t } = useTranslation()
