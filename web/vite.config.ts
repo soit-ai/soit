@@ -2,7 +2,6 @@ import { reactRouter } from '@react-router/dev/vite'
 import autoprefixer from 'autoprefixer'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
 import path from 'path'
 
 export default defineConfig(({ command, mode }) => ({
@@ -10,8 +9,8 @@ export default defineConfig(({ command, mode }) => ({
   sourcemap: true,
   appType: 'spa',
   resolve: {
+    tsconfigPaths: true,
     alias: {
-      '@/': path.resolve(__dirname, 'app/'),
       '@dagrejs/dagre': path.resolve(__dirname, 'node_modules/@dagrejs/dagre/dist/dagre.cjs.js'),
     },
   },
@@ -35,5 +34,5 @@ export default defineConfig(({ command, mode }) => ({
     target: 'esnext',
     polyfillDynamicImport: true,
   },
-  plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+  plugins: [tailwindcss(), reactRouter()],
 }))
