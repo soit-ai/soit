@@ -91,7 +91,35 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             knowledge_worker_task = None
-    
+
+    outbox_worker_task = None
+    try:
+        from app.wiring.outbox_handlers import register_outbox_handlers
+
+        register_outbox_handlers()
+    except Exception:
+        pass
+
+    if getattr(app_settings, "outbox_dispatcher_enabled", False):
+        try:
+            from app.infra.db.session import get_db_sync
+            from app.kernel.events.dispatcher import OutboxDispatcherService
+            from app.wiring.outbox_handlers import get_outbox_registry
+
+            _outbox_svc = OutboxDispatcherService(
+                get_outbox_registry(),
+                db_factory=get_db_sync,
+                batch_limit=max(1, int(app_settings.outbox_dispatcher_batch_limit)),
+                max_dispatch_attempts=max(1, int(app_settings.outbox_dispatcher_max_attempts)),
+            )
+            outbox_worker_task = asyncio.create_task(
+                _outbox_svc.run_loop(
+                    poll_interval_seconds=max(0.05, float(app_settings.outbox_dispatcher_poll_interval)),
+                )
+            )
+        except Exception:
+            outbox_worker_task = None
+
     yield
     
     # Shutdown
@@ -100,6 +128,13 @@ async def lifespan(app: FastAPI):
         knowledge_worker_task.cancel()
         try:
             await knowledge_worker_task
+        except asyncio.CancelledError:
+            pass
+
+    if outbox_worker_task:
+        outbox_worker_task.cancel()
+        try:
+            await outbox_worker_task
         except asyncio.CancelledError:
             pass
 

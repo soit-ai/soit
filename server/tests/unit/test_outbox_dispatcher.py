@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.kernel.events.checkpoint import ConsumerCheckpointRepository
-from app.kernel.events.dispatcher import OutboxDispatcher
+from app.kernel.events.dispatcher import OutboxDispatcher, OutboxDispatcherService
 from app.kernel.events.envelope import DomainEventEnvelope
 from app.kernel.events.outbox_models import DeadLetterEvent, EventOutbox
 from app.kernel.events.outbox_repo import OutboxRepository
@@ -140,6 +140,35 @@ async def test_max_attempts_marks_failed_and_dead_letter(db) -> None:
     assert len(dlq) == 1
     assert dlq[0].event_id == "evt_dlq"
     assert dlq[0].consumer_name == "c_dlq"
+
+
+@pytest.mark.asyncio
+async def test_outbox_dispatcher_service_commits_via_db_factory(db) -> None:
+    bind = db.get_bind()
+    registry = OutboxHandlerRegistry()
+    seen: list[str] = []
+
+    def h(_s, row: EventOutbox) -> None:
+        seen.append(row.event_id)
+
+    registry.register("run.created", "svc_consumer", h)
+    out = OutboxRepository(db)
+    row = out.enqueue_from_envelope(_env("evt_svc_factory"))
+    db.commit()
+
+    def factory() -> Session:
+        return Session(bind)
+
+    svc = OutboxDispatcherService(registry, db_factory=factory, batch_limit=10)
+    n = await svc.run_once()
+    assert n == 1
+    assert seen == ["evt_svc_factory"]
+
+    s2 = Session(bind)
+    try:
+        assert OutboxRepository(s2).get(row.id).status == "done"
+    finally:
+        s2.close()
 
 
 @pytest.mark.asyncio

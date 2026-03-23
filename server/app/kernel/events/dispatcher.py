@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from datetime import datetime
@@ -112,18 +113,49 @@ class OutboxDispatcher:
                 attempted += 1
         return attempted
 
-    async def run_loop(
+
+class OutboxDispatcherService:
+    """Runs dispatcher ticks with a fresh DB session per tick (API background worker)."""
+
+    def __init__(
         self,
+        registry: OutboxHandlerRegistry,
         *,
-        poll_interval_seconds: float = 1.0,
+        db_factory: Callable[[], Session],
+        max_dispatch_attempts: int = 64,
+        record_dead_letter: bool = True,
         batch_limit: int = 50,
     ) -> None:
-        """Background loop (caller typically runs this in asyncio.create_task)."""
-        import asyncio
+        self.registry = registry
+        self.db_factory = db_factory
+        self.max_dispatch_attempts = max_dispatch_attempts
+        self.record_dead_letter = record_dead_letter
+        self.batch_limit = batch_limit
 
+    async def run_once(self) -> int:
+        """One poll: claim/process batch and commit."""
+        db = self.db_factory()
+        try:
+            disp = OutboxDispatcher(
+                db,
+                self.registry,
+                max_dispatch_attempts=self.max_dispatch_attempts,
+                record_dead_letter=self.record_dead_letter,
+            )
+            n = await disp.run_once(batch_limit=self.batch_limit)
+            db.commit()
+            return n
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    async def run_loop(self, *, poll_interval_seconds: float = 1.0) -> None:
+        """Infinite background loop; swallow tick errors so the worker stays alive."""
         while True:
             try:
-                await self.run_once(batch_limit=batch_limit)
+                await self.run_once()
             except Exception:
                 logger.exception("outbox dispatcher tick failed")
             await asyncio.sleep(max(0.05, poll_interval_seconds))

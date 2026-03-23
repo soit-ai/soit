@@ -137,6 +137,19 @@ class Settings(BaseSettings):
     knowledge_ingest_worker_heartbeat_seconds: int = 30
     """Heartbeat interval (seconds) for ingest worker logs."""
 
+    # Transactional outbox dispatcher (Phase 1)
+    outbox_dispatcher_enabled: bool = False
+    """Enable background outbox dispatcher in the API process."""
+
+    outbox_dispatcher_poll_interval: float = 1.0
+    """Seconds between outbox dispatcher polls."""
+
+    outbox_dispatcher_batch_limit: int = 50
+    """Max outbox rows to attempt per poll."""
+
+    outbox_dispatcher_max_attempts: int = 64
+    """Max delivery attempts per row before terminal failure / DLQ."""
+
     # Plugins
     plugins_dir: str = "./var/plugins"
     """Filesystem directory for plugin packages and extracted installs."""
