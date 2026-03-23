@@ -19,6 +19,7 @@ from app.kernel.runtime.contracts.status import TaskStatus
 from app.kernel.runtime.events import TaskEventType
 from app.kernel.runtime.models import Task, TaskCheckpoint, TaskEvent, Thread, ThreadMessage
 from app.kernel.runtime.repository import TaskRepository, ThreadRepository
+from app.kernel.trace.models import Run
 
 
 class RuntimeCoreService:
@@ -234,6 +235,41 @@ class RuntimeCoreService:
             raise NotFoundError(f"Task not found: {task_id}")
         return task
 
+    def _sync_run_headline_from_task(self, task: Task) -> None:
+        """Align runs.current_task_id and runs.last_error with task state (B5)."""
+
+        if not task.run_id:
+            return
+        run = self.db.get(Run, task.run_id)
+        if run is None:
+            return
+        run.updated_at = utc_now()
+        st = task.status
+        if st in (TaskStatus.RUNNING.value, TaskStatus.PREPARING.value):
+            run.current_task_id = task.id
+        elif st in (
+            TaskStatus.WAITING_INPUT.value,
+            TaskStatus.WAITING_APPROVAL.value,
+            TaskStatus.PAUSED.value,
+        ):
+            run.current_task_id = task.id
+        elif st in (
+            TaskStatus.SUCCEEDED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.CANCELED.value,
+            TaskStatus.EXPIRED.value,
+        ):
+            if run.current_task_id == task.id:
+                run.current_task_id = None
+            if st == TaskStatus.FAILED.value and task.error_message:
+                run.last_error = (task.error_message or "")[:8192]
+            if st == TaskStatus.SUCCEEDED.value:
+                run.last_error = None
+        elif st in (TaskStatus.QUEUED.value, TaskStatus.RETRYING.value):
+            if run.current_task_id == task.id:
+                run.current_task_id = None
+        self.db.add(run)
+
     def transition_task(
         self,
         *,
@@ -283,6 +319,7 @@ class RuntimeCoreService:
         if task.status == TaskStatus.FAILED.value:
             outbox_events.append(TaskEventType.FAILED)
 
+        self._sync_run_headline_from_task(task)
         task = self.task_repo.update_task(task, outbox_events=outbox_events)
         self.add_task_event(
             task_id=task.id,
@@ -345,6 +382,7 @@ class RuntimeCoreService:
         task.output_json = {}
         task.progress_json = {"action": "retry"}
         task.status = TaskStatus.RETRYING.value
+        self._sync_run_headline_from_task(task)
         task = self.task_repo.update_task(task, outbox_events=[TaskEventType.RETRIED])
         self.add_task_event(
             task_id=task.id,

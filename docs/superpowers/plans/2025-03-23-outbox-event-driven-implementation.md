@@ -254,10 +254,12 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 ### Task B4: Approval 请求与恢复
 
 **Files:**
-- Modify: `server/app/modules/` 下 approvals 服务（路径以仓库为准）
-- Create: `server/app/modules/approvals/handlers/resume.py`
+- Modify: `server/app/modules/observability/infra/repository.py`、`application/service.py`
+- Create: `server/app/modules/observability/domain/approval_events.py`、`infra/approval_outbox_emit.py`、`handlers/on_approval_outbox.py`；`server/app/wiring/outbox_handlers.py` 注册
 
-- [ ] `approval.requested` / `approval.approved` / `approval.rejected`（§6.3）；consumer 恢复等待中的 run/node（§11.3）。
+- [x] `approval.requested` / `approval.approved` / `approval.rejected`（§6.3）；consumer 对 `waiting_approval` 任务：`approved` → `resume_task`，`rejected` → `transition_task` FAILED（§11.3 任务路径；workflow 节点后续在 B3/B6）。
+
+- [x] 回归：`tests/integration/test_approval_outbox_resume.py`
 
 - [ ] Commit: `feat(approvals): 审批事件与恢复路径`
 
@@ -266,10 +268,10 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 ### Task B5: 表字段扩展 runs / workflow_runs
 
 **Files:**
-- New migration under `server/alembic/versions/`
-- Modify: `server/app/kernel/runtime/models.py` 或 `runs` 所在模型文件、workflow_run 模型
+- New migration: `server/alembic/versions/20260323120000_runs_workflow_runs_b5.py`
+- Modify: `server/app/kernel/trace/models.py`（`Run`）、`server/app/modules/workflow/domain/models.py`（`WorkflowRun`）、`server/app/kernel/runtime/core/service.py`（`transition_task` 同事务更新 headline）
 
-- [ ] 按规格 **§8.1–8.2** 添加字段；回填策略（nullable + 应用层写入）在 migration 注释中说明。
+- [x] 按规格 **§8.1–8.2**：`runs.current_task_id`、`runs.last_error`；新建 `workflow_runs` 及计数列；nullable，由应用层写入（见 migration 顶部说明）。
 
 - [ ] Commit: `feat(db): 扩展 runs/workflow_runs 查询字段`
 

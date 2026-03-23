@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.contracts.status import ApprovalStatus
 from app.modules.observability.domain.models import ApprovalRequest, RunFeedback
+from app.modules.observability.infra.approval_outbox_emit import (
+    enqueue_approval_approved_outbox,
+    enqueue_approval_rejected_outbox,
+    enqueue_approval_requested_outbox,
+)
 
 
 class ApprovalRepository:
@@ -22,13 +28,25 @@ class ApprovalRepository:
         approval.workspace_id = self.ctx.workspace_id
         approval.requested_by = approval.requested_by or self.ctx.user_id
         self.db.add(approval)
+        self.db.flush()
+        enqueue_approval_requested_outbox(self.db, self.ctx, approval=approval)
         self.db.commit()
         self.db.refresh(approval)
         return approval
 
-    def update(self, approval: ApprovalRequest) -> ApprovalRequest:
+    def update(
+        self,
+        approval: ApprovalRequest,
+        *,
+        emit_resolution_event: Optional[str] = None,
+    ) -> ApprovalRequest:
         approval.updated_at = utc_now()
         self.db.add(approval)
+        self.db.flush()
+        if emit_resolution_event == ApprovalStatus.APPROVED.value:
+            enqueue_approval_approved_outbox(self.db, self.ctx, approval=approval)
+        elif emit_resolution_event == ApprovalStatus.REJECTED.value:
+            enqueue_approval_rejected_outbox(self.db, self.ctx, approval=approval)
         self.db.commit()
         self.db.refresh(approval)
         return approval

@@ -28,6 +28,10 @@ def generate_workflow_publish_id() -> str:
     return f"wfp_{generate_ulid()}"
 
 
+def generate_workflow_run_id() -> str:
+    return f"wfr_{generate_ulid()}"
+
+
 class Workflow(SQLModel, table=True):
     """Workflow aggregate root."""
 
@@ -101,5 +105,29 @@ class WorkflowPublish(SQLModel, table=True):
     status: str = Field(default="published")
     notes: Optional[str] = Field(default=None, nullable=True)
     created_by: Optional[str] = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowRun(SQLModel, table=True):
+    """In-flight workflow execution aggregate (monitoring counters, B5)."""
+
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        Index("ix_workflow_runs_scope_updated", "tenant_id", "workspace_id", "updated_at"),
+        Index("ix_workflow_runs_run_id", "run_id"),
+        Index("ix_workflow_runs_workflow_id", "workflow_id"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_workflow_run_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    run_id: Optional[str] = Field(default=None, foreign_key="runs.id", nullable=True)
+    workflow_id: Optional[str] = Field(default=None, foreign_key="workflows.id", nullable=True)
+    status: str = Field(default="running", index=True)
+    total_nodes: int = Field(default=0)
+    completed_nodes: int = Field(default=0)
+    failed_nodes: int = Field(default=0)
+    waiting_nodes: int = Field(default=0)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

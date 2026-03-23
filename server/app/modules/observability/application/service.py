@@ -87,7 +87,7 @@ class ObservabilityService:
         from app.kernel.commons.time import utc_now
 
         approval.resolved_at = utc_now()
-        return self.approval_repo.update(approval)
+        return self.approval_repo.update(approval, emit_resolution_event=data.status)
 
     @workspace_guard("write")
     async def create_feedback(self, data: FeedbackCreate) -> RunFeedback:

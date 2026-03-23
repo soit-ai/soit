@@ -48,3 +48,14 @@ def register_outbox_handlers() -> None:
             f"runtime.task.builtin.{_name}",
             handle_task_runtime_outbox,
         )
+
+    from app.modules.observability.domain.approval_events import ApprovalEventType
+    from app.modules.observability.handlers.on_approval_outbox import (
+        handle_approval_approved_outbox,
+        handle_approval_rejected_outbox,
+        handle_approval_requested_outbox,
+    )
+
+    reg.register(ApprovalEventType.REQUESTED, "observability.approval.requested", handle_approval_requested_outbox)
+    reg.register(ApprovalEventType.APPROVED, "observability.approval.approved", handle_approval_approved_outbox)
+    reg.register(ApprovalEventType.REJECTED, "observability.approval.rejected", handle_approval_rejected_outbox)
