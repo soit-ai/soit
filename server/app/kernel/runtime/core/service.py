@@ -16,6 +16,7 @@ from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.contracts.status import TaskStatus
+from app.kernel.runtime.events import TaskEventType
 from app.kernel.runtime.models import Task, TaskCheckpoint, TaskEvent, Thread, ThreadMessage
 from app.kernel.runtime.repository import TaskRepository, ThreadRepository
 
@@ -250,6 +251,7 @@ class RuntimeCoreService:
         if not task:
             raise ValueError(f"Task not found: {task_id}")
 
+        old_status = task.status
         now = timestamp or utc_now()
         if status in {TaskStatus.RUNNING.value, TaskStatus.PREPARING.value} and task.started_at is None:
             task.started_at = now
@@ -271,7 +273,17 @@ class RuntimeCoreService:
         if error_message is not None:
             task.error_message = error_message
 
-        task = self.task_repo.update_task(task)
+        outbox_events: list[str] = []
+        _ready = (TaskStatus.PREPARING.value, TaskStatus.RUNNING.value)
+        _from_queue = (TaskStatus.QUEUED.value, TaskStatus.RETRYING.value)
+        if task.status in _ready and old_status in _from_queue:
+            outbox_events.append(TaskEventType.STARTED)
+        if task.status == TaskStatus.SUCCEEDED.value:
+            outbox_events.append(TaskEventType.COMPLETED)
+        if task.status == TaskStatus.FAILED.value:
+            outbox_events.append(TaskEventType.FAILED)
+
+        task = self.task_repo.update_task(task, outbox_events=outbox_events)
         self.add_task_event(
             task_id=task.id,
             event_type="task.status",
@@ -333,7 +345,7 @@ class RuntimeCoreService:
         task.output_json = {}
         task.progress_json = {"action": "retry"}
         task.status = TaskStatus.RETRYING.value
-        task = self.task_repo.update_task(task)
+        task = self.task_repo.update_task(task, outbox_events=[TaskEventType.RETRIED])
         self.add_task_event(
             task_id=task.id,
             event_type="task.retry",

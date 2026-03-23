@@ -29,7 +29,22 @@ def register_outbox_handlers() -> None:
 
     reg.register("outbox.smoke", "builtin.smoke", _builtin_smoke_handler)
 
-    from app.kernel.runtime.events import RunEventType
+    from app.kernel.runtime.events import RunEventType, TaskEventType
     from app.kernel.runtime.handlers.on_run_created import handle_run_created_outbox
+    from app.kernel.runtime.handlers.on_task_outbox import handle_task_runtime_outbox
 
     reg.register(RunEventType.CREATED, "runtime.run_created.builtin", handle_run_created_outbox)
+
+    for _name, event_type in (
+        ("created", TaskEventType.CREATED),
+        ("started", TaskEventType.STARTED),
+        ("completed", TaskEventType.COMPLETED),
+        ("failed", TaskEventType.FAILED),
+        ("retried", TaskEventType.RETRIED),
+        ("checkpointed", TaskEventType.CHECKPOINTED),
+    ):
+        reg.register(
+            event_type,
+            f"runtime.task.builtin.{_name}",
+            handle_task_runtime_outbox,
+        )

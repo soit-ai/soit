@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.time import utc_now
+from app.kernel.runtime.events import TaskEventType
 from app.kernel.runtime.models import Task, TaskCheckpoint, TaskEvent, Thread, ThreadMessage
+from app.kernel.runtime.outbox_emit import enqueue_task_checkpoint_outbox, enqueue_task_outbox_event
 
 
 class ThreadRepository:
@@ -244,12 +246,21 @@ class TaskRepository:
         self.db = db
         self.ctx = ctx
 
-    def create_task(self, task: Task) -> Task:
+    def create_task(
+        self,
+        task: Task,
+        *,
+        outbox_events: Optional[Sequence[str]] = None,
+    ) -> Task:
         task.tenant_id = self.ctx.tenant_id
         task.workspace_id = self.ctx.workspace_id
         task.created_by = self.ctx.user_id
         task.updated_by = self.ctx.user_id
         self.db.add(task)
+        self.db.flush()
+        events = list(outbox_events) if outbox_events is not None else [TaskEventType.CREATED]
+        for et in events:
+            enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -298,10 +309,18 @@ class TaskRepository:
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, Task) else item[0] for item in results]
 
-    def update_task(self, task: Task) -> Task:
+    def update_task(
+        self,
+        task: Task,
+        *,
+        outbox_events: Optional[Sequence[str]] = None,
+    ) -> Task:
         task.updated_at = utc_now()
         task.updated_by = self.ctx.user_id
         self.db.add(task)
+        self.db.flush()
+        for et in outbox_events or []:
+            enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -310,6 +329,10 @@ class TaskRepository:
         checkpoint.tenant_id = self.ctx.tenant_id
         checkpoint.workspace_id = self.ctx.workspace_id
         self.db.add(checkpoint)
+        self.db.flush()
+        task = self.get_task(checkpoint.task_id)
+        if task:
+            enqueue_task_checkpoint_outbox(self.db, self.ctx, task=task, checkpoint=checkpoint)
         self.db.commit()
         self.db.refresh(checkpoint)
         return checkpoint
