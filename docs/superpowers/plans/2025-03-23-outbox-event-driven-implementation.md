@@ -227,11 +227,11 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Modify: task 状态迁移集中点（`RuntimeCoreService` 或 task 执行器）
 - Create/Modify: `server/app/kernel/runtime/handlers/` 下对应 handlers
 
-- [ ] 按规格 §6.1 逐步加入 `task.*`，**YAGNI**：仅对接当前代码路径会触发的状态。
+- [x] 按规格 §6.1 逐步加入 `task.*`，**YAGNI**：仅对接当前代码路径会触发的状态。
 
-- [ ] 每加一个事件：`uv run pytest server/tests/unit/test_runtime_* server/tests/integration/...` 回归。
+- [x] 每加一个事件：`uv run pytest server/tests/unit/test_runtime_* server/tests/integration/...` 回归。
 
-- [ ] Commit（可多个）：`feat(runtime): task 生命周期 outbox 事件`
+- [x] Commit（可多个）：`feat(runtime): task 生命周期 outbox 事件`
 
 ---
 
