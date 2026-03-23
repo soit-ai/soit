@@ -12,7 +12,7 @@ from app.kernel.runtime.repository import TaskRepository, ThreadRepository
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import AgentCreate, AgentRunRequest, AgentVersionCreate
 from app.modules.agent.infra.repository import AgentBindingRepository
-from app.modules.chat.application.schemas import ChatMessageInput
+from app.modules.agent.application.schemas import ChatMessageInput
 
 
 class QueueLLMPort(LLMPort):
