@@ -35,6 +35,25 @@ def register_outbox_handlers() -> None:
 
     reg.register(RunEventType.CREATED, "runtime.run_created.builtin", handle_run_created_outbox)
 
+    from app.kernel.observability.event_types import ObservabilityEventType
+    from app.kernel.observability.handlers.execution_observability import (
+        handle_cost_recorded_observability,
+        handle_run_created_observability,
+        handle_task_lifecycle_observability,
+        handle_workflow_node_observability,
+    )
+
+    reg.register(
+        RunEventType.CREATED,
+        "observability.run_created.trace_metrics",
+        handle_run_created_observability,
+    )
+    reg.register(
+        ObservabilityEventType.COST_RECORDED,
+        "observability.cost.metrics",
+        handle_cost_recorded_observability,
+    )
+
     for _name, event_type in (
         ("created", TaskEventType.CREATED),
         ("started", TaskEventType.STARTED),
@@ -47,6 +66,11 @@ def register_outbox_handlers() -> None:
             event_type,
             f"runtime.task.builtin.{_name}",
             handle_task_runtime_outbox,
+        )
+        reg.register(
+            event_type,
+            f"observability.task.{_name}",
+            handle_task_lifecycle_observability,
         )
 
     from app.modules.observability.domain.approval_events import ApprovalEventType
@@ -75,4 +99,14 @@ def register_outbox_handlers() -> None:
         WorkflowEventType.NODE_FAILED,
         "workflow.node_failed.builtin",
         handle_workflow_node_failed_outbox,
+    )
+    reg.register(
+        WorkflowEventType.NODE_COMPLETED,
+        "observability.workflow.node_completed",
+        handle_workflow_node_observability,
+    )
+    reg.register(
+        WorkflowEventType.NODE_FAILED,
+        "observability.workflow.node_failed",
+        handle_workflow_node_observability,
     )

@@ -21,6 +21,7 @@ from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCostEntry
 from app.kernel.runtime import models as runtime_models  # noqa: F401
 from app.kernel.responses import models as response_models  # noqa: F401
 from app.kernel.observability.idempotency import IdempotencyKey  # noqa: F401
+from app.kernel.observability.projection_models import ObservabilityProjectionRecord  # noqa: F401
 from app.modules.identity.domain import models as identity_models  # noqa: F401
 from app.modules.security.domain import models as security_models  # noqa: F401
 from app.modules.secrets.domain import models as secrets_models  # noqa: F401

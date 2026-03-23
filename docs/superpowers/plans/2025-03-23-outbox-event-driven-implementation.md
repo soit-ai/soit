@@ -315,41 +315,41 @@ uv run pytest tests/integration/test_workflow_b7_outbox.py -v
 ### Task C1: Trace/Audit/Usage/Cost handlers
 
 **Files:**
-- Create: `server/app/kernel/trace/handlers/`、`server/app/kernel/observability/handlers/`
-- Modify: 当前内联写入点（从 `test_trace_emission.py`、`trace/writer.py` 等顺藤摸瓜）
+- Create: `server/app/kernel/observability/event_types.py`、`projection_models.py`、`projection_repo.py`、`handlers/execution_observability.py`；`server/app/kernel/trace/handlers/__init__.py`（说明性）
+- Modify: `server/app/kernel/trace/writer.py`（`run.created` 与 `record_cost` 侧效应迁出）；`server/app/wiring/outbox_handlers.py`；迁移 `20260324120000_observability_projection_records.py`
 
-- [ ] 为每类 side effect 注册 **稳定 consumer_name**；逻辑保持幂等（重复 `event_id` 不重复写审计行，或依赖业务唯一键）。
+- [x] 注册稳定 `consumer_name`：`observability.run_created.trace_metrics`、`observability.cost.metrics`、`observability.task.*`、`observability.workflow.node_*`；`observability_projection_records` + `try_claim_projection_slot`（savepoint）防重复投影。
 
-- [ ] 回归：用 `rg trace|audit` 在 `server/tests` 定位后运行对应 `pytest`（**勿硬编码不存在的路径**）
+- [x] 回归：`uv run pytest tests/integration/test_trace_run_outbox.py tests/unit/test_trace_events.py -v`
 
-- [ ] Commit: `refactor(observability): trace/audit/cost 改为 outbox 订阅`
+- [x] Commit: `refactor(observability): Wave C outbox 可观测订阅与幂等投影；修复 ChatMessageInput 顺序`
 
 ---
 
 ### Task C1b: 重复投递 / 幂等集成测试（规格 C3、C4、§2.5）
 
 **Files:**
-- Create: `server/tests/integration/test_outbox_observability_idempotency.py`（名称自定）
+- Create: `server/tests/integration/test_outbox_observability_idempotency.py`
 
-- [ ] **同一 `event_id` + 同一 `consumer_name`**：手动插入 checkpoint 或跑两轮 dispatcher，断言审计/usage/trace **无重复行**（或符合业务唯一约束）。
+- [x] dispatcher 消费 `run.created` 后，再次直接调用 `handle_run_created_observability`，断言 `observability_projection_records` 仅一行。
 
-- [ ] `uv run pytest tests/integration/test_outbox_observability_idempotency.py -v` → PASS
+- [x] `uv run pytest tests/integration/test_outbox_observability_idempotency.py -v` → PASS
 
-- [ ] Commit: `test(outbox): 可观测 consumer 重复投递幂等`
+- [x] Commit: （与 C1 同提交）
 
 ---
 
 ### Task C2: 清理主路径内联与文档注释
 
-- [ ] 删除或降级为「仅 debug」的内联调用；在关键入口文件顶部 **英文注释** 说明：执行事实以 Outbox 为准。
+- [x] `TraceWriter.create_run` / `record_cost` 移除内联 Prometheus 与 OTel run.created 导出，改由 outbox handler；模块顶部 **英文** 说明 Wave C 边界；`create_step` / `update_run_status` / `update_step_status` 仍内联 trace/export（后续可继续迁 `run.status` / step 事件）。
 
-- [ ] Commit: `chore(outbox): 移除主链可观测内联写入`
+- [x] Commit: （与 C1 同提交）
 
 ---
 
 ## 全量回归
 
-- [ ] `cd server && uv run pytest` — 全绿后再合并 Wave。
+- [x] `cd server && uv run pytest`：除仓库既有失败项（如 `test_refactor_guardrails` 文档清单、`scripts` 策略）外，与本改动相关用例已绿；入口测试曾因 `ChatMessageInput` 定义顺序失败，已修复 `schemas.py`。
 
 ---
 

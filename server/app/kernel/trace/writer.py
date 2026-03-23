@@ -1,6 +1,9 @@
-""" writer
+"""Trace writer: authoritative run/step/cost rows in the request DB transaction.
 
-Trace writer interface (DB + artifact storage).
+Wave C: Prometheus run-start counters, OTel trace/export for ``run.created``, and
+token/cost counters for ``record_cost`` are applied by outbox consumers
+(``app.kernel.observability.handlers``), gated by ``observability_projection_records``
+and per-consumer dispatcher checkpoints. Optional ``event_bus`` remains best-effort only.
 """
 
 from typing import Optional, Dict, Any
@@ -27,6 +30,7 @@ from app.kernel.observability.context import (
     set_run_context,
     set_step_context,
 )
+from app.kernel.observability.event_types import ObservabilityEventType
 from app.kernel.observability.tracing import tracer
 from app.kernel.trace.exporter import OpenTelemetryExporter
 from app.kernel.observability.metrics import (
@@ -34,8 +38,6 @@ from app.kernel.observability.metrics import (
     run_duration,
     step_count,
     step_duration,
-    tokens_total,
-    cost_total,
     active_runs,
 )
 
@@ -167,8 +169,6 @@ class TraceWriter:
         self.db.refresh(run)
 
         set_run_context(run.id)
-        self.tracer.trace_run(run, {"event": "created"})
-        self.exporter.export_run(run)
 
         self._emit_event(
             "run.created",
@@ -183,11 +183,7 @@ class TraceWriter:
             },
             run_id=run.id,
         )
-        
-        # Update metrics
-        run_count.labels(mode=mode, status="queued", tenant_id=self.ctx.tenant_id).inc()
-        active_runs.labels(mode=mode, tenant_id=self.ctx.tenant_id).inc()
-        
+
         return run
     
     def update_run_status(
@@ -557,16 +553,40 @@ class TraceWriter:
             total_tokens=total_tokens,
         )
         self.db.add(entry)
+        self.db.flush()
+
+        cost_payload: Dict[str, Any] = {
+            "cost_entry_id": entry.id,
+            "tenant_id": self.ctx.tenant_id,
+            "run_id": entry.run_id,
+            "step_id": entry.step_id,
+            "unit": entry.unit,
+            "quantity": str(entry.quantity),
+            "currency": entry.currency,
+            "amount": str(entry.amount),
+            "provider": entry.provider,
+            "model_ref": entry.model_ref,
+            "tool_ref": entry.tool_ref,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+        OutboxPublisher(OutboxRepository(self.db)).publish(
+            DomainEventEnvelope(
+                event_id=f"evt_cost_{entry.id}",
+                event_type=ObservabilityEventType.COST_RECORDED,
+                tenant_id=self.ctx.tenant_id,
+                subject_type="cost_entry",
+                subject_id=entry.id,
+                run_id=entry.run_id,
+                correlation_id=entry.run_id,
+                producer="kernel.trace.writer",
+                occurred_at=utc_now(),
+                payload=cost_payload,
+            )
+        )
         self.db.commit()
         self.db.refresh(entry)
-        if prompt_tokens:
-            tokens_total.labels(type="prompt", tenant_id=self.ctx.tenant_id).inc(prompt_tokens)
-        if completion_tokens:
-            tokens_total.labels(type="completion", tenant_id=self.ctx.tenant_id).inc(completion_tokens)
-        if unit in ("embeddings", "embedding"):
-            tokens_total.labels(type="embedding", tenant_id=self.ctx.tenant_id).inc(float(qty))
-        if amt and amt > 0:
-            cost_total.labels(resource_type=unit, tenant_id=self.ctx.tenant_id).inc(float(amt))
 
         self._emit_event(
             "cost.recorded",

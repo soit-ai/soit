@@ -78,6 +78,7 @@ def db():
     import app.kernel.responses.models  # noqa: F401
     import app.kernel.observability.idempotency  # noqa: F401
     import app.kernel.events.outbox_models  # noqa: F401
+    import app.kernel.observability.projection_models  # noqa: F401
 
     engine = create_engine(
         "sqlite://",

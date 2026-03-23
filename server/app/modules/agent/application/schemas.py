@@ -199,6 +199,19 @@ class AgentPublishRequest(BaseModel):
     """Version ID to publish."""
 
 
+class ChatMessageInput(BaseModel):
+    """Schema for chat message input."""
+
+    role: str = Field(..., pattern="^(system|user|assistant|tool)$")
+    """Message role."""
+
+    content: str = Field(..., min_length=1)
+    """Message content."""
+
+    metadata: Optional[Dict[str, Any]] = None
+    """Optional message metadata."""
+
+
 class AgentRunRequest(BaseModel):
     """Run agent request."""
 
@@ -291,15 +304,3 @@ class AgentRunResponse(BaseModel):
     budget_exceeded: bool = False
     budget_reason: Optional[str] = None
     cost_total: float = 0.0
-
-class ChatMessageInput(BaseModel):
-    """Schema for chat message input."""
-
-    role: str = Field(..., pattern="^(system|user|assistant|tool)$")
-    """Message role."""
-
-    content: str = Field(..., min_length=1)
-    """Message content."""
-
-    metadata: Optional[Dict[str, Any]] = None
-    """Optional message metadata."""
