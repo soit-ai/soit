@@ -111,3 +111,13 @@ class OutboxRepository:
         row.last_error = error
         row.available_at = utc_now()
         self.db.add(row)
+
+    def mark_failed(self, row_id: str, error: str) -> None:
+        """Terminal failure: stop retries (e.g. exceeded max attempts or poison message)."""
+        row = self.db.get(EventOutbox, row_id)
+        if row is None:
+            return
+        row.status = "failed"
+        row.last_error = error
+        row.processed_at = utc_now()
+        self.db.add(row)
