@@ -9,6 +9,7 @@ from app.kernel.events.envelope import DEFAULT_EVENT_VERSION, DomainEventEnvelop
 from app.kernel.events.outbox_models import DeadLetterEvent, EventConsumerCheckpoint, EventOutbox
 from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.redis_bus import RedisEventBus
+from app.kernel.events.registry import OutboxHandlerRegistry, RegisteredOutboxHandler
 
 __all__ = [
     "ConsumerCheckpointRepository",
@@ -20,6 +21,8 @@ __all__ = [
     "EventConsumerCheckpoint",
     "EventOutbox",
     "InMemoryEventBus",
+    "OutboxHandlerRegistry",
     "OutboxRepository",
     "RedisEventBus",
+    "RegisteredOutboxHandler",
 ]
