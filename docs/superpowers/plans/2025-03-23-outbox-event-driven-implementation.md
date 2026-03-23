@@ -279,16 +279,16 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 ### Task B6: 规格 B7 端到端验收（Run/Task + Workflow + Approval）
 
-- [ ] 新增或扩展 **一条** 集成测试（可拆分多个用例文件，但 CI 中一次命令可跑完）：覆盖 **创建/推进 run**、**工作流节点完成触发下一节点**、**审批通过/拒绝恢复或终止**；断言 outbox 状态与业务表一致。
+- [x] 集成测试 `tests/integration/test_outbox_phase1_execution_chains.py`：`run.created` → dispatch `done`；`task.created`/`started`/`completed` 全部 `done`；`workflow.node.completed` consumer 递增 `workflow_runs` 计数并在 payload 含 `next_node_id` 时入箱下一节点事件（第二条消费后计数与 outbox 一致）；`approval.approved` 后 `waiting_approval` 任务恢复为 `running`。执行器内自动发节点事件仍属 **B3**，本链路由测试入箱模拟上游事实。
 
-- [ ] 命令示例（实现后按实际路径填写）：
+- [x] 命令：
 
 ```bash
 cd server
 uv run pytest tests/integration/test_outbox_phase1_execution_chains.py -v
 ```
 
-- [ ] Commit: `test(outbox): Phase1 执行链 B7 端到端验收`
+- [x] Commit: `test(outbox): B6 Phase1 执行链集成测试与 workflow.node.completed 消费端`
 
 ---
 

@@ -59,3 +59,12 @@ def register_outbox_handlers() -> None:
     reg.register(ApprovalEventType.REQUESTED, "observability.approval.requested", handle_approval_requested_outbox)
     reg.register(ApprovalEventType.APPROVED, "observability.approval.approved", handle_approval_approved_outbox)
     reg.register(ApprovalEventType.REJECTED, "observability.approval.rejected", handle_approval_rejected_outbox)
+
+    from app.modules.workflow.domain.workflow_events import WorkflowEventType
+    from app.modules.workflow.handlers.on_workflow_node_outbox import handle_workflow_node_completed_outbox
+
+    reg.register(
+        WorkflowEventType.NODE_COMPLETED,
+        "workflow.node_completed.builtin",
+        handle_workflow_node_completed_outbox,
+    )
