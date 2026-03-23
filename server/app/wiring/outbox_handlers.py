@@ -39,6 +39,9 @@ def register_outbox_handlers() -> None:
     from app.kernel.observability.handlers.execution_observability import (
         handle_cost_recorded_observability,
         handle_run_created_observability,
+        handle_run_status_updated_observability,
+        handle_step_created_observability,
+        handle_step_status_updated_observability,
         handle_task_lifecycle_observability,
         handle_workflow_node_observability,
     )
@@ -52,6 +55,21 @@ def register_outbox_handlers() -> None:
         ObservabilityEventType.COST_RECORDED,
         "observability.cost.metrics",
         handle_cost_recorded_observability,
+    )
+    reg.register(
+        ObservabilityEventType.RUN_STATUS_UPDATED,
+        "observability.run_status.trace_metrics",
+        handle_run_status_updated_observability,
+    )
+    reg.register(
+        ObservabilityEventType.STEP_CREATED,
+        "observability.step_created.trace_metrics",
+        handle_step_created_observability,
+    )
+    reg.register(
+        ObservabilityEventType.STEP_STATUS_UPDATED,
+        "observability.step_status.trace_metrics",
+        handle_step_status_updated_observability,
     )
 
     for _name, event_type in (

@@ -1,14 +1,14 @@
 """Trace writer: authoritative run/step/cost rows in the request DB transaction.
 
-Wave C: Prometheus run-start counters, OTel trace/export for ``run.created``, and
-token/cost counters for ``record_cost`` are applied by outbox consumers
-(``app.kernel.observability.handlers``), gated by ``observability_projection_records``
-and per-consumer dispatcher checkpoints. Optional ``event_bus`` remains best-effort only.
+Wave C: Prometheus counters, OTel trace/export for run/step lifecycle and cost rows are
+applied by outbox consumers (``app.kernel.observability.handlers``), gated by
+``observability_projection_records`` and dispatcher checkpoints. Optional ``event_bus``
+remains best-effort only.
 """
 
 from typing import Optional, Dict, Any
 import asyncio
-from datetime import datetime, timezone
+from datetime import timezone
 from sqlalchemy.orm import Session
 
 from decimal import Decimal
@@ -31,15 +31,6 @@ from app.kernel.observability.context import (
     set_step_context,
 )
 from app.kernel.observability.event_types import ObservabilityEventType
-from app.kernel.observability.tracing import tracer
-from app.kernel.trace.exporter import OpenTelemetryExporter
-from app.kernel.observability.metrics import (
-    run_count,
-    run_duration,
-    step_count,
-    step_duration,
-    active_runs,
-)
 
 
 class TraceWriter:
@@ -61,8 +52,6 @@ class TraceWriter:
         self.db = db
         self.ctx = ctx
         self.event_bus = event_bus
-        self.exporter = OpenTelemetryExporter()
-        self.tracer = tracer
 
     def _emit_event(
         self,
@@ -227,27 +216,38 @@ class TraceWriter:
             run.error_step_id = error_step_id
         if status in ("succeeded", "failed", "canceled"):
             run.ended_at = utc_now()
-            # Calculate duration
             if run.started_at:
                 started_at = run.started_at
                 if started_at.tzinfo is None:
                     started_at = started_at.replace(tzinfo=timezone.utc)
                 duration_seconds = (run.ended_at - started_at).total_seconds()
                 run.duration_ms = int(duration_seconds * 1000)
-                run_duration.labels(mode=run.mode, tenant_id=self.ctx.tenant_id).observe(duration_seconds)
-            # Decrement active runs
-            active_runs.labels(mode=run.mode, tenant_id=self.ctx.tenant_id).dec()
         run.updated_at = utc_now()
-        
-        # Update metrics
-        if old_status != status:
-            run_count.labels(mode=run.mode, status=status, tenant_id=self.ctx.tenant_id).inc()
-        
+
+        self.db.flush()
+        status_payload: Dict[str, Any] = {
+            "run_id": run.id,
+            "old_status": old_status,
+            "new_status": status,
+            "mode": run.mode,
+            "tenant_id": self.ctx.tenant_id,
+        }
+        OutboxPublisher(OutboxRepository(self.db)).publish(
+            DomainEventEnvelope(
+                event_id=generate_ulid(),
+                event_type=ObservabilityEventType.RUN_STATUS_UPDATED,
+                tenant_id=self.ctx.tenant_id,
+                subject_type="run",
+                subject_id=run.id,
+                run_id=run.id,
+                correlation_id=run.id,
+                producer="kernel.trace.writer",
+                occurred_at=run.updated_at,
+                payload=status_payload,
+            )
+        )
         self.db.commit()
         self.db.refresh(run)
-
-        self.tracer.trace_run(run, {"event": "status"})
-        self.exporter.export_run(run)
 
         self._emit_event(
             "run.status",
@@ -319,12 +319,33 @@ class TraceWriter:
             started_at=utc_now(),
         )
         self.db.add(step)
+        self.db.flush()
+        step_payload: Dict[str, Any] = {
+            "run_id": step.run_id,
+            "step_row_id": step.id,
+            "step_key": step.step_id,
+            "step_type": step.step_type,
+            "tenant_id": self.ctx.tenant_id,
+            "status": step.status,
+        }
+        OutboxPublisher(OutboxRepository(self.db)).publish(
+            DomainEventEnvelope(
+                event_id=f"evt_step_created_{step.id}",
+                event_type=ObservabilityEventType.STEP_CREATED,
+                tenant_id=self.ctx.tenant_id,
+                subject_type="run_step",
+                subject_id=step.id,
+                run_id=step.run_id,
+                correlation_id=step.run_id,
+                producer="kernel.trace.writer",
+                occurred_at=step.started_at,
+                payload=step_payload,
+            )
+        )
         self.db.commit()
         self.db.refresh(step)
 
         set_step_context(step.id)
-        self.tracer.trace_step(step, {"event": "created"})
-        self.exporter.export_step(step)
 
         self._emit_event(
             "step.created",
@@ -339,10 +360,7 @@ class TraceWriter:
             },
             run_id=step.run_id,
         )
-        
-        # Update metrics
-        step_count.labels(step_type=step_type, status="queued", tenant_id=self.ctx.tenant_id).inc()
-        
+
         return step
     
     def update_step_status(
@@ -393,14 +411,7 @@ class TraceWriter:
             step.error_details = error_details
         if status in ("succeeded", "failed", "skipped", "canceled"):
             step.ended_at = utc_now()
-            # Calculate duration
-            if step.started_at:
-                started_at = step.started_at
-                if started_at.tzinfo is None:
-                    started_at = started_at.replace(tzinfo=timezone.utc)
-                duration_seconds = (step.ended_at - started_at).total_seconds()
-                step_duration.labels(step_type=step.step_type, tenant_id=self.ctx.tenant_id).observe(duration_seconds)
-        
+
         if status == "failed":
             run = self.db.get(Run, step.run_id)
             if run and run.tenant_id == self.ctx.tenant_id and run.workspace_id == self.ctx.workspace_id:
@@ -411,15 +422,31 @@ class TraceWriter:
                     run.error_message = error_message[:8192]
                 run.updated_at = utc_now()
 
-        # Update metrics
-        if old_status != status:
-            step_count.labels(step_type=step.step_type, status=status, tenant_id=self.ctx.tenant_id).inc()
-        
+        step_status_payload: Dict[str, Any] = {
+            "step_row_id": step.id,
+            "run_id": step.run_id,
+            "old_status": old_status,
+            "new_status": status,
+            "step_type": step.step_type,
+            "tenant_id": self.ctx.tenant_id,
+        }
+        self.db.flush()
+        OutboxPublisher(OutboxRepository(self.db)).publish(
+            DomainEventEnvelope(
+                event_id=generate_ulid(),
+                event_type=ObservabilityEventType.STEP_STATUS_UPDATED,
+                tenant_id=self.ctx.tenant_id,
+                subject_type="run_step",
+                subject_id=step.id,
+                run_id=step.run_id,
+                correlation_id=step.run_id,
+                producer="kernel.trace.writer",
+                occurred_at=utc_now(),
+                payload=step_status_payload,
+            )
+        )
         self.db.commit()
         self.db.refresh(step)
-
-        self.tracer.trace_step(step, {"event": "status"})
-        self.exporter.export_step(step)
 
         self._emit_event(
             "step.status",
