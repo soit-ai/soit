@@ -20,7 +20,7 @@
 |------|------|
 | `server/app/kernel/events/envelope.py` | Domain 事件 envelope 与序列化（规格 §5 字段） |
 | `server/app/kernel/events/outbox_models.py` | SQLModel：`EventOutboxRow`、`EventConsumerCheckpoint`、可选 `DeadLetterEvent` |
-| `server/app/kernel/events/outbox_repo.py` | enqueue、fetch pending、claim、mark done/failed、DLQ |
+| `server/app/kernel/events/outbox_repo.py` | enqueue、fetch pending、claim、mark done/failed、DLQ（**规格 A9**：`publisher.py` 不单独建文件，enqueue 由本模块承担） |
 | `server/app/kernel/events/checkpoint.py` | 查询/写入 checkpoint 辅助 |
 | `server/app/kernel/events/registry.py` | `event_type` → 有序 handler 列表 |
 | `server/app/kernel/events/dispatcher.py` | 规格 §10 七步循环（异步） |
@@ -28,6 +28,7 @@
 | `server/alembic/versions/<new>_event_outbox_tables.py` | 新表与索引 |
 | `server/app/settings/settings.py`（或等价） | `outbox_dispatcher_enabled`、poll 间隔、batch size、max_attempts |
 | `server/app/main.py` | lifespan 内可选 `asyncio.create_task(dispatcher.run_loop(...))` |
+| `server/app/wiring/outbox_handlers.py`（或 `kernel/events/bootstrap.py`，路径实现时二选一） | **组合根**：启动时注册全部 outbox handlers（含 Wave A 烟囱测试用 handler） |
 | `server/app/kernel/runtime/handlers/` | Wave B：runtime 相关 outbox handlers（按需拆分文件） |
 | `server/app/modules/workflow/handlers/` | Wave B：workflow 调度 handler |
 | `server/app/modules/approvals/handlers/` | Wave B：approval resume handler |
@@ -112,9 +113,11 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 - [ ] **Step 1: 失败测试** — 使用项目现有 DB fixture（若存在）或 `sqlite` 内存引擎：在同一 session 内 `enqueue` 后 `flush`，再 `fetch_pending` 能取到 `pending` 行；`claim` 后状态为 `processing`。
 
+- [ ] **Step 2: 运行测试确认失败** — `uv run pytest tests/unit/test_outbox_repository.py -v` → FAIL
+
 - [ ] **Step 3: 实现** — `enqueue(...)` 仅 `session.add`，**不**在 repo 内 `commit`（由调用方控制事务）。提供原子 `claim`（`UPDATE ... WHERE id=? AND status='pending'` 或等价）。
 
-- [ ] **Step 4:** `uv run pytest tests/unit/test_outbox_repository.py -v` → PASS
+- [ ] **Step 4: 运行测试确认通过** — `uv run pytest tests/unit/test_outbox_repository.py -v` → PASS
 
 - [ ] **Step 5: Commit** — `feat(outbox): Outbox 模型与 repository`
 
@@ -164,19 +167,22 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 ---
 
-### Task A7: 配置与 lifespan 挂载
+### Task A7: 配置、handler 引导（composition root）与 lifespan 挂载
 
 **Files:**
 - Modify: `server/app/settings/settings.py`（或实际配置模块）
 - Modify: `server/app/main.py`
+- Create: `server/app/wiring/outbox_handlers.py`（或 `server/app/kernel/events/bootstrap.py`）
 
 - [ ] 增加 `outbox_dispatcher_enabled: bool = False`、`outbox_dispatcher_poll_interval: float`、`outbox_dispatcher_batch_size: int` 等。
 
-- [ ] 在 `lifespan` 中若 enabled，则 `asyncio.create_task(OutboxDispatcher(...).run_loop(...))`，shutdown 时 cancel（**照抄** knowledge worker 的 cancel 模式，见 `main.py` 约 80–104 行）。
+- [ ] **实现 `register_outbox_handlers()`**（名称自定）：至少注册 **A8 烟囱测试** 所需 `event_type` 与占位 handler；Wave B/C 完成后在同一入口追加注册，避免「dispatcher 空转」。
+
+- [ ] 在 `lifespan` 启动时 **先调用** `register_outbox_handlers()`，再若 enabled 则 `asyncio.create_task(OutboxDispatcher(...).run_loop(...))`，shutdown 时 cancel（**照抄** knowledge worker 的 cancel 模式，见 `main.py` 约 80–104 行）。
 
 - [ ] 手动验证：启动 API + 启用 flag，日志无异常循环。
 
-- [ ] Commit: `feat(outbox): 可配置启动 dispatcher 后台任务`
+- [ ] Commit: `feat(outbox): 可配置启动 dispatcher 与 handler 注册`
 
 ---
 
@@ -204,7 +210,7 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 - [ ] 定义最小集合：先 **仅** `run.created`（或规格 §6.1 中与当前主链重合的 1–2 个）。
 
-- [ ] 注册 handler：例如 `server/app/kernel/runtime/handlers/on_run_created.py`，由 wiring 注册到 registry（避免 kernel import modules：handler 可放在 kernel/runtime/handlers，内部仅调 ports/已有服务）。
+- [ ] 注册 handler：例如 `server/app/kernel/runtime/handlers/on_run_created.py`，在 **`register_outbox_handlers()`**（见 Task A7）中注册到 registry（避免 kernel import modules：handler 可放在 kernel/runtime/handlers，内部仅调 ports/已有服务）。
 
 - [ ] 集成测试：创建 run 的 API 或 service 调用后，dispatcher 处理完毕的观测断言（可轮询 DB）。
 
@@ -236,7 +242,7 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 - [ ] 更新 `workflow_runs` 计数字段（规格 §8.2），**同事务或单 handler 事务**内完成。
 
-- [ ] `uv run pytest tests/unit/test_workflow_executor.py tests/entrypoints/test_workflow_api.py -v`（按需）
+- [ ] 回归：在 `server/tests` 下用 `rg workflow` / 现有 CI 已跑的文件列出命令，例如 `uv run pytest tests/unit/test_workflow_executor.py -v`（**若文件不存在则换为实际路径**）
 
 - [ ] Commit: `feat(workflow): 节点事件与调度 consumer`
 
@@ -266,6 +272,21 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 ---
 
+### Task B6: 规格 B7 端到端验收（Run/Task + Workflow + Approval）
+
+- [ ] 新增或扩展 **一条** 集成测试（可拆分多个用例文件，但 CI 中一次命令可跑完）：覆盖 **创建/推进 run**、**工作流节点完成触发下一节点**、**审批通过/拒绝恢复或终止**；断言 outbox 状态与业务表一致。
+
+- [ ] 命令示例（实现后按实际路径填写）：
+
+```bash
+cd server
+uv run pytest tests/integration/test_outbox_phase1_execution_chains.py -v
+```
+
+- [ ] Commit: `test(outbox): Phase1 执行链 B7 端到端验收`
+
+---
+
 ## Wave C — 可观测性订阅
 
 ### Task C1: Trace/Audit/Usage/Cost handlers
@@ -276,9 +297,22 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 - [ ] 为每类 side effect 注册 **稳定 consumer_name**；逻辑保持幂等（重复 `event_id` 不重复写审计行，或依赖业务唯一键）。
 
-- [ ] `uv run pytest tests/test_trace_emission.py tests/unit/test_audit_log.py -v`（按实际测试文件调整）
+- [ ] 回归：用 `rg trace|audit` 在 `server/tests` 定位后运行对应 `pytest`（**勿硬编码不存在的路径**）
 
 - [ ] Commit: `refactor(observability): trace/audit/cost 改为 outbox 订阅`
+
+---
+
+### Task C1b: 重复投递 / 幂等集成测试（规格 C3、C4、§2.5）
+
+**Files:**
+- Create: `server/tests/integration/test_outbox_observability_idempotency.py`（名称自定）
+
+- [ ] **同一 `event_id` + 同一 `consumer_name`**：手动插入 checkpoint 或跑两轮 dispatcher，断言审计/usage/trace **无重复行**（或符合业务唯一约束）。
+
+- [ ] `uv run pytest tests/integration/test_outbox_observability_idempotency.py -v` → PASS
+
+- [ ] Commit: `test(outbox): 可观测 consumer 重复投递幂等`
 
 ---
 
