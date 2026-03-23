@@ -1,9 +1,10 @@
-"""Outbox consumer: workflow.node.completed — bump workflow_runs counters and chain next node (B6)."""
+"""Outbox consumers: workflow.node.completed / failed — counters + optional linear next-node chain (B3/B6)."""
 
 from __future__ import annotations
 
 from sqlmodel import Session
 
+from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.events.envelope import DomainEventEnvelope
 from app.kernel.events.outbox_repo import OutboxRepository
@@ -36,7 +37,7 @@ def handle_workflow_node_completed_outbox(db: Session, row: EventOutbox) -> None
 
     correlation = row.correlation_id or wfr.run_id or wfr.id
     envelope = DomainEventEnvelope(
-        event_id=f"evt_wf_node_completed_{wfr_id}_{next_node_id}",
+        event_id=f"evt_wf_node_completed_{wfr_id}_{next_node_id}_{generate_ulid()}",
         event_type=WorkflowEventType.NODE_COMPLETED,
         tenant_id=wfr.tenant_id,
         subject_type="workflow_run",
@@ -52,3 +53,21 @@ def handle_workflow_node_completed_outbox(db: Session, row: EventOutbox) -> None
         },
     )
     OutboxPublisher(OutboxRepository(db)).publish(envelope)
+
+
+def handle_workflow_node_failed_outbox(db: Session, row: EventOutbox) -> None:
+    """Increment workflow_runs.failed_nodes; DAG scheduling stays in-process on the executor."""
+    payload = row.payload_json or {}
+    wfr_id = payload.get("workflow_run_id") or row.workflow_run_id or row.subject_id
+    if not wfr_id:
+        return
+    wfr = db.get(WorkflowRun, wfr_id)
+    if wfr is None:
+        return
+
+    wfr.failed_nodes = int(wfr.failed_nodes or 0) + 1
+    waiting = int(wfr.waiting_nodes or 0)
+    if waiting > 0:
+        wfr.waiting_nodes = waiting - 1
+    wfr.updated_at = utc_now()
+    db.add(wfr)

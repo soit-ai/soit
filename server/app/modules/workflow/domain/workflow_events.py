@@ -5,3 +5,4 @@ class WorkflowEventType:
     """workflow.* domain facts (checklist §6 / §11.2)."""
 
     NODE_COMPLETED = "workflow.node.completed"
+    NODE_FAILED = "workflow.node.failed"

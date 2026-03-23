@@ -341,10 +341,27 @@ class ExecutionEngine:
         Returns:
             Workflow result.
         """
+        from app.modules.workflow.domain.models import WorkflowRun
         from app.modules.workflow.runtime.executor import WorkflowExecutor
         from app.modules.workflow.runtime.executors.base import ExecutionContext
         from app.wiring import get_container
-        
+
+        nodes_dict = plan.plan_data.get("nodes") or {}
+        total_nodes = len(nodes_dict)
+        workflow_run_row = WorkflowRun(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            run_id=plan.run_id,
+            total_nodes=total_nodes,
+            completed_nodes=0,
+            failed_nodes=0,
+            waiting_nodes=total_nodes,
+            status="running",
+        )
+        self.db.add(workflow_run_row)
+        self.db.flush()
+        workflow_run_id = workflow_run_row.id
+
         # Get ports from container
         container = get_container()
         llm_port = container.get_llm_port(
@@ -363,10 +380,10 @@ class ExecutionEngine:
             ctx=self.ctx,
             trace_writer=self.trace_writer,
         )
-        
+
         # Initialize workflow executor
         workflow_executor = WorkflowExecutor(self)
-        
+
         # Create execution context
         context = ExecutionContext(
             run_id=plan.run_id,
@@ -379,11 +396,27 @@ class ExecutionEngine:
             plugin_runtime_port=plugin_runtime_port,
             response_service=self.response_service,
             workflow_policy=plan.plan_data.get("policy", {}),
+            workflow_run_id=workflow_run_id,
         )
-        
-        # Execute workflow
-        result = await workflow_executor.execute(plan, context)
-        
+
+        try:
+            result = await workflow_executor.execute(plan, context)
+        except Exception:
+            row = self.db.get(WorkflowRun, workflow_run_id)
+            if row is not None:
+                row.status = "failed"
+                row.updated_at = utc_now()
+                self.db.add(row)
+            self.db.commit()
+            raise
+
+        row = self.db.get(WorkflowRun, workflow_run_id)
+        if row is not None:
+            row.status = "succeeded"
+            row.updated_at = utc_now()
+            self.db.add(row)
+        self.db.commit()
+
         return result
     
     async def _execute_agent(self, plan: ExecutionPlan) -> Dict[str, Any]:

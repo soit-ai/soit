@@ -15,7 +15,65 @@ from app.modules.workflow.runtime.executors import get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
 from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.kernel.commons.errors import ValidationError
-from app.kernel.trace.models import Run
+from app.kernel.trace.models import Run, RunStep
+from app.modules.workflow.runtime.workflow_outbox_emit import (
+    enqueue_workflow_node_completed,
+    enqueue_workflow_node_failed,
+)
+
+
+def _emit_workflow_node_completed_outbox(
+    context: ExecutionContext,
+    *,
+    node_id: str,
+    run_step: RunStep,
+    next_node_id: Optional[str] = None,
+) -> None:
+    if not getattr(context, "workflow_run_id", None):
+        return
+    if run_step.step_type != "workflow_node":
+        return
+    wid = context.workflow_run_id
+    assert wid is not None
+    db = context.trace_writer.db
+    enqueue_workflow_node_completed(
+        db,
+        context.ctx,
+        workflow_run_id=wid,
+        run_id=context.run_id,
+        node_id=node_id,
+        step_pk=run_step.id,
+        next_node_id=next_node_id,
+    )
+    db.commit()
+
+
+def _emit_workflow_node_failed_outbox(
+    context: ExecutionContext,
+    *,
+    node_id: str,
+    run_step: RunStep,
+    error_code: Optional[str],
+    error_message: Optional[str],
+) -> None:
+    if not getattr(context, "workflow_run_id", None):
+        return
+    if run_step.step_type != "workflow_node":
+        return
+    wid = context.workflow_run_id
+    assert wid is not None
+    db = context.trace_writer.db
+    enqueue_workflow_node_failed(
+        db,
+        context.ctx,
+        workflow_run_id=wid,
+        run_id=context.run_id,
+        node_id=node_id,
+        step_pk=run_step.id,
+        error_code=error_code,
+        error_message=error_message,
+    )
+    db.commit()
 
 
 class WorkflowExecutor:
@@ -184,7 +242,7 @@ class WorkflowExecutor:
                 attempt = 1
                 attempts = 0
                 run_step = create_attempt_step(attempt)
-                
+
                 # Create step context after initial step is created.
                 step_context = ExecutionContext(
                     run_id=context.run_id,
@@ -198,6 +256,7 @@ class WorkflowExecutor:
                     response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
+                    workflow_run_id=context.workflow_run_id,
                 )
                 final_error_recorded = False
                 try:
@@ -270,13 +329,14 @@ class WorkflowExecutor:
                     }
                     if timeout_ms is not None:
                         metrics["timeout_ms"] = int(timeout_ms)
-                    context.trace_writer.update_step_status(
+                    run_step = context.trace_writer.update_step_status(
                         run_step.id,
                         status="succeeded",
                         output_summary=str(output)[:8192] if output else None,
                         metrics=metrics,
                     )
-                    
+                    _emit_workflow_node_completed_outbox(context, node_id=node_id, run_step=run_step)
+
                     resolve_outgoing_edges(node_id, allow_edges=True)
                 
                 except asyncio.CancelledError:
@@ -315,7 +375,7 @@ class WorkflowExecutor:
                         }
                         if timeout_ms is not None:
                             metrics["timeout_ms"] = int(timeout_ms)
-                        context.trace_writer.update_step_status(
+                        run_step = context.trace_writer.update_step_status(
                             run_step.id,
                             status="failed",
                             output_summary=error_message[:8192],
@@ -329,7 +389,15 @@ class WorkflowExecutor:
                             },
                             metrics=metrics,
                         )
-                    
+
+                    _emit_workflow_node_failed_outbox(
+                        context,
+                        node_id=node_id,
+                        run_step=run_step,
+                        error_code="NODE_EXECUTION_ERROR",
+                        error_message=error_message[:8192],
+                    )
+
                     error_strategy = semantics.get("on_error", "fail_fast")
                     
                     if error_strategy == "fail_fast":
@@ -398,6 +466,7 @@ class WorkflowExecutor:
                     response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
+                    workflow_run_id=context.workflow_run_id,
                 )
                 try:
                     output = await executor.execute(node, step_context, inputs)

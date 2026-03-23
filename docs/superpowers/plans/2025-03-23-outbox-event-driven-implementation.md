@@ -238,16 +238,19 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 ### Task B3: Workflow 节点调度
 
 **Files:**
-- Modify: `server/app/modules/workflow/` 下节点完成/失败路径
-- Create: `server/app/modules/workflow/handlers/scheduler.py`（名称自定）
+- `server/app/modules/workflow/runtime/workflow_outbox_emit.py`（入箱 API）
+- Modify: `runtime/executor.py`（节点 succeeded → `workflow.node.completed`；terminal failed → `workflow.node.failed`）
+- Modify: `runtime/engine.py`（`_execute_workflow` 创建 `WorkflowRun` 并传入 `ExecutionContext.workflow_run_id`）
+- `handlers/on_workflow_node_outbox.py`（`NODE_FAILED` 计数）；`handlers/scheduler.py`（§11.2 导出入口）
+- `domain/workflow_events.py`（`NODE_FAILED`）；`app/wiring/outbox_handlers.py` 注册
 
-- [ ] 发 `workflow.node.completed` / `workflow.node.failed`；consumer 调度下一节点（规格 §11.2）。
+- [x] 发 `workflow.node.completed` / `workflow.node.failed`；consumer 更新 `workflow_runs`，payload 含 `next_node_id` 时入箱**线性**下一节点；DAG 就绪边仍由 `WorkflowExecutor` 在进程内调度（规格 §11.2 Phase 1）。
 
-- [ ] 更新 `workflow_runs` 计数字段（规格 §8.2），**同事务或单 handler 事务**内完成。
+- [x] `workflow_runs` 计数由 **outbox handler** 更新；引擎在 workflow 正常结束/异常时写 `WorkflowRun.status`。
 
-- [ ] 回归：在 `server/tests` 下用 `rg workflow` / 现有 CI 已跑的文件列出命令，例如 `uv run pytest tests/unit/test_workflow_executor.py -v`（**若文件不存在则换为实际路径**）
+- [x] 回归：`uv run pytest tests/unit/test_workflow_executor.py tests/integration/test_workflow_b7_outbox.py -v`
 
-- [ ] Commit: `feat(workflow): 节点事件与调度 consumer`
+- [x] Commit: `feat(workflow): B3 节点 outbox 入箱与 B7 引擎验收测试`
 
 ---
 
@@ -279,7 +282,7 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 
 ### Task B6: 规格 B7 端到端验收（Run/Task + Workflow + Approval）
 
-- [x] 集成测试 `tests/integration/test_outbox_phase1_execution_chains.py`：`run.created` → dispatch `done`；`task.created`/`started`/`completed` 全部 `done`；`workflow.node.completed` consumer 递增 `workflow_runs` 计数并在 payload 含 `next_node_id` 时入箱下一节点事件（第二条消费后计数与 outbox 一致）；`approval.approved` 后 `waiting_approval` 任务恢复为 `running`。执行器内自动发节点事件仍属 **B3**，本链路由测试入箱模拟上游事实。
+- [x] 集成测试 `tests/integration/test_outbox_phase1_execution_chains.py`：串联 run / task / **手工入箱** workflow 链（含 `next_node_id`）/ approval；与 **B3 真实节点入箱** 互补。
 
 - [x] 命令：
 
@@ -289,6 +292,21 @@ uv run pytest tests/integration/test_outbox_phase1_execution_chains.py -v
 ```
 
 - [x] Commit: `test(outbox): B6 Phase1 执行链集成测试与 workflow.node.completed 消费端`
+
+---
+
+### Task B7: 引擎路径工作流 outbox 验收
+
+- [x] `tests/integration/test_workflow_b7_outbox.py`：`ExecutionEngine.execute(workflow)`（`patch` `app.wiring.get_container` 注入假 LLM/Tool port），两节点 `set_var`→`output`；断言 `workflow.node.completed` 入箱、dispatcher 后 `workflow_runs.completed_nodes` / `waiting_nodes` 与相关 outbox `done`。
+
+- [x] 命令：
+
+```bash
+cd server
+uv run pytest tests/integration/test_workflow_b7_outbox.py -v
+```
+
+- [x] Commit: `feat(workflow): B3 节点 outbox 入箱与 B7 引擎验收测试`（与 B3 同提交）
 
 ---
 

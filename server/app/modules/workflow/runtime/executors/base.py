@@ -32,6 +32,7 @@ class ExecutionContext:
         response_service: Optional[ResponseService] = None,
         workflow_policy: Optional[Dict[str, Any]] = None,
         steps_outputs: Optional[Dict[str, Dict[str, Any]]] = None,
+        workflow_run_id: Optional[str] = None,
     ):
         """Initialize execution context.
         
@@ -45,6 +46,7 @@ class ExecutionContext:
             vector_port: Optional vector gateway.
             workflow_policy: Optional workflow policy object.
             steps_outputs: Dictionary of step outputs.
+            workflow_run_id: Optional aggregate id for workflow_runs outbox (B3).
         """
         self.run_id = run_id
         self.step_id = step_id
@@ -57,6 +59,7 @@ class ExecutionContext:
         self.response_service = response_service
         self.workflow_policy = workflow_policy or {}
         self.steps_outputs = steps_outputs or {}
+        self.workflow_run_id = workflow_run_id
 
 
 class NodeExecutor(ABC):
