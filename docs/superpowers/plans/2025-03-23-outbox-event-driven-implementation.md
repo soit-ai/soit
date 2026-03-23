@@ -53,9 +53,9 @@
 - Create: `server/app/kernel/events/envelope.py`
 - Test: `server/tests/unit/test_outbox_envelope.py`
 
-- [ ] **Step 1: 写失败测试** — 断言 dataclass/Pydantic 模型序列化往返后关键字段一致（`event_id`, `event_type`, `event_version`, `tenant_id`, `correlation_id`, `payload`）。
+- [x] **Step 1: 写失败测试** — 断言 dataclass/Pydantic 模型序列化往返后关键字段一致（`event_id`, `event_type`, `event_version`, `tenant_id`, `correlation_id`, `payload`）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cd server
@@ -64,9 +64,9 @@ uv run pytest tests/unit/test_outbox_envelope.py -v
 
 Expected: FAIL（模块不存在或未实现）
 
-- [ ] **Step 3: 最小实现** — 使用与项目一致的模型风格（可与现有 `app/kernel` 中 schema 风格对齐）；**代码注释使用英文**（工作区规则）。
+- [x] **Step 3: 最小实现** — 使用与项目一致的模型风格（可与现有 `app/kernel` 中 schema 风格对齐）；**代码注释使用英文**（工作区规则）。
 
-- [ ] **Step 4: 测试通过**
+- [x] **Step 4: 测试通过**
 
 ```bash
 uv run pytest tests/unit/test_outbox_envelope.py -v
@@ -74,7 +74,7 @@ uv run pytest tests/unit/test_outbox_envelope.py -v
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/kernel/events/envelope.py server/tests/unit/test_outbox_envelope.py
@@ -89,13 +89,13 @@ git commit -m "feat(outbox): 增加领域事件 envelope 与单测"
 - Create: `server/alembic/versions/<timestamp>_event_outbox_tables.py`
 - Modify: 无（若需注册模型进 `env.py`/`create_tables` 按现有惯例）
 
-- [ ] **Step 1:** 运行 `cd server && uv run alembic heads` 确认当前 head revision id。
+- [x] **Step 1:** 运行 `cd server && uv run alembic heads` 确认当前 head revision id。
 
-- [ ] **Step 2:** 新建 migration，`down_revision` 指向当前 head；按规格 **§7.1–7.3** 创建表与索引（`status+available_at`、`correlation_id`、`subject_type+subject_id`、`run_id`、`workflow_run_id`）。
+- [x] **Step 2:** 新建 migration，`down_revision` 指向当前 head；按规格 **§7.1–7.3** 创建表与索引（`status+available_at`、`correlation_id`、`subject_type+subject_id`、`run_id`、`workflow_run_id`）。
 
-- [ ] **Step 3:** `uv run alembic upgrade head` 在本地开发库验证（或 `alembic upgrade head --sql` 检视）。
+- [x] **Step 3:** `uv run alembic upgrade head` 在本地开发库验证（或 `alembic upgrade head --sql` 检视）。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/alembic/versions/
@@ -111,15 +111,15 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Create: `server/app/kernel/events/outbox_repo.py`
 - Test: `server/tests/unit/test_outbox_repository.py`
 
-- [ ] **Step 1: 失败测试** — 使用项目现有 DB fixture（若存在）或 `sqlite` 内存引擎：在同一 session 内 `enqueue` 后 `flush`，再 `fetch_pending` 能取到 `pending` 行；`claim` 后状态为 `processing`。
+- [x] **Step 1: 失败测试** — 使用项目现有 DB fixture（若存在）或 `sqlite` 内存引擎：在同一 session 内 `enqueue` 后 `flush`，再 `fetch_pending` 能取到 `pending` 行；`claim` 后状态为 `processing`。
 
-- [ ] **Step 2: 运行测试确认失败** — `uv run pytest tests/unit/test_outbox_repository.py -v` → FAIL
+- [x] **Step 2: 运行测试确认失败** — `uv run pytest tests/unit/test_outbox_repository.py -v` → FAIL
 
-- [ ] **Step 3: 实现** — `enqueue(...)` 仅 `session.add`，**不**在 repo 内 `commit`（由调用方控制事务）。提供原子 `claim`（`UPDATE ... WHERE id=? AND status='pending'` 或等价）。
+- [x] **Step 3: 实现** — `enqueue(...)` 仅 `session.add`，**不**在 repo 内 `commit`（由调用方控制事务）。提供原子 `claim`（`UPDATE ... WHERE id=? AND status='pending'` 或等价）。
 
-- [ ] **Step 4: 运行测试确认通过** — `uv run pytest tests/unit/test_outbox_repository.py -v` → PASS
+- [x] **Step 4: 运行测试确认通过** — `uv run pytest tests/unit/test_outbox_repository.py -v` → PASS
 
-- [ ] **Step 5: Commit** — `feat(outbox): Outbox 模型与 repository`
+- [x] **Step 5: Commit** — `feat(outbox): Outbox 模型与 repository`
 
 ---
 
@@ -129,13 +129,13 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Create: `server/app/kernel/events/checkpoint.py`
 - Test: `server/tests/unit/test_outbox_checkpoint.py`
 
-- [ ] 测试：`has_processed(consumer_name, event_id)` 在插入一行后为 True；唯一约束冲突时行为明确（插入失败则视为已存在，由调用方 skip）。
+- [x] 测试：`has_processed(consumer_name, event_id)` 在插入一行后为 True；唯一约束冲突时行为明确（插入失败则视为已存在，由调用方 skip）。
 
-- [ ] 实现：封装 `try_insert_checkpoint` / `is_processed`。
+- [x] 实现：封装 `try_insert_checkpoint` / `is_processed`。
 
-- [ ] `uv run pytest tests/unit/test_outbox_checkpoint.py -v` → PASS
+- [x] `uv run pytest tests/unit/test_outbox_checkpoint.py -v` → PASS
 
-- [ ] Commit: `feat(outbox): consumer checkpoint 辅助`
+- [x] Commit: `feat(outbox): consumer checkpoint 辅助`
 
 ---
 
@@ -145,9 +145,9 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Create: `server/app/kernel/events/registry.py`
 - Test: `server/tests/unit/test_outbox_registry.py`
 
-- [ ] 注册多个 handler 同一 `event_type`，`get_handlers` 返回顺序稳定（注册顺序）。
+- [x] 注册多个 handler 同一 `event_type`，`get_handlers` 返回顺序稳定（注册顺序）。
 
-- [ ] Commit: `feat(outbox): handler 注册表`
+- [x] Commit: `feat(outbox): handler 注册表`
 
 ---
 
@@ -157,13 +157,13 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Create: `server/app/kernel/events/dispatcher.py`
 - Test: `server/tests/unit/test_outbox_dispatcher.py`
 
-- [ ] 实现异步 `process_batch()`：对每条 outbox 行，对每个 handler：**先 checkpoint 查询 → skip 或执行 → 成功则写 checkpoint**；全部 handler 成功后 `mark_done`；任一步异常则 `mark_retry`/`last_error`/`attempt_count`，超阈值 `dead_letter`（若表存在）。
+- [x] 实现异步 `process_batch()`：对每条 outbox 行，对每个 handler：**先 checkpoint 查询 → skip 或执行 → 成功则写 checkpoint**；全部 handler 成功后 `mark_done`；任一步异常则 `mark_retry`/`last_error`/`attempt_count`，超阈值 `dead_letter`（若表存在）。
 
-- [ ] 单元测试使用 **fake session** 或 mock repo，覆盖：双 handler、第二个失败时第一个 checkpoint 已写入且不丢、重入时 skip。
+- [x] 单元测试使用 **fake session** 或 mock repo，覆盖：双 handler、第二个失败时第一个 checkpoint 已写入且不丢、重入时 skip。
 
-- [ ] `uv run pytest tests/unit/test_outbox_dispatcher.py -v` → PASS
+- [x] `uv run pytest tests/unit/test_outbox_dispatcher.py -v` → PASS
 
-- [ ] Commit: `feat(outbox): dispatcher 与单测`
+- [x] Commit: `feat(outbox): dispatcher 与单测`
 
 ---
 
@@ -174,15 +174,15 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Modify: `server/app/main.py`
 - Create: `server/app/wiring/outbox_handlers.py`（或 `server/app/kernel/events/bootstrap.py`）
 
-- [ ] 增加 `outbox_dispatcher_enabled: bool = False`、`outbox_dispatcher_poll_interval: float`、`outbox_dispatcher_batch_size: int` 等。
+- [x] 增加 `outbox_dispatcher_enabled: bool = False`、`outbox_dispatcher_poll_interval: float`、`outbox_dispatcher_batch_size: int` 等。
 
-- [ ] **实现 `register_outbox_handlers()`**（名称自定）：至少注册 **A8 烟囱测试** 所需 `event_type` 与占位 handler；Wave B/C 完成后在同一入口追加注册，避免「dispatcher 空转」。
+- [x] **实现 `register_outbox_handlers()`**（名称自定）：至少注册 **A8 烟囱测试** 所需 `event_type` 与占位 handler；Wave B/C 完成后在同一入口追加注册，避免「dispatcher 空转」。
 
-- [ ] 在 `lifespan` 启动时 **先调用** `register_outbox_handlers()`，再若 enabled 则 `asyncio.create_task(OutboxDispatcher(...).run_loop(...))`，shutdown 时 cancel（**照抄** knowledge worker 的 cancel 模式，见 `main.py` 约 80–104 行）。
+- [x] 在 `lifespan` 启动时 **先调用** `register_outbox_handlers()`，再若 enabled 则 `asyncio.create_task(OutboxDispatcher(...).run_loop(...))`，shutdown 时 cancel（**照抄** knowledge worker 的 cancel 模式，见 `main.py` 约 80–104 行）。
 
-- [ ] 手动验证：启动 API + 启用 flag，日志无异常循环。
+- [x] 手动验证：启动 API + 启用 flag，日志无异常循环。
 
-- [ ] Commit: `feat(outbox): 可配置启动 dispatcher 与 handler 注册`
+- [x] Commit: `feat(outbox): 可配置启动 dispatcher 与 handler 注册`
 
 ---
 
@@ -191,11 +191,14 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 **Files:**
 - Create: `server/tests/integration/test_outbox_dispatch.py`
 
-- [ ] 在同一测试中：开启测试 DB、插入一行业务占位（可选）、**同事务** enqueue 一条真实 `event_outbox`、commit；运行 dispatcher 一轮；断言测试 handler 副作用（如测试表计数）且 outbox 为 `done`。
+- [x] 在同一测试中：开启测试 DB、插入一行业务占位（可选）、**同事务** enqueue 一条真实 `event_outbox`、commit；运行 dispatcher 一轮；断言测试 handler 副作用（如测试表计数）且 outbox 为 `done`。
 
-- [ ] `uv run pytest tests/integration/test_outbox_dispatch.py -v` → PASS
+- [x] `uv run pytest tests/integration/test_outbox_dispatch.py -v` → PASS
 
-- [ ] Commit: `test(outbox): dispatcher 端到端烟囱测试`
+- [x] Commit: `test(outbox): dispatcher 端到端烟囱测试`
+
+> **A9**：`publisher.py` 薄封装已落地（与 A3/A5 衔接）。  
+> **A10**：幂等重放与 `OutboxDispatcherService` 已覆盖于 `tests/integration/test_outbox_dispatch.py`。
 
 ---
 
@@ -208,13 +211,13 @@ git commit -m "feat(db): 新增 event_outbox 与 consumer checkpoint 表"
 - Modify: 实际创建 `runs` 的服务（需在代码库中 `rg "runs"` / `create_run` 定位，例如 modules 下 run 服务）
 - Modify: 上述服务所用 session：**提交前** `outbox_repo.enqueue` 同事务
 
-- [ ] 定义最小集合：先 **仅** `run.created`（或规格 §6.1 中与当前主链重合的 1–2 个）。
+- [x] 定义最小集合：先 **仅** `run.created`（或规格 §6.1 中与当前主链重合的 1–2 个）。
 
-- [ ] 注册 handler：例如 `server/app/kernel/runtime/handlers/on_run_created.py`，在 **`register_outbox_handlers()`**（见 Task A7）中注册到 registry（避免 kernel import modules：handler 可放在 kernel/runtime/handlers，内部仅调 ports/已有服务）。
+- [x] 注册 handler：例如 `server/app/kernel/runtime/handlers/on_run_created.py`，在 **`register_outbox_handlers()`**（见 Task A7）中注册到 registry（避免 kernel import modules：handler 可放在 kernel/runtime/handlers，内部仅调 ports/已有服务）。
 
-- [ ] 集成测试：创建 run 的 API 或 service 调用后，dispatcher 处理完毕的观测断言（可轮询 DB）。
+- [x] 集成测试：创建 run 的 API 或 service 调用后，dispatcher 处理完毕的观测断言（可轮询 DB）。
 
-- [ ] Commit: `feat(runtime): run.created 写入 outbox 并由 handler 消费`
+- [x] Commit: `feat(runtime): run.created 写入 outbox 并由 handler 消费`
 
 ---
 
