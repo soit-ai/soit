@@ -28,3 +28,8 @@ def register_outbox_handlers() -> None:
         return None
 
     reg.register("outbox.smoke", "builtin.smoke", _builtin_smoke_handler)
+
+    from app.kernel.runtime.events import RunEventType
+    from app.kernel.runtime.handlers.on_run_created import handle_run_created_outbox
+
+    reg.register(RunEventType.CREATED, "runtime.run_created.builtin", handle_run_created_outbox)

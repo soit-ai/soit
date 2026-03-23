@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from decimal import Decimal
 from app.kernel.events.bus import Event, EventBus
+from app.kernel.events.envelope import DomainEventEnvelope
+from app.kernel.events.outbox_repo import OutboxRepository
+from app.kernel.events.publisher import OutboxPublisher
+from app.kernel.runtime.events import RunEventType
 from app.kernel.trace.models import Run, RunStep, RunArtifact, RunCostEntry
 from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.ids import (
@@ -137,6 +141,28 @@ class TraceWriter:
             started_at=utc_now(),
         )
         self.db.add(run)
+        outbox_payload: Dict[str, Any] = {
+            "run_id": run.id,
+            "status": run.status,
+            "mode": run.mode,
+            "kind": run.kind,
+            "subject_kind": run.subject_kind,
+            "subject_id": run.subject_id,
+            "subject_version_id": run.subject_version_id,
+        }
+        envelope = DomainEventEnvelope(
+            event_id=f"evt_run_created_{run.id}",
+            event_type=RunEventType.CREATED,
+            tenant_id=self.ctx.tenant_id,
+            subject_type="run",
+            subject_id=run.id,
+            run_id=run.id,
+            correlation_id=run.id,
+            producer="kernel.trace.writer",
+            occurred_at=run.started_at,
+            payload=outbox_payload,
+        )
+        OutboxPublisher(OutboxRepository(self.db)).publish(envelope)
         self.db.commit()
         self.db.refresh(run)
 
