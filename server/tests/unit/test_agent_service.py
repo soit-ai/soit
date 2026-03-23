@@ -11,7 +11,7 @@ from app.kernel.ports.llm.interface import LLMPort, ChatResponse
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.schemas import AgentRunRequest
-from app.modules.chat.application.schemas import ChatMessageInput
+from app.modules.agent.application.schemas import ChatMessageInput
 
 
 class QueueLLMPort(LLMPort):
