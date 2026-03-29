@@ -17,7 +17,7 @@ from app.kernel.runtime.core.service import RuntimeCoreService
 from app.kernel.trace.writer import TraceWriter
 from app.modules.observability.domain.models import ApprovalRequest
 from app.modules.observability.infra.repository import ApprovalRepository
-from app.modules.workflow.domain.models import WorkflowRun
+from app.modules.workflow.domain.models import Workflow, WorkflowRun
 from app.modules.workflow.domain.workflow_events import WorkflowEventType
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
@@ -64,10 +64,20 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
         assert refreshed is not None
         assert refreshed.status == "done"
 
+    workflow = Workflow(
+        id="wf_phase1",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="phase1-workflow",
+    )
+    db.add(workflow)
+    db.flush()
+
     wfr = WorkflowRun(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         run_id=run.id,
+        workflow_id=workflow.id,
         total_nodes=2,
         completed_nodes=0,
         failed_nodes=0,

@@ -16,7 +16,7 @@ from app.kernel.trace.schemas import (
     RunResponse,
 )
 from app.modules.knowledge.application.schemas import (
-    KnowledgeBindingUsageResponse,
+    KnowledgeUsageResponse,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeCreateRequest,
@@ -151,8 +151,8 @@ async def summarize_knowledge_costs_by_mode(
     return await handlers.summarize_costs_by_mode(ctx, knowledge_id)
 
 
-@router.get("/{knowledge_id}/applications", response_model=list[KnowledgeBindingUsageResponse])
-async def list_knowledge_applications(
+@router.get("/{knowledge_id}/usages", response_model=list[KnowledgeUsageResponse])
+async def list_knowledge_usages(
     knowledge_id: str,
     limit: int = 100,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
@@ -161,7 +161,7 @@ async def list_knowledge_applications(
     """List agent/workflow usages of a knowledge base."""
 
     handlers = KnowledgeHandlers(service)
-    return await handlers.list_applications(ctx, knowledge_id, limit=limit)
+    return await handlers.list_usages(ctx, knowledge_id, limit=limit)
 
 
 @router.post("/{knowledge_id}/indexes", response_model=KnowledgeIndexResponse, status_code=status.HTTP_201_CREATED)

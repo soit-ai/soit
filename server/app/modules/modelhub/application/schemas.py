@@ -61,6 +61,8 @@ class PlatformModelResponse(BaseModel):
     capabilities_json: Optional[Dict[str, Any]] = None
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    status: str
+    lifecycle_status: Optional[str] = None
     lifecycle: Optional[str] = None
     raw_meta: Optional[Dict[str, Any]] = None
     is_active: bool
@@ -81,8 +83,10 @@ class ProviderModelCreate(BaseModel):
     config_json: Optional[Dict[str, Any]] = None
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    lifecycle_status: Optional[str] = None
     lifecycle: Optional[str] = None
     raw_meta: Optional[Dict[str, Any]] = None
+    status: Optional[str] = None
     enabled: bool = True
 
 
@@ -95,8 +99,10 @@ class ProviderModelUpdate(BaseModel):
     config_json: Optional[Dict[str, Any]] = None
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    lifecycle_status: Optional[str] = None
     lifecycle: Optional[str] = None
     raw_meta: Optional[Dict[str, Any]] = None
+    status: Optional[str] = None
     enabled: Optional[bool] = None
 
 
@@ -113,6 +119,8 @@ class ProviderModelResponse(BaseModel):
     config_json: Optional[Dict[str, Any]] = None
     context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
+    status: str
+    lifecycle_status: Optional[str] = None
     lifecycle: Optional[str] = None
     raw_meta: Optional[Dict[str, Any]] = None
     enabled: bool

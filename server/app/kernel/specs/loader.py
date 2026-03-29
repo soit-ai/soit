@@ -6,7 +6,6 @@ Design goals
 - Stable and explicit: schemas live under app/kernel/specs/<version>/
 - Fast: in-process cache
 - Correct: $ref across sibling schema files (e.g. refs.schema.json#/$defs/...) must resolve
-- Backward compatible: provide load_spec() alias for historical callers
 """
 
 from __future__ import annotations
@@ -102,8 +101,3 @@ def build_registry(version: str = "v1") -> Registry:
 
     _REGISTRY_CACHE[version] = reg
     return reg
-
-
-# Backward compatible alias
-def load_spec(name: str, version: str = "v1") -> SchemaDict:
-    return load_schema(name=name, version=version)

@@ -109,9 +109,6 @@ class SpecValidator:
     def validate_runtrace_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
         return self.validate("runtrace_spec", document, version=version)
 
-    def validate_app_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
-        return self.validate("app_spec", document, version=version)
-
     def validate_memory_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
         return self.validate("memory_spec", document, version=version)
 
@@ -143,7 +140,7 @@ def validate_runtime_spec(
 
 
 def validate_spec(document: JsonDict, schema: Union[str, JsonDict], *, version: str = "v1") -> bool:
-    """Backward compatible helper: return True if valid, otherwise raise ValidationError."""
+    """Validate a document and return True when it passes."""
     if isinstance(schema, str):
         validator.validate(schema, document, version=version, raise_on_error=True)
         return True

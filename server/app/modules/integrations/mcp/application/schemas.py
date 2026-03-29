@@ -13,7 +13,8 @@ class MCPServerCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=1000)
     transport: str = Field(default="http", min_length=1, max_length=64)
     endpoint: str
-    enabled: bool = True
+    status: str = Field(default="active", pattern="^(active|archived|disabled)$")
+    enabled: Optional[bool] = None
     auth_config_json: dict[str, Any] = Field(default_factory=dict)
     capabilities_json: dict[str, Any] = Field(default_factory=dict)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -48,8 +49,24 @@ class MCPServerResponse(BaseModel):
     updated_by: Optional[str]
     created_at: datetime
     updated_at: datetime
+    binding_type: str
+    binding_ref: str
+    server_ref: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MCPBindingTargetResponse(BaseModel):
+    binding_type: str
+    binding_ref: str
+    server_ref: str
+    server_id: str
+    server_name: str
+    capability_key: Optional[str] = None
+    capability_name: Optional[str] = None
+    description: Optional[str] = None
+    uri: Optional[str] = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class MCPCatalogResponse(BaseModel):

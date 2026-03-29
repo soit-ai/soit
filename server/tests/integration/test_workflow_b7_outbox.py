@@ -14,7 +14,7 @@ from app.kernel.events.dispatcher import OutboxDispatcher
 from app.kernel.events.outbox_models import EventOutbox
 from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ChatResponse, EmbeddingResponse, RerankResponse
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.modules.workflow.domain.models import WorkflowRun
+from app.modules.workflow.domain.models import Workflow, WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.kernel.trace.writer import TraceWriter
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
@@ -72,11 +72,19 @@ async def test_b7_workflow_engine_emits_node_outbox_and_projection(
 
     trace_writer = TraceWriter(db, ctx)
     engine = ExecutionEngine(db, ctx, trace_writer, response_service=None)
+    workflow = Workflow(
+        id="wf-b7-outbox",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="workflow-b7-outbox",
+    )
+    db.add(workflow)
+    db.commit()
 
     plan = ExecutionPlan(
         mode="workflow",
         subject_kind="workflow",
-        subject_id="wf-b7-outbox",
+        subject_id=workflow.id,
         subject_version_id="ver-b7",
         inputs={},
         plan_data={
@@ -97,6 +105,7 @@ async def test_b7_workflow_engine_emits_node_outbox_and_projection(
     wfr = db.exec(select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id)).first()
     assert wfr is not None
     assert wfr.status == "succeeded"
+    assert wfr.workflow_id == workflow.id
 
     pending = list(
         db.exec(

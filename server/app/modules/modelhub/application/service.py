@@ -66,6 +66,43 @@ class ModelHubService:
         self.secrets_port = secrets_port
         self.catalog_adapter = catalog_adapter
 
+    @staticmethod
+    def provider_model_status(enabled: bool) -> str:
+        return "active" if bool(enabled) else "disabled"
+
+    @staticmethod
+    def platform_model_status(is_active: bool) -> str:
+        return "active" if bool(is_active) else "disabled"
+
+    def _normalize_model_enabled(
+        self,
+        *,
+        status: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        current: bool = True,
+    ) -> bool:
+        if status is not None:
+            normalized = status.strip().lower()
+            if normalized not in {"active", "disabled"}:
+                raise ValidationError(f"Invalid model status: {status}")
+            return normalized == "active"
+        if enabled is not None:
+            return bool(enabled)
+        return current
+
+    @staticmethod
+    def _resolve_lifecycle_status(
+        *,
+        lifecycle_status: Optional[str] = None,
+        lifecycle: Optional[str] = None,
+        current: Optional[str] = None,
+    ) -> Optional[str]:
+        if lifecycle_status is not None:
+            return lifecycle_status
+        if lifecycle is not None:
+            return lifecycle
+        return current
+
     @workspace_guard("read")
     async def list_providers(self, limit: int = 200) -> List[Provider]:
         """List providers for workspace."""
@@ -250,9 +287,12 @@ class ModelHubService:
             config_json=data.config_json,
             context_window=data.context_window,
             max_output_tokens=data.max_output_tokens,
-            lifecycle=data.lifecycle,
+            lifecycle=self._resolve_lifecycle_status(
+                lifecycle_status=data.lifecycle_status,
+                lifecycle=data.lifecycle,
+            ),
             raw_meta=data.raw_meta,
-            enabled=data.enabled,
+            enabled=self._normalize_model_enabled(status=data.status, enabled=data.enabled, current=True),
             source="local",
             sync_status="never_synced",
             created_at=now,
@@ -285,12 +325,20 @@ class ModelHubService:
             model.context_window = data.context_window
         if data.max_output_tokens is not None:
             model.max_output_tokens = data.max_output_tokens
-        if data.lifecycle is not None:
-            model.lifecycle = data.lifecycle
+        lifecycle_status = self._resolve_lifecycle_status(
+            lifecycle_status=data.lifecycle_status,
+            lifecycle=data.lifecycle,
+            current=model.lifecycle,
+        )
+        if lifecycle_status is not None:
+            model.lifecycle = lifecycle_status
         if data.raw_meta is not None:
             model.raw_meta = data.raw_meta
-        if data.enabled is not None:
-            model.enabled = data.enabled
+        model.enabled = self._normalize_model_enabled(
+            status=data.status,
+            enabled=data.enabled,
+            current=model.enabled,
+        )
         if model.source == "platform" and overridden_fields:
             model.user_overrides_json = self._merge_overrides(model.user_overrides_json, overridden_fields)
             model.sync_status = "diverged"

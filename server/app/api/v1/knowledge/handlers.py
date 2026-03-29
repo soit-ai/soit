@@ -13,7 +13,7 @@ from app.kernel.trace.schemas import (
 )
 from app.modules.knowledge.application.runtime_schemas import KnowledgeCreate, KnowledgeUpdate
 from app.modules.knowledge.application.schemas import (
-    KnowledgeBindingUsageResponse,
+    KnowledgeUsageResponse,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeCreateRequest,
@@ -165,13 +165,13 @@ class KnowledgeHandlers:
     ) -> list[RunCostByModeResponse]:
         return await self.service.summarize_costs_by_mode(knowledge_id)
 
-    async def list_applications(
+    async def list_usages(
         self,
         ctx: RequestContext,
         knowledge_id: str,
         limit: int,
-    ) -> list[KnowledgeBindingUsageResponse]:
-        return await self.service.list_applications(knowledge_id, limit=limit)
+    ) -> list[KnowledgeUsageResponse]:
+        return await self.service.list_usages(knowledge_id, limit=limit)
 
     async def create_index(self, ctx: RequestContext, knowledge_id: str, payload: KnowledgeIndexCreate) -> KnowledgeIndexResponse:
         return KnowledgeIndexResponse.model_validate(await self.service.create_index(knowledge_id, payload))

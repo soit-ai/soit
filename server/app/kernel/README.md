@@ -1,6 +1,6 @@
 # kernel/
 
-SOIT stable core (compatibility-first). Kernel MUST NOT depend on `modules/`.
+SOIT stable core. Kernel MUST NOT depend on `modules/`.
 
 Key responsibilities:
 - scope & identity primitives

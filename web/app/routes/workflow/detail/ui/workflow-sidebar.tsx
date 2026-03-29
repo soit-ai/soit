@@ -26,7 +26,7 @@ import { useLocation } from 'react-router'
 import type { TranslationKey } from '@/i18n/types'
 
 export interface NavSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  appid?: string
+  workflowId?: string
 }
 
 interface NavItem {
@@ -40,7 +40,7 @@ interface NavItem {
 }
 
 export function NavSidebar({ ...props }: NavSidebarProps) {
-  const { appid = '' } = props
+  const { workflowId = '' } = props
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
@@ -55,52 +55,52 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
         id: 'build',
         titleKey: 'workflow.detail.sidebar.nav.build',
         descriptionKey: 'workflow.detail.sidebar.nav.buildDesc',
-        url: `/workflow/${appid}/build`,
+        url: `/workflow/${workflowId}/build`,
         icon: PencilRuler,
-        isActive: currentPath.includes(`/workflow/${appid}/build`),
+        isActive: currentPath.includes(`/workflow/${workflowId}/build`),
       },
       {
         id: 'logs',
         titleKey: 'workflow.detail.sidebar.nav.logs',
         descriptionKey: 'workflow.detail.sidebar.nav.logsDesc',
-        url: `/workflow/${appid}/log`,
+        url: `/workflow/${workflowId}/log`,
         icon: SquareChartGantt,
-        isActive: currentPath.includes(`/workflow/${appid}/log`),
+        isActive: currentPath.includes(`/workflow/${workflowId}/log`),
       },
       {
         id: 'monitor',
         titleKey: 'workflow.detail.sidebar.nav.monitor',
         descriptionKey: 'workflow.detail.sidebar.nav.monitorDesc',
-        url: `/workflow/${appid}/monitor`,
+        url: `/workflow/${workflowId}/monitor`,
         icon: ChartSpline,
-        isActive: currentPath.includes(`/workflow/${appid}/monitor`),
+        isActive: currentPath.includes(`/workflow/${workflowId}/monitor`),
       },
       {
         id: 'publish',
         titleKey: 'workflow.detail.sidebar.nav.publish',
         descriptionKey: 'workflow.detail.sidebar.nav.publishDesc',
-        url: `/workflow/${appid}/publish`,
+        url: `/workflow/${workflowId}/publish`,
         icon: Share2,
         badge: 1,
-        isActive: currentPath.includes(`/workflow/${appid}/publish`),
+        isActive: currentPath.includes(`/workflow/${workflowId}/publish`),
       },
       {
         id: 'setting',
         titleKey: 'workflow.detail.sidebar.nav.setting',
         descriptionKey: 'workflow.detail.sidebar.nav.settingDesc',
-        url: `/workflow/${appid}/setting`,
+        url: `/workflow/${workflowId}/setting`,
         icon: Settings2,
-        isActive: currentPath.includes(`/workflow/${appid}/setting`),
+        isActive: currentPath.includes(`/workflow/${workflowId}/setting`),
       },
     ]
 
     setNavItems(items)
-  }, [location.pathname, appid])
+  }, [location.pathname, workflowId])
 
   const workflowInfo = {
-    id: appid,
+    id: workflowId,
     title: t('workflow.detail.sidebar.info.sample.title'),
-    subtitle: appid,
+    subtitle: workflowId,
     icon: <BotMessageSquare color="blue" />,
     iconType: 'icon',
     desc: t('workflow.detail.sidebar.info.sample.description'),
@@ -119,8 +119,8 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
   }, [t])
 
   const openRunChat = useCallback(() => {
-    navigate(`/chat/${appid}`)
-  }, [navigate, appid])
+    navigate(`/chat/${workflowId}`)
+  }, [navigate, workflowId])
 
   const goBackToWorkflowList = useCallback(() => {
     navigate('/workflow')
@@ -233,7 +233,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
               variant="outline"
               size="sm"
               className="flex-1 text-xs"
-              onClick={() => navigate(`/workflow/${appid}/setting`)}
+              onClick={() => navigate(`/workflow/${workflowId}/setting`)}
             >
               <Settings2 className="h-3 w-3 mr-1" /> {t('workflow.detail.sidebar.actions.setting')}
             </Button>
@@ -241,7 +241,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
               variant="outline"
               size="sm"
               className="flex-1 text-xs"
-              onClick={() => window.open(`/workflow/${appid}/share`, '_blank')}
+              onClick={() => window.open(`/workflow/${workflowId}/share`, '_blank')}
             >
               <Share2 className="h-3 w-3 mr-1" /> {t('workflow.detail.sidebar.actions.share')}
             </Button>

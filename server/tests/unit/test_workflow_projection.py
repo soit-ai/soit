@@ -54,3 +54,23 @@ def test_build_components_edges_refs():
     assert ("tool", "tool:http:demo") in ref_types
     assert ("knowledge", "knowledge:kb_1") in ref_types
     assert ("model", "model:openai:gpt-4") in ref_types
+
+
+def test_build_workflow_refs_ignores_legacy_app_refs():
+    spec = {
+        "name": "demo",
+        "inputs_schema": {},
+        "outputs_schema": {},
+        "graph": {
+            "nodes": [
+                {
+                    "id": "legacy-app",
+                    "type": "tool",
+                    "params": {"app_ref": "app:legacy-entry"},
+                }
+            ],
+            "edges": [],
+        },
+    }
+
+    assert build_workflow_refs(spec) == []

@@ -21,7 +21,13 @@ from app.kernel.runtime.contracts.status import TaskStatus
 from app.kernel.runtime.core.service import RuntimeCoreService
 from app.kernel.specs.validator import validate_runtime_spec
 from app.kernel.trace.writer import TraceWriter
-from app.modules.agent.application.schemas import AgentCreate, AgentRunRequest, AgentUpdate, AgentVersionCreate
+from app.modules.agent.application.schemas import (
+    AgentCapabilityBindings,
+    AgentCreate,
+    AgentRunRequest,
+    AgentUpdate,
+    AgentVersionCreate,
+)
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.domain.models import Agent, AgentBinding, AgentPublish, AgentVersion
 from app.modules.agent.infra.repository import (
@@ -90,12 +96,41 @@ class AgentApplicationService:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
         return version
 
-    def _build_spec(self, data: AgentVersionCreate) -> Dict[str, Any]:
+    def _merge_ref_lists(self, *groups: Optional[List[str]]) -> List[str]:
+        seen: set[str] = set()
+        merged: List[str] = []
+        for group in groups:
+            for value in group or []:
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                merged.append(value)
+        return merged
+
+    def _resolve_version_bindings(self, data: AgentVersionCreate) -> AgentCapabilityBindings:
+        explicit = data.bindings or AgentCapabilityBindings()
+        model_ref = explicit.model_ref or data.model_ref
+        return AgentCapabilityBindings(
+            model_ref=model_ref,
+            knowledge_refs=self._merge_ref_lists(explicit.knowledge_refs, data.knowledge_refs),
+            tool_refs=self._merge_ref_lists(explicit.tool_refs, data.tool_refs),
+            workflow_refs=self._merge_ref_lists(explicit.workflow_refs, data.workflow_refs),
+            skill_refs=self._merge_ref_lists(explicit.skill_refs, data.skill_refs),
+            plugin_refs=self._merge_ref_lists(explicit.plugin_refs, data.plugin_refs),
+        )
+
+    def _build_spec(
+        self,
+        data: AgentVersionCreate,
+        bindings: Optional[AgentCapabilityBindings] = None,
+    ) -> Dict[str, Any]:
+        bindings = bindings or self._resolve_version_bindings(data)
         memory_enabled = data.memory_strategy is not None or data.memory_top_k is not None
         memory_policy: Dict[str, Any] = {}
         if data.memory_top_k is not None:
             memory_policy["top_k"] = data.memory_top_k
-        knowledge_refs = [item for item in (data.knowledge_refs or []) if item]
+        knowledge_refs = [item for item in (bindings.knowledge_refs or []) if item]
+        tool_refs = [item for item in (bindings.tool_refs or []) if item]
         limits: Dict[str, Any] = {
             "max_iterations": data.max_iterations,
             "max_tool_calls": data.max_tool_calls,
@@ -115,12 +150,20 @@ class AgentApplicationService:
             "planner": None,
             "system_prompt": data.system_prompt,
             "model": {
-                "ref_key": data.model_ref,
+                "ref_key": bindings.model_ref,
                 "params": {"temperature": data.temperature} if data.temperature is not None else {},
             },
             "tools": {
-                "allowlist": data.tool_refs,
+                "allowlist": tool_refs or None,
                 "configs": None,
+            },
+            "bindings": {
+                "model_ref": bindings.model_ref,
+                "knowledge_refs": knowledge_refs or None,
+                "tool_refs": (bindings.tool_refs or None),
+                "workflow_refs": bindings.workflow_refs or None,
+                "skill_refs": bindings.skill_refs or None,
+                "plugin_refs": bindings.plugin_refs or None,
             },
             "memory": {
                 "enabled": memory_enabled or None,
@@ -136,11 +179,18 @@ class AgentApplicationService:
         payload = json.dumps(spec, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def _sync_bindings(self, agent: Agent, version: AgentVersion) -> None:
+    def _sync_bindings(
+        self,
+        agent: Agent,
+        version: AgentVersion,
+    ) -> None:
         spec = version.spec_json or {}
-        model_ref = ((spec.get("model") or {}).get("ref_key") if isinstance(spec.get("model"), dict) else None)
+        binding_spec = spec.get("bindings") or {}
+        model_ref = binding_spec.get("model_ref") or ((spec.get("model") or {}).get("ref_key") if isinstance(spec.get("model"), dict) else None)
+        bindings_to_create: List[AgentBinding] = []
+
         if model_ref:
-            self.binding_repo.create(
+            bindings_to_create.append(
                 AgentBinding(
                     agent_id=agent.id,
                     agent_version_id=version.id,
@@ -150,35 +200,30 @@ class AgentApplicationService:
                 )
             )
 
-        tool_refs = (spec.get("tools") or {}).get("allowlist") or []
-        for sort_order, tool_ref in enumerate(tool_refs):
-            if not tool_ref:
-                continue
-            self.binding_repo.create(
-                AgentBinding(
-                    agent_id=agent.id,
-                    agent_version_id=version.id,
-                    binding_type="tool",
-                    target_key=tool_ref,
-                    config_json={},
-                    sort_order=sort_order,
+        binding_groups = [
+            ("tool", binding_spec.get("tool_refs") or (spec.get("tools") or {}).get("allowlist") or []),
+            ("knowledge", binding_spec.get("knowledge_refs") or (spec.get("rag") or {}).get("knowledges") or []),
+            ("workflow", binding_spec.get("workflow_refs") or []),
+            ("skill", binding_spec.get("skill_refs") or []),
+            ("plugin", binding_spec.get("plugin_refs") or []),
+        ]
+        for binding_type, values in binding_groups:
+            for sort_order, target_key in enumerate(values):
+                if not target_key:
+                    continue
+                bindings_to_create.append(
+                    AgentBinding(
+                        agent_id=agent.id,
+                        agent_version_id=version.id,
+                        binding_type=binding_type,
+                        target_key=target_key,
+                        config_json={},
+                        sort_order=sort_order,
+                    )
                 )
-            )
 
-        knowledge_refs = (spec.get("rag") or {}).get("knowledges") or []
-        for sort_order, knowledge_ref in enumerate(knowledge_refs):
-            if not knowledge_ref:
-                continue
-            self.binding_repo.create(
-                AgentBinding(
-                    agent_id=agent.id,
-                    agent_version_id=version.id,
-                    binding_type="knowledge",
-                    target_key=knowledge_ref,
-                    config_json={},
-                    sort_order=sort_order,
-                )
-            )
+        if bindings_to_create:
+            self.binding_repo.create_many(bindings_to_create)
 
     def _request_from_version(self, version: AgentVersion, inputs: Dict[str, Any]) -> AgentRunRequest:
         spec = version.spec_json or {}
@@ -276,6 +321,23 @@ class AgentApplicationService:
             "cost_total": float(result.get("cost_total") or 0.0),
         }
 
+    def _task_output_payload(
+        self,
+        result: Dict[str, Any],
+        *,
+        response_id: Optional[str],
+    ) -> Dict[str, Any]:
+        return {
+            "output": result.get("output") or "",
+            "response_id": response_id,
+            "model": result.get("model"),
+            "finish_reason": result.get("finish_reason"),
+            "iterations": result.get("iterations"),
+            "tool_calls": int(result.get("tool_calls") or 0),
+            "llm_calls": int(result.get("llm_calls") or 0),
+            "cost_total": float(result.get("cost_total") or 0.0),
+        }
+
     @rbac_guard(RESOURCE_AGENT, "create", resource_id_resolver=_resolve_agent_create_id)
     async def create_agent(self, data: AgentCreate) -> Agent:
         existing = self.agent_repo.get_by_name(data.name)
@@ -340,7 +402,8 @@ class AgentApplicationService:
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def create_version(self, agent_id: str, data: AgentVersionCreate) -> AgentVersion:
         agent = self._get_agent(agent_id)
-        spec = self._build_spec(data)
+        bindings = self._resolve_version_bindings(data)
+        spec = self._build_spec(data, bindings)
         validate_runtime_spec("agent.v1", spec, raise_on_error=True)
 
         version = self.version_repo.create(
@@ -433,11 +496,20 @@ class AgentApplicationService:
                 metadata=message.metadata,
             )
 
+        run = self.trace_writer.create_run(
+            mode="agent",
+            kind="agent",
+            subject_kind="agent",
+            subject_id=agent.id,
+            subject_version_id=version.id,
+            input_summary=request.messages[-1].content[:8192] if request.messages else None,
+        )
         task = self.runtime_core.create_task(
             task_type="agent.execute",
             status=TaskStatus.PREPARING.value,
             agent_id=agent.id,
             thread_id=thread.id,
+            run_id=run.id,
             input_payload={
                 "agent_id": agent.id,
                 "agent_version_id": version.id,
@@ -448,15 +520,6 @@ class AgentApplicationService:
             task_id=task.id,
             status=TaskStatus.RUNNING.value,
             progress={"phase": "agent_loop"},
-        )
-
-        run = self.trace_writer.create_run(
-            mode="agent",
-            kind="agent",
-            subject_kind="agent",
-            subject_id=agent.id,
-            subject_version_id=version.id,
-            input_summary=request.messages[-1].content[:8192] if request.messages else None,
         )
 
         if self.response_service:
@@ -475,27 +538,17 @@ class AgentApplicationService:
                     "task_id": task.id,
                 },
             )
-            linked_response.status = "in_progress"
-            linked_response = self.response_service.save_response(linked_response)
+            linked_response = self.response_service.mark_in_progress(linked_response)
 
         runner = self._build_runner()
         try:
             result = await runner.run(request, existing_run_id=run.id, response_id=linked_response.id if linked_response else None)
         except Exception as exc:
             if linked_response:
-                linked_response.status = "failed"
-                linked_response.error_code = "agent_execution_failed"
-                linked_response.error_message = str(exc)
-                linked_response = self.response_service.save_response(linked_response)
-                self.response_service.append_event(
+                linked_response = self.response_service.fail_response(
                     response=linked_response,
-                    event_type="response.failed",
-                    payload={
-                        "response_id": linked_response.id,
-                        "run_id": linked_response.run_id,
-                        "status": linked_response.status,
-                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
-                    },
+                    error_code="agent_execution_failed",
+                    error_message=str(exc),
                     source="agent",
                 )
             self.runtime_core.transition_task(
@@ -515,15 +568,10 @@ class AgentApplicationService:
             task_id=task.id,
             response_id=response_id,
             status="completed",
-            model_ref=result.get("model"),
-            tokens_prompt=int(result.get("tokens_prompt") or 0),
-            tokens_completion=int(result.get("tokens_completion") or 0),
-            finish_reason=result.get("finish_reason"),
             metadata={
                 "agent_id": agent.id,
                 "agent_version_id": version.id,
                 "run_id": result.get("run_id"),
-                "model": result.get("model"),
                 "response_id": response_id,
             },
         )
@@ -532,38 +580,27 @@ class AgentApplicationService:
             task_id=task.id,
             status=TaskStatus.SUCCEEDED.value,
             progress={"phase": "completed"},
-            output_payload=result,
+            output_payload=self._task_output_payload(result, response_id=response_id),
         )
         if linked_response:
-            linked_response.output_json = self._response_output_payload(result)
-            linked_response.usage_json = self._response_usage_payload(result)
-            linked_response.status = "completed"
-            linked_response.completed_at = utc_now()
-            linked_response.error_code = None
-            linked_response.error_message = None
-            linked_response = self.response_service.save_response(linked_response)
-            self.response_service.append_event(
+            linked_response = self.response_service.complete_response(
                 response=linked_response,
-                event_type="response.output_text.completed",
-                payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "output": linked_response.output_json,
-                    "usage": linked_response.usage_json,
-                },
+                output_json=self._response_output_payload(result),
+                usage_json=self._response_usage_payload(result),
                 source="agent",
-            )
-            self.response_service.append_event(
-                response=linked_response,
-                event_type="response.completed",
-                payload={
+                output_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
-                    "status": linked_response.status,
-                    "usage": linked_response.usage_json,
+                    "output": self._response_output_payload(result),
+                    "usage": self._response_usage_payload(result),
+                },
+                completed_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "status": "completed",
+                    "usage": self._response_usage_payload(result),
                     "tool_calls": int(result.get("tool_calls") or 0),
                 },
-                source="agent",
             )
         return {
             **result,

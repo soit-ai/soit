@@ -5,6 +5,7 @@ from fastapi import status
 from app.api.v1.agent.dependencies import get_agent_application_service
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.runtime.models import Task
 from app.modules.agent.application.application_service import AgentApplicationService
 
 
@@ -91,6 +92,11 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
                 "model_ref": "model:test:primary",
                 "knowledge_refs": ["knowledge:kb_support"],
                 "tool_refs": ["tool:test:echo"],
+                "bindings": {
+                    "workflow_refs": ["wf:handoff"],
+                    "skill_refs": ["skill:triage"],
+                    "plugin_refs": ["plugin:soit:search:1.0.0"],
+                },
                 "verify": True,
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -107,6 +113,9 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert "model" in binding_types
         assert "tool" in binding_types
         assert "knowledge" in binding_types
+        assert "workflow" in binding_types
+        assert "skill" in binding_types
+        assert "plugin" in binding_types
 
         publish_response = client.post(
             f"/api/v1/agents/{agent_id}/publish",
@@ -130,6 +139,11 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert payload["response_id"].startswith("resp_")
         assert payload["thread_id"].startswith("thr_")
         assert payload["task_id"].startswith("task_")
+        task = db.get(Task, payload["task_id"])
+        assert task is not None
+        assert task.run_id == payload["run_id"]
+        assert "run_id" not in (task.output_json or {})
+        assert "thread_id" not in (task.output_json or {})
 
         linked_response = client.get(
             f"/api/v1/responses/{payload['response_id']}",
@@ -246,5 +260,50 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert "tool.call.requested" in event_types
         assert "tool.call.started" in event_types
         assert "tool.call.completed" in event_types
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_rejects_mcp_specific_binding_refs(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        create_response = client.post(
+            "/api/v1/agents",
+            json={
+                "name": "api-agent-invalid-mcp",
+                "description": "Agent API invalid MCP test",
+                "visibility": "private",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Use tools carefully.",
+                "model_ref": "model:test:primary",
+                "bindings": {
+                    "mcp_tool_refs": ["mcp_tool:missing:list_prs"],
+                },
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert version_response.status_code == status.HTTP_400_BAD_REQUEST
+        error_payload = version_response.json()
+        assert error_payload["success"] is False
+        assert error_payload["message"] == "Request validation failed"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)

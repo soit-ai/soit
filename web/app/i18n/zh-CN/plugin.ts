@@ -118,7 +118,7 @@ const translation = {
     delete: '移除插件',
     deleteContentLeft: '是否要移除 ',
     deleteContentRight: ' 插件?',
-    usedInApps: '此插件正在 {{num}} 个应用中使用。',
+    usedInApps: '此插件正在 {{num}} 个资源中使用。',
   },
   installModal: {
     installPlugin: '安装插件',
@@ -165,7 +165,7 @@ const translation = {
     title: '安装插件',
     successfulTitle: '安装成功',
     description: '即将安装以下插件',
-    usedInApps: '在 {{num}} 个应用中使用',
+    usedInApps: '在 {{num}} 个资源中使用',
     upgrade: '安装',
     upgrading: '安装中...',
     close: '关闭',

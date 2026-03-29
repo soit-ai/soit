@@ -6,13 +6,22 @@ Spec validation tests - verify JSON Schema validation and $ref resolution.
 import pytest
 
 from app.kernel.commons.errors import ValidationError
-from app.kernel.specs import load_schema, validate_spec, validator
+from app.kernel.specs import list_schemas, load_schema, validate_runtime_spec, validate_spec, validator
 
 
 def test_list_and_load_schemas():
+    assert "app_spec" not in list_schemas()
     schema = load_schema("workflow_spec")
     assert isinstance(schema, dict)
     assert schema.get("$schema") is not None
+
+
+def test_app_runtime_schema_is_not_supported():
+    with pytest.raises(ValidationError) as exc:
+        validate_runtime_spec("app.v1", {})
+
+    assert exc.value.details is not None
+    assert exc.value.details["spec_schema"] == "app.v1"
 
 
 def test_tool_spec_validation_with_refs():
@@ -55,6 +64,19 @@ def test_workflow_spec_validation_minimal():
         },
     }
     assert validate_spec(wf_doc, "workflow_spec") is True
+
+
+def test_agent_spec_validation_with_structured_bindings():
+    agent_doc = {
+        "runtime": "agent_runtime_v1",
+        "model": {"ref_key": "model:openai:gpt-4"},
+        "bindings": {
+            "workflow_refs": ["wf:handoff"],
+            "skill_refs": ["skill:triage"],
+            "plugin_refs": ["plugin:soit:search:1.0.0"],
+        },
+    }
+    assert validate_spec(agent_doc, "agent_spec") is True
 
 
 def test_invalid_tool_spec_returns_rich_errors():

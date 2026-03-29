@@ -1,6 +1,6 @@
 import { Outlet } from 'react-router'
 import { useTranslation } from '@/i18n'
-import { NavSidebar } from './app-sidebar'
+import { NavSidebar } from './workflow-sidebar'
 import NavLayout from '@/components/layout/nav-layout'
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator, BreadcrumbPage } from '@/components/ui/breadcrumb'
 import { SidebarTrigger } from '@/components/ui/sidebar'
@@ -36,7 +36,7 @@ function LayoutPage(props: LayoutPageProps) {
     )
   }
   return (
-    <NavLayout left={<NavSidebar appid={(params as any)?.id || ''}  ></NavSidebar>} fixed>
+    <NavLayout left={<NavSidebar workflowId={(params as any)?.id || ''}></NavSidebar>} fixed>
       <div className="flex flex-1 flex-col gap-4 h-full">
         <Outlet />
       </div>

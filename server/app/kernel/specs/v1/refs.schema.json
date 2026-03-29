@@ -35,6 +35,11 @@
       "pattern": "^wf:[A-Za-z0-9_.:-]+$",
       "description": "Workflow reference. Format: wf:{workflow_id_or_key}"
     },
+    "SkillRef": {
+      "type": "string",
+      "pattern": "^skill:[A-Za-z0-9_.:-]+$",
+      "description": "Skill reference. Format: skill:{skill_id_or_key}"
+    },
     "SecretRef": {
       "type": "string",
       "pattern": "^secret:[A-Za-z0-9_.:-]+$",
@@ -71,6 +76,21 @@
       "type": "string",
       "description": "Plugin reference. Format: plugin:{publisher}:{name}:{version}",
       "pattern": "^plugin:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$"
+    },
+    "MCPServerRef": {
+      "type": "string",
+      "pattern": "^mcp_server:[A-Za-z0-9_.:-]+$",
+      "description": "MCP server reference. Format: mcp_server:{server_id_or_key}"
+    },
+    "MCPToolRef": {
+      "type": "string",
+      "pattern": "^mcp_tool:[A-Za-z0-9_.:-]+$",
+      "description": "MCP tool reference. Format: mcp_tool:{server_or_catalog_key}"
+    },
+    "MCPResourceRef": {
+      "type": "string",
+      "pattern": "^mcp_resource:[A-Za-z0-9_.:-]+$",
+      "description": "MCP resource reference. Format: mcp_resource:{server_or_catalog_key}"
     }
   },
   "$comment": "SOIT kernel spec schema (v1)."

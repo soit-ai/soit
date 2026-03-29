@@ -84,6 +84,8 @@ interface ProviderModelResponse {
   config_json?: Record<string, any> | null
   context_window?: number | null
   max_output_tokens?: number | null
+  status: string
+  lifecycle_status?: string | null
   lifecycle?: string | null
   raw_meta?: Record<string, any> | null
   enabled: boolean
@@ -167,8 +169,8 @@ const mapProviderModelToConfig = (model: ProviderModelResponse): ModelConfig => 
     capabilities: (capabilities.capabilities as string[]) || [],
     contextWindow: model.context_window || undefined,
     maxOutputTokens: model.max_output_tokens || undefined,
-    lifecycle: model.lifecycle || undefined,
-    enabled: model.enabled,
+    lifecycle: model.lifecycle_status || model.lifecycle || undefined,
+    enabled: model.status ? model.status === 'active' : model.enabled,
     source: model.source as ModelConfig['source'],
     syncStatus: model.sync_status,
     userOverrides: (model.user_overrides_json?.fields as string[]) || [],
@@ -187,7 +189,8 @@ const mapConfigToCreatePayload = (data: Partial<ModelConfig>) => {
     config_json: data.config || undefined,
     context_window: data.contextWindow,
     max_output_tokens: data.maxOutputTokens,
-    lifecycle: data.lifecycle,
+    lifecycle_status: data.lifecycle,
+    status: data.enabled === false ? 'disabled' : 'active',
     raw_meta: undefined,
     enabled: data.enabled ?? true,
   }
@@ -201,7 +204,8 @@ const mapConfigToUpdatePayload = (data: Partial<ModelConfig>) => {
     config_json: data.config,
     context_window: data.contextWindow,
     max_output_tokens: data.maxOutputTokens,
-    lifecycle: data.lifecycle,
+    lifecycle_status: data.lifecycle,
+    status: data.enabled === undefined ? undefined : (data.enabled ? 'active' : 'disabled'),
     enabled: data.enabled,
   }
 }

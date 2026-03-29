@@ -118,7 +118,7 @@ const translation = {
     delete: 'Remove plugin',
     deleteContentLeft: 'Would you like to remove ',
     deleteContentRight: ' plugin?',
-    usedInApps: 'This plugin is being used in {{num}} apps.',
+    usedInApps: 'This plugin is being used in {{num}} resources.',
   },
   installModal: {
     installPlugin: 'Install Plugin',
@@ -165,7 +165,7 @@ const translation = {
     title: 'Install Plugin',
     successfulTitle: 'Install successful',
     description: 'About to install the following plugin',
-    usedInApps: 'Used in {{num}} apps',
+    usedInApps: 'Used in {{num}} resources',
     upgrade: 'Install',
     upgrading: 'Installing...',
     close: 'Close',

@@ -1,4 +1,4 @@
-""" models
+"""models
 
 Trace model DTOs (run/step/cost/artifact).
 """
@@ -77,17 +77,6 @@ class Run(SQLModel, table=True):
 
     error_step_id: Optional[str] = Field(default=None, nullable=True)
     """Failed step ID if available."""
-
-    current_task_id: Optional[str] = Field(
-        default=None,
-        foreign_key="tasks.id",
-        nullable=True,
-        index=True,
-    )
-    """Task currently driving this run (headline context for list/detail)."""
-
-    last_error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    """Latest task-level error summary for run header queries."""
     
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""

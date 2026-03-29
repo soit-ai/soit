@@ -227,7 +227,7 @@ export interface KnowledgeDocumentUploadRequest {
   max_retries?: number
 }
 
-export interface KnowledgeBindingUsage {
+export interface KnowledgeUsage {
   resource_id: string
   resource_name: string
   resource_kind: string
@@ -285,8 +285,8 @@ export const getKnowledgeRunCostByMode = (knowledgeId: string): Promise<RunCostB
   return get<RunCostByMode[]>(`/knowledge/${knowledgeId}/runs/costs/by-mode`).then((response) => response.data)
 }
 
-export const listKnowledgeApplications = (knowledgeId: string): Promise<KnowledgeBindingUsage[]> => {
-  return get<KnowledgeBindingUsage[]>(`/knowledge/${knowledgeId}/applications`).then((response) => response.data)
+export const listKnowledgeUsages = (knowledgeId: string): Promise<KnowledgeUsage[]> => {
+  return get<KnowledgeUsage[]>(`/knowledge/${knowledgeId}/usages`).then((response) => response.data)
 }
 
 export const listKnowledgeIndexes = (

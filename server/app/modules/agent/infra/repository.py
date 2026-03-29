@@ -160,6 +160,16 @@ class AgentBindingRepository:
         self.db.refresh(binding)
         return binding
 
+    def create_many(self, bindings: list[AgentBinding]) -> list[AgentBinding]:
+        for binding in bindings:
+            binding.tenant_id = self.ctx.tenant_id
+            binding.workspace_id = self.ctx.workspace_id
+        self.db.add_all(bindings)
+        self.db.commit()
+        for binding in bindings:
+            self.db.refresh(binding)
+        return bindings
+
     def list_for_version(self, agent_version_id: str) -> list[AgentBinding]:
         query = (
             select(AgentBinding)

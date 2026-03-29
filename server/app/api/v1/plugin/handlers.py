@@ -24,9 +24,42 @@ class PluginHandlers:
     def __init__(self, service: PluginService):
         self.service = service
 
+    def _as_plugin_response(self, plugin, installation=None) -> PluginResponse:
+        base = PluginResponse.model_validate(
+            {
+                "id": plugin.id,
+                "name": plugin.name,
+                "version": plugin.version,
+                "description": plugin.description,
+                "spec_json": plugin.spec_json,
+                "manifest_json": plugin.manifest_json,
+                "metadata_json": plugin.metadata_json,
+                "publish_status": self.service.publish_status_for(plugin),
+                "published": bool(plugin.published),
+                "installed_count": plugin.installed_count,
+                "installed": installation is not None,
+                "enabled": None,
+                "installation_id": None,
+                "installed_at": None,
+                "created_by": plugin.created_by,
+                "created_at": plugin.created_at,
+                "updated_at": plugin.updated_at,
+            }
+        )
+        if not installation:
+            return base
+        cfg = installation.config_json or {}
+        return base.model_copy(
+            update={
+                "enabled": bool(cfg.get("enabled", True)),
+                "installation_id": installation.id,
+                "installed_at": installation.created_at,
+            }
+        )
+
     async def create_plugin(self, ctx: RequestContext, plugin_in: PluginCreate) -> PluginResponse:
         plugin = await self.service.create_plugin(plugin_in)
-        return PluginResponse.model_validate(plugin)
+        return self._as_plugin_response(plugin)
 
     async def list_plugins(
         self,
@@ -42,25 +75,7 @@ class PluginHandlers:
         items: list[PluginResponse] = []
         for plugin in plugins:
             installation = self.service.get_installation_for_plugin(plugin.id)
-            base = PluginResponse.model_validate(plugin)
-            enabled = None
-            installation_id = None
-            installed_at = None
-            if installation:
-                cfg = installation.config_json or {}
-                enabled = bool(cfg.get("enabled", True))
-                installation_id = installation.id
-                installed_at = installation.created_at
-            items.append(
-                base.model_copy(
-                    update={
-                        "installed": installation is not None,
-                        "enabled": enabled,
-                        "installation_id": installation_id,
-                        "installed_at": installed_at,
-                    }
-                )
-            )
+            items.append(self._as_plugin_response(plugin, installation))
 
         has_next = len(plugins) == limit
         next_offset = offset + len(plugins) if has_next else None
@@ -74,27 +89,12 @@ class PluginHandlers:
     async def get_plugin(self, ctx: RequestContext, plugin_id: str) -> PluginResponse:
         plugin = await self.service.get_plugin(plugin_id)
         installation = self.service.get_installation_for_plugin(plugin.id)
-        base = PluginResponse.model_validate(plugin)
-        enabled = None
-        installation_id = None
-        installed_at = None
-        if installation:
-            cfg = installation.config_json or {}
-            enabled = bool(cfg.get("enabled", True))
-            installation_id = installation.id
-            installed_at = installation.created_at
-        return base.model_copy(
-            update={
-                "installed": installation is not None,
-                "enabled": enabled,
-                "installation_id": installation_id,
-                "installed_at": installed_at,
-            }
-        )
+        return self._as_plugin_response(plugin, installation)
 
     async def update_plugin(self, ctx: RequestContext, plugin_id: str, plugin_in: PluginUpdate) -> PluginResponse:
         plugin = await self.service.update_plugin(plugin_id, plugin_in)
-        return PluginResponse.model_validate(plugin)
+        installation = self.service.get_installation_for_plugin(plugin.id)
+        return self._as_plugin_response(plugin, installation)
 
     async def delete_plugin(self, ctx: RequestContext, plugin_id: str) -> None:
         await self.service.delete_plugin(plugin_id)
@@ -130,7 +130,7 @@ class PluginHandlers:
         result = await self.service.upgrade_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
         plugin = await self.service.get_plugin(plugin_id)
         return PluginUpgradeResponse(
-            plugin=PluginResponse.model_validate(plugin),
+            plugin=self._as_plugin_response(plugin, self.service.get_installation_for_plugin(plugin.id)),
             install=PluginPackageInstallResponse(**result),
         )
 

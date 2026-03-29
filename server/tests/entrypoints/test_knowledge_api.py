@@ -68,9 +68,12 @@ def test_knowledge_crud_and_observability_contract(client):
     assert by_mode_resp.status_code == status.HTTP_200_OK
     assert isinstance(by_mode_resp.json()["data"], list)
 
-    apps_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/applications", headers=_headers())
-    assert apps_resp.status_code == status.HTTP_200_OK
-    assert isinstance(apps_resp.json()["data"], list)
+    usages_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/usages", headers=_headers())
+    assert usages_resp.status_code == status.HTTP_200_OK
+    assert isinstance(usages_resp.json()["data"], list)
+
+    legacy_usages_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/applications", headers=_headers())
+    assert legacy_usages_resp.status_code == status.HTTP_404_NOT_FOUND
 
     delete_resp = client.delete(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
     assert delete_resp.status_code == status.HTTP_204_NO_CONTENT

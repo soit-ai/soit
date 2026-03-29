@@ -16,7 +16,7 @@ export function PageHeader({ title, onRefresh }: PageHeaderProps) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink href="#">{t('knowledge.application.breadcrumb.root')}</BreadcrumbLink>
+            <BreadcrumbLink href="#">{t('knowledge.usages.breadcrumb.root')}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>
@@ -30,7 +30,7 @@ export function PageHeader({ title, onRefresh }: PageHeaderProps) {
       <div className="flex items-center gap-2">
         <Button variant="outline" onClick={onRefresh}>
           <RefreshCw className="mr-2 h-4 w-4" />
-          {t('knowledge.application.actions.refresh')}
+          {t('knowledge.usages.actions.refresh')}
         </Button>
       </div>
     </div>

@@ -46,8 +46,11 @@ export interface AgentVersion {
 
 export interface AgentVersionCreateRequest {
   system_prompt?: string
-  model_ref: string
+  model_ref?: string
   knowledge_refs?: string[]
+  workflow_refs?: string[]
+  skill_refs?: string[]
+  plugin_refs?: string[]
   temperature?: number
   max_iterations?: number
   max_tool_calls?: number
@@ -62,6 +65,14 @@ export interface AgentVersionCreateRequest {
   memory_top_k?: number
   verify?: boolean
   failure_strategy?: string
+  bindings?: {
+    model_ref?: string
+    knowledge_refs?: string[]
+    tool_refs?: string[]
+    workflow_refs?: string[]
+    skill_refs?: string[]
+    plugin_refs?: string[]
+  }
 }
 
 export interface AgentBinding {

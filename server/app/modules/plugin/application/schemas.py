@@ -41,9 +41,12 @@ class PluginUpdate(BaseModel):
     
     metadata_json: Optional[Dict[str, Any]] = None
     """Plugin metadata."""
-    
+
+    publish_status: Optional[str] = None
+    """Publish lifecycle status (draft/published/archived)."""
+
     published: Optional[bool] = None
-    """Whether plugin is published."""
+    """Compatibility alias for publish_status."""
 
 
 class PluginInstallRequest(BaseModel):
@@ -63,6 +66,7 @@ class PluginResponse(BaseModel):
     spec_json: Dict[str, Any]
     manifest_json: Optional[Dict[str, Any]] = None
     metadata_json: Optional[Dict[str, Any]] = None
+    publish_status: str
     published: bool
     installed_count: int
     installed: bool = False

@@ -97,6 +97,66 @@
         }
       }
     },
+    "bindings": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledge_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
+          }
+        },
+        "tool_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "workflow_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/WorkflowRef"
+          }
+        },
+        "skill_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/SkillRef"
+          }
+        },
+        "plugin_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/PluginRef"
+          }
+        }
+      }
+    },
     "rag": {
       "type": [
         "object",

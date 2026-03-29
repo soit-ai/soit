@@ -1,4 +1,7 @@
-"""baseline apps/app_versions and core tables
+"""Historical baseline revision for the pre-Agent schema lineage.
+
+This revision name is preserved for Alembic history only. Active runtime
+semantics have since converged on Agent/Knowledge/Workflow terminology.
 
 Revision ID: 20260126230000_baseline_apps
 Revises: 

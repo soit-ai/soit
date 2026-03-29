@@ -1822,7 +1822,7 @@ class KnowledgeRuntimeService:
         ]
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
-    async def list_knowledge_app_usages(
+    async def list_knowledge_usages(
         self,
         knowledge_id: str,
         *,

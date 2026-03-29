@@ -29,7 +29,7 @@ const translation = {
     modelProviders: 'Model Providers',
     teamMembers: 'Team Members',
     annotationQuota: 'Annotation Quota',
-    buildApps: 'Build Apps',
+      buildApps: 'Build Agents & Workflows',
     vectorSpace: 'Vector Space',
     vectorSpaceBillingTooltip: 'Each 1MB can store about 1.2million characters of vectorized data(estimated using OpenAI Embeddings, varies across models).',
     vectorSpaceTooltip: 'Vector Space is the long-term memory system required for LLMs  to comprehend your data.',
@@ -73,7 +73,7 @@ const translation = {
     },
     annotatedResponse: {
       title: 'Annotation Quota Limits',
-      tooltip: 'Manual editing and annotation of responses provides customizable high-quality question-answering abilities for apps. (Applicable only in chat apps)',
+      tooltip: 'Manual editing and annotation of responses provides customizable high-quality question-answering abilities for agents and workflows. (Applicable only in chat surfaces)',
     },
     ragAPIRequestTooltip: 'Refers to the number of API calls invoking only the knowledge base processing capabilities of Soit.',
     receiptInfo: 'Only team owner and team admin can subscribe and view billing information',
@@ -106,7 +106,7 @@ const translation = {
   },
   apps: {
     fullTipLine1: 'Upgrade your plan to',
-    fullTipLine2: 'build more apps.',
+      fullTipLine2: 'build more agents and workflows.',
   },
   annotatedResponse: {
     fullTipLine1: 'Upgrade your plan to',

@@ -103,6 +103,7 @@ def client(db, ctx: RequestContext):
     from app.main import app
     from app.infra.db.session import get_db
     from app.middleware.auth import get_current_context
+    from app.settings.settings import settings
 
     def _override_get_db():
         try:
@@ -113,12 +114,20 @@ def client(db, ctx: RequestContext):
     async def _override_get_current_context() -> RequestContext:
         return ctx
 
+    previous_knowledge_ingest_worker_enabled = getattr(settings, "knowledge_ingest_worker_enabled", False)
+    previous_outbox_dispatcher_enabled = getattr(settings, "outbox_dispatcher_enabled", False)
+    settings.knowledge_ingest_worker_enabled = False
+    settings.outbox_dispatcher_enabled = False
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_context] = _override_get_current_context
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.pop(get_db, None)
-    app.dependency_overrides.pop(get_current_context, None)
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        settings.knowledge_ingest_worker_enabled = previous_knowledge_ingest_worker_enabled
+        settings.outbox_dispatcher_enabled = previous_outbox_dispatcher_enabled
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_context, None)
 
 
 @pytest.fixture(autouse=True)

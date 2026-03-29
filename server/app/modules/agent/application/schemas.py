@@ -5,7 +5,7 @@ Agent domain schemas.
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 
@@ -98,13 +98,28 @@ class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AgentCapabilityBindings(BaseModel):
+    """Unified capability bindings attached to an agent version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_ref: Optional[str] = None
+    knowledge_refs: Optional[List[str]] = None
+    tool_refs: Optional[List[str]] = None
+    workflow_refs: Optional[List[str]] = None
+    skill_refs: Optional[List[str]] = None
+    plugin_refs: Optional[List[str]] = None
+
+
 class AgentVersionCreate(BaseModel):
     """Schema for creating an agent version."""
+
+    model_config = ConfigDict(extra="forbid")
 
     system_prompt: Optional[str] = Field(default=None, max_length=8000)
     """System prompt."""
 
-    model_ref: str
+    model_ref: Optional[str] = None
     """Model reference."""
 
     knowledge_refs: Optional[List[str]] = None
@@ -140,6 +155,18 @@ class AgentVersionCreate(BaseModel):
     tool_refs: Optional[List[str]] = None
     """Optional allowed tool refs."""
 
+    workflow_refs: Optional[List[str]] = None
+    """Optional workflow refs bound into the agent capability set."""
+
+    skill_refs: Optional[List[str]] = None
+    """Optional skill refs bound into the agent capability set."""
+
+    plugin_refs: Optional[List[str]] = None
+    """Optional plugin refs bound into the agent capability set."""
+
+    bindings: Optional[AgentCapabilityBindings] = None
+    """Unified capability binding input. Legacy top-level refs remain supported."""
+
     memory_strategy: Optional[str] = Field(
         default=None,
         pattern="^(planner_only|system_message|user_message)$",
@@ -157,6 +184,15 @@ class AgentVersionCreate(BaseModel):
         pattern="^(respond|abort|continue)$",
     )
     """Failure handling strategy when max_failures is exceeded."""
+
+    @model_validator(mode="after")
+    def validate_model_ref(self) -> "AgentVersionCreate":
+        nested_model_ref = self.bindings.model_ref if self.bindings else None
+        if self.model_ref and nested_model_ref and self.model_ref != nested_model_ref:
+            raise ValueError("model_ref conflicts with bindings.model_ref")
+        if not (self.model_ref or nested_model_ref):
+            raise ValueError("model_ref or bindings.model_ref is required")
+        return self
 
 
 class AgentVersionResponse(BaseModel):

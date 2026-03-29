@@ -123,7 +123,7 @@ class AgentBinding(SQLModel, table=True):
     tenant_id: str = Field(index=True)
     workspace_id: str = Field(index=True)
     agent_id: str = Field(foreign_key="agents.id")
-    agent_version_id: Optional[str] = Field(default=None, foreign_key="agent_versions.id")
+    agent_version_id: str = Field()
     binding_type: str = Field()
     target_id: Optional[str] = Field(default=None, nullable=True)
     target_key: Optional[str] = Field(default=None, nullable=True)

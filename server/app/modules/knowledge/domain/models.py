@@ -237,7 +237,11 @@ class KnowledgeIngestTask(SQLModel, table=True):
     knowledge_id: str = Field(foreign_key="knowledge.id", index=True)
     """Knowledge ID (foreign key)."""
 
-    document_id: Optional[str] = Field(default=None, nullable=True, index=True)
+    document_id: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        index=True,
+    )
     """Related document ID."""
 
     status: str = Field(default="queued")

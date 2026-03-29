@@ -236,8 +236,7 @@ class ExecutionEngine:
                     "step_id": step.id,
                 },
             )
-            linked_response.status = "in_progress"
-            linked_response = self.response_service.save_response(linked_response)
+            linked_response = self.response_service.mark_in_progress(linked_response)
 
         try:
             response = await llm_port.chat(
@@ -262,39 +261,32 @@ class ExecutionEngine:
             )
 
             if linked_response:
-                linked_response.output_json = self._response_output_payload(
+                output_payload = self._response_output_payload(
                     text=response_text,
                     model=response.model or model,
                     finish_reason=response.finish_reason,
                 )
-                linked_response.usage_json = self._response_usage_payload(
+                usage_payload = self._response_usage_payload(
                     prompt_tokens=response.tokens_prompt,
                     completion_tokens=response.tokens_completion,
                 )
-                linked_response.status = "completed"
-                linked_response.completed_at = utc_now()
-                linked_response = self.response_service.save_response(linked_response)
-                self.response_service.append_event(
+                linked_response = self.response_service.complete_response(
                     response=linked_response,
-                    event_type="response.output_text.completed",
-                    payload={
+                    output_json=output_payload,
+                    usage_json=usage_payload,
+                    source="execution_engine",
+                    output_event_payload={
                         "response_id": linked_response.id,
                         "run_id": linked_response.run_id,
-                        "output": linked_response.output_json,
-                        "usage": linked_response.usage_json,
+                        "output": output_payload,
+                        "usage": usage_payload,
                     },
-                    source="execution_engine",
-                )
-                self.response_service.append_event(
-                    response=linked_response,
-                    event_type="response.completed",
-                    payload={
+                    completed_event_payload={
                         "response_id": linked_response.id,
                         "run_id": linked_response.run_id,
-                        "status": linked_response.status,
-                        "usage": linked_response.usage_json,
+                        "status": "completed",
+                        "usage": usage_payload,
                     },
-                    source="execution_engine",
                 )
 
             return {
@@ -315,19 +307,10 @@ class ExecutionEngine:
                 error_message=str(e),
             )
             if linked_response:
-                linked_response.status = "failed"
-                linked_response.error_code = "chat_execution_failed"
-                linked_response.error_message = str(e)
-                linked_response = self.response_service.save_response(linked_response)
-                self.response_service.append_event(
+                linked_response = self.response_service.fail_response(
                     response=linked_response,
-                    event_type="response.failed",
-                    payload={
-                        "response_id": linked_response.id,
-                        "run_id": linked_response.run_id,
-                        "status": linked_response.status,
-                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
-                    },
+                    error_code="chat_execution_failed",
+                    error_message=str(e),
                     source="execution_engine",
                 )
             raise
@@ -352,6 +335,7 @@ class ExecutionEngine:
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             run_id=plan.run_id,
+            workflow_id=plan.subject_id,
             total_nodes=total_nodes,
             completed_nodes=0,
             failed_nodes=0,
@@ -464,8 +448,7 @@ class ExecutionEngine:
                 },
                 metadata_json={"source": "execution_engine.agent"},
             )
-            linked_response.status = "in_progress"
-            linked_response = self.response_service.save_response(linked_response)
+            linked_response = self.response_service.mark_in_progress(linked_response)
         
         # Convert messages to ChatMessage format
         messages = [
@@ -720,42 +703,35 @@ class ExecutionEngine:
             final_response = "Agent reached maximum iterations without completing task."
 
         if linked_response:
-            linked_response.output_json = self._response_output_payload(
+            output_payload = self._response_output_payload(
                 text=final_response,
                 model=model,
                 finish_reason=finish_reason,
                 iterations=iteration,
             )
-            linked_response.usage_json = self._response_usage_payload(
+            usage_payload = self._response_usage_payload(
                 prompt_tokens=total_prompt_tokens,
                 completion_tokens=total_completion_tokens,
                 tool_calls=tool_call_count,
             )
-            linked_response.status = "completed"
-            linked_response.completed_at = utc_now()
-            linked_response = self.response_service.save_response(linked_response)
-            self.response_service.append_event(
+            linked_response = self.response_service.complete_response(
                 response=linked_response,
-                event_type="response.output_text.completed",
-                payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "output": linked_response.output_json,
-                    "usage": linked_response.usage_json,
-                },
+                output_json=output_payload,
+                usage_json=usage_payload,
                 source="execution_engine",
-            )
-            self.response_service.append_event(
-                response=linked_response,
-                event_type="response.completed",
-                payload={
+                output_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
-                    "status": linked_response.status,
-                    "usage": linked_response.usage_json,
+                    "output": output_payload,
+                    "usage": usage_payload,
+                },
+                completed_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "status": "completed",
+                    "usage": usage_payload,
                     "tool_calls": tool_call_count,
                 },
-                source="execution_engine",
             )
         
         return {

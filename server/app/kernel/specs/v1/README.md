@@ -1,9 +1,9 @@
 # kernel/specs/v1/
 
 Kernel v1 schemas:
-- app_spec, workflow_spec, tool_spec, node_spec, plugin_spec, runtrace_spec, memory_spec, notification_spec
+- workflow_spec, chat_spec, agent_spec, tool_spec, node_spec, plugin_spec, runtrace_spec, memory_spec, notification_spec
 - refs.schema.json (shared reference models)
-- knowledge schemas (implemented on top of the legacy knowledge storage schema when needed)
+- knowledge schemas
 
 Rules:
 - Keep v1 stable.

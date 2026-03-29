@@ -1,4 +1,7 @@
-"""appcenter projections and version checksum
+"""Historical AppCenter projection revision retained for migration lineage.
+
+This revision still references pre-convergence app-era tables because it is
+part of the immutable Alembic chain. New runtime code must use Agent terms.
 
 Revision ID: 20260127090000_appcenter_proj
 Revises: 20260126230000_baseline_apps

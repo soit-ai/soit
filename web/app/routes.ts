@@ -28,7 +28,7 @@ export default [
       layout('./routes/knowledge/detail/ui/layout.tsx', [
         route(':knowledgeId/document', './routes/knowledge/detail/document.tsx'),
         route(':knowledgeId/document/:documentId/chunk', './routes/knowledge/detail/chunk.tsx'),
-        route(':knowledgeId/application', './routes/knowledge/detail/application.tsx'),
+        route(':knowledgeId/usages', './routes/knowledge/detail/usages.tsx'),
         route(':knowledgeId/setting', './routes/knowledge/detail/setting.tsx'),
         route(':knowledgeId/analytics', './routes/knowledge/analytics.tsx'),
         route(':knowledgeId/runs/:runId', './routes/knowledge/detail/run-detail.tsx'),
@@ -60,11 +60,6 @@ export default [
       route('monitor', './routes/system/monitor.tsx'),
     ]),
 
-    // legacy aliases kept for active browser sessions during the IA cutover.
-    ...prefix('/system', [
-      route('*', './routes/system/legacy-redirect.tsx'),
-    ]),
-
     // plugin module route.
     ...prefix('/plugins', [
       index('./routes/plugin/index.tsx'),
@@ -73,20 +68,12 @@ export default [
       // ]),
     ]),
 
-    ...prefix('/plugin', [
-      route('*', './routes/plugin/legacy-redirect.tsx'),
-    ]),
-
     // model module route.
     ...prefix('/models', [
       index('./routes/model/index.tsx'),
       // layout('./routes/model/detail/ui/layout.tsx', [
       //   route(':id/build?', './routes/model/detail/build.tsx'),
       // ]),
-    ]),
-
-    ...prefix('/model', [
-      route('*', './routes/model/legacy-redirect.tsx'),
     ]),
 
     route('/notifications', './routes/notifications/index.tsx'),
@@ -108,10 +95,6 @@ export default [
         route('analytics', './routes/setting/item/analytics.tsx'),
         route('about', './routes/setting/item/about.tsx'),
       ]),
-    ]),
-
-    ...prefix('/setting', [
-      route('*', './routes/setting/legacy-redirect.tsx'),
     ]),
 
     // route('/welcome', './routes/welcome/welcome.tsx'),

@@ -86,6 +86,11 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
             model_ref="model:test:primary",
             temperature=0.1,
             tool_refs=["tool:test:echo"],
+            bindings={
+                "workflow_refs": ["wf:handoff"],
+                "skill_refs": ["skill:triage"],
+                "plugin_refs": ["plugin:soit:search:1.0.0"],
+            },
             memory_strategy="planner_only",
             memory_top_k=3,
             verify=True,
@@ -114,6 +119,9 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     assert published.published_version_id == version.id
     assert any(binding.binding_type == "model" and binding.target_key == "model:test:primary" for binding in bindings)
     assert any(binding.binding_type == "tool" and binding.target_key == "tool:test:echo" for binding in bindings)
+    assert any(binding.binding_type == "workflow" and binding.target_key == "wf:handoff" for binding in bindings)
+    assert any(binding.binding_type == "skill" and binding.target_key == "skill:triage" for binding in bindings)
+    assert any(binding.binding_type == "plugin" and binding.target_key == "plugin:soit:search:1.0.0" for binding in bindings)
     assert result["output"] == "agent done"
     assert result["response_id"].startswith("resp_")
     assert result["thread_id"].startswith("thr_")
@@ -123,9 +131,19 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     assert messages[1].role == "user"
     assert messages[2].role == "assistant"
     assert (messages[2].metadata_json or {})["response_id"] == result["response_id"]
+    assert messages[2].model_ref is None
+    assert messages[2].tokens_prompt is None
+    assert messages[2].tokens_completion is None
+    assert messages[2].finish_reason is None
     assert task is not None
+    assert task.run_id == result["run_id"]
     assert task.status == "succeeded"
     assert task.output_json["output"] == "agent done"
+    assert task.output_json["response_id"] == result["response_id"]
+    assert "run_id" not in task.output_json
+    assert "thread_id" not in task.output_json
+    assert "tokens_prompt" not in task.output_json
+    assert "tokens_completion" not in task.output_json
     assert response is not None
     assert response.run_id == result["run_id"]
     assert response.status == "completed"

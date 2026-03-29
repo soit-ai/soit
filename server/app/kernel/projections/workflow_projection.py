@@ -72,7 +72,7 @@ def _extract_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
     if isinstance(value, dict):
         for key, val in value.items():
             path = f"{base_path}.{key}"
-            if key in {"tool_ref", "knowledge_ref", "model_ref", "plugin_ref", "secret_ref", "app_ref"}:
+            if key in {"tool_ref", "knowledge_ref", "model_ref", "plugin_ref", "secret_ref"}:
                 ref_type = "knowledge" if key == "knowledge_ref" else key.replace("_ref", "")
                 ref_entry = _build_ref_entry(ref_type, val, path)
                 if ref_entry:
@@ -109,7 +109,7 @@ def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> Optional[Dict[
 
 
 def _looks_like_ref_key(value: str) -> bool:
-    prefixes = ("tool:", "knowledge:", "model:", "plugin:", "secret:", "app:")
+    prefixes = ("tool:", "knowledge:", "model:", "plugin:", "secret:")
     if value.startswith(prefixes):
         return True
     # treat composite refs with ':' as key

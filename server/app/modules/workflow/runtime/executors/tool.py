@@ -4,7 +4,6 @@ Tool node executor.
 """
 
 from typing import Dict, Any
-from app.kernel.commons.time import utc_now
 from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
 from app.kernel.commons.errors import ValidationError
 
@@ -82,8 +81,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response.status = "in_progress"
-            linked_response = context.response_service.save_response(linked_response)
+            linked_response = context.response_service.mark_in_progress(linked_response)
             context.response_service.append_event(
                 response=linked_response,
                 event_type="tool.call.requested",
@@ -142,10 +140,20 @@ class ToolNodeExecutor(NodeExecutor):
                     ),
                 )
             if linked_response:
-                linked_response.status = "failed"
-                linked_response.error_code = "workflow_tool_failed"
-                linked_response.error_message = str(exc)
-                linked_response = context.response_service.save_response(linked_response)
+                linked_response = context.response_service.fail_response(
+                    response=linked_response,
+                    error_code="workflow_tool_failed",
+                    error_message=str(exc),
+                    source="workflow",
+                    failed_event_payload={
+                        "response_id": linked_response.id,
+                        "run_id": linked_response.run_id,
+                        "step_id": context.step_id,
+                        "node_id": node.get("id"),
+                        "status": "failed",
+                        "error": {"code": "workflow_tool_failed", "message": str(exc)},
+                    },
+                )
                 context.response_service.append_event(
                     response=linked_response,
                     event_type="tool.call.failed",
@@ -158,19 +166,6 @@ class ToolNodeExecutor(NodeExecutor):
                         "step_id": context.step_id,
                         "status": "failed",
                         "error": {"code": "tool_execution_failed", "message": str(exc)},
-                    },
-                    source="workflow",
-                )
-                context.response_service.append_event(
-                    response=linked_response,
-                    event_type="response.failed",
-                    payload={
-                        "response_id": linked_response.id,
-                        "run_id": linked_response.run_id,
-                        "step_id": context.step_id,
-                        "node_id": node.get("id"),
-                        "status": linked_response.status,
-                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
                     },
                     source="workflow",
                 )
@@ -188,10 +183,20 @@ class ToolNodeExecutor(NodeExecutor):
                     ),
                 )
             if linked_response:
-                linked_response.status = "failed"
-                linked_response.error_code = "workflow_tool_failed"
-                linked_response.error_message = response.error or "Tool execution failed"
-                linked_response = context.response_service.save_response(linked_response)
+                linked_response = context.response_service.fail_response(
+                    response=linked_response,
+                    error_code="workflow_tool_failed",
+                    error_message=response.error or "Tool execution failed",
+                    source="workflow",
+                    failed_event_payload={
+                        "response_id": linked_response.id,
+                        "run_id": linked_response.run_id,
+                        "step_id": context.step_id,
+                        "node_id": node.get("id"),
+                        "status": "failed",
+                        "error": {"code": "workflow_tool_failed", "message": response.error or "Tool execution failed"},
+                    },
+                )
                 context.response_service.append_event(
                     response=linked_response,
                     event_type="tool.call.failed",
@@ -207,19 +212,6 @@ class ToolNodeExecutor(NodeExecutor):
                     },
                     source="workflow",
                 )
-                context.response_service.append_event(
-                    response=linked_response,
-                    event_type="response.failed",
-                    payload={
-                        "response_id": linked_response.id,
-                        "run_id": linked_response.run_id,
-                        "step_id": context.step_id,
-                        "node_id": node.get("id"),
-                        "status": linked_response.status,
-                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
-                    },
-                    source="workflow",
-                )
             raise ValidationError(f"Tool execution failed: {response.error}")
 
         if context.trace_writer and context.step_id:
@@ -232,17 +224,27 @@ class ToolNodeExecutor(NodeExecutor):
                 ),
             )
         if linked_response:
-            linked_response.output_json = {
+            output_payload = {
                 "result": response.result,
                 "metadata": response.metadata,
                 "tool_ref": tool_ref,
             }
-            linked_response.usage_json = {}
-            linked_response.status = "completed"
-            linked_response.completed_at = utc_now()
-            linked_response.error_code = None
-            linked_response.error_message = None
-            linked_response = context.response_service.save_response(linked_response)
+            linked_response = context.response_service.complete_response(
+                response=linked_response,
+                output_json=output_payload,
+                usage_json={},
+                source="workflow",
+                output_event_type=None,
+                completed_event_type=None,
+                completed_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "step_id": context.step_id,
+                    "node_id": node.get("id"),
+                    "status": "completed",
+                    "output": output_payload,
+                },
+            )
             context.response_service.append_event(
                 response=linked_response,
                 event_type="tool.call.completed",
@@ -267,12 +269,12 @@ class ToolNodeExecutor(NodeExecutor):
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "status": linked_response.status,
-                    "output": linked_response.output_json,
+                    "status": "completed",
+                    "output": output_payload,
                 },
                 source="workflow",
             )
-        
+
         output = {
             "result": response.result,
             "metadata": response.metadata,

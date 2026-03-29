@@ -61,10 +61,10 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
       description: t('knowledge.detail.sidebar.nav.analyticsDesc')
     },
     {
-      title: t('knowledge.detail.sidebar.nav.application'),
-      url: `/knowledge/${knowledgeId}/application`,
+      title: t('knowledge.detail.sidebar.nav.usages'),
+      url: `/knowledge/${knowledgeId}/usages`,
       icon: AppWindow,
-      description: t('knowledge.detail.sidebar.nav.applicationDesc')
+      description: t('knowledge.detail.sidebar.nav.usagesDesc')
     },
     {
       title: t('knowledge.detail.sidebar.nav.settings'),

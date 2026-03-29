@@ -131,7 +131,9 @@ export const getDefaultNodeData = (type: string) => {
     case 'end-node':
       return EndNodeDefaultData
     default:
-      return {}
+      return {
+        label: type,
+      }
   }
 }
 

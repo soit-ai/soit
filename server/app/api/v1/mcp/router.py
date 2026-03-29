@@ -10,6 +10,7 @@ from app.api.v1.permissions import require_workspace_read_ctx, require_workspace
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
 from app.modules.integrations.mcp.application.schemas import (
+    MCPBindingTargetResponse,
     MCPCatalogResponse,
     MCPServerCreate,
     MCPServerResponse,
@@ -83,9 +84,26 @@ async def get_server_catalog(
     return await MCPHandlers(service).get_server_catalog(ctx, server_id)
 
 
+@router.get("/servers/{server_id}/binding-targets", response_model=list[MCPBindingTargetResponse])
+async def list_server_binding_targets(
+    server_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: MCPService = Depends(get_mcp_service),
+):
+    return await MCPHandlers(service).list_binding_targets(ctx, server_id)
+
+
 @router.get("/catalog", response_model=MCPCatalogResponse)
 async def get_catalog(
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: MCPService = Depends(get_mcp_service),
 ):
     return await MCPHandlers(service).get_catalog(ctx)
+
+
+@router.get("/binding-targets", response_model=list[MCPBindingTargetResponse])
+async def list_binding_targets(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: MCPService = Depends(get_mcp_service),
+):
+    return await MCPHandlers(service).list_binding_targets(ctx)

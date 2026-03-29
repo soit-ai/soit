@@ -121,5 +121,5 @@ class KnowledgeQueryResponse(QueryResponse):
     """Knowledge retrieval response."""
 
 
-class KnowledgeBindingUsageResponse(KnowledgeConsumerUsageResponse):
-    """Knowledge consumer binding response."""
+class KnowledgeUsageResponse(KnowledgeConsumerUsageResponse):
+    """Knowledge usage response."""

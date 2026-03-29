@@ -1,6 +1,6 @@
 import { Outlet, useParams } from 'react-router'
 import { useTranslation } from '@/i18n'
-import { NavSidebar } from './app-sidebar'
+import { NavSidebar } from './knowledge-sidebar'
 import NavLayout from '@/components/layout/nav-layout'
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator, BreadcrumbPage } from '@/components/ui/breadcrumb'
 import { SidebarTrigger } from '@/components/ui/sidebar'

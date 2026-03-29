@@ -13,6 +13,7 @@ from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.trace.models import Run, RunStep
+from app.modules.workflow.domain.models import Workflow
 
 
 @pytest.fixture
@@ -75,11 +76,19 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
     """Test that workflow execution creates run and steps."""
     trace_writer = TraceWriter(db, ctx)
     engine = ExecutionEngine(db, ctx, trace_writer)
+    workflow = Workflow(
+        id="wf-trace",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="trace-workflow",
+    )
+    db.add(workflow)
+    db.commit()
     
     plan = ExecutionPlan(
         mode="workflow",
         subject_kind="workflow",
-        subject_id="wf-trace",
+        subject_id=workflow.id,
         subject_version_id="test_app_version",
         inputs={},
     )

@@ -81,6 +81,93 @@ class ResponseService:
             )
         )
 
+    def mark_in_progress(self, response: Response) -> Response:
+        """Mark a response as actively executing."""
+
+        response.status = "in_progress"
+        response.error_code = None
+        response.error_message = None
+        return self.response_repo.update(response)
+
+    def complete_response(
+        self,
+        *,
+        response: Response,
+        output_json: dict[str, Any],
+        usage_json: Optional[dict[str, Any]] = None,
+        source: str = "responses",
+        output_event_type: str | None = "response.output_text.completed",
+        output_event_payload: Optional[dict[str, Any]] = None,
+        completed_event_type: str | None = "response.completed",
+        completed_event_payload: Optional[dict[str, Any]] = None,
+    ) -> Response:
+        """Persist a completed response and append semantic completion events."""
+
+        response.output_json = output_json or {}
+        response.usage_json = usage_json or {}
+        response.status = "completed"
+        response.completed_at = utc_now()
+        response.error_code = None
+        response.error_message = None
+        response = self.response_repo.update(response)
+        if output_event_type:
+            self.append_event(
+                response=response,
+                event_type=output_event_type,
+                payload=output_event_payload
+                or {
+                    "response_id": response.id,
+                    "run_id": response.run_id,
+                    "output": response.output_json,
+                    "usage": response.usage_json,
+                },
+                source=source,
+            )
+        if completed_event_type:
+            self.append_event(
+                response=response,
+                event_type=completed_event_type,
+                payload=completed_event_payload
+                or {
+                    "response_id": response.id,
+                    "run_id": response.run_id,
+                    "status": response.status,
+                    "usage": response.usage_json,
+                },
+                source=source,
+            )
+        return response
+
+    def fail_response(
+        self,
+        *,
+        response: Response,
+        error_code: str,
+        error_message: str,
+        source: str = "responses",
+        failed_event_type: str = "response.failed",
+        failed_event_payload: Optional[dict[str, Any]] = None,
+    ) -> Response:
+        """Persist a failed response and append a semantic failure event."""
+
+        response.status = "failed"
+        response.error_code = error_code
+        response.error_message = (error_message or "")[:8192]
+        response = self.response_repo.update(response)
+        self.append_event(
+            response=response,
+            event_type=failed_event_type,
+            payload=failed_event_payload
+            or {
+                "response_id": response.id,
+                "run_id": response.run_id,
+                "status": response.status,
+                "error": {"code": response.error_code, "message": response.error_message},
+            },
+            source=source,
+        )
+        return response
+
     def create_response(self, payload: ResponseCreateRequest) -> Response:
         thread_id = self._resolve_thread_id(payload)
         provider = self._resolve_provider(payload)

@@ -11,7 +11,7 @@ import {
   getKnowledgeBase,
   getKnowledgeRunCostByMode,
   getKnowledgeRunCostSummary,
-  listKnowledgeApplications,
+  listKnowledgeUsages,
   listKnowledgeRuns,
 } from '@/services/knowledge-service'
 import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
@@ -67,9 +67,9 @@ function KnowledgeAnalyticsPage() {
     },
   })
 
-  const { data: applications = [] } = useQuery({
-    queryKey: ['knowledge', knowledgeId, 'applications'],
-    queryFn: () => listKnowledgeApplications(knowledgeId),
+  const { data: usages = [] } = useQuery({
+    queryKey: ['knowledge', knowledgeId, 'usages'],
+    queryFn: () => listKnowledgeUsages(knowledgeId),
     options: {
       enabled: Boolean(knowledgeId),
       retry: false,
@@ -172,16 +172,16 @@ function KnowledgeAnalyticsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Bound Applications</CardTitle>
+            <CardTitle>Bound Usages</CardTitle>
             <CardDescription>Agents and workflows currently referencing this knowledge base.</CardDescription>
           </CardHeader>
           <CardContent>
-            {applications.length === 0 && (
-              <div className="text-sm text-muted-foreground">No applications linked yet.</div>
+            {usages.length === 0 && (
+              <div className="text-sm text-muted-foreground">No usages linked yet.</div>
             )}
-            {applications.length > 0 && (
+            {usages.length > 0 && (
               <div className="space-y-3">
-                {applications.map((item) => (
+                {usages.map((item) => (
                   <div key={item.resource_version_id} className="rounded-lg border p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>

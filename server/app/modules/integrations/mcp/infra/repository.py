@@ -65,7 +65,7 @@ class MCPServerRepository:
             MCPServer.status != "archived",
         ]
         if enabled_only:
-            filters.append(MCPServer.enabled.is_(True))
+            filters.append(MCPServer.status == "active")
         query = (
             select(MCPServer)
             .where(and_(*filters))

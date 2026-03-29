@@ -14,6 +14,7 @@ export interface Plugin {
   spec_json: Record<string, any>
   manifest_json?: Record<string, any> | null
   metadata_json?: Record<string, any> | null
+  publish_status: string
   published: boolean
   installed_count: number
   installed?: boolean

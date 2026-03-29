@@ -3,30 +3,30 @@
 State machine for run/step lifecycle.
 """
 
-from typing import Optional
 from enum import Enum
 
+from app.kernel.runtime.contracts.status import ExecutionStatus
 from app.kernel.trace.models import Run, RunStep
 
 
-class RunStatus(Enum):
+class RunStatus(str, Enum):
     """Run status enum."""
-    QUEUED = "queued"
-    RUNNING = "running"
-    PAUSED = "paused"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELED = "canceled"
+    QUEUED = ExecutionStatus.QUEUED.value
+    RUNNING = ExecutionStatus.RUNNING.value
+    PAUSED = ExecutionStatus.PAUSED.value
+    SUCCEEDED = ExecutionStatus.SUCCEEDED.value
+    FAILED = ExecutionStatus.FAILED.value
+    CANCELED = ExecutionStatus.CANCELED.value
 
 
-class StepStatus(Enum):
+class StepStatus(str, Enum):
     """Step status enum."""
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    CANCELED = "canceled"
+    QUEUED = ExecutionStatus.QUEUED.value
+    RUNNING = ExecutionStatus.RUNNING.value
+    SUCCEEDED = ExecutionStatus.SUCCEEDED.value
+    FAILED = ExecutionStatus.FAILED.value
+    SKIPPED = ExecutionStatus.SKIPPED.value
+    CANCELED = ExecutionStatus.CANCELED.value
 
 
 class StateMachine:

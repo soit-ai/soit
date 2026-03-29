@@ -111,8 +111,8 @@ class KnowledgeService:
     async def summarize_costs_by_mode(self, knowledge_id: str) -> list[RunCostByModeResponse]:
         return await self.runtime_service.summarize_run_costs_by_mode_for_knowledge(knowledge_id)
 
-    async def list_applications(self, knowledge_id: str, *, limit: int) -> list[KnowledgeConsumerUsageResponse]:
-        return await self.runtime_service.list_knowledge_app_usages(knowledge_id, limit=limit)
+    async def list_usages(self, knowledge_id: str, *, limit: int) -> list[KnowledgeConsumerUsageResponse]:
+        return await self.runtime_service.list_knowledge_usages(knowledge_id, limit=limit)
 
     async def create_index(self, knowledge_id: str, payload: IndexCreate):
         return await self.runtime_service.create_index(knowledge_id, payload)

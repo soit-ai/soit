@@ -22,6 +22,24 @@ class ExecutionStatus(str, Enum):
     FAILED = "failed"
     CANCELED = "canceled"
     EXPIRED = "expired"
+    SKIPPED = "skipped"
+
+
+class ResourceStatus(str, Enum):
+    """Shared status language for manageable workspace resources."""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    ARCHIVED = "archived"
+    ERROR = "error"
+
+
+class PublishStatus(str, Enum):
+    """Publication lifecycle for publishable resources."""
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
 
 
 class TaskStatus(str, Enum):

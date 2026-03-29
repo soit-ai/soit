@@ -4,7 +4,6 @@ LLM node executor.
 """
 
 from typing import Dict, Any, List
-from app.kernel.commons.time import utc_now
 from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
 from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
 from app.kernel.commons.errors import ValidationError
@@ -99,8 +98,7 @@ class LLMNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response.status = "in_progress"
-            linked_response = context.response_service.save_response(linked_response)
+            linked_response = context.response_service.mark_in_progress(linked_response)
 
         try:
             response: ChatResponse = await context.llm_port.chat(
@@ -112,58 +110,46 @@ class LLMNodeExecutor(NodeExecutor):
             )
         except Exception as exc:
             if linked_response:
-                linked_response.status = "failed"
-                linked_response.error_code = "workflow_llm_failed"
-                linked_response.error_message = str(exc)
-                linked_response = context.response_service.save_response(linked_response)
-                context.response_service.append_event(
+                linked_response = context.response_service.fail_response(
                     response=linked_response,
-                    event_type="response.failed",
-                    payload={
+                    error_code="workflow_llm_failed",
+                    error_message=str(exc),
+                    source="workflow",
+                    failed_event_payload={
                         "response_id": linked_response.id,
                         "run_id": linked_response.run_id,
                         "step_id": context.step_id,
                         "node_id": node.get("id"),
-                        "status": linked_response.status,
-                        "error": {"code": linked_response.error_code, "message": linked_response.error_message},
+                        "status": "failed",
+                        "error": {"code": "workflow_llm_failed", "message": str(exc)},
                     },
-                    source="workflow",
                 )
             raise
 
         if linked_response:
-            linked_response.output_json = self._response_output_payload(response, model)
-            linked_response.usage_json = self._response_usage_payload(response)
-            linked_response.status = "completed"
-            linked_response.completed_at = utc_now()
-            linked_response.error_code = None
-            linked_response.error_message = None
-            linked_response = context.response_service.save_response(linked_response)
-            context.response_service.append_event(
+            output_payload = self._response_output_payload(response, model)
+            usage_payload = self._response_usage_payload(response)
+            linked_response = context.response_service.complete_response(
                 response=linked_response,
-                event_type="response.output_text.completed",
-                payload={
+                output_json=output_payload,
+                usage_json=usage_payload,
+                source="workflow",
+                output_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "output": linked_response.output_json,
-                    "usage": linked_response.usage_json,
+                    "output": output_payload,
+                    "usage": usage_payload,
                 },
-                source="workflow",
-            )
-            context.response_service.append_event(
-                response=linked_response,
-                event_type="response.completed",
-                payload={
+                completed_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "status": linked_response.status,
-                    "usage": linked_response.usage_json,
+                    "status": "completed",
+                    "usage": usage_payload,
                 },
-                source="workflow",
             )
         
         # Return output

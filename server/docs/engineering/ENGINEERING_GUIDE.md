@@ -1,7 +1,7 @@
 # ENGINEERING_GUIDE.md (SOIT Engineering Standard)
 
 This document is **mandatory**. It defines engineering rules that keep SOIT stable for years:
-- Kernel is stable and compatibility-first
+- Kernel is stable and contract-first
 - Domains evolve quickly without breaking kernel contracts
 - Everything is scoped by `tenant_id + workspace_id`
 - Everything executable is traceable (`run/run_step/run_cost_entries/run_artifact`)
@@ -26,7 +26,7 @@ All runtime code lives in the Python package **`app/`**. Within it, SOIT is orga
    - domain logic + use-cases (services)
    - repositories (persistence boundary) and domain schemas
    - MUST call external systems via kernel ports (interfaces)
-3. **app/kernel/** (stable kernel, compatibility-first)
+3. **app/kernel/** (stable kernel, contract-first)
    - contracts, scope, policies, execution semantics, trace, registry, security, specs
    - gateway interfaces + enforcement policies
    - MUST NOT depend on FastAPI routers, domain tables/models, or provider SDKs
@@ -60,7 +60,7 @@ All runtime code lives in the Python package **`app/`**. Within it, SOIT is orga
    - Ports enforce retry/timeout/audit/rate-limit consistently.
 
 5. **Immutable Versions**
-   - `app_version`, `workflow_version`, `plugin_version` are immutable.
+   - `agent_version`, `workflow_version`, `plugin_version` are immutable.
    - Publish/rollback only moves pointers (e.g., `current_version_id`).
 
 6. **Secure‑by‑default**
@@ -419,7 +419,7 @@ All cross-resource references MUST follow:
 
 Examples:
 - `model:openai:gpt-4.1`
-- `ds:kb_support`
+- `knowledge:kb_support`
 - `tool:http:ticket_create`
 - `node:tool:health_check`
 - `wf:rag_answer`
@@ -476,5 +476,5 @@ Security (recommended):
 - [ ] Scope enforced (tenant/workspace) + tests added
 - [ ] run/run_step emitted for new execution paths
 - [ ] gateway used for any external call
-- [ ] backward compatibility considered
+- [ ] breaking-change impact assessed
 - [ ] CI passes

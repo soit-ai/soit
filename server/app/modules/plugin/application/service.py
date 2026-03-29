@@ -50,6 +50,26 @@ class PluginService:
         self.installer = installer
         self.settings = settings
 
+    @staticmethod
+    def publish_status_for(plugin: Plugin) -> str:
+        return "published" if bool(plugin.published) else "draft"
+
+    @classmethod
+    def resolve_published_flag(
+        cls,
+        *,
+        publish_status: Optional[str] = None,
+        published: Optional[bool] = None,
+        current: bool = False,
+    ) -> bool:
+        if publish_status is not None:
+            normalized = publish_status.strip().lower()
+            if normalized not in {"draft", "published", "archived"}:
+                raise ValidationError(f"Invalid publish_status: {publish_status}")
+            return normalized == "published"
+        if published is not None:
+            return bool(published)
+        return current
 
     def _resolve_plugin_create_id(self, plugin_in: PluginCreate, **kwargs) -> str:
         """Resolve plugin id for create RBAC checks."""
@@ -513,9 +533,12 @@ class PluginService:
         if plugin_in.metadata_json is not None:
             plugin.metadata_json = plugin_in.metadata_json
         
-        if plugin_in.published is not None:
-            plugin.published = plugin_in.published
-        
+        plugin.published = self.resolve_published_flag(
+            publish_status=plugin_in.publish_status,
+            published=plugin_in.published,
+            current=plugin.published,
+        )
+
         plugin.updated_at = utc_now()
         
         self.db.commit()

@@ -77,3 +77,45 @@ def test_agent_version_binding_and_publish_repositories(db, tenant1_ctx):
     assert version_repo.list_by_agent(agent.id)[0].id == version.id
     assert binding_repo.list_for_version(version.id)[0].target_key == "tool:http:search"
     assert publish_repo.list_by_agent(agent.id)[0].agent_version_id == version.id
+
+
+def test_agent_binding_repository_create_many_preserves_order(db, tenant1_ctx):
+    agent_repo = AgentRepository(db, tenant1_ctx)
+    version_repo = AgentVersionRepository(db, tenant1_ctx)
+    binding_repo = AgentBindingRepository(db, tenant1_ctx)
+
+    agent = agent_repo.create(Agent(name="bindings-agent"))
+    version = version_repo.create(
+        AgentVersion(
+            agent_id=agent.id,
+            version=agent_repo.next_version_number(agent.id),
+            status="draft",
+            spec_schema="agent.v1",
+            spec_json={"model": {"ref_key": "model:openai:gpt-5.1"}},
+        )
+    )
+
+    binding_repo.create_many(
+        [
+            AgentBinding(
+                agent_id=agent.id,
+                agent_version_id=version.id,
+                binding_type="workflow",
+                target_key="wf:handoff",
+                sort_order=0,
+            ),
+            AgentBinding(
+                agent_id=agent.id,
+                agent_version_id=version.id,
+                binding_type="tool",
+                target_key="tool:http:search",
+                sort_order=1,
+            ),
+        ]
+    )
+
+    bindings = binding_repo.list_for_version(version.id)
+    assert [(binding.binding_type, binding.target_key) for binding in bindings] == [
+        ("workflow", "wf:handoff"),
+        ("tool", "tool:http:search"),
+    ]

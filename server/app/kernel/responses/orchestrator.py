@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
-from app.kernel.commons.time import utc_now
 from app.kernel.ports.llm.interface import ChatMessage, LLMPort, ChatStreamChunk
 from app.kernel.responses.schemas import ResponseCreateRequest
 from app.kernel.responses.service import ResponseService
@@ -128,7 +127,6 @@ class ResponseProjectionCoordinator:
                 response_id=response.id,
                 parent_message_id=parent_message_id,
                 message_type="text",
-                model_ref=response.model,
                 attachments_json=metadata.get("attachments") if isinstance(metadata.get("attachments"), list) else None,
                 citations_json=metadata.get("citations") if isinstance(metadata.get("citations"), list) else None,
                 metadata={"response_id": response.id, **metadata},
@@ -164,8 +162,7 @@ class ResponseProjectionCoordinator:
 
     async def execute(self, payload: ResponseCreateRequest):
         response = self.response_service.create_response(payload)
-        response.status = "in_progress"
-        response = self.response_service.save_response(response)
+        response = self.response_service.mark_in_progress(response)
         if response.run_id:
             self.response_service.trace_writer.update_run_status(response.run_id, "running")
         self._touch_thread_latest_run(response)
@@ -184,21 +181,15 @@ class ResponseProjectionCoordinator:
                 run_id=response.run_id,
             )
             output_text = result.text or ""
-            response.status = "completed"
-            response.output_json = self._build_completion_output(output_text, result.finish_reason)
-            response.usage_json = self._build_usage(result.tokens_prompt, result.tokens_completion)
-            response.completed_at = utc_now()
-            response = self.response_service.save_response(response)
-            self.response_service.append_event(
+            output_payload = self._build_completion_output(output_text, result.finish_reason)
+            usage_payload = self._build_usage(result.tokens_prompt, result.tokens_completion)
+            response = self.response_service.complete_response(
                 response=response,
-                event_type="response.output_text.completed",
-                payload={"text": output_text},
-            )
-            self.response_service.append_event(
-                response=response,
-                event_type="response.completed",
-                payload={
-                    "usage": response.usage_json,
+                output_json=output_payload,
+                usage_json=usage_payload,
+                output_event_payload={"text": output_text},
+                completed_event_payload={
+                    "usage": usage_payload,
                     "finish_reason": result.finish_reason,
                     "model": result.model or response.model,
                 },
@@ -212,12 +203,8 @@ class ResponseProjectionCoordinator:
                     response_id=response.id,
                     parent_message_id=assistant_parent_message_id,
                     message_type="text",
-                    model_ref=result.model or response.model,
-                    tokens_prompt=result.tokens_prompt,
-                    tokens_completion=result.tokens_completion,
-                    finish_reason=result.finish_reason,
                     status="completed",
-                    metadata={"response_id": response.id},
+                    metadata={"response_id": response.id, "run_id": response.run_id},
                 )
             if response.run_id:
                 self.response_service.trace_writer.update_run_status(
@@ -227,17 +214,10 @@ class ResponseProjectionCoordinator:
                 )
             return response
         except Exception as exc:
-            response.status = "failed"
-            response.error_code = "response_execution_failed"
-            response.error_message = str(exc)[:8192]
-            response = self.response_service.save_response(response)
-            self.response_service.append_event(
+            response = self.response_service.fail_response(
                 response=response,
-                event_type="response.failed",
-                payload={
-                    "error_code": response.error_code,
-                    "error_message": response.error_message,
-                },
+                error_code="response_execution_failed",
+                error_message=str(exc),
             )
             if response.run_id:
                 self.response_service.trace_writer.update_run_status(
@@ -248,11 +228,11 @@ class ResponseProjectionCoordinator:
                     error_message=response.error_message,
                 )
             raise
+
     async def execute_stream(self, payload: ResponseCreateRequest) -> AsyncIterator[dict[str, Any]]:
         response = self.response_service.create_response(payload)
         created_events = self.response_service.list_response_events(response.id, limit=10, offset=0)
-        response.status = "in_progress"
-        response = self.response_service.save_response(response)
+        response = self.response_service.mark_in_progress(response)
         if response.run_id:
             self.response_service.trace_writer.update_run_status(response.run_id, "running")
         self._touch_thread_latest_run(response)
@@ -324,32 +304,21 @@ class ResponseProjectionCoordinator:
                         finish_reason = chunk.finish_reason
 
             output_text = "".join(text_parts)
-            response.status = "completed"
-            response.output_json = self._build_completion_output(output_text, finish_reason)
-            response.usage_json = self._build_usage(prompt_tokens, completion_tokens)
-            response.completed_at = utc_now()
-            response = self.response_service.save_response(response)
-
-            completed_text_event = self.response_service.append_event(
+            output_payload = self._build_completion_output(output_text, finish_reason)
+            usage_payload = self._build_usage(prompt_tokens, completion_tokens)
+            response = self.response_service.complete_response(
                 response=response,
-                event_type="response.output_text.completed",
-                payload={"text": output_text},
-            )
-            yield {"event": completed_text_event.type, "data": completed_text_event.payload_json}
-
-            completed_event = self.response_service.append_event(
-                response=response,
-                event_type="response.completed",
-                payload={
-                    "usage": response.usage_json,
+                output_json=output_payload,
+                usage_json=usage_payload,
+                output_event_payload={"text": output_text},
+                completed_event_payload={
+                    "usage": usage_payload,
                     "finish_reason": finish_reason,
                     "model": model_used,
                     "response_id": response.id,
                     "run_id": response.run_id,
                 },
             )
-            yield {"event": completed_event.type, "data": completed_event.payload_json}
-
             if self.runtime_core and response.thread_id:
                 self.runtime_core.append_message(
                     thread_id=response.thread_id,
@@ -359,13 +328,23 @@ class ResponseProjectionCoordinator:
                     response_id=response.id,
                     parent_message_id=assistant_parent_message_id,
                     message_type="text",
-                    model_ref=model_used,
-                    tokens_prompt=prompt_tokens,
-                    tokens_completion=completion_tokens,
-                    finish_reason=finish_reason,
                     status="completed",
-                    metadata={"response_id": response.id},
+                    metadata={"response_id": response.id, "run_id": response.run_id},
                 )
+            yield {
+                "event": "response.output_text.completed",
+                "data": {"text": output_text},
+            }
+            yield {
+                "event": "response.completed",
+                "data": {
+                    "usage": usage_payload,
+                    "finish_reason": finish_reason,
+                    "model": model_used,
+                    "response_id": response.id,
+                    "run_id": response.run_id,
+                },
+            }
             if response.run_id:
                 self.response_service.trace_writer.update_run_status(
                     response.run_id,
@@ -373,19 +352,18 @@ class ResponseProjectionCoordinator:
                     output_summary=output_text,
                 )
         except Exception as exc:
-            response.status = "failed"
-            response.error_code = "response_execution_failed"
-            response.error_message = str(exc)[:8192]
-            response = self.response_service.save_response(response)
-            failed_event = self.response_service.append_event(
+            response = self.response_service.fail_response(
                 response=response,
-                event_type="response.failed",
-                payload={
+                error_code="response_execution_failed",
+                error_message=str(exc),
+            )
+            yield {
+                "event": "response.failed",
+                "data": {
                     "error_code": response.error_code,
                     "error_message": response.error_message,
                 },
-            )
-            yield {"event": failed_event.type, "data": failed_event.payload_json}
+            }
             if response.run_id:
                 self.response_service.trace_writer.update_run_status(
                     response.run_id,

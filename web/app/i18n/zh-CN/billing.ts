@@ -28,7 +28,7 @@ const translation = {
     talkToSales: '联系销售',
     modelProviders: '支持的模型提供商',
     teamMembers: '团队成员',
-    buildApps: '构建应用程序数',
+      buildApps: '构建 Agent 与 Workflow 数',
     annotationQuota: '标注回复数',
     vectorSpace: '向量空间',
     vectorSpaceTooltip: '向量空间是 LLMs 理解您的数据所需的长期记忆系统。',
@@ -73,7 +73,7 @@ const translation = {
     },
     annotatedResponse: {
       title: '标注回复数',
-      tooltip: '标注回复功能通过人工编辑标注为应用提供了可定制的高质量问答回复能力',
+      tooltip: '标注回复功能通过人工编辑标注为 Agent 与 Workflow 提供可定制的高质量问答能力',
     },
     ragAPIRequestTooltip: '指单独调用 Soit 知识库数据处理能力的 API。',
     receiptInfo: '只有团队所有者和团队管理员才能订阅和查看账单信息',
@@ -106,7 +106,7 @@ const translation = {
   },
   apps: {
     fullTipLine1: '升级您的套餐以',
-    fullTipLine2: '构建更多的程序。',
+      fullTipLine2: '构建更多 Agent 与 Workflow。',
   },
   annotatedResponse: {
     fullTipLine1: '升级您的套餐以',

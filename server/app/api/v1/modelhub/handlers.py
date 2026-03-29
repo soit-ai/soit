@@ -33,6 +33,55 @@ class ModelHubHandlers:
     def __init__(self, service: ModelHubService):
         self.service = service
 
+    def _as_platform_model_response(self, model) -> PlatformModelResponse:
+        return PlatformModelResponse.model_validate(
+            {
+                "id": model.id,
+                "provider_kind": model.provider_kind,
+                "model_id": model.model_id,
+                "display_name": model.display_name,
+                "capabilities_json": model.capabilities_json,
+                "context_window": model.context_window,
+                "max_output_tokens": model.max_output_tokens,
+                "status": self.service.platform_model_status(model.is_active),
+                "lifecycle_status": model.lifecycle,
+                "lifecycle": model.lifecycle,
+                "raw_meta": model.raw_meta,
+                "is_active": model.is_active,
+                "last_seen_at": model.last_seen_at,
+                "created_at": model.created_at,
+                "updated_at": model.updated_at,
+            }
+        )
+
+    def _as_provider_model_response(self, model) -> ProviderModelResponse:
+        return ProviderModelResponse.model_validate(
+            {
+                "id": model.id,
+                "provider_id": model.provider_id,
+                "provider_kind": model.provider_kind,
+                "model_id": model.model_id,
+                "display_name": model.display_name,
+                "description": model.description,
+                "capabilities_json": model.capabilities_json,
+                "config_json": model.config_json,
+                "context_window": model.context_window,
+                "max_output_tokens": model.max_output_tokens,
+                "status": self.service.provider_model_status(model.enabled),
+                "lifecycle_status": model.lifecycle,
+                "lifecycle": model.lifecycle,
+                "raw_meta": model.raw_meta,
+                "enabled": model.enabled,
+                "source": model.source,
+                "platform_model_id": model.platform_model_id,
+                "sync_status": model.sync_status,
+                "user_overrides_json": model.user_overrides_json,
+                "last_synced_at": model.last_synced_at,
+                "created_at": model.created_at,
+                "updated_at": model.updated_at,
+            }
+        )
+
     async def list_providers(
         self,
         ctx: RequestContext,
@@ -82,7 +131,7 @@ class ModelHubHandlers:
         page_size: int = 200,
     ) -> PaginatedResponse[PlatformModelResponse]:
         models = await self.service.list_platform_models(provider_kind, limit=page_size)
-        items = [PlatformModelResponse.model_validate(item) for item in models]
+        items = [self._as_platform_model_response(item) for item in models]
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
@@ -104,7 +153,7 @@ class ModelHubHandlers:
         page_size: int = 200,
     ) -> PaginatedResponse[ProviderModelResponse]:
         models = await self.service.list_provider_models(provider_id, limit=page_size)
-        items = [ProviderModelResponse.model_validate(item) for item in models]
+        items = [self._as_provider_model_response(item) for item in models]
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
@@ -119,7 +168,7 @@ class ModelHubHandlers:
         data: ProviderModelCreate,
     ) -> ProviderModelResponse:
         model = await self.service.create_provider_model(provider_id, data)
-        return ProviderModelResponse.model_validate(model)
+        return self._as_provider_model_response(model)
 
     async def update_provider_model(
         self,
@@ -129,7 +178,7 @@ class ModelHubHandlers:
         data: ProviderModelUpdate,
     ) -> ProviderModelResponse:
         model = await self.service.update_provider_model(provider_id, provider_model_id, data)
-        return ProviderModelResponse.model_validate(model)
+        return self._as_provider_model_response(model)
 
     async def delete_provider_model(
         self,
