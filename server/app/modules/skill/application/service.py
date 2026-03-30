@@ -11,8 +11,10 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.modules.skill.application.schemas import SkillCreate, SkillUpdate, SkillVersionCreate
+from app.modules.skill.application.versioning_adapter import SkillVersioningAdapter
 from app.modules.skill.domain.models import Skill, SkillPublish, SkillVersion
 from app.modules.skill.infra.repository import SkillPublishRepository, SkillRepository, SkillVersionRepository
+from app.modules.versioning.application.service import VersionControlService
 
 
 class SkillService:
@@ -24,6 +26,13 @@ class SkillService:
         self.skill_repo = SkillRepository(db, ctx)
         self.version_repo = SkillVersionRepository(db, ctx)
         self.publish_repo = SkillPublishRepository(db, ctx)
+        self.versioning = VersionControlService(
+            SkillVersioningAdapter(
+                skill_repo=self.skill_repo,
+                version_repo=self.version_repo,
+                publish_repo=self.publish_repo,
+            )
+        )
 
     def _get_skill(self, skill_id: str) -> Skill:
         skill = self.skill_repo.get_by_id(skill_id)
@@ -45,16 +54,11 @@ class SkillService:
                 metadata_json=data.metadata_json,
             )
         )
-        version = self.version_repo.create(
-            SkillVersion(
-                skill_id=skill.id,
-                version=self.skill_repo.next_version_number(skill.id),
-                spec_json=data.spec_json,
-            )
+        await self.create_version(
+            skill.id,
+            SkillVersionCreate(spec_json=data.spec_json),
         )
-        skill.current_version_id = version.id
-        self.skill_repo.update(skill)
-        return skill
+        return self._get_skill(skill.id)
 
     @workspace_guard("read")
     async def list_skills(self, limit: int = 20, offset: int = 0) -> List[Skill]:
@@ -93,30 +97,24 @@ class SkillService:
 
     @workspace_guard("write")
     async def create_version(self, skill_id: str, data: SkillVersionCreate) -> SkillVersion:
-        self._get_skill(skill_id)
-        return self.version_repo.create(
-            SkillVersion(
-                skill_id=skill_id,
-                version=self.skill_repo.next_version_number(skill_id),
-                spec_json=data.spec_json,
-            )
+        return self.versioning.create_draft(
+            skill_id,
+            spec_schema="skill.v1",
+            spec_json=data.spec_json,
         )
 
     @workspace_guard("read")
     async def list_versions(self, skill_id: str, limit: int = 20, offset: int = 0) -> List[SkillVersion]:
-        self._get_skill(skill_id)
-        return self.version_repo.list_by_skill(skill_id, limit=limit, offset=offset)
+        return self.versioning.list_versions(skill_id, limit=limit, offset=offset)
+
+    @workspace_guard("read")
+    async def list_releases(self, skill_id: str, limit: int = 20, offset: int = 0) -> List[SkillPublish]:
+        return self.versioning.list_releases(skill_id, limit=limit, offset=offset)
 
     @workspace_guard("write")
-    async def publish_version(self, skill_id: str, version_id: str) -> Skill:
-        skill = self._get_skill(skill_id)
-        version = self.version_repo.get_by_id(version_id)
-        if not version or version.skill_id != skill.id:
-            raise NotFoundError(f"Skill version not found: {version_id}")
-        version.status = "published"
-        self.version_repo.update(version)
-        self.publish_repo.create(SkillPublish(skill_id=skill.id, skill_version_id=version.id))
-        skill.current_version_id = version.id
-        skill.published_version_id = version.id
-        self.skill_repo.update(skill)
-        return skill
+    async def publish_version(self, skill_id: str, version_id: str, *, notes: str | None = None) -> Skill:
+        return self.versioning.publish(skill_id, version_id, notes=notes)
+
+    @workspace_guard("write")
+    async def rollback_version(self, skill_id: str, version_id: str, *, notes: str | None = None) -> Skill:
+        return self.versioning.rollback(skill_id, version_id, notes=notes)

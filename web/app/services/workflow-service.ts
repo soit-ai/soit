@@ -40,6 +40,22 @@ export interface WorkflowVersion {
   created_at: string
 }
 
+export interface WorkflowRelease {
+  id: string
+  workflow_id: string
+  version_id: string
+  action: string
+  scope: string
+  status: string
+  from_version_id?: string | null
+  to_version_id: string
+  notes?: string | null
+  rollback_of_publish_id?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface WorkflowRunControlResponse {
   run_id: string
   status?: string
@@ -99,6 +115,13 @@ export const listWorkflowVersions = (
   params?: { page_token?: string; page_size?: number }
 ): Promise<PaginatedResponse<WorkflowVersion>> => {
   return get(`/workflows/${workflowId}/versions`, params).then((response) => response.data)
+}
+
+export const listWorkflowReleases = (
+  workflowId: string,
+  params?: { page_token?: string; page_size?: number }
+): Promise<PaginatedResponse<WorkflowRelease>> => {
+  return get(`/workflows/${workflowId}/releases`, params).then((response) => response.data)
 }
 
 export const getCurrentWorkflowVersion = (workflowId: string): Promise<WorkflowVersion> => {

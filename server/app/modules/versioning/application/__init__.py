@@ -1,0 +1,1 @@
+"""Shared versioning application services."""

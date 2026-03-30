@@ -145,3 +145,17 @@ class SkillPublishRepository:
         self.db.commit()
         self.db.refresh(publish)
         return publish
+
+    def list_by_skill(self, skill_id: str) -> list[SkillPublish]:
+        query = (
+            select(SkillPublish)
+            .where(
+                and_(
+                    SkillPublish.skill_id == skill_id,
+                    SkillPublish.tenant_id == self.ctx.tenant_id,
+                    SkillPublish.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(desc(SkillPublish.created_at))
+        )
+        return list(self.db.execute(query).scalars().all())

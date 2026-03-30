@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -239,3 +240,39 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
         "response.output_text.completed",
         "response.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_requires_published_version(db, tenant1_ctx: RequestContext):
+    service = AgentApplicationService(
+        db=db,
+        ctx=tenant1_ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=StubToolPort(),
+        memory_service=StubMemoryService(),
+    )
+
+    agent = await service.create_agent(
+        AgentCreate(
+            name="ops-agent-draft-only",
+            description="Draft-only execution test agent",
+            visibility="private",
+            tags=["ops"],
+        )
+    )
+    await service.create_version(
+        agent.id,
+        AgentVersionCreate(
+            system_prompt="You are precise.",
+            model_ref="model:test:primary",
+            verify=True,
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="published version"):
+        await service.execute_agent(
+            agent.id,
+            AgentRunRequest(
+                messages=[ChatMessageInput(role="user", content="Run the task")],
+            ).model_dump(exclude_none=True),
+        )

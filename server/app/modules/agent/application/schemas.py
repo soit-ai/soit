@@ -211,6 +211,26 @@ class AgentVersionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AgentReleaseResponse(BaseModel):
+    """Agent release ledger response schema."""
+
+    id: str
+    agent_id: str
+    version_id: str
+    action: str
+    scope: str
+    status: str
+    from_version_id: Optional[str]
+    to_version_id: str
+    notes: Optional[str]
+    rollback_of_publish_id: Optional[str]
+    created_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AgentBindingResponse(BaseModel):
     """Agent binding response schema."""
 
@@ -233,6 +253,19 @@ class AgentPublishRequest(BaseModel):
 
     version_id: str
     """Version ID to publish."""
+
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    """Optional publish notes."""
+
+
+class AgentRollbackRequest(BaseModel):
+    """Rollback agent version request."""
+
+    version_id: str
+    """Version ID to roll back to."""
+
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    """Optional rollback notes."""
 
 
 class ChatMessageInput(BaseModel):

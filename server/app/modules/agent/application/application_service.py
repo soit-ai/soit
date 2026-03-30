@@ -29,7 +29,8 @@ from app.modules.agent.application.schemas import (
     AgentVersionCreate,
 )
 from app.modules.agent.application.service import AgentService
-from app.modules.agent.domain.models import Agent, AgentBinding, AgentPublish, AgentVersion
+from app.modules.agent.application.versioning_adapter import AgentVersioningAdapter
+from app.modules.agent.domain.models import Agent, AgentBinding, AgentVersion
 from app.modules.agent.infra.repository import (
     AgentBindingRepository,
     AgentPublishRepository,
@@ -37,6 +38,7 @@ from app.modules.agent.infra.repository import (
     AgentVersionRepository,
 )
 from app.modules.memory.application.service import MemoryService
+from app.modules.versioning.application.service import VersionControlService
 
 
 class AgentApplicationService:
@@ -71,6 +73,14 @@ class AgentApplicationService:
         self.binding_repo = AgentBindingRepository(db, ctx)
         self.publish_repo = AgentPublishRepository(db, ctx)
         self.runtime_core = RuntimeCoreService(db, ctx)
+        self.versioning = VersionControlService(
+            AgentVersioningAdapter(
+                agent_repo=self.agent_repo,
+                version_repo=self.version_repo,
+                publish_repo=self.publish_repo,
+                sync_bindings=self._sync_bindings,
+            )
+        )
 
     def _resolve_agent_create_id(self, data: AgentCreate, **kwargs) -> str:
         return data.name or f"new:{self.ctx.workspace_id}"
@@ -88,9 +98,9 @@ class AgentApplicationService:
         return version
 
     def _resolve_execution_version(self, agent: Agent) -> AgentVersion:
-        version_id = agent.published_version_id or agent.current_version_id
+        version_id = agent.published_version_id
         if not version_id:
-            raise ValidationError(f"Agent has no version to execute: {agent.id}")
+            raise ValidationError(f"Agent has no published version to execute: {agent.id}")
         version = self._get_version(version_id)
         if version.agent_id != agent.id:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
@@ -401,34 +411,23 @@ class AgentApplicationService:
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def create_version(self, agent_id: str, data: AgentVersionCreate) -> AgentVersion:
-        agent = self._get_agent(agent_id)
         bindings = self._resolve_version_bindings(data)
         spec = self._build_spec(data, bindings)
         validate_runtime_spec("agent.v1", spec, raise_on_error=True)
-
-        version = self.version_repo.create(
-            AgentVersion(
-                agent_id=agent_id,
-                version=self.agent_repo.next_version_number(agent_id),
-                status="draft",
-                spec_schema="agent.v1",
-                spec_json=spec,
-                checksum=self._build_checksum(spec),
-                created_from_version_id=agent.current_version_id,
-            )
+        return self.versioning.create_draft(
+            agent_id,
+            spec_schema="agent.v1",
+            spec_json=spec,
+            metadata={"checksum": self._build_checksum(spec)},
         )
-        self._sync_bindings(agent, version)
-
-        agent.current_version_id = version.id
-        if not agent.default_model_ref:
-            agent.default_model_ref = ((spec.get("model") or {}).get("ref_key") if isinstance(spec.get("model"), dict) else None)
-        self.agent_repo.update(agent)
-        return version
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_versions(self, agent_id: str, limit: int = 20, offset: int = 0) -> List[AgentVersion]:
-        self._get_agent(agent_id)
-        return self.version_repo.list_by_agent(agent_id, limit=limit, offset=offset)
+        return self.versioning.list_versions(agent_id, limit=limit, offset=offset)
+
+    @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
+    async def list_releases(self, agent_id: str, limit: int = 20, offset: int = 0) -> List[AgentPublish]:
+        return self.versioning.list_releases(agent_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_bindings(self, agent_id: str, version_id: Optional[str] = None) -> List[AgentBinding]:
@@ -442,26 +441,12 @@ class AgentApplicationService:
         return self.binding_repo.list_for_version(version.id)
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
-    async def publish_version(self, agent_id: str, version_id: str) -> Agent:
-        agent = self._get_agent(agent_id)
-        version = self._get_version(version_id)
-        if version.agent_id != agent.id:
-            raise NotFoundError(f"Version not found: {version_id}")
+    async def publish_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
+        return self.versioning.publish(agent_id, version_id, notes=notes)
 
-        version.status = "published"
-        self.version_repo.update(version)
-        self.publish_repo.create(
-            AgentPublish(
-                agent_id=agent.id,
-                agent_version_id=version.id,
-            )
-        )
-        agent.current_version_id = version.id
-        agent.published_version_id = version.id
-        if agent.published_at is None:
-            agent.published_at = utc_now()
-        self.agent_repo.update(agent)
-        return agent
+    @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
+    async def rollback_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
+        return self.versioning.rollback(agent_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
     async def execute_agent(self, agent_id: str, inputs: Dict[str, Any]) -> Dict[str, Any]:

@@ -13,8 +13,10 @@ import {
   getWorkflow,
   createWorkflowVersion,
   exportWorkflowDsl,
+  listWorkflowReleases,
   listWorkflowVersions,
   publishWorkflowVersion,
+  type WorkflowRelease,
   type WorkflowVersion,
 } from '@/services/workflow-service'
 import { listRuns, type RunResponse } from '@/services/run-service'
@@ -62,7 +64,9 @@ function Page() {
   const [publishingVersionId, setPublishingVersionId] = useState<string | null>(null)
   const [runs, setRuns] = useState<RunResponse[]>([])
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
+  const [releases, setReleases] = useState<WorkflowRelease[]>([])
   const [versionsLoading, setVersionsLoading] = useState(false)
+  const [releasesLoading, setReleasesLoading] = useState(false)
   const [checklistState, setChecklistState] = useState<ChecklistState>(() => buildChecklistState(checklistItems))
   const [checklistReady, setChecklistReady] = useState(false)
 
@@ -125,8 +129,21 @@ function Page() {
     }
   }
 
+  const fetchReleases = async () => {
+    if (!workflowId) return
+    try {
+      setReleasesLoading(true)
+      const data = await listWorkflowReleases(workflowId, { page_size: 20 })
+      setReleases(data.items || [])
+    } catch (error) {
+      console.error('Failed to fetch workflow releases:', error)
+    } finally {
+      setReleasesLoading(false)
+    }
+  }
+
   const refreshData = async () => {
-    await Promise.all([fetchWorkflow(), fetchRuns(), fetchVersions()])
+    await Promise.all([fetchWorkflow(), fetchRuns(), fetchVersions(), fetchReleases()])
   }
 
   useEffect(() => {
@@ -217,10 +234,11 @@ function Page() {
         toast.error(t('workflow.detail.publish.toast.noVersion'))
         return
       }
-      await createWorkflowVersion(workflowId, {
+      const version = await createWorkflowVersion(workflowId, {
         graph_json: dslPayload.dsl as Record<string, any>,
         created_by: 'web-ui',
       })
+      await publishWorkflowVersion(workflowId, version.id)
       toast.success(t('workflow.detail.publish.toast.publishSuccess'))
       await refreshData()
       navigate(`/workflow/${workflowId}/monitor`)
@@ -259,6 +277,13 @@ function Page() {
   ) : (
     <Badge variant="outline">{t('workflow.common.unpublished')}</Badge>
   )
+
+  const releaseActionLabel = (action: string) => {
+    if (action === 'rollback') {
+      return t('workflow.detail.publish.history.action.rollback')
+    }
+    return t('workflow.detail.publish.history.action.publish')
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
@@ -413,6 +438,55 @@ function Page() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('workflow.detail.publish.history.title')}</CardTitle>
+          <CardDescription>{t('workflow.detail.publish.history.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {releasesLoading ? (
+            <div className="text-sm text-muted-foreground">{t('workflow.detail.publish.history.loading')}</div>
+          ) : releases.length === 0 ? (
+            <div className="text-sm text-muted-foreground">{t('workflow.detail.publish.history.empty')}</div>
+          ) : (
+            <div className="space-y-3">
+              {releases.map((release) => (
+                <div key={release.id} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={release.action === 'rollback' ? 'outline' : 'default'}>
+                        {releaseActionLabel(release.action)}
+                      </Badge>
+                      <span className="text-sm font-medium">{release.to_version_id}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{formatTimestamp(release.created_at)}</span>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {release.from_version_id
+                      ? t('workflow.detail.publish.history.transition', {
+                          from: release.from_version_id,
+                          to: release.to_version_id,
+                        })
+                      : t('workflow.detail.publish.history.targetOnly', { to: release.to_version_id })}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('workflow.detail.publish.history.meta', {
+                      author: release.created_by || '-',
+                      status: release.status,
+                    })}
+                  </div>
+                  {release.notes && (
+                    <div className="mt-2 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                      {release.notes}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </CardContent>

@@ -146,3 +146,17 @@ class WorkflowPublishRepository:
         self.db.commit()
         self.db.refresh(publish)
         return publish
+
+    def list_by_workflow(self, workflow_id: str) -> list[WorkflowPublish]:
+        query = (
+            select(WorkflowPublish)
+            .where(
+                and_(
+                    WorkflowPublish.workflow_id == workflow_id,
+                    WorkflowPublish.tenant_id == self.ctx.tenant_id,
+                    WorkflowPublish.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(desc(WorkflowPublish.created_at))
+        )
+        return list(self.db.execute(query).scalars().all())

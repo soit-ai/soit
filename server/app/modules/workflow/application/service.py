@@ -19,13 +19,15 @@ from app.kernel.responses.service import ResponseService
 from app.kernel.trace.writer import TraceWriter
 from app.modules.workflow.application.compiler import WorkflowCompiler
 from app.modules.workflow.application.schemas import WorkflowCreate, WorkflowUpdate, WorkflowVersionCreate
-from app.modules.workflow.domain.models import Workflow, WorkflowPublish, WorkflowVersion
+from app.modules.workflow.application.versioning_adapter import WorkflowVersioningAdapter
+from app.modules.workflow.domain.models import Workflow, WorkflowVersion
 from app.modules.workflow.infra.repository import (
     WorkflowPublishRepository,
     WorkflowRepository,
     WorkflowVersionRepository,
 )
 from app.modules.workflow.runtime.engine import ExecutionEngine
+from app.modules.versioning.application.service import VersionControlService
 
 
 class WorkflowService:
@@ -51,6 +53,14 @@ class WorkflowService:
         self.publish_repo = publish_repo or WorkflowPublishRepository(db, ctx)
         self.trace_writer = TraceWriter(db, ctx, event_bus=event_bus)
         self.response_service = response_service
+        self.versioning = VersionControlService(
+            WorkflowVersioningAdapter(
+                workflow_repo=self.workflow_repo,
+                version_repo=self.version_repo,
+                publish_repo=self.publish_repo,
+                validate_spec=self.validate_spec,
+            )
+        )
         self.engine = ExecutionEngine(
             db,
             ctx,
@@ -113,9 +123,6 @@ class WorkflowService:
             return run
         raise NotFoundError(f"Run not found: {run_id}")
 
-    def _next_version_number(self, workflow_id: str) -> int:
-        return self.workflow_repo.next_version_number(workflow_id)
-
     @rbac_guard(RESOURCE_WORKFLOW, "create", resource_id_resolver=_resolve_workflow_create_id)
     async def create_workflow(self, data: WorkflowCreate) -> Workflow:
         existing = self.workflow_repo.get_by_name(data.name)
@@ -137,18 +144,14 @@ class WorkflowService:
         workflow = self.workflow_repo.create(workflow)
 
         spec_json = self._resolve_default_spec(data.name)
-        version = WorkflowVersion(
-            workflow_id=workflow.id,
-            version=self._next_version_number(workflow.id),
-            status="draft",
-            spec_schema="workflow.v1",
-            spec_json=spec_json,
-            created_by=self.ctx.user_id,
+        await self.create_version(
+            workflow.id,
+            WorkflowVersionCreate(
+                graph_json=spec_json,
+                created_by=self.ctx.user_id or "",
+            ),
         )
-        version = self.version_repo.create(version)
-        workflow.current_version_id = version.id
-        self.workflow_repo.update(workflow)
-        return workflow
+        return self._get_workflow(workflow.id)
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
     async def update_workflow(self, workflow_id: str, data: WorkflowUpdate) -> Workflow:
@@ -202,60 +205,51 @@ class WorkflowService:
             raise ValidationError(f"Invalid workflow spec: {str(exc)}")
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
-    async def publish_version(self, workflow_id: str, data: WorkflowVersionCreate) -> WorkflowVersion:
-        workflow = self._get_workflow(workflow_id)
-        self.validate_spec(data.graph_json)
-
-        version = WorkflowVersion(
-            workflow_id=workflow_id,
-            version=self._next_version_number(workflow_id),
-            status="draft",
+    async def create_version(self, workflow_id: str, data: WorkflowVersionCreate) -> WorkflowVersion:
+        return self.versioning.create_draft(
+            workflow_id,
             spec_schema="workflow.v1",
             spec_json=data.graph_json,
-            created_by=data.created_by,
+            metadata={"created_by": data.created_by},
         )
-        version = self.version_repo.create(version)
-        version.status = "published"
-        self.version_repo.update(version)
-        self.publish_repo.create(
-            WorkflowPublish(
-                workflow_id=workflow.id,
-                workflow_version_id=version.id,
-            )
-        )
-        workflow.current_version_id = version.id
-        workflow.published_version_id = version.id
-        self.workflow_repo.update(workflow)
-        return version
+
+    @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
+    async def publish_version(
+        self,
+        workflow_id: str,
+        version_id: str,
+        *,
+        run_preflight: bool = False,
+        notes: str | None = None,
+    ) -> Workflow:
+        return self.versioning.publish(workflow_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def get_current_version(self, workflow_id: str) -> Optional[WorkflowVersion]:
-        workflow = self._get_workflow(workflow_id)
-        version_id = workflow.published_version_id or workflow.current_version_id
-        if not version_id:
-            return None
-        version = self.version_repo.get_by_id(version_id)
-        if version and version.workflow_id == workflow_id:
-            return version
-        return None
+        return self.versioning.get_head_version(workflow_id)
+
+    @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
+    async def get_live_version(self, workflow_id: str) -> Optional[WorkflowVersion]:
+        return self.versioning.get_live_version(workflow_id)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def list_versions(self, workflow_id: str, limit: int = 20, offset: int = 0) -> List[WorkflowVersion]:
-        self._get_workflow(workflow_id)
-        return self.version_repo.list_by_workflow(workflow_id, limit=limit, offset=offset)
+        return self.versioning.list_versions(workflow_id, limit=limit, offset=offset)
+
+    @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
+    async def list_releases(self, workflow_id: str, limit: int = 20, offset: int = 0) -> List[WorkflowPublish]:
+        return self.versioning.list_releases(workflow_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
-    async def rollback_version(self, workflow_id: str, version_id: str, *, run_preflight: bool = False) -> Workflow:
-        workflow = self._get_workflow(workflow_id)
-        version = self.version_repo.get_by_id(version_id)
-        if not version or version.workflow_id != workflow_id:
-            raise NotFoundError(f"Version not found: {version_id}")
-        version.status = "published"
-        self.version_repo.update(version)
-        workflow.current_version_id = version.id
-        workflow.published_version_id = version.id
-        self.workflow_repo.update(workflow)
-        return workflow
+    async def rollback_version(
+        self,
+        workflow_id: str,
+        version_id: str,
+        *,
+        run_preflight: bool = False,
+        notes: str | None = None,
+    ) -> Workflow:
+        return self.versioning.rollback(workflow_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def compile_workflow(
@@ -264,7 +258,7 @@ class WorkflowService:
         inputs: dict,
         run_id: str,
     ) -> ExecutionPlan:
-        version = await self.get_current_version(workflow_id)
+        version = await self.get_live_version(workflow_id)
         if not version:
             raise NotFoundError(f"No published version for workflow: {workflow_id}")
 
@@ -341,7 +335,7 @@ class WorkflowService:
         else:
             version = await self.get_current_version(workflow_id)
         if not version:
-            raise NotFoundError(f"No published version for workflow: {workflow_id}")
+            raise NotFoundError(f"No current version for workflow: {workflow_id}")
         normalized = (format or "json").lower()
         if normalized not in ("json", "yaml"):
             raise ValidationError("Unsupported DSL format")
@@ -373,19 +367,9 @@ class WorkflowService:
                 payload = json.loads(payload)
         if not isinstance(payload, dict):
             raise ValidationError("Workflow DSL must be an object")
-        self.validate_spec(payload)
-        workflow = self._get_workflow(workflow_id)
-
-        version = WorkflowVersion(
-            workflow_id=workflow_id,
-            version=self._next_version_number(workflow_id),
-            status="published",
+        return self.versioning.create_draft(
+            workflow_id,
             spec_schema="workflow.v1",
             spec_json=payload,
-            created_by=created_by,
+            metadata={"created_by": created_by},
         )
-        version = self.version_repo.create(version)
-        workflow.current_version_id = version.id
-        workflow.published_version_id = version.id
-        self.workflow_repo.update(workflow)
-        return version

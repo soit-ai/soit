@@ -16,8 +16,10 @@ from app.modules.agent.application.schemas import (
     AgentResponse,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentReleaseResponse,
     AgentBindingResponse,
     AgentPublishRequest,
+    AgentRollbackRequest,
 )
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.application_service import AgentApplicationService
@@ -114,6 +116,18 @@ async def list_versions(
     return await handlers.list_versions(ctx, agent_id, page_token=page_token, page_size=page_size)
 
 
+@router.get("/{agent_id}/releases", response_model=PaginatedResponse[AgentReleaseResponse])
+async def list_releases(
+    agent_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.list_releases(ctx, agent_id, page_token=page_token, page_size=page_size)
+
+
 @router.get("/{agent_id}/bindings", response_model=list[AgentBindingResponse])
 async def list_bindings(
     agent_id: str,
@@ -134,6 +148,17 @@ async def publish_version(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.publish_version(ctx, agent_id, data)
+
+
+@router.post("/{agent_id}/rollback", response_model=AgentResponse)
+async def rollback_version(
+    agent_id: str,
+    data: AgentRollbackRequest = Body(...),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.rollback_version(ctx, agent_id, data)
 
 
 @router.post("/{agent_id}/execute", response_model=AgentRunResponse)

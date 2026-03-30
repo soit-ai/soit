@@ -118,6 +118,26 @@ class WorkflowVersionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class WorkflowReleaseResponse(BaseModel):
+    """Schema for workflow release history response."""
+
+    id: str
+    workflow_id: str
+    version_id: str
+    action: str
+    scope: str
+    status: str
+    from_version_id: Optional[str]
+    to_version_id: str
+    notes: Optional[str]
+    rollback_of_publish_id: Optional[str]
+    created_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class WorkflowDSLImport(BaseModel):
     """Schema for importing workflow DSL."""
 
@@ -139,6 +159,22 @@ class WorkflowPublishRequest(BaseModel):
 
     preflight: bool = Field(default=False)
     """Whether to run preflight checks before publish."""
+
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    """Optional publish notes."""
+
+
+class WorkflowRollbackRequest(BaseModel):
+    """Schema for rolling back a workflow version."""
+
+    version_id: str
+    """Target version ID."""
+
+    preflight: bool = Field(default=False)
+    """Whether to run preflight checks before rollback."""
+
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    """Optional rollback notes."""
 
 
 class WorkflowDSLExport(BaseModel):

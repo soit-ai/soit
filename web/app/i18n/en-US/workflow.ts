@@ -1163,6 +1163,19 @@ const translation = {
         publishing: 'Switching...',
         copyId: 'Copy Version ID',
       },
+      history: {
+        title: 'Release History',
+        description: 'Live publish and rollback ledger from the backend release API',
+        loading: 'Loading release history...',
+        empty: 'No releases yet.',
+        transition: 'from {{from}} -> {{to}}',
+        targetOnly: 'to {{to}}',
+        meta: 'Actor {{author}} · status {{status}}',
+        action: {
+          publish: 'Publish',
+          rollback: 'Rollback',
+        },
+      },
       checklist: {
         progress: '{{resolved}} / {{total}} complete',
         groups: {

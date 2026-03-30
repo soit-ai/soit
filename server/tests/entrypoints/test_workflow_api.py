@@ -8,6 +8,7 @@ import pytest
 from fastapi import status
 
 from app.kernel.responses.models import Response
+from app.modules.workflow.domain.models import WorkflowPublish
 
 
 class TestWorkflowAPI:
@@ -165,6 +166,100 @@ class TestWorkflowAPI:
         }
         for key in required_keys:
             assert key in payload
+
+        detail_response = client.get(
+            f"/api/v1/workflows/{workflow_id}",
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_payload = detail_response.json()["data"]
+        assert detail_payload["current_version_id"] == payload["id"]
+        assert detail_payload["published_version_id"] is None
+
+    def test_publish_workflow_promotes_existing_draft(self, client, db):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "test_workflow_publish",
+                "description": "Test workflow for publish",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        workflow_payload = create_response.json()["data"]
+        workflow_id = workflow_payload["id"]
+        initial_version_id = workflow_payload["current_version_id"]
+
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={
+                "graph_json": {
+                    "name": "publish-spec",
+                    "inputs_schema": {"type": "object", "properties": {}},
+                    "outputs_schema": {"type": "object", "properties": {"value": {"type": "boolean"}}},
+                    "graph": {
+                        "nodes": [
+                            {"id": "set1", "type": "set_var", "params": {"set": {"flag": True}}},
+                            {"id": "out1", "type": "output", "params": {"value": "{{ steps.set1.output.flag }}"}},
+                        ],
+                        "edges": [{"id": "e1", "from": "set1", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+        payload = publish_response.json()["data"]
+        assert payload["current_version_id"] == version_id
+        assert payload["published_version_id"] == version_id
+
+        rollback_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/rollback",
+            json={"version_id": initial_version_id, "notes": "rollback default"},
+            headers=headers,
+        )
+        assert rollback_response.status_code == status.HTTP_200_OK
+        rolled_back = rollback_response.json()["data"]
+        assert rolled_back["current_version_id"] == version_id
+        assert rolled_back["published_version_id"] == initial_version_id
+
+        releases_response = client.get(
+            f"/api/v1/workflows/{workflow_id}/releases",
+            headers=headers,
+        )
+        assert releases_response.status_code == status.HTTP_200_OK
+        releases = releases_response.json()["data"]["items"]
+        assert len(releases) == 2
+        assert releases[0]["action"] == "rollback"
+        assert releases[0]["from_version_id"] == version_id
+        assert releases[0]["to_version_id"] == initial_version_id
+        assert releases[0]["notes"] == "rollback default"
+        assert releases[1]["action"] == "publish"
+        assert releases[1]["to_version_id"] == version_id
+
+        rows = db.execute(
+            select(WorkflowPublish)
+            .where(WorkflowPublish.workflow_id == workflow_id)
+            .order_by(WorkflowPublish.created_at.desc())
+        ).scalars().all()
+        assert len(rows) >= 2
+        latest = rows[0]
+        previous = rows[1]
+        assert latest.action == "rollback"
+        assert latest.from_version_id == version_id
+        assert latest.to_version_id == initial_version_id
+        assert latest.rollback_of_publish_id == previous.id
+        assert latest.notes == "rollback default"
     
     def test_update_workflow(self, client):
         """Test updating a workflow."""

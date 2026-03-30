@@ -17,10 +17,12 @@ import {
   createAgentVersion,
   getAgent,
   listAgentBindings,
+  listAgentReleases,
   listAgentVersions,
   publishAgentVersion,
   updateAgent,
   type AgentBinding,
+  type AgentRelease,
   type AgentVersion,
 } from '@/services/agent-service'
 import { listKnowledgeBases } from '@/services/knowledge-service'
@@ -86,6 +88,20 @@ function AgentDetailPage() {
   })
 
   const {
+    data: releasePage,
+    isLoading: releasesLoading,
+    refetch: refetchReleases,
+  } = useQuery({
+    queryKey: ['agents', agentId, 'releases'],
+    queryFn: () => listAgentReleases(agentId, { page_size: 20 }),
+    options: {
+      enabled: Boolean(agentId),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const {
     data: bindings = [],
     isLoading: bindingsLoading,
     refetch: refetchBindings,
@@ -132,6 +148,7 @@ function AgentDetailPage() {
     [versionPage?.items],
   )
   const latestVersion = versions[0]
+  const releases = releasePage?.items || []
   const knowledgeOptions = knowledgePage?.items || []
   const modelOptions = useMemo(
     () => modelConfigs.filter((item) => item.isActive && item.modelType === 'llm'),
@@ -245,7 +262,7 @@ function AgentDetailPage() {
     try {
       setPublishingVersionId(versionId)
       await publishAgentVersion(agentId, { version_id: versionId })
-      await Promise.all([refetchAgent(), refetchVersions(), refetchBindings()])
+      await Promise.all([refetchAgent(), refetchVersions(), refetchBindings(), refetchReleases()])
       toast.success('Agent published.')
     } catch (error) {
       toast.error('Failed to publish agent.')
@@ -262,6 +279,13 @@ function AgentDetailPage() {
         ? current.knowledgeRefs.filter((item) => item !== knowledgeId)
         : [...current.knowledgeRefs, knowledgeId],
     }))
+  }
+
+  const renderReleaseAction = (release: AgentRelease) => {
+    if (release.action === 'rollback') {
+      return 'Rollback'
+    }
+    return 'Publish'
   }
 
   return (
@@ -607,6 +631,35 @@ function AgentDetailPage() {
                   <div key={binding.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
                     <Badge variant="outline">{binding.binding_type}</Badge>
                     <span className="max-w-[220px] truncate text-right">{binding.target_key || binding.target_id || '-'}</span>
+                  </div>
+                ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Release History</CardTitle>
+              <CardDescription>Formal publish and rollback ledger exposed by the backend release API.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {releasesLoading && <div className="text-sm text-muted-foreground">Loading release history...</div>}
+              {!releasesLoading && releases.length === 0 && (
+                <div className="text-sm text-muted-foreground">No releases yet. Publish a version to create live history.</div>
+              )}
+              {!releasesLoading &&
+                releases.map((release) => (
+                  <div key={release.id} className="rounded-lg border px-3 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={release.action === 'rollback' ? 'outline' : 'default'}>{renderReleaseAction(release)}</Badge>
+                        <span className="font-medium">{release.to_version_id}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{formatTimestamp(release.created_at)}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {release.from_version_id ? `from ${release.from_version_id} -> ${release.to_version_id}` : `to ${release.to_version_id}`}
+                    </div>
+                    {release.notes && <div className="mt-2 text-xs text-muted-foreground">{release.notes}</div>}
                   </div>
                 ))}
             </CardContent>

@@ -307,3 +307,88 @@ def test_agent_api_rejects_mcp_specific_binding_refs(client, db, ctx):
         assert error_payload["message"] == "Request validation failed"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        create_response = client.post(
+            "/api/v1/agents",
+            json={
+                "name": "api-agent-rollback",
+                "description": "Agent rollback API test",
+                "visibility": "private",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version1 = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={"system_prompt": "v1", "model_ref": "model:test:primary", "verify": True},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert version1.status_code == status.HTTP_201_CREATED
+        version1_id = version1.json()["data"]["id"]
+
+        publish1 = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version1_id, "notes": "publish v1"},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert publish1.status_code == status.HTTP_200_OK
+
+        version2 = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={"system_prompt": "v2", "model_ref": "model:test:primary", "verify": True},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert version2.status_code == status.HTTP_201_CREATED
+        version2_id = version2.json()["data"]["id"]
+
+        publish2 = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version2_id, "notes": "publish v2"},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert publish2.status_code == status.HTTP_200_OK
+
+        rollback = client.post(
+            f"/api/v1/agents/{agent_id}/rollback",
+            json={"version_id": version1_id, "notes": "rollback v1"},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert rollback.status_code == status.HTTP_200_OK
+        payload = rollback.json()["data"]
+        assert payload["current_version_id"] == version2_id
+        assert payload["published_version_id"] == version1_id
+
+        releases = client.get(
+            f"/api/v1/agents/{agent_id}/releases",
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert releases.status_code == status.HTTP_200_OK
+        release_items = releases.json()["data"]["items"]
+        assert len(release_items) == 3
+        assert release_items[0]["action"] == "rollback"
+        assert release_items[0]["from_version_id"] == version2_id
+        assert release_items[0]["to_version_id"] == version1_id
+        assert release_items[0]["notes"] == "rollback v1"
+        assert release_items[1]["action"] == "publish"
+        assert release_items[1]["from_version_id"] == version1_id
+        assert release_items[1]["to_version_id"] == version2_id
+        assert release_items[1]["notes"] == "publish v2"
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)

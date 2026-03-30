@@ -12,6 +12,8 @@ from app.kernel.contracts.context import RequestContext
 from app.modules.skill.application.schemas import (
     SkillCreate,
     SkillPublishRequest,
+    SkillReleaseResponse,
+    SkillRollbackRequest,
     SkillResponse,
     SkillUpdate,
     SkillVersionCreate,
@@ -91,6 +93,17 @@ async def list_skill_versions(
     return await SkillHandlers(service).list_versions(ctx, skill_id, page_token=page_token, page_size=page_size)
 
 
+@router.get("/{skill_id}/releases", response_model=PaginatedResponse[SkillReleaseResponse])
+async def list_skill_releases(
+    skill_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SkillService = Depends(get_skill_service),
+):
+    return await SkillHandlers(service).list_releases(ctx, skill_id, page_token=page_token, page_size=page_size)
+
+
 @router.post("/{skill_id}/publish", response_model=SkillResponse)
 async def publish_skill_version(
     skill_id: str,
@@ -99,3 +112,13 @@ async def publish_skill_version(
     service: SkillService = Depends(get_skill_service),
 ):
     return await SkillHandlers(service).publish_version(ctx, skill_id, payload)
+
+
+@router.post("/{skill_id}/rollback", response_model=SkillResponse)
+async def rollback_skill_version(
+    skill_id: str,
+    payload: SkillRollbackRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: SkillService = Depends(get_skill_service),
+):
+    return await SkillHandlers(service).rollback_version(ctx, skill_id, payload)

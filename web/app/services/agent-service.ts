@@ -44,6 +44,22 @@ export interface AgentVersion {
   created_at: string
 }
 
+export interface AgentRelease {
+  id: string
+  agent_id: string
+  version_id: string
+  action: string
+  scope: string
+  status: string
+  from_version_id?: string | null
+  to_version_id: string
+  notes?: string | null
+  rollback_of_publish_id?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AgentVersionCreateRequest {
   system_prompt?: string
   model_ref?: string
@@ -153,6 +169,16 @@ export const createAgentVersion = (
   data: AgentVersionCreateRequest
 ): Promise<AgentVersion> => {
   return post<AgentVersion>(`/agents/${agentId}/versions`, data).then((response) => response.data)
+}
+
+export const listAgentReleases = (
+  agentId: string,
+  params?: {
+    page_token?: string
+    page_size?: number
+  }
+): Promise<PaginatedResponse<AgentRelease>> => {
+  return get<PaginatedResponse<AgentRelease>>(`/agents/${agentId}/releases`, params).then((response) => response.data)
 }
 
 export const listAgentBindings = (

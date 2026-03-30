@@ -1163,6 +1163,19 @@ const translation = {
         publishing: '切换中...',
         copyId: '复制版本ID',
       },
+      history: {
+        title: '发布历史',
+        description: '直接展示后端 release ledger 的发布与回滚记录',
+        loading: '加载发布历史中...',
+        empty: '暂无发布记录',
+        transition: '从 {{from}} -> {{to}}',
+        targetOnly: '目标 {{to}}',
+        meta: '操作人 {{author}} · 状态 {{status}}',
+        action: {
+          publish: '发布',
+          rollback: '回滚',
+        },
+      },
       checklist: {
         progress: '完成 {{resolved}} / {{total}} 项',
         groups: {

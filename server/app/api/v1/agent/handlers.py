@@ -16,8 +16,10 @@ from app.modules.agent.application.schemas import (
     AgentResponse,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentReleaseResponse,
     AgentBindingResponse,
     AgentPublishRequest,
+    AgentRollbackRequest,
 )
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 
@@ -79,6 +81,23 @@ class AgentAppHandlers:
             created_at=version.created_at,
         )
 
+    def _as_release_response(self, release, *, from_version_id: Optional[str]) -> AgentReleaseResponse:
+        return AgentReleaseResponse(
+            id=release.id,
+            agent_id=release.agent_id,
+            version_id=release.agent_version_id,
+            action="rollback" if release.status == "rolled_back" else "publish",
+            scope=release.scope,
+            status=release.status,
+            from_version_id=from_version_id,
+            to_version_id=release.agent_version_id,
+            notes=release.notes,
+            rollback_of_publish_id=release.rollback_of_publish_id,
+            created_by=release.created_by,
+            created_at=release.created_at,
+            updated_at=release.updated_at,
+        )
+
     async def create_agent(self, ctx: RequestContext, data: AgentCreate) -> AgentResponse:
         agent = await self.service.create_agent(data)
         return self._as_agent_response(agent)
@@ -132,13 +151,47 @@ class AgentAppHandlers:
         next_offset = offset + len(versions) if has_next else None
         return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
 
+    async def list_releases(
+        self,
+        ctx: RequestContext,
+        agent_id: str,
+        page_token: Optional[str],
+        page_size: int,
+    ) -> PaginatedResponse[AgentReleaseResponse]:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        releases = await self.service.list_releases(agent_id, limit=limit + 1, offset=offset)
+        has_next = len(releases) > limit
+        visible_releases = releases[:limit]
+        release_by_id = {release.id: release for release in releases}
+        items: list[AgentReleaseResponse] = []
+        for index, release in enumerate(visible_releases):
+            from_version_id = None
+            if release.rollback_of_publish_id:
+                rollback_source = release_by_id.get(release.rollback_of_publish_id)
+                from_version_id = rollback_source.agent_version_id if rollback_source else None
+            elif index + 1 < len(releases):
+                from_version_id = releases[index + 1].agent_version_id
+            items.append(self._as_release_response(release, from_version_id=from_version_id))
+        next_offset = offset + len(items) if has_next else None
+        return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
+
     async def publish_version(
         self,
         ctx: RequestContext,
         agent_id: str,
         data: AgentPublishRequest,
     ) -> AgentResponse:
-        agent = await self.service.publish_version(agent_id, data.version_id)
+        agent = await self.service.publish_version(agent_id, data.version_id, notes=data.notes)
+        return self._as_agent_response(agent)
+
+    async def rollback_version(
+        self,
+        ctx: RequestContext,
+        agent_id: str,
+        data: AgentRollbackRequest,
+    ) -> AgentResponse:
+        agent = await self.service.rollback_version(agent_id, data.version_id, notes=data.notes)
         return self._as_agent_response(agent)
 
     async def list_bindings(

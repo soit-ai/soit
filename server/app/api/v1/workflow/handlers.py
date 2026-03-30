@@ -12,10 +12,13 @@ from app.modules.workflow.application.schemas import (
     WorkflowCreate,
     WorkflowUpdate,
     WorkflowResponse,
+    WorkflowReleaseResponse,
     WorkflowVersionResponse,
     WorkflowVersionCreate,
     WorkflowDSLImport,
     WorkflowDSLExport,
+    WorkflowPublishRequest,
+    WorkflowRollbackRequest,
 )
 from app.infra.db.pagination import PaginatedResponse, parse_page_params, PageToken
 
@@ -41,6 +44,24 @@ class WorkflowHandlers:
             graph_json=version.spec_json,
             created_by=version.created_by,
             created_at=version.created_at,
+        )
+
+    def _as_release_response(self, release) -> WorkflowReleaseResponse:
+        """Map WorkflowPublish to WorkflowReleaseResponse."""
+        return WorkflowReleaseResponse(
+            id=release.id,
+            workflow_id=release.workflow_id,
+            version_id=release.workflow_version_id,
+            action=release.action,
+            scope=release.scope,
+            status=release.status,
+            from_version_id=release.from_version_id,
+            to_version_id=release.to_version_id or release.workflow_version_id,
+            notes=release.notes,
+            rollback_of_publish_id=release.rollback_of_publish_id,
+            created_by=release.created_by,
+            created_at=release.created_at,
+            updated_at=release.updated_at,
         )
     
     async def create_workflow(
@@ -151,6 +172,32 @@ class WorkflowHandlers:
             next_offset=next_offset,
         )
 
+    async def list_releases(
+        self,
+        ctx: RequestContext,
+        workflow_id: str,
+        page_token: Optional[str] = None,
+        page_size: int = 20,
+    ) -> PaginatedResponse[WorkflowReleaseResponse]:
+        """List workflow release ledger entries."""
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+
+        releases = await self.service.list_releases(workflow_id, limit=limit + 1, offset=offset)
+        has_next = len(releases) > limit
+        if has_next:
+            releases = releases[:limit]
+
+        items = [self._as_release_response(item) for item in releases]
+        next_offset = offset + len(items) if has_next else None
+
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=next_offset,
+        )
+
     async def get_current_version(
         self,
         ctx: RequestContext,
@@ -198,21 +245,30 @@ class WorkflowHandlers:
         self,
         ctx: RequestContext,
         workflow_id: str,
-        version_id: str,
-        preflight: bool = False,
+        payload: WorkflowPublishRequest,
     ) -> WorkflowResponse:
-        """Publish workflow version.
-        
-        Args:
-            ctx: Request context.
-            workflow_id: Workflow ID.
-            version_id: Version ID.
-            
-        Returns:
-            Updated workflow.
-        """
-        # Rollback to specific version (which publishes it)
-        workflow = await self.service.rollback_version(workflow_id, version_id, run_preflight=preflight)
+        """Publish workflow version."""
+        workflow = await self.service.publish_version(
+            workflow_id,
+            payload.version_id,
+            run_preflight=payload.preflight,
+            notes=payload.notes,
+        )
+        return WorkflowResponse.model_validate(workflow)
+
+    async def rollback_version(
+        self,
+        ctx: RequestContext,
+        workflow_id: str,
+        payload: WorkflowRollbackRequest,
+    ) -> WorkflowResponse:
+        """Rollback workflow version."""
+        workflow = await self.service.rollback_version(
+            workflow_id,
+            payload.version_id,
+            run_preflight=payload.preflight,
+            notes=payload.notes,
+        )
         return WorkflowResponse.model_validate(workflow)
     
     async def execute_workflow(
@@ -309,5 +365,5 @@ class WorkflowHandlers:
         version_in: WorkflowVersionCreate,
     ) -> WorkflowVersionResponse:
         """Create a new workflow version."""
-        version = await self.service.publish_version(workflow_id, version_in)
+        version = await self.service.create_version(workflow_id, version_in)
         return self._as_version_response(version)

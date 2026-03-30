@@ -17,11 +17,13 @@ from app.modules.workflow.application.schemas import (
     WorkflowCreate,
     WorkflowUpdate,
     WorkflowResponse,
+    WorkflowReleaseResponse,
     WorkflowVersionCreate,
     WorkflowVersionResponse,
     WorkflowDSLImport,
     WorkflowDSLExport,
     WorkflowPublishRequest,
+    WorkflowRollbackRequest,
 )
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.handlers import WorkflowHandlers
@@ -103,6 +105,19 @@ async def list_versions(
     """List workflow versions."""
     handlers = WorkflowHandlers(service)
     return await handlers.list_versions(ctx, workflow_id, page_token=page_token, page_size=page_size)
+
+
+@router.get("/{workflow_id}/releases", response_model=PaginatedResponse[WorkflowReleaseResponse])
+async def list_releases(
+    workflow_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """List workflow release history."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.list_releases(ctx, workflow_id, page_token=page_token, page_size=page_size)
 
 
 @router.get("/{workflow_id}/version/current", response_model=WorkflowVersionResponse)
@@ -196,7 +211,19 @@ async def publish_version(
         Updated workflow.
     """
     handlers = WorkflowHandlers(service)
-    return await handlers.publish_version(ctx, workflow_id, payload.version_id, preflight=payload.preflight)
+    return await handlers.publish_version(ctx, workflow_id, payload)
+
+
+@router.post("/{workflow_id}/rollback", response_model=WorkflowResponse)
+async def rollback_version(
+    workflow_id: str,
+    payload: WorkflowRollbackRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Rollback workflow version."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.rollback_version(ctx, workflow_id, payload)
 
 
 @router.post("/{workflow_id}/execute", status_code=status.HTTP_200_OK)

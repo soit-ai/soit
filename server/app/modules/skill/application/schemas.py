@@ -32,6 +32,12 @@ class SkillVersionCreate(BaseModel):
 
 class SkillPublishRequest(BaseModel):
     version_id: str
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SkillRollbackRequest(BaseModel):
+    version_id: str
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class SkillResponse(BaseModel):
@@ -65,5 +71,23 @@ class SkillVersionResponse(BaseModel):
     spec_json: dict[str, Any]
     created_by: Optional[str]
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SkillReleaseResponse(BaseModel):
+    id: str
+    skill_id: str
+    version_id: str
+    action: str
+    scope: str
+    status: str
+    from_version_id: Optional[str]
+    to_version_id: str
+    notes: Optional[str]
+    rollback_of_publish_id: Optional[str]
+    created_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
