@@ -3,7 +3,7 @@
 from fastapi import status
 
 from app.api.v1.agent.dependencies import get_agent_application_service
-from app.kernel.ports.llm.interface import ChatResponse, LLMPort
+from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.models import Task
 from app.modules.agent.application.application_service import AgentApplicationService
@@ -15,7 +15,7 @@ class QueueLLMPort(LLMPort):
     def __init__(self, responses):
         self._responses = list(responses)
 
-    async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):
+    async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
         return self._responses.pop(0)
 
     async def embed(self, texts, model, **kwargs):
@@ -41,17 +41,20 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
+                    # Plan: respond
                     ChatResponse(
-                        text='{"action":"respond","response":"api done"}',
+                        text="api done",
                         tokens_prompt=1,
                         tokens_completion=1,
                         finish_reason="stop",
                     ),
+                    # Verify: ok
                     ChatResponse(
-                        text='{"ok": true, "reason": "ok"}',
+                        text=None,
                         tokens_prompt=1,
                         tokens_completion=1,
-                        finish_reason="stop",
+                        finish_reason="tool_calls",
+                        tool_calls=[ToolCall(id="call_v", name="verify_response", arguments={"ok": True, "reason": "ok"})],
                     ),
                 ]
             ),
@@ -171,23 +174,28 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
+                    # Plan: call tool
                     ChatResponse(
-                        text='{"action":"tool","tool_ref":"tool:test:echo","parameters":{"value":"api hi"}}',
+                        text=None,
+                        tokens_prompt=1,
+                        tokens_completion=1,
+                        finish_reason="tool_calls",
+                        tool_calls=[ToolCall(id="call_1", name="tool:test:echo", arguments={"value": "api hi"})],
+                    ),
+                    # Plan: respond
+                    ChatResponse(
+                        text="api tool done",
                         tokens_prompt=1,
                         tokens_completion=1,
                         finish_reason="stop",
                     ),
+                    # Verify: ok
                     ChatResponse(
-                        text='{"action":"respond","response":"api tool done"}',
+                        text=None,
                         tokens_prompt=1,
                         tokens_completion=1,
-                        finish_reason="stop",
-                    ),
-                    ChatResponse(
-                        text='{"ok": true, "reason": "ok"}',
-                        tokens_prompt=1,
-                        tokens_completion=1,
-                        finish_reason="stop",
+                        finish_reason="tool_calls",
+                        tool_calls=[ToolCall(id="call_v", name="verify_response", arguments={"ok": True, "reason": "ok"})],
                     ),
                 ]
             ),

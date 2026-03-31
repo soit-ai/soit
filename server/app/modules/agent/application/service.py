@@ -14,13 +14,15 @@ from app.kernel.commons.ids import generate_run_id
 from app.kernel.responses.service import ResponseService
 from app.kernel.trace.writer import TraceWriter
 from app.kernel.ports.common.rate_limiter import RateLimiter
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage
+from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolCall
 from app.kernel.ports.tools.interface import ToolPort
 from app.settings.settings import settings
 from app.modules.agent.application.schemas import AgentRunRequest
 from app.modules.agent.runtime.planner import AgentPlanner
 from app.modules.agent.runtime.executor import AgentExecutor
 from app.modules.agent.runtime.verifier import AgentVerifier
+from app.modules.agent.runtime.emitter import EventEmitter, noop_emitter
+from app.adapters.tools.resolver import ToolResolver
 from app.modules.memory.application.service import MemoryService
 from app.kernel.identity.guard import workspace_guard
 
@@ -34,6 +36,7 @@ class AgentService:
         ctx: RequestContext,
         llm_port: LLMPort,
         tool_port: ToolPort,
+        tool_resolver: Optional[ToolResolver] = None,
         memory_service: Optional[MemoryService] = None,
         response_service: Optional[ResponseService] = None,
         trace_writer: Optional[TraceWriter] = None,
@@ -43,6 +46,7 @@ class AgentService:
         self.ctx = ctx
         self.llm_port = llm_port
         self.tool_port = tool_port
+        self.tool_resolver = tool_resolver
         self.memory_service = memory_service
         self.response_service = response_service
         self.trace_writer = trace_writer
@@ -61,8 +65,10 @@ class AgentService:
         *,
         existing_run_id: Optional[str] = None,
         response_id: Optional[str] = None,
+        event_emitter: Optional[EventEmitter] = None,
     ) -> Dict[str, Any]:
         """Run agent loop."""
+        emit = event_emitter or noop_emitter
         run_id = existing_run_id or generate_run_id()
         if settings.agent_rate_limit_per_minute:
             await self.rate_limiter.check_rate_limit(
@@ -193,7 +199,13 @@ class AgentService:
                 }
             }
 
+        # Resolve tool definitions for function calling
+        tool_definitions = None
+        if self.tool_resolver and data.tool_refs:
+            tool_definitions = await self.tool_resolver.resolve(data.tool_refs, self.ctx)
+
         try:
+            await emit("agent.run.started", {"run_id": run_id})
             while iterations < data.max_iterations:
                 if check_runtime_budget():
                     break
@@ -211,23 +223,15 @@ class AgentService:
                     plan_step_id = step.id
                     self.trace_writer.update_step_status(plan_step_id, "running")
 
+                await emit("agent.plan.started", {"iteration": iterations})
                 try:
-                    # Convert tool_refs (str list) to ToolDefinition stubs for planner
-                    # TODO(task-7): replace with proper ToolResolver-based definitions
-                    _tool_defs = None
-                    if data.tool_refs:
-                        from app.kernel.ports.llm.interface import ToolDefinition
-                        _tool_defs = [
-                            ToolDefinition(name=ref, description=ref, parameters={"type": "object"})
-                            for ref in data.tool_refs
-                        ]
                     plan = await self.planner.plan(
                         messages=messages,
-                        tool_definitions=_tool_defs,
-                        memory_context=memory_context,
+                        tool_definitions=tool_definitions,
                         model=model,
                         temperature=data.temperature,
                         run_id=run_id,
+                        memory_context=memory_context,
                     )
                 except Exception as exc:
                     if self.trace_writer and plan_step_id:
@@ -241,6 +245,7 @@ class AgentService:
                 tokens_prompt += plan.tokens_prompt
                 tokens_completion += plan.tokens_completion
                 finish_reason = plan.finish_reason or finish_reason
+                await emit("agent.plan.completed", {"action": plan.action, "iteration": iterations})
                 if check_cost_budget():
                     break
 
@@ -262,177 +267,199 @@ class AgentService:
                         break
 
                 if plan.action == "tool":
-                    tool_ref = plan.tool_ref
-                    if not tool_ref:
+                    if not plan.tool_calls:
                         failures += 1
                         messages.append(
-                            ChatMessage(role="assistant", content="Planner error: missing tool_ref.")
+                            ChatMessage(role="assistant", content="Planner error: no tool calls returned.")
                         )
                         if handle_failure("Planner failed to select tool.", "planner_failed"):
                             break
                         continue
-                    if data.tool_refs and tool_ref not in data.tool_refs:
-                        raise ValidationError(f"Tool not allowed: {tool_ref}")
+
                     if tool_calls >= data.max_tool_calls:
                         set_budget("tool_budget_exceeded")
                         break
 
-                    tool_step_id = None
-                    if self.trace_writer:
-                        step = self.trace_writer.create_step(
-                            run_id=run_id,
-                            step_type="tool",
-                            input_summary=f"tool_ref={tool_ref}",
-                        )
-                        tool_step_id = step.id
-                        self.trace_writer.update_step_status(tool_step_id, "running")
+                    # Append assistant message with tool_calls for LLM protocol
+                    messages.append(ChatMessage(
+                        role="assistant",
+                        content=None,
+                        tool_calls=plan.tool_calls,
+                    ))
 
-                    tool_calls += 1
-                    if self.trace_writer and tool_step_id:
-                        self.trace_writer.update_step_metrics(
-                            tool_step_id,
-                            build_tool_metrics(
-                                tool_ref=tool_ref,
-                                parameters=plan.parameters,
-                                status="started",
-                                metadata={"source": "agent.tool", "iteration": iterations},
-                            ),
-                        )
-                    if self.response_service and response_id:
-                        response = self.response_service.get_response(response_id)
-                        self.response_service.append_event(
-                            response=response,
-                            event_type="tool.call.requested",
-                            payload={
-                                "response_id": response_id,
-                                "run_id": run_id,
-                                "tool_call_id": tool_step_id,
-                                "tool_name": tool_ref,
-                                "tool_type": "builtin",
-                                "step_id": tool_step_id,
-                                "status": "requested",
-                                "arguments": plan.parameters,
-                            },
-                            source="agent",
-                        )
-                        self.response_service.append_event(
-                            response=response,
-                            event_type="tool.call.started",
-                            payload={
-                                "response_id": response_id,
-                                "run_id": run_id,
-                                "tool_call_id": tool_step_id,
-                                "tool_name": tool_ref,
-                                "tool_type": "builtin",
-                                "step_id": tool_step_id,
-                                "status": "started",
-                            },
-                            source="agent",
-                        )
-                    try:
-                        tool_response = await self.executor.execute_tool(
-                            tool_ref=tool_ref,
-                            parameters=plan.parameters,
-                            ctx=self.ctx,
-                            run_id=run_id,
-                        )
-                    except Exception as exc:
+                    tool_failed_break = False
+                    for tc in plan.tool_calls:
+                        if data.tool_refs and tc.name not in data.tool_refs:
+                            raise ValidationError(f"Tool not allowed: {tc.name}")
+
+                        tool_step_id = None
+                        if self.trace_writer:
+                            step = self.trace_writer.create_step(
+                                run_id=run_id,
+                                step_type="tool",
+                                input_summary=f"tool_ref={tc.name}",
+                            )
+                            tool_step_id = step.id
+                            self.trace_writer.update_step_status(tool_step_id, "running")
+
+                        tool_calls += 1
+                        await emit("agent.tool.started", {"tool_ref": tc.name, "tool_call_id": tc.id})
+
                         if self.trace_writer and tool_step_id:
-                            self.trace_writer.update_step_status(
+                            self.trace_writer.update_step_metrics(
                                 tool_step_id,
-                                "failed",
-                                metrics=build_tool_metrics(
-                                    tool_ref=tool_ref,
-                                    parameters=plan.parameters,
-                                    status="failed",
+                                build_tool_metrics(
+                                    tool_ref=tc.name,
+                                    parameters=tc.arguments,
+                                    status="started",
                                     metadata={"source": "agent.tool", "iteration": iterations},
-                                    error_code="tool_execution_failed",
-                                    error_message=str(exc),
                                 ),
-                                error_message=str(exc),
                             )
                         if self.response_service and response_id:
                             response = self.response_service.get_response(response_id)
                             self.response_service.append_event(
                                 response=response,
-                                event_type="tool.call.failed",
+                                event_type="tool.call.requested",
                                 payload={
                                     "response_id": response_id,
                                     "run_id": run_id,
-                                    "tool_call_id": tool_step_id,
-                                    "tool_name": tool_ref,
+                                    "tool_call_id": tc.id,
+                                    "tool_name": tc.name,
                                     "tool_type": "builtin",
                                     "step_id": tool_step_id,
-                                    "status": "failed",
-                                    "error": {"code": "tool_execution_failed", "message": str(exc)},
+                                    "status": "requested",
+                                    "arguments": tc.arguments,
                                 },
                                 source="agent",
                             )
-                        raise
-                    tool_content = (
-                        str(tool_response.result)
-                        if tool_response.success
-                        else f"ERROR: {tool_response.error}"
-                    )
-                    messages.append(ChatMessage(role="tool", content=tool_content))
+                            self.response_service.append_event(
+                                response=response,
+                                event_type="tool.call.started",
+                                payload={
+                                    "response_id": response_id,
+                                    "run_id": run_id,
+                                    "tool_call_id": tc.id,
+                                    "tool_name": tc.name,
+                                    "tool_type": "builtin",
+                                    "step_id": tool_step_id,
+                                    "status": "started",
+                                },
+                                source="agent",
+                            )
+                        try:
+                            tool_response = await self.executor.execute_tool(
+                                tool_ref=tc.name,
+                                parameters=tc.arguments,
+                                ctx=self.ctx,
+                                run_id=run_id,
+                            )
+                        except Exception as exc:
+                            if self.trace_writer and tool_step_id:
+                                self.trace_writer.update_step_status(
+                                    tool_step_id,
+                                    "failed",
+                                    metrics=build_tool_metrics(
+                                        tool_ref=tc.name,
+                                        parameters=tc.arguments,
+                                        status="failed",
+                                        metadata={"source": "agent.tool", "iteration": iterations},
+                                        error_code="tool_execution_failed",
+                                        error_message=str(exc),
+                                    ),
+                                    error_message=str(exc),
+                                )
+                            if self.response_service and response_id:
+                                response = self.response_service.get_response(response_id)
+                                self.response_service.append_event(
+                                    response=response,
+                                    event_type="tool.call.failed",
+                                    payload={
+                                        "response_id": response_id,
+                                        "run_id": run_id,
+                                        "tool_call_id": tc.id,
+                                        "tool_name": tc.name,
+                                        "tool_type": "builtin",
+                                        "step_id": tool_step_id,
+                                        "status": "failed",
+                                        "error": {"code": "tool_execution_failed", "message": str(exc)},
+                                    },
+                                    source="agent",
+                                )
+                            raise
+                        tool_content = (
+                            str(tool_response.result)
+                            if tool_response.success
+                            else f"ERROR: {tool_response.error}"
+                        )
+                        messages.append(ChatMessage(
+                            role="tool",
+                            content=tool_content,
+                            tool_call_id=tc.id,
+                            name=tc.name,
+                        ))
+                        await emit("agent.tool.completed", {"tool_ref": tc.name, "success": tool_response.success})
+
+                        if self.trace_writer and tool_step_id:
+                            status = "succeeded" if tool_response.success else "failed"
+                            self.trace_writer.update_step_status(
+                                tool_step_id,
+                                status,
+                                output_summary=tool_content[:8192],
+                                metrics={
+                                    **(tool_response.metadata or {}),
+                                    **build_tool_metrics(
+                                        tool_ref=tc.name,
+                                        parameters=tc.arguments,
+                                        status="completed" if tool_response.success else "failed",
+                                        result={"result": tool_response.result} if tool_response.success else {},
+                                        metadata={"source": "agent.tool", "iteration": iterations, **(tool_response.metadata or {})},
+                                        error_code=None if tool_response.success else "tool_execution_failed",
+                                        error_message=None if tool_response.success else tool_response.error,
+                                    ),
+                                },
+                                error_message=None if tool_response.success else tool_response.error,
+                            )
+                        if self.response_service and response_id:
+                            response = self.response_service.get_response(response_id)
+                            self.response_service.append_event(
+                                response=response,
+                                event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
+                                payload={
+                                    "response_id": response_id,
+                                    "run_id": run_id,
+                                    "tool_call_id": tc.id,
+                                    "tool_name": tc.name,
+                                    "tool_type": "builtin",
+                                    "step_id": tool_step_id,
+                                    "status": "completed" if tool_response.success else "failed",
+                                    "result": {"result": tool_response.result} if tool_response.success else {},
+                                    "metadata": tool_response.metadata or {},
+                                    "error": None if tool_response.success else {
+                                        "code": "tool_execution_failed",
+                                        "message": tool_response.error,
+                                    },
+                                },
+                                source="agent",
+                            )
+
+                        if not tool_response.success:
+                            failures += 1
+                            if handle_failure(
+                                f"Tool failed after {failures} attempts: {tool_response.error}",
+                                "tool_failed",
+                            ):
+                                tool_failed_break = True
+                                break
+
+                    if tool_failed_break:
+                        break
                     if check_cost_budget():
                         break
-
-                    if self.trace_writer and tool_step_id:
-                        status = "succeeded" if tool_response.success else "failed"
-                        self.trace_writer.update_step_status(
-                            tool_step_id,
-                            status,
-                            output_summary=tool_content[:8192],
-                            metrics={
-                                **(tool_response.metadata or {}),
-                                **build_tool_metrics(
-                                    tool_ref=tool_ref,
-                                    parameters=plan.parameters,
-                                    status="completed" if tool_response.success else "failed",
-                                    result={"result": tool_response.result} if tool_response.success else {},
-                                    metadata={"source": "agent.tool", "iteration": iterations, **(tool_response.metadata or {})},
-                                    error_code=None if tool_response.success else "tool_execution_failed",
-                                    error_message=None if tool_response.success else tool_response.error,
-                                ),
-                            },
-                            error_message=None if tool_response.success else tool_response.error,
-                        )
-                    if self.response_service and response_id:
-                        response = self.response_service.get_response(response_id)
-                        self.response_service.append_event(
-                            response=response,
-                            event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
-                            payload={
-                                "response_id": response_id,
-                                "run_id": run_id,
-                                "tool_call_id": tool_step_id,
-                                "tool_name": tool_ref,
-                                "tool_type": "builtin",
-                                "step_id": tool_step_id,
-                                "status": "completed" if tool_response.success else "failed",
-                                "result": {"result": tool_response.result} if tool_response.success else {},
-                                "metadata": tool_response.metadata or {},
-                                "error": None if tool_response.success else {
-                                    "code": "tool_execution_failed",
-                                    "message": tool_response.error,
-                                },
-                            },
-                            source="agent",
-                        )
-
-                    if not tool_response.success:
-                        failures += 1
-                        if handle_failure(
-                            f"Tool failed after {failures} attempts: {tool_response.error}",
-                            "tool_failed",
-                        ):
-                            break
-                        continue
                     continue
 
                 if plan.action == "respond":
                     final_response = str(plan.response or "")
+                    await emit("agent.response.completed", {"output": final_response})
                     break
 
                 failures += 1
@@ -507,6 +534,7 @@ class AgentService:
                             final_response = "Agent verification failed."
                         finish_reason = "verification_failed"
 
+            await emit("agent.run.completed", {"run_id": run_id, "status": "succeeded"})
             if self.trace_writer:
                 self.trace_writer.update_run_status(
                     run_id,

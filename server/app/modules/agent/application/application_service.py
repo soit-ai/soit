@@ -28,6 +28,7 @@ from app.modules.agent.application.schemas import (
     AgentUpdate,
     AgentVersionCreate,
 )
+from app.adapters.tools.resolver import ToolResolver
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.versioning_adapter import AgentVersioningAdapter
 from app.modules.agent.domain.models import Agent, AgentBinding, AgentVersion
@@ -60,6 +61,9 @@ class AgentApplicationService:
         self.llm_port = llm_port
         self.tool_port = tool_port
         self.memory_service = memory_service
+        # Create ToolResolver if tool_port is a RegistryToolRouterPort
+        from app.adapters.tools.router import RegistryToolRouterPort
+        self.tool_resolver = ToolResolver(tool_port=tool_port) if isinstance(tool_port, RegistryToolRouterPort) else None
         self.trace_writer = trace_writer or TraceWriter(db, ctx)
         self.response_service = response_service or ResponseService(
             db=db,
@@ -284,6 +288,7 @@ class AgentApplicationService:
             ctx=self.ctx,
             llm_port=self.llm_port,
             tool_port=self.tool_port,
+            tool_resolver=self.tool_resolver,
             memory_service=self.memory_service,
             response_service=self.response_service,
             trace_writer=self.trace_writer,

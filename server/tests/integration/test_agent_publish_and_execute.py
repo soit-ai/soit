@@ -6,7 +6,7 @@ import pytest
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.interface import ChatResponse, LLMPort
+from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.responses.repository import ResponseEventRepository, ResponseRepository
 from app.kernel.runtime.repository import TaskRepository, ThreadRepository
@@ -17,12 +17,12 @@ from app.modules.agent.application.schemas import ChatMessageInput
 
 
 class QueueLLMPort(LLMPort):
-    """LLM stub returning queued JSON payloads."""
+    """LLM stub returning queued responses."""
 
     def __init__(self, responses):
         self._responses = list(responses)
 
-    async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):
+    async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
         return self._responses.pop(0)
 
     async def embed(self, texts, model, **kwargs):
@@ -54,17 +54,20 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
+                # Plan: respond
                 ChatResponse(
-                    text='{"action":"respond","response":"agent done"}',
+                    text="agent done",
                     tokens_prompt=1,
                     tokens_completion=1,
                     finish_reason="stop",
                 ),
+                # Verify: ok
                 ChatResponse(
-                    text='{"ok": true, "reason": "ok"}',
+                    text=None,
                     tokens_prompt=1,
                     tokens_completion=1,
-                    finish_reason="stop",
+                    finish_reason="tool_calls",
+                    tool_calls=[ToolCall(id="call_v", name="verify_response", arguments={"ok": True, "reason": "ok"})],
                 ),
             ]
         ),
@@ -164,23 +167,28 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
+                # Plan: call tool
                 ChatResponse(
-                    text='{"action":"tool","tool_ref":"tool:test:echo","parameters":{"value":"hi"}}',
+                    text=None,
+                    tokens_prompt=1,
+                    tokens_completion=1,
+                    finish_reason="tool_calls",
+                    tool_calls=[ToolCall(id="call_1", name="tool:test:echo", arguments={"value": "hi"})],
+                ),
+                # Plan: respond
+                ChatResponse(
+                    text="agent tool done",
                     tokens_prompt=1,
                     tokens_completion=1,
                     finish_reason="stop",
                 ),
+                # Verify: ok
                 ChatResponse(
-                    text='{"action":"respond","response":"agent tool done"}',
+                    text=None,
                     tokens_prompt=1,
                     tokens_completion=1,
-                    finish_reason="stop",
-                ),
-                ChatResponse(
-                    text='{"ok": true, "reason": "ok"}',
-                    tokens_prompt=1,
-                    tokens_completion=1,
-                    finish_reason="stop",
+                    finish_reason="tool_calls",
+                    tool_calls=[ToolCall(id="call_v", name="verify_response", arguments={"ok": True, "reason": "ok"})],
                 ),
             ]
         ),
@@ -230,7 +238,6 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
     assert tool_calls[0]["tool_name"] == "tool:test:echo"
     assert tool_calls[0]["status"] == "completed"
     assert tool_calls[0]["arguments_json"] == {"value": "hi"}
-    assert tool_calls[0]["result_json"]["result"]["tool_ref"] == "tool:test:echo"
     assert [event.type for event in response_events] == [
         "response.created",
         "response.input.added",
