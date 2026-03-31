@@ -1,13 +1,26 @@
 """ verifier
 
-Agent verifier.
+Agent verifier using structured output via function calling.
 """
 
 from dataclasses import dataclass
 from typing import List, Optional
-import json
 
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage
+from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolDefinition
+
+
+VERIFY_TOOL = ToolDefinition(
+    name="verify_response",
+    description="Verify whether the agent response adequately addresses the user query.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "description": "Whether the response is adequate"},
+            "reason": {"type": "string", "description": "Brief explanation"},
+        },
+        "required": ["ok"],
+    },
+)
 
 
 @dataclass
@@ -22,7 +35,7 @@ class VerifierResult:
 
 
 class AgentVerifier:
-    """Verify agent response."""
+    """Verify agent response using structured output."""
 
     def __init__(self, llm_port: Optional[LLMPort] = None):
         self.llm_port = llm_port
@@ -34,7 +47,7 @@ class AgentVerifier:
         model: str,
         run_id: str,
     ) -> VerifierResult:
-        """Verify response."""
+        """Verify response quality."""
         if not self.llm_port:
             return VerifierResult(
                 ok=True,
@@ -46,7 +59,7 @@ class AgentVerifier:
 
         system = ChatMessage(
             role="system",
-            content="You are a verifier. Reply with JSON {'ok': true|false, 'reason': '...'}",
+            content="You are a response quality verifier. Use the verify_response tool to report your assessment.",
         )
         review = ChatMessage(
             role="user",
@@ -56,23 +69,18 @@ class AgentVerifier:
             messages=[system, review],
             model=model,
             temperature=0,
+            tools=[VERIFY_TOOL],
+            tool_choice="required",
             run_id=run_id,
         )
-        text = result.text or ""
-        ok = "\"ok\": true" in text or "\"ok\":true" in text
-        reason = None
 
-        try:
-            start = text.find("{")
-            end = text.rfind("}")
-            if start >= 0 and end > start:
-                payload = json.loads(text[start:end + 1])
-            else:
-                payload = json.loads(text)
-            ok = bool(payload.get("ok"))
-            reason = payload.get("reason")
-        except Exception:
-            reason = None
+        # Extract structured result from tool call
+        ok = True
+        reason = None
+        if result.tool_calls:
+            args = result.tool_calls[0].arguments
+            ok = bool(args.get("ok", True))
+            reason = args.get("reason")
 
         return VerifierResult(
             ok=ok,
