@@ -14,6 +14,8 @@ from app.kernel.ports.llm.interface import (
     ChatStreamChunk,
     EmbeddingResponse,
     RerankResponse,
+    ToolDefinition,
+    ToolCall,
 )
 
 
@@ -26,8 +28,26 @@ class InMemoryLLMPort(LLMPort):
         model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        *,
+        tools: Optional[List[ToolDefinition]] = None,
+        tool_choice: Optional[str] = None,
         **kwargs: Any,
     ) -> ChatResponse:
+        model_name = model.split(":")[-1] if ":" in model else model
+        prompt_tokens = sum(len((m.content or "").split()) for m in messages)
+
+        # When tools are provided, mock a tool call for the first tool
+        if tools:
+            tool = tools[0]
+            return ChatResponse(
+                text=None,
+                tool_calls=[ToolCall(id=f"call_{tool.name}", name=tool.name, arguments={})],
+                tokens_prompt=prompt_tokens,
+                tokens_completion=1,
+                model=model_name,
+                finish_reason="tool_calls",
+            )
+
         last_user = ""
         for msg in reversed(messages):
             if msg.role == "user":
@@ -35,9 +55,7 @@ class InMemoryLLMPort(LLMPort):
                 break
 
         text = last_user or "ok"
-        prompt_tokens = len(" ".join([m.content for m in messages]).split())
         completion_tokens = len(text.split()) if text else 0
-        model_name = model.split(":")[-1] if ":" in model else model
         return ChatResponse(
             text=text,
             tokens_prompt=prompt_tokens,
@@ -54,9 +72,15 @@ class InMemoryLLMPort(LLMPort):
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
-        response = await self.chat(messages, model, temperature, max_tokens, **kwargs)
+        # Strip tools/tool_choice from kwargs before passing to chat
+        tools = kwargs.pop("tools", None)
+        tool_choice = kwargs.pop("tool_choice", None)
+        response = await self.chat(
+            messages, model, temperature, max_tokens,
+            tools=tools, tool_choice=tool_choice, **kwargs,
+        )
         yield ChatStreamChunk(
-            delta=response.text,
+            delta=response.text or "",
             done=True,
             tokens_prompt=response.tokens_prompt,
             tokens_completion=response.tokens_completion,

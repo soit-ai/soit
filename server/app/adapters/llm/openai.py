@@ -3,7 +3,9 @@
 OpenAI LLM port adapter implementation.
 """
 
+import json as _json
 from typing import List, Optional, Dict, Any
+
 import numpy as np
 import openai
 from openai import AsyncOpenAI
@@ -15,6 +17,8 @@ from app.kernel.ports.llm.interface import (
     ChatStreamChunk,
     EmbeddingResponse,
     RerankResponse,
+    ToolDefinition,
+    ToolCall,
 )
 
 
@@ -29,25 +33,47 @@ class OpenAILLMPort(LLMPort):
             base_url: Optional OpenAI-compatible API base URL.
         """
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    
+
+    @staticmethod
+    def _convert_messages(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
+        """Convert ChatMessage list to OpenAI message format."""
+        openai_messages = []
+        for msg in messages:
+            m: Dict[str, Any] = {"role": msg.role, "content": msg.content}
+            if msg.role == "assistant" and msg.tool_calls:
+                m["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": _json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ]
+            if msg.role == "tool" and msg.tool_call_id:
+                m["tool_call_id"] = msg.tool_call_id
+            if msg.name:
+                m["name"] = msg.name
+            openai_messages.append(m)
+        return openai_messages
+
     async def chat(
         self,
         messages: List[ChatMessage],
         model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        *,
+        tools: Optional[List[ToolDefinition]] = None,
+        tool_choice: Optional[str] = None,
         **kwargs,
     ) -> ChatResponse:
         """Chat completion via OpenAI."""
         model_name = self._resolve_model_name(model)
-        
-        # Convert messages
-        openai_messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
-        
-        # Call OpenAI API
+        openai_messages = self._convert_messages(messages)
+
         params: Dict[str, Any] = {
             "model": model_name,
             "messages": openai_messages,
@@ -57,6 +83,23 @@ class OpenAILLMPort(LLMPort):
             params["temperature"] = resolved_temperature
         if max_tokens is not None:
             params[self._token_limit_param(model_name)] = max_tokens
+
+        # Function calling parameters
+        if tools:
+            params["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": td.name,
+                        "description": td.description,
+                        "parameters": td.parameters,
+                    },
+                }
+                for td in tools
+            ]
+        if tool_choice is not None:
+            params["tool_choice"] = tool_choice
+
         reasoning_effort = kwargs.get("reasoning_effort")
         if reasoning_effort and self._supports_reasoning_effort(model_name):
             params["reasoning_effort"] = reasoning_effort
@@ -65,14 +108,29 @@ class OpenAILLMPort(LLMPort):
             params["top_p"] = top_p
 
         response = await self.client.chat.completions.create(**params)
-        
+
         choice = response.choices[0]
+
+        # Parse tool_calls from response
+        parsed_tool_calls = None
+        if choice.message.tool_calls:
+            parsed_tool_calls = []
+            for tc in choice.message.tool_calls:
+                try:
+                    arguments = _json.loads(tc.function.arguments)
+                except (ValueError, TypeError):
+                    arguments = {}
+                parsed_tool_calls.append(
+                    ToolCall(id=tc.id, name=tc.function.name, arguments=arguments)
+                )
+
         return ChatResponse(
-            text=choice.message.content or "",
+            text=choice.message.content if not parsed_tool_calls else None,
             tokens_prompt=response.usage.prompt_tokens if response.usage else 0,
             tokens_completion=response.usage.completion_tokens if response.usage else 0,
             model=model_name,
             finish_reason=choice.finish_reason,
+            tool_calls=parsed_tool_calls,
         )
 
     async def stream_chat(
@@ -85,10 +143,7 @@ class OpenAILLMPort(LLMPort):
     ):
         """Stream chat completion via OpenAI."""
         model_name = self._resolve_model_name(model)
-        openai_messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
+        openai_messages = self._convert_messages(messages)
 
         params: Dict[str, Any] = {
             "model": model_name,
