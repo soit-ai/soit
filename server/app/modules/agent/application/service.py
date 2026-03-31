@@ -212,9 +212,18 @@ class AgentService:
                     self.trace_writer.update_step_status(plan_step_id, "running")
 
                 try:
+                    # Convert tool_refs (str list) to ToolDefinition stubs for planner
+                    # TODO(task-7): replace with proper ToolResolver-based definitions
+                    _tool_defs = None
+                    if data.tool_refs:
+                        from app.kernel.ports.llm.interface import ToolDefinition
+                        _tool_defs = [
+                            ToolDefinition(name=ref, description=ref, parameters={"type": "object"})
+                            for ref in data.tool_refs
+                        ]
                     plan = await self.planner.plan(
                         messages=messages,
-                        tools=data.tool_refs,
+                        tool_definitions=_tool_defs,
                         memory_context=memory_context,
                         model=model,
                         temperature=data.temperature,

@@ -1,31 +1,44 @@
 """ planner
 
-Agent planner.
+Agent planner using native LLM function calling.
 """
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-import json
 
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage
+from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolDefinition, ToolCall
 
 
 @dataclass
 class PlanResult:
     """Planner result payload."""
 
-    action: str
-    tool_ref: Optional[str]
-    parameters: Dict[str, Any]
+    action: str  # "tool" or "respond"
+    tool_calls: Optional[List[ToolCall]]
     response: Optional[str]
     raw: Dict[str, Any]
     tokens_prompt: int
     tokens_completion: int
     finish_reason: Optional[str]
 
+    # TODO(task-7): remove these compat properties after service.py rewrite
+    @property
+    def tool_ref(self) -> Optional[str]:
+        """Backward compat: first tool call name."""
+        if self.tool_calls:
+            return self.tool_calls[0].name
+        return None
+
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        """Backward compat: first tool call arguments."""
+        if self.tool_calls:
+            return self.tool_calls[0].arguments
+        return {}
+
 
 class AgentPlanner:
-    """LLM-based planner for agent steps."""
+    """LLM-based planner for agent steps using native function calling."""
 
     def __init__(self, llm_port: LLMPort):
         self.llm_port = llm_port
@@ -33,60 +46,48 @@ class AgentPlanner:
     async def plan(
         self,
         messages: List[ChatMessage],
-        tools: Optional[List[str]],
-        memory_context: Optional[str],
+        tool_definitions: Optional[List[ToolDefinition]],
         model: str,
         temperature: Optional[float],
         run_id: str,
+        memory_context: Optional[str] = None,
     ) -> PlanResult:
-        """Plan next action."""
-        system_lines = [
-            "You are an agent planner.",
-            "Return a single JSON object with fields:",
-            "action: 'tool' or 'respond'",
-            "tool_ref: required if action is 'tool'",
-            "parameters: tool parameters when action is 'tool'",
-            "response: final response when action is 'respond'",
-        ]
-        if tools:
-            system_lines.append(f"Allowed tools: {', '.join(tools)}")
+        """Plan next action using native function calling."""
+        planning_messages = list(messages)
         if memory_context:
-            system_lines.append(f"Memory context:\n{memory_context}")
-
-        system = ChatMessage(role="system", content="\n".join(system_lines))
-        planning_messages = [system] + messages
+            planning_messages.insert(
+                0,
+                ChatMessage(
+                    role="system",
+                    content=f"Relevant memory context:\n{memory_context}",
+                ),
+            )
 
         response = await self.llm_port.chat(
             messages=planning_messages,
             model=model,
             temperature=temperature,
+            tools=tool_definitions if tool_definitions else None,
+            tool_choice="auto" if tool_definitions else None,
             run_id=run_id,
         )
 
-        text = response.text or ""
-        try:
-            start = text.find("{")
-            end = text.rfind("}")
-            if start >= 0 and end > start:
-                payload = json.loads(text[start:end + 1])
-            else:
-                payload = json.loads(text)
-        except Exception:
-            payload = {"action": "respond", "response": text}
-
-        action = payload.get("action") or "respond"
-        tool_ref = payload.get("tool_ref")
-        parameters = payload.get("parameters") or {}
-        if not isinstance(parameters, dict):
-            parameters = {"value": parameters}
-        response_text = payload.get("response")
+        if response.tool_calls:
+            return PlanResult(
+                action="tool",
+                tool_calls=response.tool_calls,
+                response=None,
+                raw={},
+                tokens_prompt=response.tokens_prompt,
+                tokens_completion=response.tokens_completion,
+                finish_reason=response.finish_reason,
+            )
 
         return PlanResult(
-            action=action,
-            tool_ref=tool_ref,
-            parameters=parameters,
-            response=response_text,
-            raw=payload,
+            action="respond",
+            tool_calls=None,
+            response=response.text or "",
+            raw={},
             tokens_prompt=response.tokens_prompt,
             tokens_completion=response.tokens_completion,
             finish_reason=response.finish_reason,
