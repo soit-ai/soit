@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AudioWaveform, Bot, Command, GalleryVerticalEnd, Workflow, ScrollText, BrainCog, MessageCircleMore, Activity, Settings, LayoutDashboard, Send, Unplug } from 'lucide-react'
+import { AudioWaveform, Bot, BrainCog, Command, GalleryVerticalEnd, Workflow, ScrollText, MessageCircleMore, Activity, Settings, Send, Sparkles, Unplug, Waypoints } from 'lucide-react'
 
 import { NavUser } from '@/components/common/nav-user'
 import { TeamSwitcher } from '@/components/common/team-switcher'
@@ -9,10 +9,8 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarRail,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarInput,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -42,15 +40,7 @@ const data = {
       plan: 'Free',
     },
   ],
-  navApp: [
-    {
-      title: 'Dashboard',
-      url: '/',
-      type: 'dashboard',
-      icon: LayoutDashboard,
-      isActive: true,
-      isNav: true,
-    },
+  navPrimary: [
     {
       title: 'Agents',
       url: '/agents',
@@ -68,7 +58,7 @@ const data = {
       isNav: true,
     },
     {
-      title: 'Workflows',
+      title: 'Workflow',
       url: '/workflow',
       type: 'workflow',
       icon: Workflow,
@@ -80,6 +70,30 @@ const data = {
       url: '/knowledge',
       type: 'knowledge',
       icon: ScrollText,
+      isActive: false,
+      isNav: true,
+    },
+    {
+      title: 'Skills',
+      url: '/skills',
+      type: 'skills',
+      icon: Sparkles,
+      isActive: false,
+      isNav: true,
+    },
+    {
+      title: 'Plugins',
+      url: '/plugins',
+      type: 'plugins',
+      icon: Unplug,
+      isActive: false,
+      isNav: true,
+    },
+    {
+      title: 'MCP',
+      url: '/mcp',
+      type: 'mcp',
+      icon: Waypoints,
       isActive: false,
       isNav: true,
     },
@@ -104,14 +118,6 @@ const data = {
       url: '/models',
       type: 'models',
       icon: BrainCog,
-      isActive: false,
-      isNav: true,
-    },
-    {
-      title: 'Plugins',
-      url: '/plugins',
-      type: 'plugins',
-      icon: Unplug,
       isActive: false,
       isNav: true,
     },
@@ -183,7 +189,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             <SidebarGroup className="mt-8">
               <SidebarGroupContent className="px-0">
                 <SidebarMenu>
-                  {data.navApp.map((item) => (
+                  {data.navPrimary.map((item) => (
                     <SidebarMenuItem key={item.title} className="mt-3">
                       <SidebarMenuButton
                         // size="lg"

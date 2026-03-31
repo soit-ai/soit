@@ -24,7 +24,7 @@ def test_knowledge_crud_and_observability_contract(client):
     knowledge_id = knowledge["id"]
     assert knowledge["name"] == "knowledge-api-contract"
     assert knowledge["knowledge_type"] == "code"
-    assert knowledge["source_type"] == "code"
+    assert "source_type" not in knowledge
 
     list_resp = client.get("/api/v1/knowledge", headers=_headers())
     assert list_resp.status_code == status.HTTP_200_OK
@@ -77,3 +77,27 @@ def test_knowledge_crud_and_observability_contract(client):
 
     delete_resp = client.delete(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
     assert delete_resp.status_code == status.HTTP_204_NO_CONTENT
+
+
+def test_knowledge_response_does_not_expose_legacy_source_type(client):
+    create_resp = client.post(
+        "/api/v1/knowledge",
+        json={
+            "name": "knowledge-without-source-type",
+            "description": "contract",
+            "knowledge_type": "document",
+            "visibility": "private",
+        },
+        headers=_headers(),
+    )
+    assert create_resp.status_code == status.HTTP_201_CREATED
+    knowledge_id = create_resp.json()["data"]["id"]
+
+    list_resp = client.get("/api/v1/knowledge", headers=_headers())
+    assert list_resp.status_code == status.HTTP_200_OK
+    item = next(entry for entry in list_resp.json()["data"]["items"] if entry["id"] == knowledge_id)
+    assert "source_type" not in item
+
+    detail_resp = client.get(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
+    assert detail_resp.status_code == status.HTTP_200_OK
+    assert "source_type" not in detail_resp.json()["data"]

@@ -35,6 +35,10 @@ export default [
       ]),
     ]),
 
+    ...prefix('/skills', [
+      index('./routes/skill/index.tsx'),
+    ]),
+
     // workflow module route.
     ...prefix('/workflow', [
       index('./routes/workflow/index.tsx'),
@@ -66,6 +70,10 @@ export default [
       // layout('./routes/plugin/detail/ui/layout.tsx', [
       //   route(':id/build?', './routes/plugin/detail/build.tsx'),
       // ]),
+    ]),
+
+    ...prefix('/mcp', [
+      index('./routes/mcp/index.tsx'),
     ]),
 
     // model module route.

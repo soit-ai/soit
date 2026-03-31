@@ -62,8 +62,6 @@ class KnowledgeResponse(BaseModel):
     status: str
     visibility: str
     knowledge_type: str
-    source_type: str
-    """Deprecated compatibility alias; mirrors `knowledge_type` during the migration window."""
     settings_json: dict[str, Any]
     chunking_json: dict[str, Any]
     retrieval_json: dict[str, Any]

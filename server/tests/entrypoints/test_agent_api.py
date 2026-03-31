@@ -264,7 +264,7 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_rejects_mcp_specific_binding_refs(client, db, ctx):
+def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
@@ -295,16 +295,21 @@ def test_agent_api_rejects_mcp_specific_binding_refs(client, db, ctx):
             json={
                 "system_prompt": "Use tools carefully.",
                 "model_ref": "model:test:primary",
-                "bindings": {
-                    "mcp_tool_refs": ["mcp_tool:missing:list_prs"],
-                },
+                "tool_refs": ["mcp_tool:missing:list_prs"],
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
-        assert version_response.status_code == status.HTTP_400_BAD_REQUEST
-        error_payload = version_response.json()
-        assert error_payload["success"] is False
-        assert error_payload["message"] == "Request validation failed"
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        bindings_response = client.get(
+            f"/api/v1/agents/{agent_id}/bindings",
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert bindings_response.status_code == status.HTTP_200_OK
+        bindings = bindings_response.json()["data"]
+        assert any(binding["binding_type"] == "tool" and binding["target_key"] == "mcp_tool:missing:list_prs" for binding in bindings)
+        assert version_id
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 

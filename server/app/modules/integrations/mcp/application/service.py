@@ -276,6 +276,26 @@ class MCPService:
         return targets
 
     @workspace_guard("read")
+    async def resolve_tool_refs(
+        self,
+        *,
+        tool_refs: list[str] | None = None,
+    ) -> dict[str, dict]:
+        servers = self.repo.list(limit=500, offset=0, enabled_only=True)
+        index = self._binding_target_index(servers)
+        resolved: dict[str, dict] = {}
+        for ref in tool_refs or []:
+            if not ref:
+                continue
+            target = index.get(ref)
+            if target:
+                resolved[ref] = dict(target)
+                continue
+            if ref.startswith("mcp_"):
+                raise ValidationError(f"MCP binding target not found or disabled: {ref}")
+        return resolved
+
+    @workspace_guard("read")
     async def resolve_binding_refs(
         self,
         *,
@@ -283,14 +303,6 @@ class MCPService:
         mcp_tool_refs: list[str] | None = None,
         mcp_resource_refs: list[str] | None = None,
     ) -> dict[str, dict]:
-        servers = self.repo.list(limit=500, offset=0, enabled_only=True)
-        index = self._binding_target_index(servers)
-        resolved: dict[str, dict] = {}
-        for ref in [*(mcp_server_refs or []), *(mcp_tool_refs or []), *(mcp_resource_refs or [])]:
-            if not ref:
-                continue
-            target = index.get(ref)
-            if not target:
-                raise ValidationError(f"MCP binding target not found or disabled: {ref}")
-            resolved[ref] = dict(target)
-        return resolved
+        return await self.resolve_tool_refs(
+            tool_refs=[*(mcp_server_refs or []), *(mcp_tool_refs or []), *(mcp_resource_refs or [])],
+        )

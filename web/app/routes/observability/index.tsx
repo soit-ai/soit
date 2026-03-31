@@ -1,44 +1,23 @@
-import { Activity, ArrowRight, Coins, RefreshCw } from 'lucide-react'
+import { Activity, ArrowRight, RefreshCw } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
-import { getRunCostSummary, listRuns } from '@/services/run-service'
-import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
+import { getObservabilityDashboard } from '@/services/observability-service'
 
-const formatTimestamp = (value?: string | null) => {
-  if (!value) {
-    return '-'
-  }
-  return formatDateTime(isoToZonedDate(value))
-}
+import { AgentHealthTable } from './ui/agent-health-table'
+import { ToolHealthTable } from './ui/tool-health-table'
+import { WorkspaceSummaryCards } from './ui/workspace-summary'
 
 function ObservabilityPage() {
   const navigate = useNavigate()
-
-  const {
-    data: runPage,
-    isLoading: runsLoading,
-    refetch: refetchRuns,
-  } = useQuery({
-    queryKey: ['observability', 'runs'],
-    queryFn: () => listRuns({ page_size: 20 }),
-    options: {
-      retry: false,
-      refetchOnWindowFocus: false,
-    },
-  })
-
-  const {
-    data: costSummary,
-    isLoading: costsLoading,
-    refetch: refetchCosts,
-  } = useQuery({
-    queryKey: ['observability', 'cost-summary'],
-    queryFn: () => getRunCostSummary(),
+  const { data: dashboard, isLoading, refetch } = useQuery({
+    queryKey: ['observability', 'dashboard'],
+    queryFn: () => getObservabilityDashboard(),
     options: {
       retry: false,
       refetchOnWindowFocus: false,
@@ -50,112 +29,159 @@ function ObservabilityPage() {
       <Card className="border-none bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-800 text-white shadow-xl">
         <CardHeader className="gap-3">
           <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
-            Observability
+            Workspace Console
           </Badge>
-          <CardTitle className="text-3xl font-semibold tracking-tight">Watch the runtime, not just the UI.</CardTitle>
+          <CardTitle className="text-3xl font-semibold tracking-tight">Observe the workspace before drilling into runs.</CardTitle>
           <CardDescription className="max-w-2xl text-zinc-300">
-            Track current execution volume, inspect recent runs, and keep cost and failure trends visible while the
-            runtime core continues to consolidate.
+            Workspace health, agent summaries, workflow bottlenecks, knowledge quality, and tool reliability all roll up here first.
           </CardDescription>
         </CardHeader>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Prompt Tokens</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <Coins className="h-5 w-5 text-amber-500" />
-              {costsLoading ? '...' : costSummary?.tokens_prompt ?? 0}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Completion Tokens</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <Coins className="h-5 w-5 text-emerald-500" />
-              {costsLoading ? '...' : costSummary?.tokens_completion ?? 0}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Runtime ms</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <Activity className="h-5 w-5 text-sky-500" />
-              {costsLoading ? '...' : costSummary?.ms_total ?? 0}
-            </CardTitle>
-          </CardHeader>
-        </Card>
+      <WorkspaceSummaryCards summary={dashboard?.workspace_summary} />
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+        <Button onClick={() => navigate('/observability/runs')}>
+          Open Run Explorer
+          <ArrowRight className="ml-2 h-4 w-4" />
+        </Button>
       </div>
 
+      <Tabs defaultValue="agents">
+        <TabsList variant="line">
+          <TabsTrigger value="agents">Agent Health</TabsTrigger>
+          <TabsTrigger value="workflows">Workflow Bottlenecks</TabsTrigger>
+          <TabsTrigger value="tools">Tool Reliability</TabsTrigger>
+          <TabsTrigger value="knowledge">Knowledge Quality</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="agents">
+          <AgentHealthTable agents={dashboard?.agent_summaries || []} />
+        </TabsContent>
+
+        <TabsContent value="workflows">
+          <Card>
+            <CardHeader>
+              <CardTitle>Workflow Bottlenecks</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!dashboard?.workflow_bottlenecks?.length ? (
+                <div className="text-sm text-muted-foreground">No workflow bottlenecks recorded yet.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Node</TableHead>
+                      <TableHead>Steps</TableHead>
+                      <TableHead>Failed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dashboard.workflow_bottlenecks.map((item) => (
+                      <TableRow key={item.node_id}>
+                        <TableCell className="font-medium">{item.node_id}</TableCell>
+                        <TableCell>{item.step_count}</TableCell>
+                        <TableCell>{item.failed_step_count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tools">
+          <ToolHealthTable tools={dashboard?.tool_health || []} />
+        </TabsContent>
+
+        <TabsContent value="knowledge">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Knowledge Quality</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!dashboard?.knowledge_quality?.length ? (
+                  <div className="text-sm text-muted-foreground">No retrieval quality events recorded yet.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Signal</TableHead>
+                        <TableHead>Events</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dashboard.knowledge_quality.map((item) => (
+                        <TableRow key={item.step_type}>
+                          <TableCell className="font-medium">{item.step_type}</TableCell>
+                          <TableCell>{item.event_count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Cost</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!dashboard?.model_costs?.length ? (
+                  <div className="text-sm text-muted-foreground">No model cost data recorded yet.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Model</TableHead>
+                        <TableHead>Cost</TableHead>
+                        <TableHead>Tokens</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dashboard.model_costs.map((item) => (
+                        <TableRow key={item.model_ref}>
+                          <TableCell className="font-medium">{item.model_ref}</TableCell>
+                          <TableCell>{item.total_cost_usd.toFixed(2)}</TableCell>
+                          <TableCell>{item.total_tokens}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+
       <Card>
-        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CardTitle>Recent Runs</CardTitle>
-            <CardDescription>Latest execution records across chat, agent, workflow, and tool activity.</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                refetchRuns()
-                refetchCosts()
-              }}
-              disabled={runsLoading || costsLoading}
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
-            </Button>
-            <Button onClick={() => navigate('/observability/runs')}>
-              Open Run Explorer
-            </Button>
-          </div>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-sky-500" />
+            Approval Summary
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          {runsLoading && <div className="text-sm text-muted-foreground">Loading observability stream...</div>}
-          {!runsLoading && !(runPage?.items || []).length && (
-            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No runs recorded yet.
-            </div>
-          )}
-          {!runsLoading && (runPage?.items || []).length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Run</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Summary</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(runPage?.items || []).map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className="font-medium">{run.id}</TableCell>
-                    <TableCell>{run.mode}</TableCell>
-                    <TableCell>
-                      <Badge variant={run.status === 'failed' ? 'destructive' : run.status === 'succeeded' ? 'default' : 'outline'}>
-                        {run.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatTimestamp(run.started_at)}</TableCell>
-                    <TableCell>{run.duration_ms ? `${run.duration_ms} ms` : '-'}</TableCell>
-                    <TableCell className="max-w-[320px] truncate">{run.output_summary || run.input_summary || '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => navigate(`/observability/runs/${run.id}`)}>
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Pending</div>
+            <div className="mt-2 text-2xl font-semibold">{dashboard?.approvals_summary.pending ?? '...'}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Approved</div>
+            <div className="mt-2 text-2xl font-semibold">{dashboard?.approvals_summary.approved ?? '...'}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Rejected</div>
+            <div className="mt-2 text-2xl font-semibold">{dashboard?.approvals_summary.rejected ?? '...'}</div>
+          </div>
         </CardContent>
       </Card>
     </div>

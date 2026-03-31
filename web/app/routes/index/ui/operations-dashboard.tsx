@@ -112,9 +112,9 @@ export function OperationsDashboard({
     return [
       {
         key: 'build',
-        title: t('app.home.dashboard.traceBuild'),
+        title: t('agent.home.dashboard.traceBuild'),
         value: formatNumber(buildSeries.reduce((sum, value) => sum + value, 0)),
-        description: t('app.home.dashboard.traceWindow'),
+        description: t('agent.home.dashboard.traceWindow'),
         values: buildSeries,
         lineColor: 'rgba(14, 165, 233, 0.95)',
         fillColor: 'rgba(14, 165, 233, 0.12)',
@@ -122,9 +122,9 @@ export function OperationsDashboard({
       },
       {
         key: 'knowledge',
-        title: t('app.home.dashboard.traceKnowledge'),
+        title: t('agent.home.dashboard.traceKnowledge'),
         value: formatNumber(knowledgeSeries.reduce((sum, value) => sum + value, 0)),
-        description: t('app.home.dashboard.traceWindow'),
+        description: t('agent.home.dashboard.traceWindow'),
         values: knowledgeSeries,
         lineColor: 'rgba(245, 158, 11, 0.95)',
         fillColor: 'rgba(245, 158, 11, 0.12)',
@@ -132,9 +132,9 @@ export function OperationsDashboard({
       },
       {
         key: 'tasks',
-        title: t('app.home.dashboard.traceTasks'),
+        title: t('agent.home.dashboard.traceTasks'),
         value: formatNumber(taskSeries.reduce((sum, value) => sum + value, 0)),
-        description: t('app.home.dashboard.traceWindow'),
+        description: t('agent.home.dashboard.traceWindow'),
         values: taskSeries,
         lineColor: 'rgba(244, 63, 94, 0.95)',
         fillColor: 'rgba(244, 63, 94, 0.12)',
@@ -142,9 +142,9 @@ export function OperationsDashboard({
       },
       {
         key: 'runs',
-        title: t('app.home.dashboard.traceRuns'),
+        title: t('agent.home.dashboard.traceRuns'),
         value: formatNumber(runSeries.reduce((sum, value) => sum + value, 0)),
-        description: t('app.home.dashboard.traceWindow'),
+        description: t('agent.home.dashboard.traceWindow'),
         values: runSeries,
         lineColor: 'rgba(16, 185, 129, 0.95)',
         fillColor: 'rgba(16, 185, 129, 0.12)',
@@ -162,18 +162,18 @@ export function OperationsDashboard({
     <Card className="overflow-hidden border-slate-200/70 bg-white/84 shadow-none backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/62">
       <CardHeader className="space-y-3 border-b border-slate-200/70 dark:border-slate-800">
         <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
-          {t('app.home.dashboard.eyebrow')}
+          {t('agent.home.dashboard.eyebrow')}
         </div>
-        <CardTitle className="text-2xl">{t('app.home.dashboard.title')}</CardTitle>
-        <CardDescription>{t('app.home.dashboard.description')}</CardDescription>
+        <CardTitle className="text-2xl">{t('agent.home.dashboard.title')}</CardTitle>
+        <CardDescription>{t('agent.home.dashboard.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <section className="rounded-[30px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(241,245,249,0.92)_100%)] p-4 dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.76)_0%,rgba(15,23,42,0.52)_100%)]">
           <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
-            {t('app.home.dashboard.traceEyebrow')}
+            {t('agent.home.dashboard.traceEyebrow')}
           </div>
-          <div className="mt-2 text-lg font-semibold">{t('app.home.dashboard.traceTitle')}</div>
-          <div className="mt-1 text-sm text-muted-foreground">{t('app.home.dashboard.traceDescription')}</div>
+          <div className="mt-2 text-lg font-semibold">{t('agent.home.dashboard.traceTitle')}</div>
+          <div className="mt-1 text-sm text-muted-foreground">{t('agent.home.dashboard.traceDescription')}</div>
 
           <div className="mt-4 grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
             {trendCards.map((card) => (
@@ -204,18 +204,18 @@ export function OperationsDashboard({
           <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
               <Layers3 className="h-4 w-4 text-sky-600" />
-              {t('app.home.dashboard.buildTitle')}
+              {t('agent.home.dashboard.buildTitle')}
             </div>
 
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{t('app.home.dashboard.publishRate')}</span>
+                  <span className="text-muted-foreground">{t('agent.home.dashboard.publishRate')}</span>
                   <span className="font-medium">{isLoading ? '...' : `${formatNumber(publishRate)}%`}</span>
                 </div>
                 <Progress value={publishRate} className="h-2 bg-slate-200 dark:bg-slate-800" />
                 <div className="text-xs text-muted-foreground">
-                  {t('app.home.dashboard.publishDetail', {
+                  {t('agent.home.dashboard.publishDetail', {
                     published: formatNumber(summary.publishedAgents),
                     total: formatNumber(summary.agentCount),
                   })}
@@ -224,12 +224,12 @@ export function OperationsDashboard({
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{t('app.home.dashboard.workflowCoverage')}</span>
+                  <span className="text-muted-foreground">{t('agent.home.dashboard.workflowCoverage')}</span>
                   <span className="font-medium">{isLoading ? '...' : `${formatNumber(workflowVersionRate)}%`}</span>
                 </div>
                 <Progress value={workflowVersionRate} className="h-2 bg-slate-200 dark:bg-slate-800" />
                 <div className="text-xs text-muted-foreground">
-                  {t('app.home.dashboard.workflowDetail', {
+                  {t('agent.home.dashboard.workflowDetail', {
                     versioned: formatNumber(summary.versionedWorkflows),
                     total: formatNumber(summary.workflowCount),
                   })}
@@ -238,11 +238,11 @@ export function OperationsDashboard({
 
               <div className="grid gap-px overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-200/70 dark:border-slate-800 dark:bg-slate-800 sm:grid-cols-2">
                 <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.docsPerKnowledge')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.docsPerKnowledge')}</div>
                   <div className="mt-2 text-2xl font-semibold">{formatNumber(Math.round(docsPerKnowledge || 0))}</div>
                 </div>
                 <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.chunksPerDoc')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.chunksPerDoc')}</div>
                   <div className="mt-2 text-2xl font-semibold">{formatNumber(Math.round(chunksPerDoc || 0))}</div>
                 </div>
               </div>
@@ -252,30 +252,30 @@ export function OperationsDashboard({
           <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className={`h-4 w-4 ${riskTone}`} />
-              {t('app.home.dashboard.riskTitle')}
+              {t('agent.home.dashboard.riskTitle')}
             </div>
 
             <div className="space-y-3">
               {[
                 {
-                  label: t('app.home.dashboard.attentionTasks'),
+                  label: t('agent.home.dashboard.attentionTasks'),
                   value: summary.attentionTaskCount,
-                  hint: t('app.home.dashboard.attentionHint'),
+                  hint: t('agent.home.dashboard.attentionHint'),
                 },
                 {
-                  label: t('app.home.dashboard.failedRuns'),
+                  label: t('agent.home.dashboard.failedRuns'),
                   value: summary.failedRunCount,
-                  hint: t('app.home.dashboard.failedHint'),
+                  hint: t('agent.home.dashboard.failedHint'),
                 },
                 {
-                  label: t('app.home.dashboard.activeTasks'),
+                  label: t('agent.home.dashboard.activeTasks'),
                   value: summary.activeTaskCount,
-                  hint: t('app.home.dashboard.activeHint'),
+                  hint: t('agent.home.dashboard.activeHint'),
                 },
                 {
-                  label: t('app.home.dashboard.draftAgents'),
+                  label: t('agent.home.dashboard.draftAgents'),
                   value: summary.draftAgents,
-                  hint: t('app.home.dashboard.draftHint'),
+                  hint: t('agent.home.dashboard.draftHint'),
                 },
               ].map((item) => (
                 <div
@@ -298,12 +298,12 @@ export function OperationsDashboard({
           <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
               <Wallet className="h-4 w-4 text-emerald-600" />
-              {t('app.home.dashboard.ledgerTitle')}
+              {t('agent.home.dashboard.ledgerTitle')}
             </div>
 
             <div className="rounded-[24px] border border-slate-200/70 bg-white/82 p-4 dark:border-slate-800 dark:bg-slate-950/64">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">{t('app.home.dashboard.tokenSplit')}</div>
+                <div className="text-sm font-medium">{t('agent.home.dashboard.tokenSplit')}</div>
                 <Orbit className="h-4 w-4 text-emerald-600" />
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
@@ -314,11 +314,11 @@ export function OperationsDashboard({
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div>
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.promptTokens')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.promptTokens')}</div>
                   <div className="mt-1 text-xl font-semibold">{formatCompact(summary.promptTokens)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.completionTokens')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.completionTokens')}</div>
                   <div className="mt-1 text-xl font-semibold">{formatCompact(summary.completionTokens)}</div>
                 </div>
               </div>
@@ -327,14 +327,14 @@ export function OperationsDashboard({
             <div className="mt-3 grid gap-px overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-200/70 dark:border-slate-800 dark:bg-slate-800 sm:grid-cols-2">
               <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.runtimeMs')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.runtimeMs')}</div>
                   <Gauge className="h-4 w-4 text-violet-600" />
                 </div>
                 <div className="mt-2 text-2xl font-semibold">{formatCompact(summary.runtimeMs)}</div>
               </div>
               <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">{t('app.home.dashboard.recentRuns')}</div>
+                  <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.recentRuns')}</div>
                   <Gauge className="h-4 w-4 text-sky-600" />
                 </div>
                 <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.runCount)}</div>
@@ -346,3 +346,4 @@ export function OperationsDashboard({
     </Card>
   )
 }
+

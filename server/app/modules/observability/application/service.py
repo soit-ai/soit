@@ -13,6 +13,7 @@ from app.kernel.identity.guard import workspace_guard
 from app.kernel.runtime.contracts.status import ApprovalStatus
 from app.kernel.trace.exporter import to_runtrace_spec
 from app.kernel.trace.models import Run, RunArtifact, RunCostEntry, RunStep
+from app.modules.observability.application.dashboard_service import ObservabilityDashboardService
 from app.modules.observability.application.schemas import ApprovalCreate, ApprovalResolve, FeedbackCreate
 from app.modules.observability.domain.models import ApprovalRequest, RunFeedback
 from app.modules.observability.infra.repository import ApprovalRepository, FeedbackRepository
@@ -175,3 +176,12 @@ class ObservabilityService:
             "feedback": feedback,
             "trace_spec": to_runtrace_spec(run, steps, artifacts, costs),
         }
+
+    @workspace_guard("read")
+    async def get_dashboard(self):
+        return await ObservabilityDashboardService(
+            db=self.db,
+            ctx=self.ctx,
+            approval_repo=self.approval_repo,
+            feedback_repo=self.feedback_repo,
+        ).build_dashboard()

@@ -16,7 +16,6 @@ export interface KnowledgeBase {
   status: string
   visibility: string
   knowledge_type: string
-  source_type: string
   settings_json: Record<string, unknown>
   chunking_json: Record<string, unknown>
   retrieval_json: Record<string, unknown>

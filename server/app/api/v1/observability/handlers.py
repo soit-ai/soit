@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
+from app.modules.observability.application.dashboard_schemas import WorkspaceObservabilityDashboard
 from app.modules.observability.application.schemas import (
     ApprovalCreate,
     ApprovalResolve,
@@ -88,3 +89,6 @@ class ObservabilityHandlers:
 
     async def get_run_replay(self, ctx: RequestContext, run_id: str) -> RunReplayResponse:
         return RunReplayResponse.model_validate(await self.service.get_run_replay(run_id))
+
+    async def get_dashboard(self, ctx: RequestContext) -> WorkspaceObservabilityDashboard:
+        return WorkspaceObservabilityDashboard.model_validate(await self.service.get_dashboard())

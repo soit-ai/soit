@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED_FILES = (
     Path("server/docs/README.md"),
-    Path("docs/architecture/soit-refactor-principles.md"),
-    Path("docs/architecture/soit-object-mapping.md"),
-    Path("docs/architecture/soit-phase-checklist.md"),
+    Path("server/docs/architecture/README.md"),
+    Path("server/docs/architecture/PROJECT_STRUCTURE.md"),
+    Path("web/docs/README.md"),
+    Path("web/docs/PROJECT_STRUCTURE.md"),
 )
 
 GUARDED_DIRS = (
@@ -36,6 +38,34 @@ FORBIDDEN_IMPORT_PATTERNS = (
     "import app.modules.appcenter",
     "from app.api.v1.appcenter",
     "import app.api.v1.appcenter",
+)
+
+RUNTIME_TERM_GUARDED_PATHS = (
+    Path("server/app/api/v1/knowledge"),
+    Path("server/app/modules/knowledge/application/schemas.py"),
+    Path("server/tests/entrypoints/test_knowledge_api.py"),
+    Path("server/tests/entrypoints/test_thread_api.py"),
+    Path("web/app/components/nav/root-sidebar.tsx"),
+    Path("web/app/i18n/en-US/agent.ts"),
+    Path("web/app/i18n/zh-CN/agent.ts"),
+    Path("web/app/routes/agents"),
+    Path("web/app/routes/index"),
+)
+
+FORBIDDEN_RUNTIME_TERM_PATTERNS = (
+    re.compile(r"legacy_app_ref"),
+    re.compile(r"dataset_id"),
+    re.compile(r"\bcreateApp\b"),
+    re.compile(r"\bnewApp\b", re.IGNORECASE),
+    re.compile(r"\bdeleteApp\b"),
+    re.compile(r"\bduplicateApp\b"),
+    re.compile(r"\bappSelector\b"),
+    re.compile(r"['\"]App['\"]"),
+    re.compile(r"['\"]Application['\"]"),
+    re.compile(r"['\"]Dataset['\"]"),
+    re.compile(r"应用设置"),
+    re.compile(r"应用类型"),
+    re.compile(r"数据集"),
 )
 
 
@@ -83,12 +113,40 @@ def iter_forbidden_import_violations(repo_root: Path = REPO_ROOT) -> list[Guardr
     return violations
 
 
+def iter_forbidden_runtime_term_violations(repo_root: Path = REPO_ROOT) -> list[GuardrailViolation]:
+    """Return forbidden runtime vocabulary violations on already-converged surfaces."""
+
+    violations: list[GuardrailViolation] = []
+    for relative_path in RUNTIME_TERM_GUARDED_PATHS:
+        full_path = repo_root / relative_path
+        if not full_path.exists():
+            continue
+
+        candidates = [full_path] if full_path.is_file() else [
+            path for path in full_path.rglob("*") if path.suffix in {".py", ".ts", ".tsx"}
+        ]
+
+        for path in candidates:
+            content = path.read_text(encoding="utf-8")
+            for pattern in FORBIDDEN_RUNTIME_TERM_PATTERNS:
+                if pattern.search(content):
+                    violations.append(
+                        GuardrailViolation(
+                            path.relative_to(repo_root),
+                            f"forbidden runtime vocabulary found: {pattern.pattern}",
+                        )
+                    )
+                    break
+    return violations
+
+
 def collect_guardrail_violations(repo_root: Path = REPO_ROOT) -> list[GuardrailViolation]:
     """Collect all current guardrail violations."""
 
     return [
         *iter_required_file_violations(repo_root),
         *iter_forbidden_import_violations(repo_root),
+        *iter_forbidden_runtime_term_violations(repo_root),
     ]
 
 

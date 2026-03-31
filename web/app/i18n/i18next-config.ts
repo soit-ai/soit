@@ -19,6 +19,7 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
   try {
     const resources = {
       translation: {
+        agent: (await import(`./${lang}/agent.ts`)).default,
         app: (await import(`./${lang}/app.ts`)).default,
         chat: (await import(`./${lang}/chat.ts`)).default,
         common: (await import(`./${lang}/common.ts`)).default,
@@ -104,7 +105,7 @@ export const loadLanguageAsync = async (lang: Locale): Promise<void> => {
   if (i18next.hasResourceBundle(lang, 'translation')) {
     return
   }
-  
+
   const resources = await loadLangResources(lang)
   if (resources) {
     i18next.addResourceBundle(lang, 'translation', resources.translation, true, true)

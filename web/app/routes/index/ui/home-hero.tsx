@@ -26,46 +26,46 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
 
   const railMetrics = [
     {
-      label: t('app.home.hero.publishRate'),
+      label: t('agent.home.hero.publishRate'),
       value: `${formatNumber(publishRate)}%`,
     },
     {
-      label: t('app.home.hero.knowledgeDensity'),
+      label: t('agent.home.hero.knowledgeDensity'),
       value: formatNumber(knowledgeDensity),
     },
     {
-      label: t('app.home.hero.totalTokens'),
+      label: t('agent.home.hero.totalTokens'),
       value: formatCompact(totalTokens),
     },
     {
-      label: t('app.home.hero.activeRuntime'),
+      label: t('agent.home.hero.activeRuntime'),
       value: formatNumber(summary.activeTaskCount),
     },
   ]
 
   const signalPanels = [
     {
-      label: t('app.home.hero.signalBuild'),
+      label: t('agent.home.hero.signalBuild'),
       value: formatNumber(summary.publishedAgents),
-      meta: `${formatNumber(summary.agentCount)} ${t('app.home.hero.agentsUnit')} / ${formatNumber(summary.workflowCount)} ${t('app.home.hero.workflowsUnit')}`,
+      meta: `${formatNumber(summary.agentCount)} ${t('agent.home.hero.agentsUnit')} / ${formatNumber(summary.workflowCount)} ${t('agent.home.hero.workflowsUnit')}`,
       icon: Bot,
     },
     {
-      label: t('app.home.hero.signalKnowledge'),
+      label: t('agent.home.hero.signalKnowledge'),
       value: formatCompact(summary.totalDocuments),
-      meta: `${formatCompact(summary.totalChunks)} ${t('app.home.hero.chunksUnit')}`,
+      meta: `${formatCompact(summary.totalChunks)} ${t('agent.home.hero.chunksUnit')}`,
       icon: Database,
     },
     {
-      label: t('app.home.hero.signalRuntime'),
+      label: t('agent.home.hero.signalRuntime'),
       value: formatNumber(summary.activeTaskCount),
-      meta: `${formatNumber(summary.failedRunCount)} ${t('app.home.hero.failedRuns')}`,
+      meta: `${formatNumber(summary.failedRunCount)} ${t('agent.home.hero.failedRuns')}`,
       icon: Waypoints,
     },
     {
-      label: t('app.home.hero.totalTokens'),
+      label: t('agent.home.hero.totalTokens'),
       value: formatCompact(totalTokens),
-      meta: t('app.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) }),
+      meta: t('agent.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) }),
       icon: Activity,
     },
   ]
@@ -78,18 +78,18 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
         <div className="relative grid gap-3 border-b border-white/10 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
           <div className="flex flex-wrap items-center gap-3">
             <Badge className="border-white/10 bg-white/10 text-white hover:bg-white/10">
-              {t('app.home.hero.badge')}
+              {t('agent.home.hero.badge')}
             </Badge>
             <Badge className="border-white/10 bg-cyan-400/15 text-cyan-100 hover:bg-cyan-400/15">
-              {t('app.home.hero.mode')}
+              {t('agent.home.hero.mode')}
             </Badge>
             <span className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
-              {t('app.home.hero.commandRail')}
+              {t('agent.home.hero.commandRail')}
             </span>
             {partialFailure && (
               <Badge className="border-amber-300/20 bg-amber-300/15 text-amber-100 hover:bg-amber-300/15">
                 <AlertTriangle className="mr-1 h-3.5 w-3.5" />
-                {t('app.home.hero.partialFailure')}
+                {t('agent.home.hero.partialFailure')}
               </Badge>
             )}
           </div>
@@ -113,10 +113,10 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
               <div className="space-y-4">
                 <div className="max-w-3xl space-y-3">
                   <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-white md:text-5xl">
-                    {t('app.home.hero.title')}
+                    {t('agent.home.hero.title')}
                   </h1>
                   <p className="max-w-2xl text-sm leading-7 text-slate-200/92 md:text-[15px]">
-                    {t('app.home.hero.description')}
+                    {t('agent.home.hero.description')}
                   </p>
                 </div>
 
@@ -126,7 +126,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                     onClick={() => navigate('/agents')}
                   >
                     <Bot className="mr-2 h-4 w-4" />
-                    {t('app.home.hero.ctaAgents')}
+                    {t('agent.home.hero.ctaAgents')}
                   </Button>
                   <Button
                     variant="secondary"
@@ -134,14 +134,14 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                     onClick={() => navigate('/workflow')}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
-                    {t('app.home.hero.ctaWorkflow')}
+                    {t('agent.home.hero.ctaWorkflow')}
                   </Button>
                   <Button
                     variant="ghost"
                     className="border border-white/10 text-white hover:bg-white/10"
                     onClick={() => navigate('/observability/runs')}
                   >
-                    {t('app.home.hero.ctaRuns')}
+                    {t('agent.home.hero.ctaRuns')}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
@@ -149,13 +149,13 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
 
               <div className="grid gap-2.5 text-xs text-slate-300 sm:grid-cols-3 lg:grid-cols-1">
                 <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
-                  {t('app.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) })}
+                  {t('agent.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) })}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
-                  {t('app.home.hero.attentionTasks', { count: formatNumber(summary.attentionTaskCount) })}
+                  {t('agent.home.hero.attentionTasks', { count: formatNumber(summary.attentionTaskCount) })}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
-                  {t('app.home.hero.promptTokens', {
+                  {t('agent.home.hero.promptTokens', {
                     prompt: formatCompact(summary.promptTokens),
                     completion: formatCompact(summary.completionTokens),
                   })}
@@ -165,7 +165,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
 
             <div className="mt-5">
               <div className="mb-3 text-[11px] uppercase tracking-[0.24em] text-slate-300">
-                {t('app.home.hero.signalStrip')}
+                {t('agent.home.hero.signalStrip')}
               </div>
               <div className="grid gap-px overflow-hidden rounded-[26px] border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
                 {signalPanels.map((panel) => {
@@ -196,9 +196,9 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">
-                  {t('app.home.hero.controlDeck')}
+                  {t('agent.home.hero.controlDeck')}
                 </div>
-                <div className="mt-1 text-lg font-medium">{t('app.home.hero.controlDeckTitle')}</div>
+                <div className="mt-1 text-lg font-medium">{t('agent.home.hero.controlDeckTitle')}</div>
               </div>
               <Button
                 variant="ghost"
@@ -215,45 +215,45 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
               <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('app.home.hero.publishing')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.publishing')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.publishedAgents)}</div>
                   </div>
                   <Bot className="h-5 w-5 text-cyan-200" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('app.home.hero.publishingShort')}</div>
+                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.publishingShort')}</div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('app.home.hero.retrieval')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.retrieval')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.knowledgeCount)}</div>
                   </div>
                   <Database className="h-5 w-5 text-amber-200" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('app.home.hero.retrievalShort')}</div>
+                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.retrievalShort')}</div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('app.home.hero.execution')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.execution')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.runCount)}</div>
                   </div>
                   <Waypoints className="h-5 w-5 text-emerald-200" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('app.home.hero.executionShort')}</div>
+                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.executionShort')}</div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('app.home.hero.totalTokens')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.totalTokens')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatCompact(totalTokens)}</div>
                   </div>
                   <Activity className="h-5 w-5 text-cyan-200" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('app.home.hero.tokenShort')}</div>
+                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.tokenShort')}</div>
               </div>
             </div>
           </div>
@@ -262,3 +262,4 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
     </section>
   )
 }
+

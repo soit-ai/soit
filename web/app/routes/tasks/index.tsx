@@ -81,6 +81,23 @@ function TasksPage() {
     })
   }, [taskPage?.items, search])
 
+  const pendingApprovals = useMemo(
+    () => tasks.filter((task: Task) => task.status === 'waiting_approval'),
+    [tasks],
+  )
+  const failedTasks = useMemo(
+    () => tasks.filter((task: Task) => task.status === 'failed'),
+    [tasks],
+  )
+  const waitingInputTasks = useMemo(
+    () => tasks.filter((task: Task) => task.status === 'waiting_input'),
+    [tasks],
+  )
+  const activeTasks = useMemo(
+    () => tasks.filter((task: Task) => ['queued', 'preparing', 'running'].includes(task.status)),
+    [tasks],
+  )
+
   const handleControl = async (task: Task, action: 'cancel' | 'resume' | 'retry') => {
     try {
       setActionTaskId(task.id)
@@ -110,8 +127,8 @@ function TasksPage() {
       <Card>
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <CardTitle>Tasks</CardTitle>
-            <CardDescription>Agent runtime tasks emitted by the new execution core.</CardDescription>
+            <CardTitle>Execution Control</CardTitle>
+            <CardDescription>Prioritize approvals, failures, and blocked runtime work before scanning the full ledger.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={status} onValueChange={setStatus}>
@@ -167,74 +184,153 @@ function TasksPage() {
             />
           )}
           {!isLoading && !isError && tasks.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Task</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Thread</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Finished</TableHead>
-                  <TableHead>Error</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tasks.map((task: Task) => (
-                  <TableRow key={task.id}>
-                    <TableCell className="font-medium">{task.id}</TableCell>
-                    <TableCell>{task.task_type}</TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
-                    </TableCell>
-                    <TableCell>{task.agent_id || '-'}</TableCell>
-                    <TableCell>{task.thread_id || '-'}</TableCell>
-                    <TableCell>{formatTimestamp(task.created_at)}</TableCell>
-                    <TableCell>{formatTimestamp(task.finished_at)}</TableCell>
-                    <TableCell className="max-w-[280px] truncate">{task.error_message || '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        {canRetry(task) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={actionTaskId === task.id}
-                            onClick={() => handleControl(task, 'retry')}
-                          >
-                            Retry
-                          </Button>
-                        )}
-                        {canResume(task) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={actionTaskId === task.id}
-                            onClick={() => handleControl(task, 'resume')}
-                          >
-                            Resume
-                          </Button>
-                        )}
-                        {canCancel(task) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={actionTaskId === task.id}
-                            onClick={() => handleControl(task, 'cancel')}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/tasks/${task.id}`)}>
-                          View
-                        </Button>
-                      </div>
-                    </TableCell>
+            <div className="space-y-6">
+              <div className="grid gap-4 lg:grid-cols-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Pending Approvals</CardDescription>
+                    <CardTitle>{pendingApprovals.length}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Failed Tasks</CardDescription>
+                    <CardTitle>{failedTasks.length}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Waiting Input</CardDescription>
+                    <CardTitle>{waitingInputTasks.length}</CardTitle>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Active Tasks</CardDescription>
+                    <CardTitle>{activeTasks.length}</CardTitle>
+                  </CardHeader>
+                </Card>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-3">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Pending Approvals</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {pendingApprovals.length === 0 && <div className="text-sm text-muted-foreground">No approval backlog.</div>}
+                    {pendingApprovals.slice(0, 5).map((task) => (
+                      <button key={task.id} type="button" onClick={() => navigate(`/tasks/${task.id}`)} className="w-full rounded-lg border p-3 text-left">
+                        <div className="font-medium">{task.task_type}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{task.agent_id || task.thread_id || task.id}</div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Failed Tasks</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {failedTasks.length === 0 && <div className="text-sm text-muted-foreground">No failed tasks.</div>}
+                    {failedTasks.slice(0, 5).map((task) => (
+                      <button key={task.id} type="button" onClick={() => navigate(`/tasks/${task.id}`)} className="w-full rounded-lg border p-3 text-left">
+                        <div className="font-medium">{task.task_type}</div>
+                        <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.error_message || task.id}</div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Blocked or Active</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {[...waitingInputTasks, ...activeTasks].slice(0, 5).map((task) => (
+                      <button key={task.id} type="button" onClick={() => navigate(`/tasks/${task.id}`)} className="w-full rounded-lg border p-3 text-left">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium">{task.task_type}</div>
+                          <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">{task.agent_id || task.thread_id || task.id}</div>
+                      </button>
+                    ))}
+                    {waitingInputTasks.length + activeTasks.length === 0 && (
+                      <div className="text-sm text-muted-foreground">No blocked or active work.</div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Task</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Thread</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Finished</TableHead>
+                    <TableHead>Error</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map((task: Task) => (
+                    <TableRow key={task.id}>
+                      <TableCell className="font-medium">{task.id}</TableCell>
+                      <TableCell>{task.task_type}</TableCell>
+                      <TableCell>
+                        <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
+                      </TableCell>
+                      <TableCell>{task.agent_id || '-'}</TableCell>
+                      <TableCell>{task.thread_id || '-'}</TableCell>
+                      <TableCell>{formatTimestamp(task.created_at)}</TableCell>
+                      <TableCell>{formatTimestamp(task.finished_at)}</TableCell>
+                      <TableCell className="max-w-[280px] truncate">{task.error_message || '-'}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          {canRetry(task) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionTaskId === task.id}
+                              onClick={() => handleControl(task, 'retry')}
+                            >
+                              Retry
+                            </Button>
+                          )}
+                          {canResume(task) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionTaskId === task.id}
+                              onClick={() => handleControl(task, 'resume')}
+                            >
+                              Resume
+                            </Button>
+                          )}
+                          {canCancel(task) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionTaskId === task.id}
+                              onClick={() => handleControl(task, 'cancel')}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/tasks/${task.id}`)}>
+                            View
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -17,10 +17,19 @@ from app.modules.observability.application.schemas import (
     FeedbackResponse,
     RunReplayResponse,
 )
+from app.modules.observability.application.dashboard_schemas import WorkspaceObservabilityDashboard
 from app.modules.observability.application.service import ObservabilityService
 
 
 router = APIRouter()
+
+
+@router.get("/dashboard", response_model=WorkspaceObservabilityDashboard)
+async def get_dashboard(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ObservabilityService = Depends(get_observability_service),
+):
+    return await ObservabilityHandlers(service).get_dashboard(ctx)
 
 
 @router.post("/approvals", response_model=ApprovalResponse, status_code=status.HTTP_201_CREATED)

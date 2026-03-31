@@ -47,7 +47,6 @@ class KnowledgeHandlers:
             status=knowledge.status,
             visibility=knowledge.visibility,
             knowledge_type=knowledge.type,
-            source_type=knowledge.type,
             settings_json=knowledge.settings_json or {},
             chunking_json=knowledge.chunking_json or {},
             retrieval_json=knowledge.retrieval_json or {},

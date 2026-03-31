@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Clock3, Database, Puzzle, Shapes } from 'lucide-react'
+import { Activity, Clock3, Database, Layers3, Sparkles } from 'lucide-react'
 
 import { NavLayout } from '@/components/layout/nav-layout'
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +8,7 @@ import { useQuery } from '@/hooks/use-query'
 import {
   formatCapabilityMetadataValue,
   getCapabilityMetadataEntries,
-  listCapabilityRegistry,
+  listCapabilitiesByKind,
   type CapabilityRegistryItem,
 } from '@/services/capability-service'
 
@@ -30,10 +30,10 @@ const summarizeSourceKinds = (items: CapabilityRegistryItem[]) => {
   }, {})
 }
 
-export default function PluginPage() {
+export default function SkillsPage() {
   const { data, isLoading } = useQuery({
-    queryKey: ['capabilities', 'plugin'],
-    queryFn: () => listCapabilityRegistry({ source_kind: 'plugin', page_size: 100 }),
+    queryKey: ['capabilities', 'skill'],
+    queryFn: () => listCapabilitiesByKind('skill', { page_size: 100 }),
     options: {
       retry: false,
       refetchOnWindowFocus: false,
@@ -50,19 +50,18 @@ export default function PluginPage() {
   return (
     <NavLayout fixed className="bg-muted/20">
       <div className="flex flex-1 flex-col gap-6 p-6">
-        <Card className="border-none bg-gradient-to-br from-amber-950 via-stone-900 to-stone-800 text-white shadow-xl">
+        <Card className="border-none bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
           <CardHeader className="gap-4">
             <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
               Capability Governance
             </Badge>
             <div className="space-y-2">
               <CardTitle className="flex items-center gap-3 text-3xl font-semibold tracking-tight">
-                <Puzzle className="h-7 w-7" />
-                Plugins
+                <Sparkles className="h-7 w-7" />
+                Skills
               </CardTitle>
-              <CardDescription className="max-w-2xl text-stone-300">
-                Inspect runtime capabilities sourced from plugins, their source metadata, and the registry entries available for
-                governance.
+              <CardDescription className="max-w-2xl text-slate-300">
+                Inspect the registry entries, source metadata, and provenance for skills before they are bound into agents.
               </CardDescription>
             </div>
           </CardHeader>
@@ -70,19 +69,19 @@ export default function PluginPage() {
             <div className="grid gap-4 md:grid-cols-3">
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Plugin-sourced capabilities</CardDescription>
+                  <CardDescription className="text-slate-300">Registry items</CardDescription>
                   <CardTitle className="text-2xl">{capabilityItems.length}</CardTitle>
                 </CardHeader>
               </Card>
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Source kinds</CardDescription>
+                  <CardDescription className="text-slate-300">Source kinds</CardDescription>
                   <CardTitle className="text-2xl">{Object.keys(sourceKinds).length}</CardTitle>
                 </CardHeader>
               </Card>
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Metadata fields</CardDescription>
+                  <CardDescription className="text-slate-300">Metadata fields</CardDescription>
                   <CardTitle className="text-2xl">{metadataFieldCount}</CardTitle>
                 </CardHeader>
               </Card>
@@ -97,13 +96,11 @@ export default function PluginPage() {
                 <Database className="h-4 w-4" />
                 Source Mix
               </CardTitle>
-              <CardDescription>Where the plugin-sourced capabilities originate from.</CardDescription>
+              <CardDescription>Where the skill registry entries originate from.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {Object.keys(sourceKinds).length === 0 && (
-                <span className="text-sm text-muted-foreground">
-                  {isLoading ? 'Loading registry...' : 'No plugin-sourced capabilities yet.'}
-                </span>
+                <span className="text-sm text-muted-foreground">{isLoading ? 'Loading registry...' : 'No skill entries yet.'}</span>
               )}
               {Object.entries(sourceKinds).map(([sourceKind, count]) => (
                 <Badge key={sourceKind} variant="outline">
@@ -116,10 +113,10 @@ export default function PluginPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Shapes className="h-4 w-4" />
-                Source Metadata
+                <Activity className="h-4 w-4" />
+                Registry Provenance
               </CardTitle>
-              <CardDescription>Registry provenance for plugin-sourced capabilities.</CardDescription>
+              <CardDescription>Representative source metadata for the current skill capability set.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               {capabilityItems.slice(0, 3).map((item) => (
@@ -147,12 +144,12 @@ export default function PluginPage() {
                 <Clock3 className="h-4 w-4" />
                 Governance Notes
               </CardTitle>
-              <CardDescription>Operational signals are shown when the registry exposes them.</CardDescription>
+              <CardDescription>Operational signals are surfaced when the registry payload provides them.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <div>Capability refs are stable anchors for runtime bindings.</div>
-              <div>Source IDs and versions are shown when they are present.</div>
-              <div>Metadata JSON is rendered directly so governance data stays intact.</div>
+              <div>Capability refs remain stable for agent binding.</div>
+              <div>Source version data is shown where the registry exposes it.</div>
+              <div>Metadata entries are rendered directly from the registry payload.</div>
             </CardContent>
           </Card>
         </div>
@@ -160,15 +157,15 @@ export default function PluginPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Puzzle className="h-4 w-4" />
-              Plugin-Sourced Capabilities
+              <Layers3 className="h-4 w-4" />
+              Skill Registry
             </CardTitle>
-            <CardDescription>Runtime capability entries projected from plugin installation and publication surfaces.</CardDescription>
+            <CardDescription>Capability entries registered as skills, including source provenance and metadata.</CardDescription>
           </CardHeader>
           <CardContent>
             {capabilityItems.length === 0 && (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                {isLoading ? 'Loading plugin capabilities...' : 'No plugin-sourced capabilities found in the registry.'}
+                {isLoading ? 'Loading skills...' : 'No skills found in the registry.'}
               </div>
             )}
             {capabilityItems.length > 0 && (
@@ -179,7 +176,7 @@ export default function PluginPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <CardTitle className="flex items-center gap-2 text-xl">
-                            <Puzzle className="h-5 w-5" />
+                            <Sparkles className="h-5 w-5" />
                             {item.name}
                           </CardTitle>
                           <CardDescription className="break-all text-xs text-muted-foreground">

@@ -155,6 +155,17 @@ function AgentDetailPage() {
     [modelConfigs],
   )
   const recentRuns = runPage?.items || []
+  const bindingGroups = useMemo(
+    () => ({
+      model: bindings.filter((item) => item.binding_type === 'model'),
+      knowledge: bindings.filter((item) => item.binding_type === 'knowledge'),
+      workflow: bindings.filter((item) => item.binding_type === 'workflow'),
+      skill: bindings.filter((item) => item.binding_type === 'skill'),
+      plugin: bindings.filter((item) => item.binding_type === 'plugin'),
+      tool: bindings.filter((item) => item.binding_type === 'tool'),
+    }),
+    [bindings],
+  )
 
   useEffect(() => {
     if (!agent) {
@@ -327,9 +338,9 @@ function AgentDetailPage() {
               <Settings2 className="mr-2 h-4 w-4" />
               Models
             </Button>
-            <Button variant="secondary" onClick={() => navigate(`/runs?subject_id=${agentId}`)}>
+            <Button variant="secondary" onClick={() => navigate(`/observability/runs?subject_id=${agentId}`)}>
               <Clock3 className="mr-2 h-4 w-4" />
-              Runs
+              View Runs
             </Button>
             <Button variant="secondary" onClick={() => navigate('/workflow')}>
               <Workflow className="mr-2 h-4 w-4" />
@@ -372,8 +383,8 @@ function AgentDetailPage() {
       <div className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Basic Info</CardTitle>
-            <CardDescription>Edit the agent shell before managing runtime versions.</CardDescription>
+            <CardTitle>Overview</CardTitle>
+            <CardDescription>Edit the agent shell before managing runtime assembly and releases.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
@@ -449,8 +460,8 @@ function AgentDetailPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Draft Runtime Config</CardTitle>
-            <CardDescription>Create a new immutable version with model and knowledge bindings.</CardDescription>
+            <CardTitle>Assembly Draft</CardTitle>
+            <CardDescription>Create a new immutable version with assembly-ready model and knowledge bindings.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
@@ -546,7 +557,7 @@ function AgentDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle>Versions</CardTitle>
-            <CardDescription>Publish a version before using the agent as a stable 1.0 workspace object.</CardDescription>
+            <CardDescription>Publish a version before using the agent as a stable runtime entry.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {versionsLoading && <div className="text-sm text-muted-foreground">Loading versions...</div>}
@@ -618,8 +629,8 @@ function AgentDetailPage() {
         <div className="grid gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Current Bindings</CardTitle>
-              <CardDescription>Bindings are generated from the latest draft or published version.</CardDescription>
+              <CardTitle>Bindings</CardTitle>
+              <CardDescription>Bindings are grouped from the current version snapshot so assembly stays readable.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {bindingsLoading && <div className="text-sm text-muted-foreground">Loading bindings...</div>}
@@ -627,10 +638,23 @@ function AgentDetailPage() {
                 <div className="text-sm text-muted-foreground">No bindings yet. Create a draft version first.</div>
               )}
               {!bindingsLoading &&
-                bindings.map((binding) => (
-                  <div key={binding.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
-                    <Badge variant="outline">{binding.binding_type}</Badge>
-                    <span className="max-w-[220px] truncate text-right">{binding.target_key || binding.target_id || '-'}</span>
+                Object.entries(bindingGroups).map(([groupName, groupBindings]) => (
+                  <div key={groupName} className="space-y-2">
+                    <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                      {groupName}
+                    </div>
+                    {groupBindings.length === 0 ? (
+                      <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                        No {groupName} bindings yet.
+                      </div>
+                    ) : (
+                      groupBindings.map((binding) => (
+                        <div key={binding.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+                          <Badge variant="outline">{binding.binding_type}</Badge>
+                          <span className="max-w-[220px] truncate text-right">{binding.target_key || binding.target_id || '-'}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 ))}
             </CardContent>
@@ -638,7 +662,7 @@ function AgentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Release History</CardTitle>
+              <CardTitle>Releases</CardTitle>
               <CardDescription>Formal publish and rollback ledger exposed by the backend release API.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -680,7 +704,7 @@ function AgentDetailPage() {
                   <button
                     key={run.id}
                     type="button"
-                    onClick={() => navigate(`/runs/${run.id}`)}
+                    onClick={() => navigate(`/observability/runs/${run.id}`)}
                     className="w-full rounded-lg border p-3 text-left transition-colors hover:border-primary/40"
                   >
                     <div className="flex items-center justify-between gap-3">

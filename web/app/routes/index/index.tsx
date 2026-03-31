@@ -9,7 +9,7 @@ import { SectionHeading } from './ui/section-heading'
 
 export function meta() {
   return [
-    { title: 'SOIT Workspace' },
+    { title: 'SOIT Agent Workspace' },
     {
       name: 'description',
       content: 'SOIT 工作区首页，集中查看 Agent、Knowledge、Workflow、Task 与 Runs 运行状态。',
@@ -31,9 +31,9 @@ export default function HomePage() {
         />
 
         <SectionHeading
-          eyebrowKey="app.home.sections.capabilityEyebrow"
-          titleKey="app.home.sections.capabilityTitle"
-          descriptionKey="app.home.sections.capabilityDescription"
+          eyebrowKey="agent.home.sections.capabilityEyebrow"
+          titleKey="agent.home.sections.capabilityTitle"
+          descriptionKey="agent.home.sections.capabilityDescription"
         />
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.58fr)_minmax(340px,0.72fr)]">
@@ -53,9 +53,9 @@ export default function HomePage() {
         </div>
 
         <SectionHeading
-          eyebrowKey="app.home.sections.metricsEyebrow"
-          titleKey="app.home.sections.metricsTitle"
-          descriptionKey="app.home.sections.metricsDescription"
+          eyebrowKey="agent.home.sections.metricsEyebrow"
+          titleKey="agent.home.sections.metricsTitle"
+          descriptionKey="agent.home.sections.metricsDescription"
         />
 
         <OperationsDashboard
@@ -71,3 +71,4 @@ export default function HomePage() {
     </NavLayout>
   )
 }
+

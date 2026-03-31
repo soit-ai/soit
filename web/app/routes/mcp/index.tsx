@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Clock3, Database, Puzzle, Shapes } from 'lucide-react'
+import { Clock3, Database, Server, Waypoints } from 'lucide-react'
 
 import { NavLayout } from '@/components/layout/nav-layout'
 import { Badge } from '@/components/ui/badge'
@@ -30,10 +30,10 @@ const summarizeSourceKinds = (items: CapabilityRegistryItem[]) => {
   }, {})
 }
 
-export default function PluginPage() {
+export default function McpPage() {
   const { data, isLoading } = useQuery({
-    queryKey: ['capabilities', 'plugin'],
-    queryFn: () => listCapabilityRegistry({ source_kind: 'plugin', page_size: 100 }),
+    queryKey: ['capabilities', 'mcp'],
+    queryFn: () => listCapabilityRegistry({ source_kind: 'mcp', page_size: 100 }),
     options: {
       retry: false,
       refetchOnWindowFocus: false,
@@ -42,27 +42,27 @@ export default function PluginPage() {
 
   const capabilityItems = data?.items || []
   const sourceKinds = useMemo(() => summarizeSourceKinds(capabilityItems), [capabilityItems])
-  const metadataFieldCount = useMemo(
-    () => capabilityItems.reduce((count, item) => count + Object.keys(item.metadata_json || {}).length, 0),
+  const versionedCount = useMemo(
+    () => capabilityItems.filter((item) => Boolean(item.source_version)).length,
     [capabilityItems]
   )
 
   return (
     <NavLayout fixed className="bg-muted/20">
       <div className="flex flex-1 flex-col gap-6 p-6">
-        <Card className="border-none bg-gradient-to-br from-amber-950 via-stone-900 to-stone-800 text-white shadow-xl">
+        <Card className="border-none bg-gradient-to-br from-cyan-950 via-slate-900 to-slate-800 text-white shadow-xl">
           <CardHeader className="gap-4">
             <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
-              Capability Governance
+              Integration Governance
             </Badge>
             <div className="space-y-2">
               <CardTitle className="flex items-center gap-3 text-3xl font-semibold tracking-tight">
-                <Puzzle className="h-7 w-7" />
-                Plugins
+                <Waypoints className="h-7 w-7" />
+                MCP
               </CardTitle>
-              <CardDescription className="max-w-2xl text-stone-300">
-                Inspect runtime capabilities sourced from plugins, their source metadata, and the registry entries available for
-                governance.
+              <CardDescription className="max-w-2xl text-slate-300">
+                Inspect runtime capabilities sourced from MCP servers, including the systems that published them and the metadata
+                that describes runtime reach and provenance.
               </CardDescription>
             </div>
           </CardHeader>
@@ -70,20 +70,20 @@ export default function PluginPage() {
             <div className="grid gap-4 md:grid-cols-3">
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Plugin-sourced capabilities</CardDescription>
+                  <CardDescription className="text-slate-300">MCP-sourced capabilities</CardDescription>
                   <CardTitle className="text-2xl">{capabilityItems.length}</CardTitle>
                 </CardHeader>
               </Card>
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Source kinds</CardDescription>
+                  <CardDescription className="text-slate-300">Source kinds</CardDescription>
                   <CardTitle className="text-2xl">{Object.keys(sourceKinds).length}</CardTitle>
                 </CardHeader>
               </Card>
               <Card className="border-white/10 bg-white/5 text-white">
                 <CardHeader className="pb-2">
-                  <CardDescription className="text-stone-300">Metadata fields</CardDescription>
-                  <CardTitle className="text-2xl">{metadataFieldCount}</CardTitle>
+                  <CardDescription className="text-slate-300">Versioned entries</CardDescription>
+                  <CardTitle className="text-2xl">{versionedCount}</CardTitle>
                 </CardHeader>
               </Card>
             </div>
@@ -94,15 +94,15 @@ export default function PluginPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Database className="h-4 w-4" />
+                <Server className="h-4 w-4" />
                 Source Mix
               </CardTitle>
-              <CardDescription>Where the plugin-sourced capabilities originate from.</CardDescription>
+              <CardDescription>Where the MCP-sourced capabilities originate from.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {Object.keys(sourceKinds).length === 0 && (
                 <span className="text-sm text-muted-foreground">
-                  {isLoading ? 'Loading registry...' : 'No plugin-sourced capabilities yet.'}
+                  {isLoading ? 'Loading registry...' : 'No MCP-sourced capabilities yet.'}
                 </span>
               )}
               {Object.entries(sourceKinds).map(([sourceKind, count]) => (
@@ -116,10 +116,10 @@ export default function PluginPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Shapes className="h-4 w-4" />
+                <Database className="h-4 w-4" />
                 Source Metadata
               </CardTitle>
-              <CardDescription>Registry provenance for plugin-sourced capabilities.</CardDescription>
+              <CardDescription>Registry provenance for MCP-sourced capabilities, including source IDs and versions.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               {capabilityItems.slice(0, 3).map((item) => (
@@ -147,12 +147,12 @@ export default function PluginPage() {
                 <Clock3 className="h-4 w-4" />
                 Governance Notes
               </CardTitle>
-              <CardDescription>Operational signals are shown when the registry exposes them.</CardDescription>
+              <CardDescription>Operational signals are surfaced when the registry payload includes them.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <div>Capability refs are stable anchors for runtime bindings.</div>
-              <div>Source IDs and versions are shown when they are present.</div>
-              <div>Metadata JSON is rendered directly so governance data stays intact.</div>
+              <div>Source versions are surfaced directly from the registry payload.</div>
+              <div>Metadata JSON is rendered without losing the original key names.</div>
+              <div>Capability refs are ready to bind into runtime routing surfaces.</div>
             </CardContent>
           </Card>
         </div>
@@ -160,15 +160,15 @@ export default function PluginPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Puzzle className="h-4 w-4" />
-              Plugin-Sourced Capabilities
+              <Waypoints className="h-4 w-4" />
+              MCP-Sourced Capabilities
             </CardTitle>
-            <CardDescription>Runtime capability entries projected from plugin installation and publication surfaces.</CardDescription>
+            <CardDescription>Runtime capability entries projected from MCP connectivity and tool exposure.</CardDescription>
           </CardHeader>
           <CardContent>
             {capabilityItems.length === 0 && (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                {isLoading ? 'Loading plugin capabilities...' : 'No plugin-sourced capabilities found in the registry.'}
+                {isLoading ? 'Loading MCP capabilities...' : 'No MCP-sourced capabilities found in the registry.'}
               </div>
             )}
             {capabilityItems.length > 0 && (
@@ -179,7 +179,7 @@ export default function PluginPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <CardTitle className="flex items-center gap-2 text-xl">
-                            <Puzzle className="h-5 w-5" />
+                            <Waypoints className="h-5 w-5" />
                             {item.name}
                           </CardTitle>
                           <CardDescription className="break-all text-xs text-muted-foreground">

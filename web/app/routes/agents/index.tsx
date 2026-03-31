@@ -10,40 +10,42 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
 import { createAgent, listAgents, type Agent } from '@/services/agent-service'
-
-const quickActions = [
-  {
-    title: 'Chat',
-    description: 'Run an agent in a threaded conversation surface.',
-    href: '/chat',
-    icon: Bot,
-  },
-  {
-    title: 'Workflow',
-    description: 'Design orchestration graphs and attach them as capabilities.',
-    href: '/workflow',
-    icon: Workflow,
-  },
-  {
-    title: 'Knowledge',
-    description: 'Manage retrieval sources and memory context.',
-    href: '/knowledge',
-    icon: ScrollText,
-  },
-  {
-    title: 'Runs',
-    description: 'Inspect recent execution history, failures, and latency.',
-    href: '/runs',
-    icon: Activity,
-  },
-]
 
 function AgentsPage() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [draftName, setDraftName] = useState('')
   const [draftDescription, setDraftDescription] = useState('')
   const [search, setSearch] = useState('')
+
+  const quickActions = [
+    {
+      title: t('agent.workspace.quickActions.chat.title'),
+      description: t('agent.workspace.quickActions.chat.description'),
+      href: '/chat',
+      icon: Bot,
+    },
+    {
+      title: t('agent.workspace.quickActions.workflow.title'),
+      description: t('agent.workspace.quickActions.workflow.description'),
+      href: '/workflow',
+      icon: Workflow,
+    },
+    {
+      title: t('agent.workspace.quickActions.knowledge.title'),
+      description: t('agent.workspace.quickActions.knowledge.description'),
+      href: '/knowledge',
+      icon: ScrollText,
+    },
+    {
+      title: t('agent.workspace.quickActions.runs.title'),
+      description: t('agent.workspace.quickActions.runs.description'),
+      href: '/runs',
+      icon: Activity,
+    },
+  ]
 
   const {
     data: agentPage,
@@ -72,11 +74,11 @@ function AgentsPage() {
       setDraftName('')
       setDraftDescription('')
       refetch()
-      toast.success(`Created ${agent.name}`)
+      toast.success(t('agent.workspace.created', { name: agent.name }))
       navigate(`/agents/${agent.id}`)
     },
     onError: (error: any) => {
-      toast.error(error?.message || 'Failed to create agent')
+      toast.error(error?.message || t('agent.workspace.createFailed'))
     },
   })
 
@@ -100,15 +102,14 @@ function AgentsPage() {
         <Card className="border-none bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
           <CardHeader className="gap-4">
             <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
-              Agent Center
+              {t('agent.workspace.badge')}
             </Badge>
             <div className="space-y-2">
               <CardTitle className="text-3xl font-semibold tracking-tight">
-                Agent is now the primary workspace object.
+                {t('agent.workspace.title')}
               </CardTitle>
               <CardDescription className="max-w-2xl text-slate-300">
-                Create an agent, attach workflow and knowledge capabilities, then run it through chat and task
-                execution surfaces.
+                {t('agent.workspace.description')}
               </CardDescription>
             </div>
           </CardHeader>
@@ -130,18 +131,18 @@ function AgentsPage() {
               ))}
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-3 text-sm font-medium">Create Agent</div>
+              <div className="mb-3 text-sm font-medium">{t('agent.workspace.createTitle')}</div>
               <div className="space-y-3">
                 <Input
                   value={draftName}
                   onChange={(event) => setDraftName(event.target.value)}
-                  placeholder="Agent name"
+                  placeholder={t('agent.workspace.namePlaceholder')}
                   className="border-white/10 bg-white text-slate-950"
                 />
                 <Input
                   value={draftDescription}
                   onChange={(event) => setDraftDescription(event.target.value)}
-                  placeholder="Short description"
+                  placeholder={t('agent.workspace.descriptionPlaceholder')}
                   className="border-white/10 bg-white text-slate-950"
                 />
                 <Button
@@ -150,7 +151,7 @@ function AgentsPage() {
                   onClick={() => createMutation.mutate(undefined)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Create
+                  {t('agent.workspace.createAction')}
                 </Button>
               </div>
             </div>
@@ -160,58 +161,58 @@ function AgentsPage() {
         <Card>
           <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle>Agents</CardTitle>
-              <CardDescription>Published and draft agents in the current workspace.</CardDescription>
+              <CardTitle>{t('agent.workspace.listTitle')}</CardTitle>
+              <CardDescription>{t('agent.workspace.listDescription')}</CardDescription>
             </div>
             <div className="flex gap-2">
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search agents"
+                placeholder={t('agent.workspace.searchPlaceholder')}
                 className="w-[240px]"
               />
               <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh
+                {t('agent.workspace.refresh')}
               </Button>
             </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading && (
-            <PageStatus
-              variant="loading"
-              title="Loading agents"
-              description="Fetching the current workspace agent inventory."
-            />
-          )}
-          {!isLoading && isError && (
-            <PageStatus
-              variant="error"
-              title="Failed to load agents"
-              description={error instanceof Error ? error.message : 'The agent list could not be loaded right now.'}
-              actionLabel="Retry"
-              onAction={() => refetch()}
-            />
-          )}
-          {!isLoading && !isError && agents.length === 0 && (
-            <PageStatus
-              variant="empty"
-              title="No agents yet"
-              description="Create one above and start the Agent-centered flow."
-            />
-          )}
-          {!isLoading && !isError && agents.length > 0 && (
-            <div className="grid gap-4 xl:grid-cols-2">
-              {agents.map((agent: Agent) => (
+          </CardHeader>
+          <CardContent>
+            {isLoading && (
+              <PageStatus
+                variant="loading"
+                title={t('agent.workspace.loadingTitle')}
+                description={t('agent.workspace.loadingDescription')}
+              />
+            )}
+            {!isLoading && isError && (
+              <PageStatus
+                variant="error"
+                title={t('agent.workspace.errorTitle')}
+                description={error instanceof Error ? error.message : t('agent.workspace.errorDescription')}
+                actionLabel={t('agent.workspace.retry')}
+                onAction={() => refetch()}
+              />
+            )}
+            {!isLoading && !isError && agents.length === 0 && (
+              <PageStatus
+                variant="empty"
+                title={t('agent.workspace.emptyTitle')}
+                description={t('agent.workspace.emptyDescription')}
+              />
+            )}
+            {!isLoading && !isError && agents.length > 0 && (
+              <div className="grid gap-4 xl:grid-cols-2">
+                {agents.map((agent: Agent) => (
                   <Card key={agent.id} className="transition-colors hover:border-primary/40">
                     <CardHeader className="gap-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <CardTitle className="text-xl">{agent.name}</CardTitle>
-                          <CardDescription>{agent.description || 'No description yet.'}</CardDescription>
+                          <CardDescription>{agent.description || t('agent.workspace.noDescription')}</CardDescription>
                         </div>
                         <Badge variant={agent.published_version_id ? 'default' : 'outline'}>
-                          {agent.published_version_id ? 'Published' : 'Draft'}
+                          {agent.published_version_id ? t('agent.workspace.published') : t('agent.workspace.draft')}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -226,16 +227,16 @@ function AgentsPage() {
                     </CardHeader>
                     <CardContent className="flex flex-wrap items-center gap-2">
                       <Button onClick={() => navigate(`/chat/${agent.id}`)}>
-                        Open Chat
+                        {t('agent.workspace.openChat')}
                       </Button>
                       <Button variant="outline" onClick={() => navigate(`/agents/${agent.id}`)}>
-                        Details
+                        {t('agent.workspace.details')}
                       </Button>
                       <Button variant="outline" onClick={() => navigate('/workflow')}>
-                        Bind Workflow
+                        {t('agent.workspace.bindWorkflow')}
                       </Button>
                       <Button variant="ghost" onClick={() => navigate('/knowledge')}>
-                        Knowledge
+                        {t('agent.workspace.quickActions.knowledge.title')}
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => navigate(`/chat/${agent.id}`)}>
                         <ArrowRight className="h-4 w-4" />

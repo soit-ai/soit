@@ -267,6 +267,7 @@ from app.api.v1.task.router import router as task_router
 from app.api.v1.thread.router import router as thread_router
 from app.api.v1.notification.router import router as notification_router
 from app.api.v1.responses.router import router as responses_router
+from app.api.v1.capabilities.router import router as capabilities_router
 
 # Register routers
 app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
@@ -289,6 +290,7 @@ app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
 app.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
 app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
+app.include_router(capabilities_router, prefix="/api/v1/capabilities", tags=["capabilities"])
 
 
 @app.get("/")

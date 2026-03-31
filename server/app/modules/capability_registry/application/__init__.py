@@ -1,0 +1,2 @@
+"""Capability registry application package."""
+
