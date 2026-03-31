@@ -65,15 +65,28 @@ class ToolResolver:
                         name=ref,
                     )
 
-            # 3. Try MCP resolution for tool:mcp:* refs
-            if not found and ref.startswith("tool:mcp:") and self.mcp_tool_resolver:
-                try:
-                    mcp_def = await self.mcp_tool_resolver(ref, ctx)
-                    if mcp_def:
-                        definitions.append(mcp_def)
-                        continue
-                except Exception:
-                    logger.warning("MCP tool resolution failed for %s", ref, exc_info=True)
+            # 3. Try MCP resolution for mcp_tool:* or tool:mcp:* refs
+            if not found and (ref.startswith("mcp_tool:") or ref.startswith("tool:mcp:")):
+                if self.mcp_tool_resolver:
+                    try:
+                        mcp_def = await self.mcp_tool_resolver(ref, ctx)
+                        if mcp_def:
+                            definitions.append(mcp_def)
+                            continue
+                    except Exception:
+                        logger.warning("MCP tool resolution failed for %s", ref, exc_info=True)
+                elif ref.startswith("mcp_tool:"):
+                    # Fallback: create a basic ToolDefinition from the ref name
+                    parts = ref.split(":", 2)
+                    tool_name = parts[2] if len(parts) == 3 else ref
+                    definitions.append(
+                        ToolDefinition(
+                            name=ref,
+                            description=f"MCP tool: {tool_name}",
+                            parameters={"type": "object"},
+                        )
+                    )
+                    continue
 
             # 4. Skip if still not found
             if not found:

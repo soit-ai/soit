@@ -82,3 +82,34 @@ async def test_resolve_multiple_tools(resolver, ctx):
     names = {td.name for td in result}
     assert "tool:function:time_now" in names
     assert "tool:function:random_int" in names
+
+
+@pytest.mark.asyncio
+async def test_resolve_mcp_tool_ref_fallback(resolver, ctx):
+    """mcp_tool: refs get a basic ToolDefinition even without mcp_tool_resolver."""
+    result = await resolver.resolve(["mcp_tool:my-server:echo"], ctx)
+    assert len(result) == 1
+    assert result[0].name == "mcp_tool:my-server:echo"
+    assert "echo" in result[0].description
+    assert result[0].parameters == {"type": "object"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_mcp_tool_ref_with_resolver(ctx):
+    """mcp_tool: refs use mcp_tool_resolver when provided."""
+    expected_def = ToolDefinition(
+        name="mcp_tool:my-server:echo",
+        description="Echo tool from MCP",
+        parameters={"type": "object", "properties": {"value": {"type": "string"}}},
+    )
+
+    async def mock_resolver(ref, ctx):
+        return expected_def
+
+    resolver = ToolResolver(
+        tool_port=RegistryToolRouterPort(),
+        mcp_tool_resolver=mock_resolver,
+    )
+    result = await resolver.resolve(["mcp_tool:my-server:echo"], ctx)
+    assert len(result) == 1
+    assert result[0] is expected_def

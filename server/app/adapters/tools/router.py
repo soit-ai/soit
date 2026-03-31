@@ -25,6 +25,7 @@ from app.kernel.security.egress import get_egress_policy
 from app.kernel.specs.validator import validate_spec
 from app.adapters.tools.http import HTTPToolsPort
 from app.adapters.tools.function import FunctionToolsPort
+from app.adapters.tools.mcp import MCPToolAdapter
 
 
 class RegistryToolRouterPort(ToolPort):
@@ -35,11 +36,13 @@ class RegistryToolRouterPort(ToolPort):
         *,
         http_port: Optional[HTTPToolsPort] = None,
         function_port: Optional[FunctionToolsPort] = None,
+        mcp_adapter: Optional[MCPToolAdapter] = None,
         plugin_runtime_port: Optional[PluginRuntimePort] = None,
         secrets_port_factory: Optional[Callable[[RequestContext], SecretsPort]] = None,
     ):
         self.http_port = http_port or HTTPToolsPort()
         self.function_port = function_port or FunctionToolsPort()
+        self.mcp_adapter = mcp_adapter or MCPToolAdapter()
         self.plugin_runtime_port = plugin_runtime_port
         self.secrets_port_factory = secrets_port_factory
         self._template_pattern = re.compile(r"\{\{\s*inputs\.([^\s{}]+)\s*\}\}")
@@ -225,6 +228,10 @@ class RegistryToolRouterPort(ToolPort):
             )
 
     async def invoke(self, tool_ref: str, parameters: Dict[str, Any], **kwargs: Any) -> ToolResponse:
+        # Route mcp_tool:* refs directly to MCP adapter
+        if tool_ref.startswith("mcp_tool:"):
+            return await self.mcp_adapter.invoke(tool_ref, parameters, **kwargs)
+
         strict_registry: bool = bool(kwargs.get("strict_registry", False))
         ctx: Optional[RequestContext] = kwargs.get("ctx")
         if ctx is None:
