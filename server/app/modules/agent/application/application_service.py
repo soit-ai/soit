@@ -124,13 +124,18 @@ class AgentApplicationService:
     def _resolve_version_bindings(self, data: AgentVersionCreate) -> AgentCapabilityBindings:
         explicit = data.bindings or AgentCapabilityBindings()
         model_ref = explicit.model_ref or data.model_ref
+        # Merge deprecated plugin_refs into tool_refs
+        merged_tool_refs = self._merge_ref_lists(
+            explicit.tool_refs, data.tool_refs,
+            explicit.plugin_refs, data.plugin_refs,
+        )
         return AgentCapabilityBindings(
             model_ref=model_ref,
             knowledge_refs=self._merge_ref_lists(explicit.knowledge_refs, data.knowledge_refs),
-            tool_refs=self._merge_ref_lists(explicit.tool_refs, data.tool_refs),
+            tool_refs=merged_tool_refs or None,
             workflow_refs=self._merge_ref_lists(explicit.workflow_refs, data.workflow_refs),
             skill_refs=self._merge_ref_lists(explicit.skill_refs, data.skill_refs),
-            plugin_refs=self._merge_ref_lists(explicit.plugin_refs, data.plugin_refs),
+            plugin_refs=self._merge_ref_lists(explicit.plugin_refs, data.plugin_refs) or None,
         )
 
     def _build_spec(
