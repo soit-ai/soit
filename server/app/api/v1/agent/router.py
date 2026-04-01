@@ -3,8 +3,11 @@
 Agent API routes (FastAPI).
 """
 
+import asyncio
+import json
 from typing import Optional
 from fastapi import APIRouter, Depends, Body, status
+from fastapi.responses import StreamingResponse
 
 from app.kernel.contracts.context import RequestContext
 from app.api.v1.permissions import require_workspace_write_ctx, require_workspace_read_ctx
@@ -170,3 +173,48 @@ async def execute_agent(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.execute_agent(ctx, agent_id, data)
+
+
+@router.post("/{agent_id}/stream")
+async def stream_agent(
+    agent_id: str,
+    data: AgentRunRequest = Body(...),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Stream agent execution events via SSE."""
+    from app.modules.agent.runtime.emitter import QueueEmitter
+
+    emitter = QueueEmitter()
+
+    async def run_agent():
+        try:
+            result = await service.execute_agent_streaming(agent_id, data.model_dump(exclude_none=True), emitter)
+            await emitter.queue.put(("agent.result", result))
+        except Exception as exc:
+            await emitter.queue.put(("agent.error", {"error": str(exc)}))
+        finally:
+            await emitter.done()
+
+    async def generate():
+        task = asyncio.create_task(run_agent())
+        try:
+            while True:
+                item = await emitter.queue.get()
+                if item is None:
+                    break
+                event_name, event_data = item
+                yield f"event: {event_name}\ndata: {json.dumps(event_data)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

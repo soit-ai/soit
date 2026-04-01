@@ -28,6 +28,7 @@ from app.modules.agent.application.schemas import (
     AgentUpdate,
     AgentVersionCreate,
 )
+from app.modules.agent.runtime.emitter import EventEmitter
 from app.adapters.tools.resolver import ToolResolver
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.versioning_adapter import AgentVersioningAdapter
@@ -582,6 +583,167 @@ class AgentApplicationService:
         )
         if linked_response:
             linked_response = self.response_service.complete_response(
+                response=linked_response,
+                output_json=self._response_output_payload(result),
+                usage_json=self._response_usage_payload(result),
+                source="agent",
+                output_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "output": self._response_output_payload(result),
+                    "usage": self._response_usage_payload(result),
+                },
+                completed_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "status": "completed",
+                    "usage": self._response_usage_payload(result),
+                    "tool_calls": int(result.get("tool_calls") or 0),
+                },
+            )
+        return {
+            **result,
+            "thread_id": thread.id,
+            "task_id": task.id,
+            "response_id": response_id,
+        }
+
+    @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
+    async def execute_agent_streaming(
+        self,
+        agent_id: str,
+        inputs: Dict[str, Any],
+        event_emitter: EventEmitter,
+    ) -> Dict[str, Any]:
+        """Execute agent with event streaming via the provided emitter.
+
+        Same lifecycle as execute_agent but passes event_emitter to the runner
+        so callers can observe events in real time (e.g. SSE).
+        """
+        agent = self._get_agent(agent_id)
+        version = self._resolve_execution_version(agent)
+        request = self._request_from_version(version, inputs)
+        linked_response = None
+
+        thread = self.runtime_core.thread_repo.get_thread(request.thread_id) if request.thread_id else None
+        if request.thread_id and not thread:
+            raise NotFoundError(f"Thread not found: {request.thread_id}")
+        if thread and thread.agent_id and thread.agent_id != agent.id:
+            raise ValidationError(f"Thread {thread.id} does not belong to agent {agent.id}")
+        if thread is None:
+            thread = self.runtime_core.create_thread(
+                agent_id=agent.id,
+                title=self._resolve_thread_title(request),
+                system_prompt=((version.spec_json or {}).get("system_prompt") if isinstance(version.spec_json, dict) else None),
+                default_model_ref=request.model,
+                default_temperature=request.temperature,
+                max_history_messages=request.context_window_messages,
+                max_history_chars=request.context_window_chars,
+                metadata={"source": "agent.stream", "agent_version_id": version.id},
+            )
+
+        for message in request.messages:
+            self.runtime_core.append_message(
+                thread_id=thread.id,
+                role=message.role,
+                content=message.content,
+                status="completed",
+                metadata=message.metadata,
+            )
+
+        run = self.trace_writer.create_run(
+            mode="agent",
+            kind="agent",
+            subject_kind="agent",
+            subject_id=agent.id,
+            subject_version_id=version.id,
+            input_summary=request.messages[-1].content[:8192] if request.messages else None,
+        )
+        task = self.runtime_core.create_task(
+            task_type="agent.stream",
+            status=TaskStatus.PREPARING.value,
+            agent_id=agent.id,
+            thread_id=thread.id,
+            run_id=run.id,
+            input_payload={
+                "agent_id": agent.id,
+                "agent_version_id": version.id,
+                "message_count": len(request.messages),
+            },
+        )
+        self.runtime_core.transition_task(
+            task_id=task.id,
+            status=TaskStatus.RUNNING.value,
+            progress={"phase": "agent_loop"},
+        )
+
+        if self.response_service:
+            linked_response = self.response_service.create_linked_response(
+                run_id=run.id,
+                thread_id=thread.id,
+                task_id=task.id,
+                agent_id=agent.id,
+                model=request.model,
+                input_json=self._response_input_payload(request, agent_version_id=version.id),
+                metadata_json={
+                    "source": "agent.stream",
+                    "agent_id": agent.id,
+                    "agent_version_id": version.id,
+                    "thread_id": thread.id,
+                    "task_id": task.id,
+                },
+            )
+            linked_response = self.response_service.mark_in_progress(linked_response)
+
+        runner = self._build_runner()
+        try:
+            result = await runner.run(
+                request,
+                existing_run_id=run.id,
+                response_id=linked_response.id if linked_response else None,
+                event_emitter=event_emitter,
+            )
+        except Exception as exc:
+            if linked_response:
+                self.response_service.fail_response(
+                    response=linked_response,
+                    error_code="agent_execution_failed",
+                    error_message=str(exc),
+                    source="agent",
+                )
+            self.runtime_core.transition_task(
+                task_id=task.id,
+                status=TaskStatus.FAILED.value,
+                error_code="agent_execution_failed",
+                error_message=str(exc),
+            )
+            raise
+
+        response_id = linked_response.id if linked_response else None
+        self.runtime_core.append_message(
+            thread_id=thread.id,
+            role="assistant",
+            content=result.get("output") or "",
+            run_id=result.get("run_id"),
+            task_id=task.id,
+            response_id=response_id,
+            status="completed",
+            metadata={
+                "agent_id": agent.id,
+                "agent_version_id": version.id,
+                "run_id": result.get("run_id"),
+                "response_id": response_id,
+            },
+        )
+        self.runtime_core.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+        self.runtime_core.transition_task(
+            task_id=task.id,
+            status=TaskStatus.SUCCEEDED.value,
+            progress={"phase": "completed"},
+            output_payload=self._task_output_payload(result, response_id=response_id),
+        )
+        if linked_response:
+            self.response_service.complete_response(
                 response=linked_response,
                 output_json=self._response_output_payload(result),
                 usage_json=self._response_usage_payload(result),
