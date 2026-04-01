@@ -88,7 +88,7 @@ const translation = {
       unsupportedContent: '已安装的插件版本不提供这个 action。',
       unsupportedContent2: '点击切换版本',
     },
-    configureApp: '应用设置',
+    configureApp: '配置 Agent',
     configureModel: '模型设置',
     configureTool: '工具设置',
   },

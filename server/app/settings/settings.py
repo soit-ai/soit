@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     project_name: str = "soit"
     """Project name."""
-    project_description: str = "SOIT is a platform for llm application building."
+    project_description: str = "SOIT is an agent runtime platform for building, operating, and observing AI systems."
     """Project description."""
 
     environment: str = "production"

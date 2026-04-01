@@ -19,7 +19,7 @@ const translation = {
     authorized: 'Authorized',
     setup: 'Set up authorization to use',
     setupModalTitle: 'Set Up Authorization',
-    setupModalTitleDescription: 'After configuring credentials, all members within the workspace can use this tool when orchestrating applications.',
+    setupModalTitleDescription: 'After configuring credentials, all members within the workspace can use this tool when orchestrating agents and workflows.',
   },
   includeToolNum: '{{num}} {{action}} included',
   addTool: 'Add Tool',
@@ -106,7 +106,7 @@ const translation = {
     customDisclaimer: 'Custom disclaimer',
     customDisclaimerPlaceholder: 'Please enter custom disclaimer',
     confirmTitle: 'Confirm to save ?',
-    confirmTip: 'Apps using this tool will be affected',
+    confirmTip: 'Agents or workflows using this tool will be affected',
     deleteToolConfirmTitle: 'Delete this Tool?',
     deleteToolConfirmContent: 'Deleting the Tool is irreversible. Users will no longer be able to access your Tool.',
   },
@@ -137,7 +137,7 @@ const translation = {
   },
   noCustomTool: {
     title: 'No custom tools!',
-    content: 'Add and manage your custom tools here for building AI apps.',
+    content: 'Add and manage your custom tools here for building agents and workflows.',
     createTool: 'Create Tool',
   },
   noSearchRes: {

@@ -14,7 +14,7 @@ import {
 
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar'
 import { useNavigate } from '@/hooks/use-navigate'
-import { BoxHeader } from '@/components/ui/app/box-card'
+import { BoxHeader } from '@/components/ui/entity/box-card'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

@@ -19,7 +19,7 @@ const translation = {
     authorized: '已授权',
     setup: '要使用请先授权',
     setupModalTitle: '设置授权',
-    setupModalTitleDescription: '配置凭据后，工作区中的所有成员都可以在编排应用程序时使用此工具。',
+    setupModalTitleDescription: '配置凭据后，工作区中的所有成员都可以在编排 Agents 和 Workflows 时使用此工具。',
   },
   includeToolNum: '包含 {{num}} 个 {{action}}',
   addTool: '添加工具',
@@ -106,7 +106,7 @@ const translation = {
     customDisclaimer: '自定义免责声明',
     customDisclaimerPlaceholder: '请输入自定义免责声明',
     confirmTitle: '确认保存？',
-    confirmTip: '发布新的工具版本可能会影响该工具已关联的应用',
+    confirmTip: '发布新的工具版本可能会影响已关联该工具的 Agents 或 Workflows',
     deleteToolConfirmTitle: '删除这个工具？',
     deleteToolConfirmContent: '删除工具是不可逆的。用户将无法再访问您的工具。',
   },
@@ -137,7 +137,7 @@ const translation = {
   },
   noCustomTool: {
     title: '没有自定义工具!',
-    content: '在此统一添加和管理你的自定义工具，方便构建应用时使用。',
+    content: '在此统一添加和管理你的自定义工具，方便在构建 Agents 和 Workflows 时使用。',
     createTool: '创建工具',
   },
   noSearchRes: {
