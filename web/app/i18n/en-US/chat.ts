@@ -24,7 +24,7 @@ const chat = {
     changeLogoTip: 'SVG or PNG format with a minimum size of 40x40px',
   },
   app: {
-    title: 'Customize app header brand',
+    title: 'Customize agent chat header brand',
     changeLogoTip: 'SVG or PNG format with a minimum size of 80x80px',
   },
   upload: 'Upload',
@@ -35,7 +35,7 @@ const chat = {
   restore: 'Restore Defaults',
   customize: {
     contactUs: ' contact us ',
-    prefix: 'To customize the brand logo within the app, please',
+    prefix: 'To customize the brand logo within the agent chat workspace, please',
     suffix: 'to upgrade to the Enterprise edition.',
   },
   sidebar: {
@@ -101,7 +101,7 @@ const chat = {
       }
     },
     composer: {
-      placeholder: 'Send a message to SOIT AI Assistant...',
+      placeholder: 'Send a message to the current agent...',
       tabCompletion: 'Press',
       tab: 'Tab',
       complete: 'to complete',

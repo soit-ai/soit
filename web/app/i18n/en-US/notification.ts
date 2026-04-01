@@ -1,6 +1,6 @@
 const notification = {
   title: 'Notifications',
-  description: 'Stay on top of system, workspace, and app updates.',
+  description: 'Stay on top of system, workspace, and agent updates.',
   actions: {
     markAllRead: 'Mark all as read',
     markRead: 'Mark as read',

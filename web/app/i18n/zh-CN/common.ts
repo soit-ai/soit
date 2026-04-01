@@ -194,7 +194,7 @@ const translation = {
     pluginsTips: '集成第三方插件或创建与 ChatGPT 兼容的 AI 插件。',
     knowledge: '知识库',
     knowledgeTips: '即将到来: 上传自己的长文本数据，或通过 Webhook 集成自己的数据源',
-    newApp: '创建应用',
+    newApp: '创建 Agent',
     newKnowledge: '创建知识库',
     tools: '工具',
   },
@@ -369,7 +369,7 @@ const translation = {
     setupModelFirst: '请先设置您的模型',
     systemReasoningModel: {
       key: '系统推理模型',
-      tip: '设置创建应用使用的默认推理模型，以及对话名称生成、下一步问题建议等功能也会使用该默认推理模型。',
+      tip: '设置创建 Agent 使用的默认推理模型，对话命名和下一步问题建议等功能也会复用该默认模型。',
     },
     embeddingModel: {
       key: 'Embedding 模型',
@@ -507,7 +507,7 @@ const translation = {
     },
   },
   apiBasedExtension: {
-    title: 'API 扩展提供了一个集中式的 API 管理，在此统一添加 API 配置后，方便在 Soit 上的各类应用中直接使用。',
+    title: 'API 扩展提供集中式 API 管理，统一配置后可直接在 Soit 的 Agents 和 Workflows 中使用。',
     link: '了解如何开发您自己的 API 扩展。',
     linkUrl: 'https://docs.soit.ai/v/zh-hans/guides/extension/api-based-extension',
     add: '新增 API 扩展',
@@ -553,8 +553,8 @@ const translation = {
     development: '开发环境',
   },
   appModes: {
-    completionApp: '文本生成型应用',
-    chatApp: '对话型应用',
+    completionApp: '文本生成',
+    chatApp: 'Agent 对话',
   },
   knowledgeMenus: {
     documents: '文档',

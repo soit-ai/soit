@@ -88,7 +88,7 @@ const translation = {
       unsupportedContent: 'The installed plugin version does not provide this action.',
       unsupportedContent2: 'Click to switch version.',
     },
-    configureApp: 'Configure App',
+    configureApp: 'Configure Agent',
     configureModel: 'Configure model',
     configureTool: 'Configure tool',
   },

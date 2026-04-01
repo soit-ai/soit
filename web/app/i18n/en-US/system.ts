@@ -488,7 +488,7 @@ const system = {
         },
         notifications: {
           label: 'Notifications',
-          description: 'Manage system and app notifications',
+          description: 'Manage system and agent notifications',
         },
         appearance: {
           label: 'Appearance',

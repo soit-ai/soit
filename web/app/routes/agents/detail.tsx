@@ -25,6 +25,7 @@ import {
   type AgentRelease,
   type AgentVersion,
 } from '@/services/agent-service'
+import { listCapabilityRegistry, type CapabilityRegistryItem } from '@/services/capability-service'
 import { listKnowledgeBases } from '@/services/knowledge-service'
 import { listModels, type ModelLibraryItem } from '@/services/provider-service'
 import { listRuns, type RunResponse } from '@/services/run-service'
@@ -143,6 +144,15 @@ function AgentDetailPage() {
     },
   })
 
+  const { data: capabilityPage, isLoading: capabilityCatalogLoading } = useQuery({
+    queryKey: ['capabilities', 'agent-assembly'],
+    queryFn: () => listCapabilityRegistry({ page_size: 200 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
   const versions = useMemo(
     () => [...(versionPage?.items || [])].sort((left, right) => right.version - left.version),
     [versionPage?.items],
@@ -150,6 +160,7 @@ function AgentDetailPage() {
   const latestVersion = versions[0]
   const releases = releasePage?.items || []
   const knowledgeOptions = knowledgePage?.items || []
+  const capabilityCatalog = capabilityPage?.items || []
   const modelOptions = useMemo(
     () => modelConfigs.filter((item) => item.isActive && item.modelType === 'llm'),
     [modelConfigs],
@@ -165,6 +176,16 @@ function AgentDetailPage() {
       tool: bindings.filter((item) => item.binding_type === 'tool'),
     }),
     [bindings],
+  )
+  const capabilityCatalogGroups = useMemo(
+    () => ({
+      model: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'model'),
+      knowledge: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'knowledge'),
+      workflow: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'workflow'),
+      skill: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'skill'),
+      tool: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'tool'),
+    }),
+    [capabilityCatalog],
   )
 
   useEffect(() => {
@@ -627,6 +648,36 @@ function AgentDetailPage() {
         </Card>
 
         <div className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Assembly Catalog</CardTitle>
+              <CardDescription>Runtime capabilities currently available in this workspace for future agent bindings.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {capabilityCatalogLoading && <div className="text-sm text-muted-foreground">Loading capability catalog...</div>}
+              {!capabilityCatalogLoading &&
+                Object.entries(capabilityCatalogGroups).map(([groupName, items]) => (
+                  <div key={groupName} className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium capitalize">{groupName}</div>
+                      <Badge variant="outline">{items.length}</Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {items.slice(0, 3).map((item) => (
+                        <Badge key={item.ref} variant="secondary">
+                          {item.name}
+                        </Badge>
+                      ))}
+                      {items.length > 3 && <Badge variant="outline">+{items.length - 3} more</Badge>}
+                      {items.length === 0 && (
+                        <div className="text-xs text-muted-foreground">No {groupName} capabilities registered.</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Bindings</CardTitle>

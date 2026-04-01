@@ -11,7 +11,7 @@ const translation = {
     changeLogoTip: 'SVG or PNG format with a minimum size of 40x40px',
   },
   app: {
-    title: 'Customize app header brand',
+    title: 'Customize agent workspace header brand',
     changeLogoTip: 'SVG or PNG format with a minimum size of 80x80px',
   },
   upload: 'Upload',
@@ -22,7 +22,7 @@ const translation = {
   restore: 'Restore Defaults',
   customize: {
     contactUs: ' contact us ',
-    prefix: 'To customize the brand logo within the app, please',
+    prefix: 'To customize the brand logo within the agent workspace, please',
     suffix: 'to upgrade to the Enterprise edition.',
   },
 }
