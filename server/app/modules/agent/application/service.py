@@ -121,6 +121,21 @@ class AgentService:
             messages = [ChatMessage(role=role, content=f"Memory context:\n{memory_context}")] + messages
             memory_context = None
 
+        # RAG retrieval from knowledge bases
+        rag_context = None
+        if data.knowledge_refs:
+            query_text = data.messages[-1].content
+            rag_context = await self._retrieve_rag_context(
+                knowledge_refs=data.knowledge_refs,
+                query=query_text,
+                top_k=data.rag_top_k,
+                run_id=run_id,
+            )
+
+        if rag_context and data.rag_strategy == "system_message":
+            messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}")] + messages
+            rag_context = None
+
         model = data.model or "model:openai:gpt-5.1"
         iterations = 0
         final_response = ""
@@ -232,6 +247,7 @@ class AgentService:
                         temperature=data.temperature,
                         run_id=run_id,
                         memory_context=memory_context,
+                        rag_context=rag_context,
                     )
                 except Exception as exc:
                     if self.trace_writer and plan_step_id:
@@ -585,6 +601,42 @@ class AgentService:
         else:
             value = result
         return float(value or 0)
+
+    async def _retrieve_rag_context(
+        self,
+        knowledge_refs: List[str],
+        query: str,
+        top_k: int = 5,
+        run_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Retrieve context from knowledge bases for RAG injection."""
+        from app.modules.knowledge.application.tools import knowledge_query
+
+        chunks: List[str] = []
+        for ref in knowledge_refs:
+            # knowledge_refs are in format "knowledge:kb_id" or just "kb_id"
+            kb_id = ref.split(":")[-1] if ":" in ref else ref
+            try:
+                response = await knowledge_query(
+                    knowledge_id=kb_id,
+                    query=query,
+                    top_k=top_k,
+                    ctx={
+                        "tenant_id": self.ctx.tenant_id,
+                        "workspace_id": self.ctx.workspace_id,
+                        "user_id": self.ctx.user_id,
+                    },
+                )
+                for result in response.get("results") or []:
+                    text = result.get("text") or result.get("content") or ""
+                    if text:
+                        chunks.append(text)
+            except Exception:
+                continue
+
+        if not chunks:
+            return None
+        return "\n---\n".join(chunks)
 
     def _build_memory_query(self, query_text: str, top_k: int):
         """Build memory query request."""

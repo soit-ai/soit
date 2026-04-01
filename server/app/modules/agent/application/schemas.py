@@ -326,6 +326,18 @@ class AgentRunRequest(BaseModel):
     tool_refs: Optional[List[str]] = None
     """Optional allowed tool refs."""
 
+    knowledge_refs: Optional[List[str]] = None
+    """Optional knowledge base refs for automatic RAG retrieval."""
+
+    rag_top_k: int = Field(default=5, ge=1, le=50)
+    """Number of chunks to retrieve per knowledge base."""
+
+    rag_strategy: str = Field(
+        default="system_message",
+        pattern="^(system_message|planner_context)$",
+    )
+    """How to inject RAG context: system_message prepends, planner_context passes to planner."""
+
     memory_query: Optional[str] = None
     """Override memory query."""
 

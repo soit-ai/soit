@@ -51,9 +51,18 @@ class AgentPlanner:
         temperature: Optional[float],
         run_id: str,
         memory_context: Optional[str] = None,
+        rag_context: Optional[str] = None,
     ) -> PlanResult:
         """Plan next action using native function calling."""
         planning_messages = list(messages)
+        if rag_context:
+            planning_messages.insert(
+                0,
+                ChatMessage(
+                    role="system",
+                    content=f"Retrieved knowledge context:\n{rag_context}",
+                ),
+            )
         if memory_context:
             planning_messages.insert(
                 0,
