@@ -225,7 +225,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
         </ScrollArea>
         <NavSecondary items={data.navSecondary||[]} className="mt-auto px-1" />
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border/70 px-3 py-3">
+      <SidebarFooter className="border-t border-sidebar-border/70 px-3 py-3 ">
         <NavUser user={user} />
       </SidebarFooter>
     </div>

@@ -12,6 +12,7 @@ import { useUserStore } from '@/stores/user'
 export function NavUser({
   user,
   right,
+  className,
 }: {
   user: {
     name: string
@@ -19,6 +20,7 @@ export function NavUser({
     avatar: string
   }
   right?: boolean
+  className?: string
 }) {
   const { isMobile } = useSidebar()
   const navigate = useNavigate()
@@ -32,34 +34,34 @@ export function NavUser({
   }
 
   return (
-    <SidebarMenu>
+    <SidebarMenu className={cn("flex justify-center items-center", className)}>
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg" className={cn('data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground p-0 ' + (right === true ? 'pr-4' : ''), '')}>
+            <SidebarMenuButton size="lg" className={cn('data-[state=open]:bg-sidebar-accent  flex justify-center items-center data-[state=open]:text-sidebar-accent-foreground p-0 ' + (right === true ? 'pr-0' : ''), '')}>
               {right === true ? (
                 <>
                   <div className="grid flex-1 text-right  text-sm leading-tight">
                     <span className="truncate font-semibold">{user.name}</span>
                     <span className="truncate text-xs">{user.email}</span>
                   </div>
-                  <Avatar className="h-8 w-8 rounded-lg">
+                  <Avatar className="h-10 w-10 rounded-lg">
                     <AvatarImage src={user.avatar} alt={user.name} />
                     <AvatarFallback className="rounded-lg">CN</AvatarFallback>
                   </Avatar>
-                  <ChevronsUpDown className="ml-auto size-4" />
+                  {/* <ChevronsUpDown className="ml-auto size-4" /> */}
                 </>
               ) : (
                 <>
-                  <Avatar className="h-8 w-8 rounded-lg">
+                  <Avatar className="h-10 w-10 rounded-lg ">
                     <AvatarImage src={user.avatar} alt={user.name} />
                     <AvatarFallback className="rounded-lg">CN</AvatarFallback>
                   </Avatar>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
+                  {/* <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">{user.name}</span>
                     <span className="truncate text-xs">{user.email}</span>
-                  </div>
-                  <ChevronsUpDown className="ml-auto size-4" />
+                  </div> */}
+                  {/* <ChevronsUpDown className="ml-auto size-4" /> */}
                 </>
               )}
             </SidebarMenuButton>

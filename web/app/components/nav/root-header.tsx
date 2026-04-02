@@ -180,7 +180,7 @@ export const RootHeader = () => {
   }
 
   return (
-    <header className="fixed top-0 z-40 flex h-[var(--root-header-height)] w-full shrink-0 items-center gap-3 border-b border-border/60 bg-shell/72 px-5 backdrop-blur-xl">
+    <header className="fixed top-0 z-40 flex h-[var(--root-header-height)] w-[calc(100%-var(--root-sidebar-width)+1px)] shrink-0 items-center gap-3 border-b border-border/60 bg-shell/72 px-5 backdrop-blur-xl">
       <div className="flex flex-row items-center">
         {/* <SidebarTrigger className="-ml-1 text-foreground/80" /> */}
         {/* <Separator orientation="vertical" className="mx-3 h-5 bg-border/70" /> */}
@@ -362,7 +362,7 @@ export const RootHeader = () => {
 
         <Separator orientation="vertical" className="mx-2 h-6 bg-border/70" />
 
-        <NavUser user={user} right={true} />
+        <NavUser user={user} right={true}  />
       </div>
     </header>
   )
