@@ -21,8 +21,8 @@ export default function HomePage() {
   const dashboard = useHomeDashboard()
 
   return (
-    <NavLayout className="bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_28%),linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(241,245,249,0.96)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_24%),linear-gradient(180deg,rgba(10,15,25,0.98)_0%,rgba(12,18,30,0.96)_100%)]">
-      <main className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-6 p-4 md:p-6 xl:p-8">
+    <NavLayout className="bg-transparent">
+      <main className="mx-auto flex w-full max-w-[1520px] flex-1 flex-col gap-8 px-4 pb-8 pt-5 md:px-6 xl:px-8">
         <HomeHero
           summary={dashboard.summary}
           isRefreshing={dashboard.isRefreshing}
@@ -36,20 +36,15 @@ export default function HomePage() {
           descriptionKey="agent.home.sections.capabilityDescription"
         />
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.58fr)_minmax(340px,0.72fr)]">
-          <div className="flex min-w-0 flex-col gap-6">
-            <PlatformMap summary={dashboard.summary} />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-6">
-            <FocusPanel
-              summary={dashboard.summary}
-              agents={dashboard.newestAgents}
-              tasks={dashboard.attentionTasks}
-              knowledgeBases={dashboard.recentKnowledge}
-              isLoading={dashboard.isInitialLoading}
-            />
-          </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.76fr)]">
+          <PlatformMap summary={dashboard.summary} />
+          <FocusPanel
+            summary={dashboard.summary}
+            agents={dashboard.newestAgents}
+            tasks={dashboard.attentionTasks}
+            knowledgeBases={dashboard.recentKnowledge}
+            isLoading={dashboard.isInitialLoading}
+          />
         </div>
 
         <SectionHeading

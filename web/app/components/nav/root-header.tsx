@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { Search, Bell, HelpCircle, Key, Settings, ExternalLink, BookOpen, MessageSquare, Info, AlertTriangle, Star, Globe, Check, CheckCircle2 } from 'lucide-react'
+import { Search, Bell, HelpCircle, Key, Settings, ExternalLink, BookOpen, MessageSquare, Info, AlertTriangle, Globe, Check, CheckCircle2 } from 'lucide-react'
 import { ModeSwitcher } from '@/components/common/mode-switcher'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
@@ -180,47 +180,46 @@ export const RootHeader = () => {
   }
 
   return (
-    <header className="top-0 flex flex-row h-[calc(var(--root-header-height)+0px)] w-full shrink-0 items-center gap-2 border-b bg-background p-4 fixed z-40">
+    <header className="fixed top-0 z-40 flex h-[var(--root-header-height)] w-full shrink-0 items-center gap-3 border-b border-border/60 bg-shell/72 px-5 backdrop-blur-xl">
       <div className="flex flex-row items-center">
-        <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mx-2 h-4" />
-        <div className="text-lg font-semibold">{t('app.name')}</div>
+        {/* <SidebarTrigger className="-ml-1 text-foreground/80" /> */}
+        {/* <Separator orientation="vertical" className="mx-3 h-5 bg-border/70" /> */}
+        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-foreground/255">{t('app.name')}</div>
         <a
           href="https://github.com/soit-ai/soit"
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-2 flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="ml-3 flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
           aria-label={t('layout.header.githubLabel')}
         >
           <div className="hidden sm:flex items-center">
-            <div className="flex items-center bg-muted/50 rounded-full px-2 py-0.5 text-xs">
-              <Github className="h-4 w-4 mr-1" />
-              {/* <Star className="h-3 w-3 mr-1 fill-current text-yellow-500" />
-              <span>1.2k</span> */}
+            <div className="flex items-center rounded-full border border-border/70 bg-panel/78 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
+              <Github className="mr-1.5 h-3.5 w-3.5" />
+              Repo
             </div>
           </div>
         </a>
       </div>
 
       {/* Search bar */}
-      <div className="flex flex-1 justify-center max-w-xl mx-auto">
+      <div className="mx-auto flex max-w-xl flex-1 justify-center">
         <form onSubmit={handleSearch} className="w-full relative">
           <Input
             type="search"
             placeholder={t('layout.header.searchPlaceholder')}
-            className="w-full pl-9 h-9"
+            className="h-10 w-full rounded-[var(--radius-sm)] border-border/70 bg-panel/84 pl-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         </form>
       </div>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-1.5">
         {/* API key management */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative" aria-label={t('layout.header.apiKey.label')}>
+            <Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.apiKey.label')}>
               <Key className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
@@ -241,7 +240,7 @@ export const RootHeader = () => {
         {/* Notifications */}
         <Popover open={notificationsOpen} onOpenChange={setNotificationsOpen}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative" aria-label={t('layout.header.notifications.label')}>
+            <Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.notifications.label')}>
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
                 <Badge
@@ -253,8 +252,8 @@ export const RootHeader = () => {
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 p-0">
-            <div className="p-3 border-b">
+          <PopoverContent align="end" className="w-80 rounded-[var(--radius-xl)] border-border/70 bg-elevated p-0 backdrop-blur-xl">
+            <div className="border-b border-border/70 p-3">
               <div className="flex justify-between items-center">
                 <h4 className="font-semibold">{t('layout.header.notifications.title')}</h4>
                 <Button
@@ -288,7 +287,7 @@ export const RootHeader = () => {
                 </div>
               )}
             </div>
-            <div className="p-2 border-t">
+            <div className="border-t border-border/70 p-2">
               <Button variant="ghost" size="sm" className="w-full justify-center" onClick={() => navigate('/notifications')}>
                 {t('layout.header.notifications.viewAll')}
               </Button>
@@ -299,11 +298,11 @@ export const RootHeader = () => {
         {/* Help center */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={t('layout.header.help.label')}>
+            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.help.label')}>
               <HelpCircle className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 rounded-[var(--radius-lg)] border-border/70 bg-elevated backdrop-blur-xl">
             <DropdownMenuLabel>{t('layout.header.help.title')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem>
@@ -324,11 +323,11 @@ export const RootHeader = () => {
         {/* Language switch */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={t('layout.header.language.label')} disabled={isChanging}>
+            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.language.label')} disabled={isChanging}>
               <Globe className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 rounded-[var(--radius-lg)] border-border/70 bg-elevated backdrop-blur-xl">
             <DropdownMenuLabel>{t('system.settings.lang.languageSettings')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {languages.map((lang) => (
@@ -353,7 +352,7 @@ export const RootHeader = () => {
         {/* Settings */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/settings')}>
+            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/settings')}>
               <Settings className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
@@ -361,7 +360,7 @@ export const RootHeader = () => {
 
         <ModeSwitcher />
 
-        <Separator orientation="vertical" className="h-6 mx-1" />
+        <Separator orientation="vertical" className="mx-2 h-6 bg-border/70" />
 
         <NavUser user={user} right={true} />
       </div>

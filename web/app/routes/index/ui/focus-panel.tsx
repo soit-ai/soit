@@ -109,16 +109,16 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
         ]
 
   return (
-    <Card className="overflow-hidden border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.84)_0%,rgba(248,250,252,0.76)_100%)] shadow-none backdrop-blur-sm dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.72)_0%,rgba(15,23,42,0.6)_100%)]">
-      <CardHeader className="space-y-3 border-b border-slate-200/70 dark:border-slate-800">
-        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
+    <Card className="overflow-hidden">
+      <CardHeader className="space-y-3 border-b border-border/70">
+        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
           {t('agent.home.focus.eyebrow')}
         </div>
         <CardTitle>{t('agent.home.focus.title')}</CardTitle>
         <CardDescription>{t('agent.home.focus.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <section className="rounded-[28px] border border-slate-200/70 bg-[linear-gradient(135deg,rgba(10,15,30,0.96)_0%,rgba(17,47,73,0.9)_100%)] p-4 text-white dark:border-slate-800">
+        <section className="rounded-[var(--radius-xl)] border border-slate-800/80 bg-[linear-gradient(135deg,rgba(16,24,38,0.96)_0%,rgba(15,44,68,0.92)_100%)] p-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-cyan-100/70">

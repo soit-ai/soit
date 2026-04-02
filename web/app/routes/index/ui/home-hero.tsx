@@ -49,46 +49,50 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
       value: formatNumber(summary.publishedAgents),
       meta: `${formatNumber(summary.agentCount)} ${t('agent.home.hero.agentsUnit')} / ${formatNumber(summary.workflowCount)} ${t('agent.home.hero.workflowsUnit')}`,
       icon: Bot,
+      tone: 'text-sky-600 dark:text-sky-300',
     },
     {
       label: t('agent.home.hero.signalKnowledge'),
       value: formatCompact(summary.totalDocuments),
       meta: `${formatCompact(summary.totalChunks)} ${t('agent.home.hero.chunksUnit')}`,
       icon: Database,
+      tone: 'text-amber-600 dark:text-amber-300',
     },
     {
       label: t('agent.home.hero.signalRuntime'),
       value: formatNumber(summary.activeTaskCount),
       meta: `${formatNumber(summary.failedRunCount)} ${t('agent.home.hero.failedRuns')}`,
       icon: Waypoints,
+      tone: 'text-emerald-600 dark:text-emerald-300',
     },
     {
       label: t('agent.home.hero.totalTokens'),
       value: formatCompact(totalTokens),
       meta: t('agent.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) }),
       icon: Activity,
+      tone: 'text-indigo-600 dark:text-indigo-300',
     },
   ]
 
   return (
     <section className="animate-in fade-in slide-in-from-top-2 duration-500">
-      <div className="relative overflow-hidden rounded-[38px] border border-slate-200/70 bg-[linear-gradient(135deg,rgba(8,15,30,0.99)_0%,rgba(13,46,73,0.96)_42%,rgba(20,92,128,0.9)_100%)] p-5 text-white md:p-6 xl:p-7">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(56,189,248,0.24),transparent_30%),radial-gradient(circle_at_82%_12%,rgba(251,191,36,0.14),transparent_20%),linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:auto,auto,28px_28px,28px_28px]" />
+      <div className="relative overflow-hidden rounded-[calc(var(--radius-2xl)+0.5rem)] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.84)_0%,rgba(246,249,252,0.94)_44%,rgba(236,244,252,0.98)_100%)] p-5 shadow-[0_28px_80px_rgba(15,23,42,0.08)] md:p-6 xl:p-7 dark:bg-[linear-gradient(145deg,rgba(14,20,34,0.92)_0%,rgba(17,26,42,0.94)_44%,rgba(11,34,54,0.96)_100%)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_16%,rgba(14,165,233,0.16),transparent_24%),radial-gradient(circle_at_84%_12%,rgba(59,130,246,0.12),transparent_20%),linear-gradient(rgba(15,23,42,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.045)_1px,transparent_1px)] [background-size:auto,auto,28px_28px,28px_28px] opacity-70 dark:bg-[radial-gradient(circle_at_12%_16%,rgba(34,211,238,0.16),transparent_24%),radial-gradient(circle_at_84%_12%,rgba(96,165,250,0.14),transparent_20%),linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)]" />
 
-        <div className="relative grid gap-3 border-b border-white/10 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="relative grid gap-3 border-b border-border/60 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge className="border-white/10 bg-white/10 text-white hover:bg-white/10">
+            <Badge variant="outline" className="bg-panel/78 text-foreground">
               {t('agent.home.hero.badge')}
             </Badge>
-            <Badge className="border-white/10 bg-cyan-400/15 text-cyan-100 hover:bg-cyan-400/15">
+            <Badge className="bg-primary/10 text-primary">
               {t('agent.home.hero.mode')}
             </Badge>
-            <span className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
+            <span className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
               {t('agent.home.hero.commandRail')}
             </span>
             {partialFailure && (
-              <Badge className="border-amber-300/20 bg-amber-300/15 text-amber-100 hover:bg-amber-300/15">
-                <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+              <Badge variant="destructive" className="gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" />
                 {t('agent.home.hero.partialFailure')}
               </Badge>
             )}
@@ -98,39 +102,38 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             {railMetrics.map((metric) => (
               <div
                 key={metric.label}
-                className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5"
+                className="rounded-[var(--radius-lg)] border border-border/70 bg-elevated/72 px-3 py-2.5 shadow-[0_10px_20px_rgba(15,23,42,0.05)]"
               >
-                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-300">{metric.label}</div>
-                <div className="mt-1 text-base font-semibold">{metric.value}</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</div>
+                <div className="mt-1 text-base font-semibold text-foreground">{metric.value}</div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="relative mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.16fr)_390px] xl:items-stretch">
-          <div className="rounded-[30px] border border-white/10 bg-white/[0.05] p-5">
+        <div className="relative mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_390px] xl:items-stretch">
+          <div className="rounded-[var(--radius-2xl)] border border-border/70 bg-panel/84 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.06)] backdrop-blur-md">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
               <div className="space-y-4">
                 <div className="max-w-3xl space-y-3">
-                  <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-white md:text-5xl">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">
+                    Workspace Pulse
+                  </div>
+                  <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-foreground md:text-5xl">
                     {t('agent.home.hero.title')}
                   </h1>
-                  <p className="max-w-2xl text-sm leading-7 text-slate-200/92 md:text-[15px]">
+                  <p className="max-w-2xl text-sm leading-7 text-muted-foreground md:text-[15px]">
                     {t('agent.home.hero.description')}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                  <Button
-                    className="bg-white text-slate-950 hover:bg-slate-100"
-                    onClick={() => navigate('/agents')}
-                  >
+                  <Button onClick={() => navigate('/agents')}>
                     <Bot className="mr-2 h-4 w-4" />
                     {t('agent.home.hero.ctaAgents')}
                   </Button>
                   <Button
-                    variant="secondary"
-                    className="border-white/10 bg-white/10 text-white hover:bg-white/[0.16]"
+                    variant="outline"
                     onClick={() => navigate('/workflow')}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
@@ -138,7 +141,6 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                   </Button>
                   <Button
                     variant="ghost"
-                    className="border border-white/10 text-white hover:bg-white/10"
                     onClick={() => navigate('/observability/runs')}
                   >
                     {t('agent.home.hero.ctaRuns')}
@@ -147,14 +149,14 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                 </div>
               </div>
 
-              <div className="grid gap-2.5 text-xs text-slate-300 sm:grid-cols-3 lg:grid-cols-1">
-                <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
+              <div className="grid gap-2.5 text-xs text-muted-foreground sm:grid-cols-3 lg:grid-cols-1">
+                <span className="rounded-full border border-border/70 bg-elevated/72 px-3 py-2">
                   {t('agent.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) })}
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
+                <span className="rounded-full border border-border/70 bg-elevated/72 px-3 py-2">
                   {t('agent.home.hero.attentionTasks', { count: formatNumber(summary.attentionTaskCount) })}
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/10 px-3 py-2">
+                <span className="rounded-full border border-border/70 bg-elevated/72 px-3 py-2">
                   {t('agent.home.hero.promptTokens', {
                     prompt: formatCompact(summary.promptTokens),
                     completion: formatCompact(summary.completionTokens),
@@ -164,27 +166,30 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             </div>
 
             <div className="mt-5">
-              <div className="mb-3 text-[11px] uppercase tracking-[0.24em] text-slate-300">
+              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                 {t('agent.home.hero.signalStrip')}
               </div>
-              <div className="grid gap-px overflow-hidden rounded-[26px] border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {signalPanels.map((panel) => {
                   const Icon = panel.icon
 
                   return (
-                    <div key={panel.label} className="bg-slate-950/18 px-4 py-4">
+                    <div
+                      key={panel.label}
+                      className="rounded-[var(--radius-xl)] border border-border/70 bg-elevated/74 px-4 py-4"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-300">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                             {panel.label}
                           </div>
-                          <div className="mt-2 text-2xl font-semibold text-white">{panel.value}</div>
+                          <div className="mt-2 text-2xl font-semibold text-foreground">{panel.value}</div>
                         </div>
-                        <div className="rounded-2xl border border-white/10 bg-white/8 p-2.5">
-                          <Icon className="h-4 w-4 text-cyan-100" />
+                        <div className="rounded-[0.875rem] border border-border/70 bg-panel/78 p-2.5">
+                          <Icon className={`h-4 w-4 ${panel.tone}`} />
                         </div>
                       </div>
-                      <div className="mt-3 text-sm text-slate-300">{panel.meta}</div>
+                      <div className="mt-3 text-sm text-muted-foreground">{panel.meta}</div>
                     </div>
                   )
                 })}
@@ -192,7 +197,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             </div>
           </div>
 
-          <div className="rounded-[30px] border border-white/10 bg-slate-950/22 p-5">
+          <div className="rounded-[var(--radius-2xl)] border border-slate-800/80 bg-[linear-gradient(180deg,rgba(16,24,38,0.96)_0%,rgba(14,30,46,0.92)_100%)] p-5 text-white shadow-[0_22px_48px_rgba(2,6,23,0.28)] dark:border-slate-700/80">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">
@@ -203,7 +208,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-white hover:bg-white/10"
+                className="border-transparent text-white hover:bg-white/10"
                 disabled={isRefreshing}
                 onClick={onRefresh}
               >
@@ -212,7 +217,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.publishing')}</div>
@@ -223,7 +228,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                 <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.publishingShort')}</div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.retrieval')}</div>
@@ -234,7 +239,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                 <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.retrievalShort')}</div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.execution')}</div>
@@ -245,13 +250,13 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                 <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.executionShort')}</div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.totalTokens')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatCompact(totalTokens)}</div>
                   </div>
-                  <Activity className="h-5 w-5 text-cyan-200" />
+                  <Activity className="h-5 w-5 text-indigo-200" />
                 </div>
                 <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.tokenShort')}</div>
               </div>
@@ -262,4 +267,3 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
     </section>
   )
 }
-

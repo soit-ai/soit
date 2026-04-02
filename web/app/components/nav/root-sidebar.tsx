@@ -73,14 +73,14 @@ const data = {
       isActive: false,
       isNav: true,
     },
-    {
-      title: 'Skills',
-      url: '/skills',
-      type: 'skills',
-      icon: Sparkles,
-      isActive: false,
-      isNav: true,
-    },
+    // {
+    //   title: 'Skills',
+    //   url: '/skills',
+    //   type: 'skills',
+    //   icon: Sparkles,
+    //   isActive: false,
+    //   isNav: true,
+    // },
     {
       title: 'Plugins',
       url: '/plugins',
@@ -89,14 +89,14 @@ const data = {
       isActive: false,
       isNav: true,
     },
-    {
-      title: 'MCP',
-      url: '/mcp',
-      type: 'mcp',
-      icon: Waypoints,
-      isActive: false,
-      isNav: true,
-    },
+    // {
+    //   title: 'MCP',
+    //   url: '/mcp',
+    //   type: 'mcp',
+    //   icon: Waypoints,
+    //   isActive: false,
+    //   isNav: true,
+    // },
     {
       title: 'Tasks',
       url: '/tasks',
@@ -128,11 +128,11 @@ const data = {
       url: '/observability/feedback',
       icon: Send,
     },
-    {
-      title: 'Monitor',
-      url: '/observability/monitor',
-      icon: Activity,
-    },
+    // {
+    //   title: 'Monitor',
+    //   url: '/observability/monitor',
+    //   icon: Activity,
+    // },
     {
       title: 'Settings',
       url: '/settings',
@@ -162,8 +162,10 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
   }
   return (
     <div className={cn('bg-sidebar', props.className)}>
-      <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+      <SidebarHeader >
+        <div className="rounded-[var(--radius-lg)] border border-sidebar-border/80 bg-panel/82 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+          <TeamSwitcher teams={data.teams} />
+        </div>
       </SidebarHeader>
       {/* <SidebarHeader>
           <SidebarMenu>
@@ -182,15 +184,15 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader> */}
-      <SidebarContent className="overflow-x-hidden">
-        <ScrollArea className='w-[var(--root-sidebar-width)] h-full'>
+      <SidebarContent className="overflow-x-hidden px-2 pb-3">
+        <ScrollArea className='w-full h-full'>
           <ScrollBar orientation="vertical" />
-          <div className="w-[var(--root-sidebar-width)]">
-            <SidebarGroup className="mt-8">
+          <div className="w-full">
+            <SidebarGroup className="mt-4">
               <SidebarGroupContent className="px-0">
-                <SidebarMenu>
+                <SidebarMenu className="items-center">
                   {data.navPrimary.map((item) => (
-                    <SidebarMenuItem key={item.title} className="mt-3">
+                    <SidebarMenuItem key={item.title} className="mt-2 flex justify-center">
                       <SidebarMenuButton
                         // size="lg"
                         tooltip={{
@@ -207,10 +209,10 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
                           navigate(item.url)
                         }}
                         isActive={activeItem?.type === item.type || checkActive(item.type)}
-                        className="px-2 cursor-pointer"
+                        className="mx-auto size-11 cursor-pointer justify-center p-0"
                       >
                         {/* <Link to={item.url} className="flex items-center gap-2"> */}
-                        <item.icon className="size-4" />
+                        <item.icon className="size-[18px]" />
                         {/* <span>{item.title}</span> */}
                         {/* </Link> */}
                       </SidebarMenuButton>
@@ -221,9 +223,9 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             </SidebarGroup>
           </div>
         </ScrollArea>
-        <NavSecondary items={data.navSecondary||[]} className="mt-auto " />
+        <NavSecondary items={data.navSecondary||[]} className="mt-auto px-1" />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border/70 px-3 py-3">
         <NavUser user={user} />
       </SidebarFooter>
     </div>

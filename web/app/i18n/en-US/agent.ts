@@ -16,9 +16,9 @@ const translation = {
       badge: 'SOIT Workspace',
       mode: 'Enterprise Agent OS',
       partialFailure: 'Some data is temporarily unavailable',
-      title: 'One home page to see SOIT build status and runtime status.',
+      title: 'Operate the whole agent workspace from one command deck.',
       description:
-        'Center the workspace on agents, then pull knowledge, workflows, tasks, and the run ledger into a single control surface so you can assess first and act second.',
+        'Track release posture, retrieval health, execution pressure, and next actions without dropping into raw detail too early.',
       ctaAgents: 'Agent Center',
       ctaWorkflow: 'Workflow Builder',
       ctaRuns: 'Open Run Explorer',
@@ -94,6 +94,11 @@ const translation = {
           title: 'Plugins',
           description: 'Install tools and integrations to extend execution boundaries.',
           value: 'integration layer',
+        },
+        settings: {
+          title: 'Settings',
+          description: 'Control workspace rules, access, and presentation defaults.',
+          value: 'governance layer',
         },
         models: {
           title: 'Models',

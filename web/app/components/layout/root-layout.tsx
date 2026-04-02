@@ -43,9 +43,8 @@ export default function RootLayout() {
     <SidebarProvider
       style={
         {
-          '--root-sidebar-width': searchParams.get('nosider') ? '0px' : '48px',
-          '--root-header-height': searchParams.get('nosider') ? '0px' : '61px',
-          // '--sidebar-width': '320px',
+          '--root-sidebar-width': searchParams.get('nosider') ? '0px' : '72px',
+          '--root-header-height': searchParams.get('nosider') ? '0px' : '72px',
           height: '100vh',
           minHeight: '500px',
         } as React.CSSProperties
@@ -56,13 +55,13 @@ export default function RootLayout() {
           <Outlet />
         </div>
       ) : (
-        <div className="flex flex-1 w-full h-full p-0 overflow-hidden">
-          <RootSidebar className="flex flex-col w-[calc(var(--root-sidebar-width)+1px)] border-r h-full fixed p-0 overflow-hidden  z-20" />
-          <div className="flex flex-1 h-full w-full flex-col p-0 ml-[calc(var(--root-sidebar-width)+1px)]">
+        <div className="flex h-full w-full overflow-hidden bg-transparent">
+          <RootSidebar className="fixed z-30 flex h-full w-[calc(var(--root-sidebar-width)+1px)] flex-col overflow-hidden border-r border-border/60 bg-shell/78 p-0 backdrop-blur-xl" />
+          <div className="ml-[calc(var(--root-sidebar-width)+1px)] flex h-full w-full flex-1 flex-col p-0">
             <RootHeader />
-            <div className="flex flex-1 w-full h-full flex-col gap-0 p-0 overflow-hidden pt-[var(--root-header-height)]">
+            <div className="flex h-full w-full flex-1 flex-col gap-0 overflow-hidden p-0 pt-[var(--root-header-height)]">
               <ScrollArea className="flex flex-1 h-screen">
-              <Outlet />
+                <Outlet />
               </ScrollArea>
             </div>
           </div>
