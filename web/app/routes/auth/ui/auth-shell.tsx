@@ -1,6 +1,7 @@
 import { GalleryVerticalEnd } from 'lucide-react'
 
 import { Link } from '@/components/ui/link'
+import logoIcon from '@/assets/logo-m.png'
 
 type AuthShellProps = {
   children: React.ReactNode
@@ -14,10 +15,11 @@ export function AuthShell({ children }: AuthShellProps) {
       <div className="flex flex-col gap-6 p-6 md:p-10">
         <div className="flex justify-center md:justify-start">
           <Link to="/" className="inline-flex items-center gap-3 font-medium text-slate-950 dark:text-white">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950">
-              <GalleryVerticalEnd className="h-4 w-4" />
+            <div className="flex items-center justify-center rounded-md text-white  dark:text-slate-950">
+              {/* <GalleryVerticalEnd className="h-4 w-4" /> */}
+              <img src={logoIcon} alt="logo" className="size-14" />
             </div>
-            <span>SOIT Workspace</span>
+            <span className="text-2xl font-bold">SOIT AI</span>
           </Link>
         </div>
 

@@ -163,7 +163,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
   return (
     <div className={cn('bg-sidebar', props.className)}>
       <SidebarHeader >
-        <div className="rounded-[var(--radius-lg)] border border-sidebar-border/80 bg-panel/82 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+        <div className="rounded-[var(--radius-lg)] border border-sidebar-border/80 bg-panel/82 px-0 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
           <TeamSwitcher teams={data.teams} />
         </div>
       </SidebarHeader>
@@ -184,7 +184,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader> */}
-      <SidebarContent className="overflow-x-hidden px-2 pb-3">
+      <SidebarContent className="overflow-x-hidden px-0 pb-3">
         <ScrollArea className='w-full h-full'>
           <ScrollBar orientation="vertical" />
           <div className="w-full">
@@ -192,7 +192,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
               <SidebarGroupContent className="px-0">
                 <SidebarMenu className="items-center">
                   {data.navPrimary.map((item) => (
-                    <SidebarMenuItem key={item.title} className="mt-2 flex justify-center">
+                    <SidebarMenuItem key={item.title} className="mt-1 flex justify-center">
                       <SidebarMenuButton
                         // size="lg"
                         tooltip={{
@@ -209,7 +209,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
                           navigate(item.url)
                         }}
                         isActive={activeItem?.type === item.type || checkActive(item.type)}
-                        className="mx-auto size-11 cursor-pointer justify-center p-0"
+                        className="mx-auto size-10 cursor-pointer justify-center p-0"
                       >
                         {/* <Link to={item.url} className="flex items-center gap-2"> */}
                         <item.icon className="size-[18px]" />

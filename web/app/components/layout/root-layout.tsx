@@ -43,7 +43,7 @@ export default function RootLayout() {
     <SidebarProvider
       style={
         {
-          '--root-sidebar-width': searchParams.get('nosider') ? '0px' : '72px',
+          '--root-sidebar-width': searchParams.get('nosider') ? '0px' : '64px',
           '--root-header-height': searchParams.get('nosider') ? '0px' : '72px',
           height: '100vh',
           minHeight: '500px',
