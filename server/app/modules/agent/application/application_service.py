@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
@@ -22,7 +23,6 @@ from app.kernel.runtime.core.service import RuntimeCoreService
 from app.kernel.specs.validator import validate_runtime_spec
 from app.kernel.trace.writer import TraceWriter
 from app.modules.agent.application.schemas import (
-    AgentCapabilityBindings,
     AgentCreate,
     AgentRunRequest,
     AgentUpdate,
@@ -111,41 +111,22 @@ class AgentApplicationService:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
         return version
 
-    def _merge_ref_lists(self, *groups: Optional[List[str]]) -> List[str]:
+    def _normalize_ref_list(self, values: Optional[List[str]]) -> Optional[List[str]]:
         seen: set[str] = set()
-        merged: List[str] = []
-        for group in groups:
-            for value in group or []:
-                if not value or value in seen:
-                    continue
-                seen.add(value)
-                merged.append(value)
-        return merged
+        normalized: List[str] = []
+        for value in values or []:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized or None
 
-    def _resolve_version_bindings(self, data: AgentVersionCreate) -> AgentCapabilityBindings:
-        explicit = data.bindings or AgentCapabilityBindings()
-        model_ref = explicit.model_ref or data.model_ref
-        return AgentCapabilityBindings(
-            model_ref=model_ref,
-            knowledge_refs=self._merge_ref_lists(explicit.knowledge_refs, data.knowledge_refs),
-            tool_refs=self._merge_ref_lists(explicit.tool_refs, data.tool_refs) or None,
-            workflow_refs=self._merge_ref_lists(explicit.workflow_refs, data.workflow_refs) or None,
-            skill_refs=self._merge_ref_lists(explicit.skill_refs, data.skill_refs) or None,
-            plugin_refs=self._merge_ref_lists(explicit.plugin_refs) or None,
-        )
-
-    def _build_spec(
-        self,
-        data: AgentVersionCreate,
-        bindings: Optional[AgentCapabilityBindings] = None,
-    ) -> Dict[str, Any]:
-        bindings = bindings or self._resolve_version_bindings(data)
+    def _build_spec(self, data: AgentVersionCreate) -> Dict[str, Any]:
+        bindings = data.bindings
         memory_enabled = data.memory_strategy is not None or data.memory_top_k is not None
         memory_policy: Dict[str, Any] = {}
         if data.memory_top_k is not None:
             memory_policy["top_k"] = data.memory_top_k
-        knowledge_refs = [item for item in (bindings.knowledge_refs or []) if item]
-        tool_refs = [item for item in (bindings.tool_refs or []) if item]
         limits: Dict[str, Any] = {
             "max_iterations": data.max_iterations,
             "max_tool_calls": data.max_tool_calls,
@@ -164,28 +145,20 @@ class AgentApplicationService:
             "runtime": "agent_runtime_v1",
             "planner": None,
             "system_prompt": data.system_prompt,
-            "model": {
-                "ref_key": bindings.model_ref,
-                "params": {"temperature": data.temperature} if data.temperature is not None else {},
-            },
-            "tools": {
-                "allowlist": tool_refs or None,
-                "configs": None,
-            },
+            "temperature": data.temperature,
             "bindings": {
                 "model_ref": bindings.model_ref,
-                "knowledge_refs": knowledge_refs or None,
-                "tool_refs": (bindings.tool_refs or None),
-                "workflow_refs": bindings.workflow_refs or None,
-                "skill_refs": bindings.skill_refs or None,
-                "plugin_refs": bindings.plugin_refs or None,
+                "knowledge_refs": self._normalize_ref_list(bindings.knowledge_refs),
+                "tool_refs": self._normalize_ref_list(bindings.tool_refs),
+                "workflow_refs": self._normalize_ref_list(bindings.workflow_refs),
+                "skill_refs": self._normalize_ref_list(bindings.skill_refs),
+                "plugin_refs": self._normalize_ref_list(bindings.plugin_refs),
             },
             "memory": {
                 "enabled": memory_enabled or None,
                 "type": data.memory_strategy,
                 "policy": memory_policy or None,
             },
-            "rag": {"knowledges": knowledge_refs} if knowledge_refs else None,
             "limits": limits,
             "policies": policies,
         }
@@ -201,7 +174,7 @@ class AgentApplicationService:
     ) -> None:
         spec = version.spec_json or {}
         binding_spec = spec.get("bindings") or {}
-        model_ref = binding_spec.get("model_ref") or ((spec.get("model") or {}).get("ref_key") if isinstance(spec.get("model"), dict) else None)
+        model_ref = binding_spec.get("model_ref")
         bindings_to_create: List[AgentBinding] = []
 
         if model_ref:
@@ -216,8 +189,8 @@ class AgentApplicationService:
             )
 
         binding_groups = [
-            ("tool", binding_spec.get("tool_refs") or (spec.get("tools") or {}).get("allowlist") or []),
-            ("knowledge", binding_spec.get("knowledge_refs") or (spec.get("rag") or {}).get("knowledges") or []),
+            ("tool", binding_spec.get("tool_refs") or []),
+            ("knowledge", binding_spec.get("knowledge_refs") or []),
             ("workflow", binding_spec.get("workflow_refs") or []),
             ("skill", binding_spec.get("skill_refs") or []),
             ("plugin", binding_spec.get("plugin_refs") or []),
@@ -242,9 +215,7 @@ class AgentApplicationService:
 
     def _request_from_version(self, version: AgentVersion, inputs: Dict[str, Any]) -> AgentRunRequest:
         spec = version.spec_json or {}
-        model_spec = spec.get("model") or {}
-        model_params = model_spec.get("params") or {} if isinstance(model_spec, dict) else {}
-        tool_refs = (spec.get("tools") or {}).get("allowlist")
+        binding_spec = spec.get("bindings") or {}
         memory_spec = spec.get("memory") or {}
         memory_policy = memory_spec.get("policy") or {} if isinstance(memory_spec, dict) else {}
         limits = spec.get("limits") or {}
@@ -257,8 +228,6 @@ class AgentApplicationService:
 
         payload = {
             "messages": messages,
-            "model": inputs.get("model") or model_spec.get("ref_key"),
-            "temperature": inputs.get("temperature", model_params.get("temperature")),
             "max_iterations": inputs.get("max_iterations", limits.get("max_iterations") or 8),
             "max_tool_calls": inputs.get("max_tool_calls", limits.get("max_tool_calls") or 8),
             "max_llm_calls": inputs.get("max_llm_calls", limits.get("max_llm_calls") or 16),
@@ -270,8 +239,6 @@ class AgentApplicationService:
             "max_tokens_total": inputs.get("max_tokens_total", limits.get("max_tokens")),
             "max_cost": inputs.get("max_cost", limits.get("budget")),
             "cost_currency": inputs.get("cost_currency", policies.get("cost_currency") or "USD"),
-            "tool_refs": inputs.get("tool_refs", tool_refs),
-            "knowledge_refs": inputs.get("knowledge_refs", (spec.get("rag") or {}).get("knowledges")),
             "rag_top_k": inputs.get("rag_top_k", 5),
             "rag_strategy": inputs.get("rag_strategy", "system_message"),
             "memory_query": inputs.get("memory_query"),
@@ -284,7 +251,8 @@ class AgentApplicationService:
             "thread_id": inputs.get("thread_id"),
             "thread_title": inputs.get("thread_title"),
         }
-        return AgentRunRequest.model_validate(payload)
+        return AgentRunRequest.model_validate(payload),
+        )
 
     def _build_runner(self) -> AgentService:
         return AgentService(
@@ -420,8 +388,7 @@ class AgentApplicationService:
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def create_version(self, agent_id: str, data: AgentVersionCreate) -> AgentVersion:
-        bindings = self._resolve_version_bindings(data)
-        spec = self._build_spec(data, bindings)
+        spec = self._build_spec(data)
         validate_runtime_spec("agent.v1", spec, raise_on_error=True)
         return self.versioning.create_draft(
             agent_id,

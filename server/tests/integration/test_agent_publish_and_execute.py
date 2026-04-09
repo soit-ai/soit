@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -47,6 +48,31 @@ class StubMemoryService:
         return [SimpleNamespace(memory=memory, score=0.9)]
 
 
+class CapturingRunner:
+    """Runner stub that captures the request passed by execute_agent."""
+
+    def __init__(self):
+        self.request = None
+
+    async def run(self, request, existing_run_id=None, response_id=None, event_emitter=None):
+        self.request = request
+        return {
+            "run_id": existing_run_id or "run_capture",
+            "output": "captured",
+            "model": request.model,
+            "iterations": 1,
+            "tokens_prompt": 0,
+            "tokens_completion": 0,
+            "finish_reason": "stop",
+            "tool_calls": 0,
+            "llm_calls": 1,
+            "failures": 0,
+            "budget_exceeded": False,
+            "budget_reason": None,
+            "cost_total": 0.0,
+        }
+
+
 @pytest.mark.asyncio
 async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
@@ -87,10 +113,21 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
         agent.id,
         AgentVersionCreate(
             system_prompt="You are precise.",
-            model_ref="model:test:primary",
             temperature=0.1,
-            tool_refs=["tool:test:echo"],
             bindings={
+                "model_ref": "model:test:primary",
+                "knowledge_refs": [
+                    "knowledge:test:support",
+                    "knowledge:test:support",
+                    "knowledge:test:faq",
+                    "knowledge:test:support",
+                ],
+                "tool_refs": [
+                    "tool:test:echo",
+                    "tool:test:echo",
+                    "tool:test:search",
+                    "tool:test:echo",
+                ],
                 "workflow_refs": ["wf:handoff"],
                 "skill_refs": ["skill:triage"],
                 "plugin_refs": ["plugin:soit:search:1.0.0"],
@@ -121,12 +158,30 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     response_events = response_event_repo.list_for_response(result["response_id"], limit=20, offset=0)
 
     assert published.published_version_id == version.id
+    assert published.default_model_ref == "model:test:primary"
+    assert version.spec_json["bindings"]["model_ref"] == "model:test:primary"
+    assert version.spec_json["bindings"]["knowledge_refs"] == [
+        "knowledge:test:support",
+        "knowledge:test:faq",
+    ]
+    assert version.spec_json["bindings"]["tool_refs"] == [
+        "tool:test:echo",
+        "tool:test:search",
+    ]
+    assert version.spec_json["temperature"] == 0.1
+    assert "model" not in version.spec_json
+    assert "tools" not in version.spec_json
+    assert "rag" not in version.spec_json
     assert any(binding.binding_type == "model" and binding.target_key == "model:test:primary" for binding in bindings)
-    assert any(binding.binding_type == "tool" and binding.target_key == "tool:test:echo" for binding in bindings)
+    knowledge_bindings = [binding.target_key for binding in bindings if binding.binding_type == "knowledge"]
+    tool_bindings = [binding.target_key for binding in bindings if binding.binding_type == "tool"]
+    assert knowledge_bindings == ["knowledge:test:support", "knowledge:test:faq"]
+    assert tool_bindings == ["tool:test:echo", "tool:test:search"]
     assert any(binding.binding_type == "workflow" and binding.target_key == "wf:handoff" for binding in bindings)
     assert any(binding.binding_type == "skill" and binding.target_key == "skill:triage" for binding in bindings)
     assert any(binding.binding_type == "plugin" and binding.target_key == "plugin:soit:search:1.0.0" for binding in bindings)
     assert result["output"] == "agent done"
+    assert result["model"] == "model:test:primary"
     assert result["response_id"].startswith("resp_")
     assert result["thread_id"].startswith("thr_")
     assert result["task_id"].startswith("task_")
@@ -208,9 +263,11 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
         agent.id,
         AgentVersionCreate(
             system_prompt="You are precise.",
-            model_ref="model:test:primary",
             temperature=0.1,
-            tool_refs=["tool:test:echo"],
+            bindings={
+                "model_ref": "model:test:primary",
+                "tool_refs": ["tool:test:echo"],
+            },
             memory_strategy="planner_only",
             memory_top_k=3,
             verify=True,
@@ -250,6 +307,52 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
 
 
 @pytest.mark.asyncio
+async def test_execute_agent_rejects_execution_override_keys_from_direct_service_call(db, tenant1_ctx: RequestContext):
+    service = AgentApplicationService(
+        db=db,
+        ctx=tenant1_ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=StubToolPort(),
+        memory_service=StubMemoryService(),
+    )
+
+    agent = await service.create_agent(
+        AgentCreate(
+            name="ops-agent-spec-wins",
+            description="Execution override contract test agent",
+            visibility="private",
+            tags=["ops"],
+        )
+    )
+    version = await service.create_version(
+        agent.id,
+        AgentVersionCreate(
+            system_prompt="You are precise.",
+            temperature=0.1,
+            bindings={
+                "model_ref": "model:test:primary",
+                "knowledge_refs": ["knowledge:test:support"],
+                "tool_refs": ["tool:test:echo"],
+            },
+            verify=True,
+        ),
+    )
+    await service.publish_version(agent.id, version.id)
+
+    with pytest.raises(PydanticValidationError, match="Execution overrides are not supported for"):
+        await service.execute_agent(
+            agent.id,
+            {
+                "messages": [{"role": "user", "content": "Run the task"}],
+                "model": "model:test:override",
+                "temperature": 0.9,
+                "tool_refs": ["tool:test:override"],
+                "knowledge_refs": ["knowledge:test:override"],
+            },
+        )
+
+
+@pytest.mark.asyncio
 async def test_execute_agent_requires_published_version(db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
         db=db,
@@ -271,7 +374,7 @@ async def test_execute_agent_requires_published_version(db, tenant1_ctx: Request
         agent.id,
         AgentVersionCreate(
             system_prompt="You are precise.",
-            model_ref="model:test:primary",
+            bindings={"model_ref": "model:test:primary"},
             verify=True,
         ),
     )

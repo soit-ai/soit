@@ -92,10 +92,10 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "You are precise.",
-                "model_ref": "model:test:primary",
-                "knowledge_refs": ["knowledge:kb_support"],
-                "tool_refs": ["tool:test:echo"],
                 "bindings": {
+                    "model_ref": "model:test:primary",
+                    "knowledge_refs": ["knowledge:kb_support"],
+                    "tool_refs": ["tool:test:echo"],
                     "workflow_refs": ["wf:handoff"],
                     "skill_refs": ["skill:triage"],
                     "plugin_refs": ["plugin:soit:search:1.0.0"],
@@ -223,8 +223,10 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use tools carefully.",
-                "model_ref": "model:test:primary",
-                "tool_refs": ["tool:test:echo"],
+                "bindings": {
+                    "model_ref": "model:test:primary",
+                    "tool_refs": ["tool:test:echo"],
+                },
                 "verify": True,
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -302,8 +304,10 @@ def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use tools carefully.",
-                "model_ref": "model:test:primary",
-                "tool_refs": ["mcp_tool:missing:list_prs"],
+                "bindings": {
+                    "model_ref": "model:test:primary",
+                    "tool_refs": ["mcp_tool:missing:list_prs"],
+                },
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -350,7 +354,11 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
 
         version1 = client.post(
             f"/api/v1/agents/{agent_id}/versions",
-            json={"system_prompt": "v1", "model_ref": "model:test:primary", "verify": True},
+            json={
+                "system_prompt": "v1",
+                "bindings": {"model_ref": "model:test:primary"},
+                "verify": True,
+            },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert version1.status_code == status.HTTP_201_CREATED
@@ -365,7 +373,11 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
 
         version2 = client.post(
             f"/api/v1/agents/{agent_id}/versions",
-            json={"system_prompt": "v2", "model_ref": "model:test:primary", "verify": True},
+            json={
+                "system_prompt": "v2",
+                "bindings": {"model_ref": "model:test:primary"},
+                "verify": True,
+            },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert version2.status_code == status.HTTP_201_CREATED
@@ -403,5 +415,63 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         assert release_items[1]["from_version_id"] == version1_id
         assert release_items[1]["to_version_id"] == version2_id
         assert release_items[1]["notes"] == "publish v2"
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        create_response = client.post(
+            "/api/v1/agents",
+            json={
+                "name": "api-agent-execute-contract",
+                "description": "Agent API execute contract test",
+                "visibility": "private",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "You are precise.",
+                "bindings": {"model_ref": "model:test:primary"},
+                "verify": True,
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version_id},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={
+                "messages": [{"role": "user", "content": "Execute now"}],
+                "model": "model:test:override",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert execute_response.status_code == status.HTTP_400_BAD_REQUEST
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)

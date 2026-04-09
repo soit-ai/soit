@@ -66,17 +66,42 @@ def test_workflow_spec_validation_minimal():
     assert validate_spec(wf_doc, "workflow_spec") is True
 
 
-def test_agent_spec_validation_with_structured_bindings():
+def test_agent_spec_validation_with_bindings_only_shape():
     agent_doc = {
         "runtime": "agent_runtime_v1",
-        "model": {"ref_key": "model:openai:gpt-4"},
+        "temperature": 0.1,
         "bindings": {
+            "model_ref": "model:openai:gpt-4",
+            "knowledge_refs": ["knowledge:kb_support"],
+            "tool_refs": ["tool:test:echo"],
             "workflow_refs": ["wf:handoff"],
             "skill_refs": ["skill:triage"],
             "plugin_refs": ["plugin:soit:search:1.0.0"],
         },
+        "policies": {"verify": True},
     }
+
     assert validate_spec(agent_doc, "agent_spec") is True
+
+
+@pytest.mark.parametrize(
+    "legacy_fragment",
+    [
+        {"model": {"ref_key": "model:openai:gpt-4"}},
+        {"model_ref": "model:openai:gpt-4"},
+        {"rag": {"knowledges": ["knowledge:kb_support"]}},
+    ],
+)
+def test_agent_spec_validation_rejects_legacy_binding_fragments(legacy_fragment):
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                "runtime": "agent_runtime_v1",
+                "bindings": {"model_ref": "model:openai:gpt-4"},
+                **legacy_fragment,
+            },
+            "agent_spec",
+        )
 
 
 def test_invalid_tool_spec_returns_rich_errors():

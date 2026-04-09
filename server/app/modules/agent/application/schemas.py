@@ -5,7 +5,7 @@ Agent domain schemas.
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 
 
 
@@ -103,7 +103,7 @@ class AgentCapabilityBindings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    model_ref: Optional[str] = None
+    model_ref: str
     knowledge_refs: Optional[List[str]] = None
     tool_refs: Optional[List[str]] = None
     workflow_refs: Optional[List[str]] = None
@@ -118,12 +118,6 @@ class AgentVersionCreate(BaseModel):
 
     system_prompt: Optional[str] = Field(default=None, max_length=8000)
     """System prompt."""
-
-    model_ref: Optional[str] = None
-    """Model reference."""
-
-    knowledge_refs: Optional[List[str]] = None
-    """Optional knowledge base refs bound into agent RAG config."""
 
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     """Temperature."""
@@ -152,16 +146,7 @@ class AgentVersionCreate(BaseModel):
     cost_currency: Optional[str] = None
     """Currency for max cost budget."""
 
-    tool_refs: Optional[List[str]] = None
-    """Optional allowed tool refs."""
-
-    workflow_refs: Optional[List[str]] = None
-    """Optional workflow refs bound into the agent capability set."""
-
-    skill_refs: Optional[List[str]] = None
-    """Optional skill refs bound into the agent capability set."""
-
-    bindings: Optional[AgentCapabilityBindings] = None
+    bindings: AgentCapabilityBindings
     """Unified capability binding input."""
 
     memory_strategy: Optional[str] = Field(
@@ -181,15 +166,6 @@ class AgentVersionCreate(BaseModel):
         pattern="^(respond|abort|continue)$",
     )
     """Failure handling strategy when max_failures is exceeded."""
-
-    @model_validator(mode="after")
-    def validate_model_ref(self) -> "AgentVersionCreate":
-        nested_model_ref = self.bindings.model_ref if self.bindings else None
-        if self.model_ref and nested_model_ref and self.model_ref != nested_model_ref:
-            raise ValueError("model_ref conflicts with bindings.model_ref")
-        if not (self.model_ref or nested_model_ref):
-            raise ValueError("model_ref or bindings.model_ref is required")
-        return self
 
 
 class AgentVersionResponse(BaseModel):
@@ -290,12 +266,6 @@ class AgentRunRequest(BaseModel):
     thread_title: Optional[str] = Field(default=None, max_length=512)
     """Optional title used when a new thread is created."""
 
-    model: Optional[str] = None
-    """Model reference."""
-
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    """Sampling temperature."""
-
     max_iterations: int = Field(default=8, ge=1, le=50)
     """Max planning iterations."""
 
@@ -319,12 +289,6 @@ class AgentRunRequest(BaseModel):
 
     cost_currency: str = Field(default="USD")
     """Currency for max cost budget."""
-
-    tool_refs: Optional[List[str]] = None
-    """Optional allowed tool refs."""
-
-    knowledge_refs: Optional[List[str]] = None
-    """Optional knowledge base refs for automatic RAG retrieval."""
 
     rag_top_k: int = Field(default=5, ge=1, le=50)
     """Number of chunks to retrieve per knowledge base."""

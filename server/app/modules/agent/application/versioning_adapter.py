@@ -73,10 +73,11 @@ class AgentVersioningAdapter(VersioningAdapter):
 
     def update_head(self, subject: Any, version: AgentVersion) -> Any:
         subject.current_version_id = version.id
-        if not subject.default_model_ref:
-            model_spec = version.spec_json.get("model") if isinstance(version.spec_json, dict) else None
-            if isinstance(model_spec, dict):
-                subject.default_model_ref = model_spec.get("ref_key")
+        if isinstance(version.spec_json, dict):
+            bindings = version.spec_json.get("bindings") or {}
+            model_ref = bindings.get("model_ref") if isinstance(bindings, dict) else None
+            if model_ref:
+                subject.default_model_ref = model_ref
         return self.agent_repo.update(subject)
 
     def update_live(self, subject: Any, version: AgentVersion) -> Any:
