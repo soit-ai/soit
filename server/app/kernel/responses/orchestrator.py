@@ -374,6 +374,3 @@ class ResponseProjectionCoordinator:
                 )
             raise
 
-
-# Backward-compatible alias while the codebase migrates to projection-layer naming.
-ResponseOrchestrator = ResponseProjectionCoordinator

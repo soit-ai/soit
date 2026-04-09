@@ -1,4 +1,8 @@
 const translation = {
+  app: {
+    name: "SOIT智能体",
+    repo: "SOIT 仓库",
+  },
   api: {
     success: '成功',
     actionSuccess: '操作成功',

@@ -184,7 +184,7 @@ export const RootHeader = () => {
       <div className="flex flex-row items-center">
         {/* <SidebarTrigger className="-ml-1 text-foreground/80" /> */}
         {/* <Separator orientation="vertical" className="mx-3 h-5 bg-border/70" /> */}
-        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-foreground/255">{t('app.name')}</div>
+        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-foreground/255">{t('common.app.name')}</div>
         <a
           href="https://github.com/soit-ai/soit"
           target="_blank"

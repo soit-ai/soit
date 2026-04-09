@@ -20,8 +20,6 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
     const resources = {
       translation: {
         agent: (await import(`./${lang}/agent.ts`)).default,
-        // Keep the legacy namespace for translation-key compatibility while the copy stays agent-centered.
-        app: (await import(`./${lang}/app.ts`)).default,
         chat: (await import(`./${lang}/chat.ts`)).default,
         common: (await import(`./${lang}/common.ts`)).default,
         knowledge: (await import(`./${lang}/knowledge.ts`)).default,

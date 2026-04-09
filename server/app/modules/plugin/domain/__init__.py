@@ -1,1 +1,1 @@
-"""Plugin domain compatibility surface."""
+"""Plugin domain package."""

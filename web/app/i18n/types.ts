@@ -2,8 +2,6 @@ import { LanguagesArr } from './language'
 
 // Define types for all translation files
 type TranslationKeys = {
-  // Retained for translation-key compatibility. User-visible copy should stay agent-centered.
-  app: typeof import('./en-US/app').default
   agent: typeof import('./en-US/agent').default
   common: typeof import('./en-US/common').default
   layout: typeof import('./en-US/layout').default

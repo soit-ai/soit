@@ -29,6 +29,8 @@ class PluginCreate(BaseModel):
 
 class PluginUpdate(BaseModel):
     """Plugin update schema."""
+
+    model_config = ConfigDict(extra="forbid")
     
     description: Optional[str] = None
     """Plugin description."""
@@ -44,9 +46,6 @@ class PluginUpdate(BaseModel):
 
     publish_status: Optional[str] = None
     """Publish lifecycle status (draft/published/archived)."""
-
-    published: Optional[bool] = None
-    """Compatibility alias for publish_status."""
 
 
 class PluginInstallRequest(BaseModel):
@@ -67,7 +66,6 @@ class PluginResponse(BaseModel):
     manifest_json: Optional[Dict[str, Any]] = None
     metadata_json: Optional[Dict[str, Any]] = None
     publish_status: str
-    published: bool
     installed_count: int
     installed: bool = False
     enabled: Optional[bool] = None

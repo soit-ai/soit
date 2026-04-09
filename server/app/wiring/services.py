@@ -19,7 +19,7 @@ from app.kernel.contracts.context import RequestContext
 from app.settings.settings import settings
 from app.kernel.runtime.core.service import RuntimeCoreService
 from app.kernel.responses.repository import ResponseEventRepository, ResponseRepository
-from app.kernel.responses.orchestrator import ResponseOrchestrator, ResponseProjectionCoordinator
+from app.kernel.responses.orchestrator import ResponseProjectionCoordinator
 from app.kernel.responses.service import ResponseService
 
 # Knowledge runtime backend backed by the internal knowledge storage layer
@@ -364,7 +364,3 @@ def build_response_projection_coordinator(*, db: Session, ctx: RequestContext) -
     )
 
 
-def build_response_orchestrator(*, db: Session, ctx: RequestContext) -> ResponseOrchestrator:
-    """Backward-compatible alias for the response projection coordinator factory."""
-
-    return build_response_projection_coordinator(db=db, ctx=ctx)

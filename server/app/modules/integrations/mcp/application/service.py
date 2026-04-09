@@ -52,12 +52,6 @@ class MCPService:
         selector = server.name or server.id
         return f"mcp_server:{selector}"
 
-    def _server_ref_aliases(self, server: MCPServer) -> set[str]:
-        aliases = {self.build_server_ref(server), f"mcp_server:{server.id}"}
-        if server.name:
-            aliases.add(f"mcp_server:{server.name}")
-        return aliases
-
     def _capability_key(self, item: dict, *, fallback_fields: tuple[str, ...]) -> str | None:
         for field in fallback_fields:
             value = item.get(field)
@@ -66,13 +60,6 @@ class MCPService:
                 if normalized:
                     return normalized
         return None
-
-    def _binding_ref_aliases(self, prefix: str, server: MCPServer, capability_key: str) -> set[str]:
-        aliases = {
-            f"{prefix}:{server.id}:{capability_key}",
-            f"{prefix}:{server.name}:{capability_key}",
-        }
-        return {alias for alias in aliases if alias}
 
     def _binding_target(
         self,
@@ -87,13 +74,10 @@ class MCPService:
     ) -> dict:
         server_ref = self.build_server_ref(server)
         binding_ref = server_ref
-        aliases = list(self._server_ref_aliases(server))
         if binding_type == "mcp_tool" and capability_key:
             binding_ref = f"mcp_tool:{server.name}:{capability_key}"
-            aliases = list(self._binding_ref_aliases("mcp_tool", server, capability_key))
         elif binding_type == "mcp_resource" and capability_key:
             binding_ref = f"mcp_resource:{server.name}:{capability_key}"
-            aliases = list(self._binding_ref_aliases("mcp_resource", server, capability_key))
         return {
             "binding_type": binding_type,
             "binding_ref": binding_ref,
@@ -105,7 +89,6 @@ class MCPService:
             "description": description,
             "uri": uri,
             "metadata_json": metadata_json or {},
-            "_aliases": aliases,
         }
 
     def _normalize_catalog_entry(self, server: MCPServer, category: str, item: dict) -> dict:
@@ -171,10 +154,8 @@ class MCPService:
         index: dict[str, dict] = {}
         for server in servers:
             for target in self._server_binding_targets(server):
-                aliases = target.pop("_aliases", [])
                 resolved = dict(target)
-                for alias in aliases:
-                    index[alias] = resolved
+                index[target["binding_ref"]] = resolved
         return index
 
     @workspace_guard("write")
@@ -271,7 +252,6 @@ class MCPService:
         targets: list[dict] = []
         for server in servers:
             for target in self._server_binding_targets(server):
-                target.pop("_aliases", None)
                 targets.append(target)
         return targets
 

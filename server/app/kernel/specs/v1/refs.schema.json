@@ -80,17 +80,17 @@
     "MCPServerRef": {
       "type": "string",
       "pattern": "^mcp_server:[A-Za-z0-9_.:-]+$",
-      "description": "MCP server reference. Format: mcp_server:{server_id_or_key}"
+      "description": "MCP server reference. Format: mcp_server:{server_name}"
     },
     "MCPToolRef": {
       "type": "string",
       "pattern": "^mcp_tool:[A-Za-z0-9_.:-]+$",
-      "description": "MCP tool reference. Format: mcp_tool:{server_or_catalog_key}"
+      "description": "MCP tool reference. Format: mcp_tool:{server_name}:{tool_name}"
     },
     "MCPResourceRef": {
       "type": "string",
       "pattern": "^mcp_resource:[A-Za-z0-9_.:-]+$",
-      "description": "MCP resource reference. Format: mcp_resource:{server_or_catalog_key}"
+      "description": "MCP resource reference. Format: mcp_resource:{server_name}:{resource_name}"
     }
   },
   "$comment": "SOIT kernel spec schema (v1)."

@@ -35,7 +35,6 @@ class PluginHandlers:
                 "manifest_json": plugin.manifest_json,
                 "metadata_json": plugin.metadata_json,
                 "publish_status": self.service.publish_status_for(plugin),
-                "published": bool(plugin.published),
                 "installed_count": plugin.installed_count,
                 "installed": installation is not None,
                 "enabled": None,

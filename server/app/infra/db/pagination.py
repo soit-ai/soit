@@ -188,9 +188,6 @@ class CursorToken(BaseModel):
     cursor_id: Optional[str] = None
     """ID at cursor position (for tie-breaking)."""
 
-    offset: Optional[int] = None
-    """Fallback offset for legacy compatibility."""
-
     @classmethod
     def from_string(cls, token_str: str) -> "CursorToken":
         """Parse cursor token from base64-encoded JSON string.
@@ -227,7 +224,6 @@ def encode_cursor_token(
     limit: int,
     cursor_at: Optional[datetime] = None,
     cursor_id: Optional[str] = None,
-    offset: Optional[int] = None,
 ) -> Optional[str]:
     """Encode cursor pagination token.
 
@@ -236,12 +232,11 @@ def encode_cursor_token(
         limit: Page size.
         cursor_at: Cursor timestamp (for time-ordered pagination).
         cursor_id: Cursor ID (for tie-breaking).
-        offset: Fallback offset (for legacy compatibility).
 
     Returns:
         Base64-encoded token, or None if no cursor data.
     """
-    if not cursor_at and not cursor_id and offset is None:
+    if not cursor_at and not cursor_id:
         return None
 
     token = CursorToken(
@@ -249,7 +244,6 @@ def encode_cursor_token(
         limit=limit,
         cursor_at=cursor_at.isoformat() if cursor_at else None,
         cursor_id=cursor_id,
-        offset=offset,
     )
     return token.to_string()
 
@@ -259,7 +253,7 @@ def decode_cursor_token(
     expected_scope: str,
     default_limit: int = 20,
     max_limit: int = 100,
-) -> tuple[int, Optional[datetime], Optional[str], int]:
+) -> tuple[int, Optional[datetime], Optional[str]]:
     """Decode cursor pagination token.
 
     Args:
@@ -269,21 +263,20 @@ def decode_cursor_token(
         max_limit: Maximum allowed page size.
 
     Returns:
-        Tuple of (limit, cursor_at, cursor_id, offset).
+        Tuple of (limit, cursor_at, cursor_id).
         - limit: Clamped page size.
         - cursor_at: Cursor timestamp (None if not present).
         - cursor_id: Cursor ID (None if not present).
-        - offset: Fallback offset (0 if not present).
     """
     if not token_str:
-        return clamp_page_size(default_limit, max_limit), None, None, 0
+        return clamp_page_size(default_limit, max_limit), None, None
 
     try:
         token = CursorToken.from_string(token_str)
 
         # Verify scope matches
         if token.scope != expected_scope:
-            return clamp_page_size(default_limit, max_limit), None, None, 0
+            return clamp_page_size(default_limit, max_limit), None, None
 
         # Parse limit
         limit = clamp_page_size(token.limit, max_limit)
@@ -299,14 +292,14 @@ def decode_cursor_token(
         # Parse cursor_id
         cursor_id = token.cursor_id
 
-        # Parse offset (fallback)
-        offset = max(int(token.offset or 0), 0)
+        if cursor_at is None and cursor_id is None:
+            return clamp_page_size(default_limit, max_limit), None, None
 
-        return limit, cursor_at, cursor_id, offset
+        return limit, cursor_at, cursor_id
 
     except (ValueError, TypeError):
         # Invalid token, return defaults
-        return clamp_page_size(default_limit, max_limit), None, None, 0
+        return clamp_page_size(default_limit, max_limit), None, None
 
 
 def clamp_page_size(size: int, max_size: int = 100, min_size: int = 1) -> int:

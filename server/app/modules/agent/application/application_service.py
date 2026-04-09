@@ -131,7 +131,7 @@ class AgentApplicationService:
             tool_refs=self._merge_ref_lists(explicit.tool_refs, data.tool_refs) or None,
             workflow_refs=self._merge_ref_lists(explicit.workflow_refs, data.workflow_refs) or None,
             skill_refs=self._merge_ref_lists(explicit.skill_refs, data.skill_refs) or None,
-            plugin_refs=self._merge_ref_lists(explicit.plugin_refs, data.plugin_refs) or None,
+            plugin_refs=self._merge_ref_lists(explicit.plugin_refs) or None,
         )
 
     def _build_spec(

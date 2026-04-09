@@ -368,7 +368,7 @@ export function BoxSidebar({
       <Sidebar className="hidden flex-1 md:flex" {...props}>
         <SidebarHeader className="mt-2">
           <div className="flex flex-1 h-full w-full items-center justify-between px-2">
-            <BoxHeader title={t('app.name')} subtitle={'Soit'} icon={<Sparkles />} iconType={'icon'} />
+            <BoxHeader title={t('common.app.name')} subtitle={'Soit'} icon={<Sparkles />} iconType={'icon'} />
             {/* <Label className="flex items-center gap-2 text-sm">
                 <span>Unreads</span>
               </Label> */}

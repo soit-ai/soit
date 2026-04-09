@@ -108,8 +108,7 @@ class AgentCapabilityBindings(BaseModel):
     tool_refs: Optional[List[str]] = None
     workflow_refs: Optional[List[str]] = None
     skill_refs: Optional[List[str]] = None
-    plugin_refs: Optional[List[str]] = Field(default=None, deprecated=True)
-    """Deprecated: plugin refs are now merged into tool_refs."""
+    plugin_refs: Optional[List[str]] = None
 
 
 class AgentVersionCreate(BaseModel):
@@ -162,11 +161,8 @@ class AgentVersionCreate(BaseModel):
     skill_refs: Optional[List[str]] = None
     """Optional skill refs bound into the agent capability set."""
 
-    plugin_refs: Optional[List[str]] = Field(default=None, deprecated=True)
-    """Deprecated: plugin refs are now merged into tool_refs."""
-
     bindings: Optional[AgentCapabilityBindings] = None
-    """Unified capability binding input. Legacy top-level refs remain supported."""
+    """Unified capability binding input."""
 
     memory_strategy: Optional[str] = Field(
         default=None,

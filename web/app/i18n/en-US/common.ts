@@ -1,4 +1,8 @@
 const translation = {
+  app: {
+    name: "SOIT Agent",
+    repo: "SOIT Repository",
+  },
   api: {
     success: 'Success',
     actionSuccess: 'Action succeeded',

@@ -17,7 +17,7 @@ function Page() {
   // 产品版本信息
   const appVersion = "1.0.0"
   const lastUpdated = "2025-05-30"
-  const appName = t('app.name')
+  const appName = t('common.app.name')
   
   // 团队成员信息
   const teamMembers = [

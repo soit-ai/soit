@@ -1,1 +1,1 @@
-"""Plugin infra compatibility surface."""
+"""Plugin infrastructure package."""

@@ -21,21 +21,6 @@ class PlanResult:
     tokens_completion: int
     finish_reason: Optional[str]
 
-    # TODO(task-7): remove these compat properties after service.py rewrite
-    @property
-    def tool_ref(self) -> Optional[str]:
-        """Backward compat: first tool call name."""
-        if self.tool_calls:
-            return self.tool_calls[0].name
-        return None
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        """Backward compat: first tool call arguments."""
-        if self.tool_calls:
-            return self.tool_calls[0].arguments
-        return {}
-
 
 class AgentPlanner:
     """LLM-based planner for agent steps using native function calling."""

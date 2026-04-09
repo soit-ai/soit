@@ -8,12 +8,11 @@ from app.modules.modelhub.application.service import ModelHubService
 from app.modules.plugin.application.service import PluginService
 
 
-def test_plugin_publish_status_compatibility_helpers():
+def test_plugin_publish_status_helpers():
     assert PluginService.publish_status_for(SimpleNamespace(published=False)) == "draft"
     assert PluginService.publish_status_for(SimpleNamespace(published=True)) == "published"
     assert PluginService.resolve_published_flag(publish_status="published", current=False) is True
     assert PluginService.resolve_published_flag(publish_status="draft", current=True) is False
-    assert PluginService.resolve_published_flag(published=True, current=False) is True
 
 
 def test_modelhub_service_status_normalizers():
