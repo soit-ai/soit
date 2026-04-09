@@ -166,6 +166,7 @@ Canonical shape:
   "runtime": "agent_runtime_v1",
   "planner": null,
   "system_prompt": "...",
+  "temperature": 0.1,
   "bindings": {
     "model_ref": "model:openai:gpt-5.1",
     "knowledge_refs": ["knowledge:kb_support"],
@@ -208,6 +209,8 @@ The following structures are no longer part of the canonical spec contract for a
 
 If similar runtime views are needed internally, they must be derived in memory from `bindings` and must not be persisted as separate truth sources.
 
+`temperature` remains a first-class execution configuration value, but it is no longer stored under `model.params` because the `model` object is no longer part of the canonical binding contract.
+
 ## 7. Runtime Resolution
 
 ### 7.1 Version creation
@@ -227,6 +230,7 @@ It does not:
 Derived mapping:
 
 - request `model` <- `bindings.model_ref`
+- request `temperature` <- `spec.temperature`
 - request `tool_refs` <- `bindings.tool_refs`
 - request `knowledge_refs` <- `bindings.knowledge_refs`
 

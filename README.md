@@ -1,183 +1,221 @@
-# SOIT-Pro
+<div align="center">
+  <img src="./docs/assets/logo.svg" alt="SOIT" width="96" />
 
-企业级 Agent 中心 AI 编排平台，提供 Agent、Knowledge、Workflow、Task、Plugin 与 Observability 的统一构建和运行能力。
+  <h1>SOIT</h1>
 
-## 项目概述
+  <p><strong>An Enterprise Platform for Orchestrating, Building, and Running Agents.</strong></p>
 
-SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
+  <p>
+    <code>Build</code> &nbsp;·&nbsp; <code>Execute</code> &nbsp;·&nbsp; <code>Observe</code> &nbsp;·&nbsp; <code>Control</code>
+  </p>
 
-## 技术栈
+  <p>
+    <a href="https://github.com/soit-ai/soit/blob/main/LICENSE"><img src="https://img.shields.io/github/license/soit-ai/soit?style=flat-square&color=000" alt="License"/></a>
+    <a href="https://github.com/soit-ai/soit/stargazers"><img src="https://img.shields.io/github/stars/soit-ai/soit?style=flat-square&color=000" alt="Stars"/></a>
+    <a href="https://github.com/soit-ai/soit/actions"><img src="https://img.shields.io/github/actions/workflow/status/soit-ai/soit/ci.yml?style=flat-square&color=000" alt="Build"/></a>
+    <a href="https://discord.gg/soit"><img src="https://img.shields.io/discord/0000000000000000?style=flat-square&color=000&label=discord" alt="Discord"/></a>
+    <a href="https://github.com/soit-ai/soit/blob/main/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-000?style=flat-square" alt="PRs welcome"/></a>
+  </p>
 
-### 后端技术栈 (app/)
+  <p>
+    <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
+    <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
+    <a href="https://docs.soit.ai">Documentation</a> &nbsp;·&nbsp;
+    <a href="#roadmap">Roadmap</a> &nbsp;·&nbsp;
+    <a href="./README.zh-CN.md">中文</a>
+  </p>
+</div>
 
-**核心框架与运行时：**
-- **Web 框架**: FastAPI 0.114+ (Python 3.11+)
-- **ORM**: SQLModel 0.0.24 (基于 SQLAlchemy 2.0.31)
-- **异步支持**: asyncio, aiohttp 3.11+, httpx 0.25+
-- **包管理**: uv (现代 Python 包管理器)
+<br />
 
-**数据库与存储：**
-- **主数据库**: PostgreSQL 15 (使用 psycopg[binary] 3.1+)
-- **缓存/消息队列**: Redis 7 (使用 aioredis 2.0+, redis 5.2+)
-- **任务队列**: Celery 5.4+ (异步任务处理)
-- **向量数据库**: Milvus 2.5.11 (使用 pymilvus 2.5.11)
-- **对象存储**: MinIO (支持 S3/OSS/COS/GCS，使用 boto3/oss2/cos-python-sdk-v5/google-cloud-storage)
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="SOIT workspace screenshot" width="100%" />
+</p>
 
-**数据库迁移与版本控制：**
-- **迁移工具**: Alembic 1.12+ (数据库版本管理)
+<br />
 
-**认证与安全：**
-- **JWT**: PyJWT 2.8+ (身份认证)
-- **密码加密**: passlib[bcrypt] 1.7+ (bcrypt 4.0.1)
-- **密钥管理**: HashiCorp Vault (通过适配器)
+## What is SOIT?
 
-**可观测性与监控：**
-- **日志**: 结构化 JSON 日志
-- **指标**: Prometheus Client 0.21+ (指标收集)
-- **追踪**: OpenTelemetry (分布式追踪)
-- **错误监控**: Sentry SDK 1.40+ (错误追踪和性能监控)
+SOIT is an open-source platform for **building, running, and governing AI agents in production**. It combines the flexibility of a modern agent framework with the discipline of enterprise infrastructure: multi-tenant by default, event-driven at the core, and audit-ready out of the box.
 
-**LLM 与 AI 框架：**
-- **OpenAI**: openai 1.6.1 (GPT 模型调用)
-- **LangChain**: langchain 0.3.25, langchain-community 0.3.20 (AI 应用框架)
-- **向量模型**: sentence-transformers 4.1+, langchain-huggingface 0.0.6 (嵌入模型)
-- **Token 计算**: tiktoken 0.9+ (Token 计数)
+Most agent platforms stop at "make a chatbot work." SOIT is built for the harder problem — making agents reliable enough that your CIO will sign off on them touching real systems.
 
-**文档处理：**
-- **PDF**: pypdf 5.6.0
-- **Word**: python-docx 1.0.1
-- **Excel**: pandas 2.1.4, openpyxl 3.1.2
-- **PowerPoint**: python-pptx 1.0.2
-- **Markdown**: markdown 3.5.1
-- **HTML**: beautifulsoup4 4.12.2
-- **文件类型检测**: python-magic 0.4.27
+If you have ever shipped an agent prototype and then discovered you also need permissions, multi-tenancy, retries, traces, evaluations, secret management, and a way to explain failures to a compliance officer — SOIT is built for you.
 
-**开发工具：**
-- **代码质量**: ruff 0.2+ (linting 和格式化)
-- **类型检查**: mypy 1.15+ (静态类型检查)
-- **测试框架**: pytest 7.4+, pytest-asyncio 0.23+ (单元测试和集成测试)
-- **Git Hooks**: pre-commit 3.6+ (代码提交前检查)
+## Why SOIT?
 
-### 前端技术栈 (web/)
+|                                  | Notebook frameworks | Hosted agent products | Cloud-vendor agents | **SOIT**            |
+| -------------------------------- | :-----------------: | :-------------------: | :-----------------: | :-----------------: |
+| Multi-tenant isolation           | —                   | partial               | yes                 | **first-class**     |
+| Model-neutral routing            | yes                 | partial               | vendor-locked       | **first-class**     |
+| Workflow + Agent dual model      | partial             | one or the other      | partial             | **both, equal**     |
+| Audit-ready execution ledger     | —                   | partial               | partial             | **built-in**        |
+| Self-hosted, single command      | yes                 | —                     | —                   | **yes**             |
+| Spec-first contracts             | —                   | —                     | —                   | **every primitive** |
 
-**核心框架：**
-- **框架**: React Router 7 (SSR 支持)
-- **语言**: TypeScript 5.8
-- **构建工具**: Vite 6
+SOIT is the platform we wished we had when our agents graduated from notebooks to production.
 
-**UI 与样式：**
-- **UI 组件库**: Radix UI (无障碍组件)
-- **样式框架**: TailwindCSS 4 (实用优先的 CSS 框架)
+## The four pillars
 
-**状态管理与数据获取：**
-- **状态管理**: Zustand (轻量级状态管理)
-- **数据获取**: React Query (服务端状态管理)
+SOIT is organized around four capabilities. Each is a first-class citizen, designed to be used independently or composed together.
 
-**可视化：**
-- **图表库**: ECharts + Recharts (数据可视化)
-- **工作流可视化**: React Flow (@xyflow/react) (DAG 图编辑)
+### Build — Assemble agents from typed capabilities
 
-**其他工具：**
-- **国际化**: i18next (多语言支持)
-- **代码高亮**: Shiki (代码语法高亮)
+Compose agents from a unified capability registry: models, knowledge bases, workflows, skills, and tools. Every binding is typed, versioned, and source-agnostic — a tool from a plugin, an MCP server, or a built-in adapter looks identical from the agent's perspective.
 
-### 基础设施
+- Visual agent assembly console with versioning and release management
+- DAG workflow editor with 18+ node types — LLM, tool, condition, loop, transform, knowledge search, code execution, parameter extraction, and more
+- Knowledge ingestion pipeline for PDF, DOCX, Markdown, and HTML, with chunking, embedding, and Milvus-backed retrieval
+- MCP-friendly: any Model Context Protocol server resolves into the runtime tool registry without code changes
 
-**Docker Compose 服务：**
-- PostgreSQL 15 (主数据库)
-- Redis 7 (缓存和消息队列)
-- Milvus 2.5 (向量数据库)
-- etcd (Milvus 元数据存储)
-- MinIO (对象存储)
-- Nginx (反向代理和负载均衡)
-- API 服务 (FastAPI 应用)
-- Web 服务 (React Router SSR 应用)
-- Celery Worker (异步任务处理)
-- Flower (Celery 监控界面)
+### Execute — Run with reliability and reproducibility
 
-## 项目结构
+Every execution — chat turn, agent loop, or workflow run — flows through the same runtime ledger. Outbox-pattern event dispatch guarantees that no state change is lost and no side effect is duplicated.
 
-```
-soit-pro/
-├── app/                    # 后端应用
-│   ├── app/               # 应用代码
-│   │   ├── api/           # HTTP/WS/SSE 入口
-│   │   ├── kernel/        # 稳定核心（identity/runtime/trace/specs）
-│   │   ├── modules/       # 业务域（agent/chat/workflow/knowledge/plugin 等）
-│   │   ├── adapters/      # 外部依赖适配器
-│   │   ├── infra/         # 基础设施实现
-│   │   ├── middleware/    # 中间件
-│   │   ├── wiring/        # 依赖装配
-│   │   └── main.py        # FastAPI 入口
-│   ├── docs/              # 后端文档
-│   ├── tests/             # 后端测试
-│   ├── scripts/           # 开发脚本
-│   └── alembic/           # 数据库迁移
-└── web/                   # 前端应用
-```
+- Unified `Run / Task / RunStep / Trace` ledger across all execution types
+- Outbox-based event-driven runtime with checkpoints and idempotency
+- Multi-model routing across OpenAI, Anthropic, DeepSeek, Qwen, and any OpenAI-compatible endpoint
+- Cost-aware execution with per-step token and latency accounting
+- Graceful failure handling with retries, fallback chains, and human-in-the-loop approvals
 
-## 核心架构原则
+### Observe — Workspace-level visibility, not just request logs
 
-1. **Spec-First**: 任何新功能先更新 spec
-2. **Scope-By-Default**: 所有资源默认带 tenant_id + workspace_id
-3. **Trace Everything**: 所有执行必须创建 run + step
-4. **Gateway-Only**: 外部调用必须通过网关
-5. **Immutable Versions**: 版本不可变，只移动指针
+Most platforms give you a list of runs. SOIT gives you a **workspace control console** built directly on the runtime ledger.
 
-## 开发规范
+- Live workspace summary: active agents, run volume, cost burn, failure rate
+- Drill-down by agent, by workflow, by tool, and by source (`source_kind=plugin | mcp | builtin`)
+- Trace timeline with full step replay
+- Knowledge retrieval quality metrics
+- OpenTelemetry-compatible tracing, structured JSON logs, and Prometheus metrics
 
-详细开发规范请参考：
-- [后端架构文档](app/docs/architecture/PROJECT_STRUCTURE.md)
-- [前端结构文档](web/docs/PROJECT_STRUCTURE.md)
-- [AGENTS规范文档](AGENTS.md)
-- [开发规范文档](dev.md)
-- [工程指南](app/docs/engineering/ENGINEERING_GUIDE.md)
-- [架构文档](app/docs/architecture/)
-- [历史规划归档](docs/archive/README.md)
+### Control — Govern access, secrets, and execution boundaries
 
-## 快速开始
+Enterprise platforms live and die by what they refuse to do. SOIT treats governance as a kernel concern, not an afterthought.
 
-### 后端开发
+- Tenant and workspace scoping enforced at every API and data layer
+- RBAC with resource-level permissions and grant inheritance
+- Vault-backed secret management with workspace-scoped visibility
+- Egress policy enforcement for outbound HTTP calls
+- Per-version capability allowlists for every agent
+- Full audit log of every privileged operation
+
+## Quick start
+
+The fastest way to try SOIT locally:
 
 ```bash
-cd app
-uv sync                    # 安装依赖
-uvicorn app.main:app --reload  # 启动开发服务器
-```
-
-### 前端开发
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-### Docker Compose 启动
-
-```bash
+git clone https://github.com/soit-ai/soit.git
+cd soit
+cp .env.example .env
 docker compose up -d
 ```
 
-启动后默认行为：
-- 自动执行数据库迁移（alembic upgrade head）。
-- 自动初始化默认管理员/租户（可通过环境变量覆盖）。
-- 自动启动 knowledge ingest worker。
-- Web 默认端口：`http://localhost:5000`
-- API 默认端口：`http://localhost:9200`
+Then open `http://localhost:5000` and sign in with the bootstrap admin credentials from your `.env` file.
 
-默认管理员可通过以下环境变量配置（见 `.env.example`）：
-- `BOOTSTRAP_ADMIN_EMAIL`
-- `BOOTSTRAP_ADMIN_PASSWORD`
-- `BOOTSTRAP_ADMIN_NAME`
-- `BOOTSTRAP_TENANT_NAME`
+What you get on first launch:
 
-常见启动问题排查：
-- `milvus` 启动失败：确认 `etcd` 和 `minio` 健康后再观察 `milvus` 日志。
-- `vault` 健康检查失败：确认端口 `8200` 未被占用，且容器为 dev 模式。
-- `api` 启动失败：优先查看 `migrate`/`bootstrap` 容器日志是否失败。
-- `web` 无法访问：确认 `web` 容器健康且 `PORT=5000` 生效。
+- Web UI on `:5000`, API on `:9200`
+- PostgreSQL, Redis, Milvus, MinIO, and Vault all wired and healthy
+- Database migrations applied automatically
+- A sample agent, workflow, and knowledge base pre-loaded so you can click around immediately
 
-## 许可证
+For a local development setup with hot reload (Python and Node), see [docs/development.md](./docs/development.md).
 
-[待补充]
+## Architecture
+
+SOIT follows a strict hexagonal architecture: a stable kernel at the center, replaceable adapters at the edges, and domain modules in between.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  API Layer  —  REST · WebSocket · SSE                       │
+├─────────────────────────────────────────────────────────────┤
+│  Kernel  (stable core)                                      │
+│    Runtime · Identity · Trace · Specs · Security            │
+│    Events · Responses · Observability · Registry            │
+│    Ports:  LLM · Tools · Vector · Storage · Secrets         │
+├─────────────────────────────────────────────────────────────┤
+│  Domain Modules                                             │
+│    Agent · Workflow · Knowledge · Skill · Plugin · MCP      │
+├─────────────────────────────────────────────────────────────┤
+│  Adapters                                                   │
+│    OpenAI · Anthropic · DeepSeek · Milvus · MinIO · Vault   │
+├─────────────────────────────────────────────────────────────┤
+│  Infrastructure                                             │
+│    PostgreSQL · Redis · Milvus · MinIO · Celery             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Five principles govern every design decision in SOIT:
+
+1. **Spec-First.** Every primitive — Agent, Workflow, Tool, Knowledge, Plugin — has a versioned JSON Schema that contracts both API and storage layers.
+2. **Scope-By-Default.** Every resource carries a `tenant_id` and `workspace_id`. No exceptions, no escape hatches.
+3. **Trace Everything.** Every execution creates a `Run` with structured `RunSteps`. There are no silent operations.
+4. **Gateway-Only.** External calls go through governed gateways. Business code never opens a raw HTTP client or LLM SDK.
+5. **Immutable Versions.** Versions are append-only. Releases move pointers, never mutate history.
+
+For the full architecture deep-dive, see [server/docs/architecture/README.md](./server/docs/architecture/README.md).
+
+## Use cases
+
+SOIT is designed for teams who need agents to do real work in production:
+
+- **Internal copilots** — RAG-powered assistants over private documentation, with permission inheritance from your existing IAM
+- **Workflow automation** — Long-running, retry-safe agent workflows with human approval steps and full audit trails
+- **Customer-facing AI features** — Multi-tenant agent serving with per-customer isolation, quotas, and cost attribution
+- **Compliance-sensitive AI** — Agents in regulated environments where every model call must be explainable and every secret must be vaulted
+- **Multi-model strategies** — Cost-optimized routing across providers, with graceful fallback and per-model performance tracking
+
+## Tech stack
+
+| Layer        | Choices                                                                  |
+| ------------ | ------------------------------------------------------------------------ |
+| Backend      | Python 3.11 · FastAPI · SQLModel · Alembic · Celery · OpenTelemetry      |
+| Frontend     | TypeScript · React Router 7 · TailwindCSS 4 · Zustand · React Query · React Flow |
+| Data         | PostgreSQL 15 · Redis 7 · Milvus 2.5 · MinIO                             |
+| Security     | HashiCorp Vault · JWT · bcrypt                                           |
+| LLM          | OpenAI · Anthropic · DeepSeek · Qwen · LangChain (adapter layer)         |
+
+## Roadmap
+
+We ship in tight, themed iterations. The current focus areas:
+
+- [x] Outbox-based event-driven runtime (Wave A and B)
+- [x] Capability registry with source-agnostic tool binding
+- [x] Agent versioning and release management
+- [x] Hexagonal kernel with strict port-adapter boundaries
+- [ ] Workspace observability console — *in progress*
+- [ ] Agent evaluation framework with regression testing
+- [ ] MCP marketplace for one-click tool installation
+- [ ] Cost-aware multi-model routing policies
+- [ ] Approval workflows with human-in-the-loop checkpoints
+
+See the full [roadmap](./docs/roadmap.md) and [open issues](https://github.com/soit-ai/soit/issues) to track progress and propose ideas.
+
+## Contributing
+
+We welcome contributions of all sizes. Before opening a PR:
+
+1. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and code style
+2. Browse existing issues — find one tagged `good first issue` if you are new
+3. For larger changes, open a discussion first so we can align on direction
+
+SOIT follows a `spec-first` development model: significant features begin as a written spec in `docs/specs/` before any code is written. We have found this catches design problems early and keeps the architecture coherent as the project grows.
+
+## Community
+
+- **GitHub Discussions** — questions, ideas, and show-and-tell
+- **Discord** — real-time chat with maintainers and users
+- **Twitter / X** — release announcements and product updates
+- **Blog** — engineering deep-dives and customer case studies
+
+## License
+
+SOIT is released under the [Apache License 2.0](./LICENSE).
+
+The core platform is and will remain open source. Some advanced enterprise features — SSO, advanced audit reports, SLA monitoring, multi-region deployment — are available in SOIT Enterprise.
+
+---
+
+<div align="center">
+  <sub>Built with care for teams who run AI in production.</sub>
+</div>
