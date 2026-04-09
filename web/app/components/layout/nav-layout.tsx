@@ -67,7 +67,7 @@ function NavHeader(props: React.HTMLAttributes<HTMLDivElement>) {
 
   if (!content) return null
   const { className, ...rest } = props
-  return <header {...rest} className={cn("sticky top-0 z-50 flex w-full shrink-0 items-center gap-2 border-b bg-background p-4", className)} >
+  return <header {...rest} className={cn("sticky top-0 z-20 flex w-full shrink-0 items-center gap-2 border-b border-border/60 bg-shell/72 px-5 py-4 backdrop-blur-xl", className)} >
     {content}
   </header>
 }
@@ -86,7 +86,7 @@ export default function NavLayout(props: NavLayoutProps) {
               <NavHeader>{header}</NavHeader>
               <div className={cn('flex flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
             </div>
-          </div> : <ScrollArea className="flex flex-1 flex-col h-full">
+          </div> : <ScrollArea className="flex flex-1 flex-col h-full bg-transparent">
             <NavHeader>{header}</NavHeader>
             <div className={cn('flex flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
           </ScrollArea>}

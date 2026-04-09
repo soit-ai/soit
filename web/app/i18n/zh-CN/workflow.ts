@@ -19,7 +19,7 @@ const translation = {
     goBackToEdit: '返回编辑模式',
     conversationLog: '对话记录',
     features: '功能',
-    featuresDescription: '增强 web app 用户体验',
+    featuresDescription: '增强工作流运行体验',
     ImageUploadLegacyTip: '现在可以在 start 表单中创建文件类型变量。未来我们将不继续支持图片上传功能。',
     fileUploadTip: '图片上传功能已扩展为文件上传。',
     featuresDocLink: '了解更多',

@@ -1,6 +1,6 @@
 const notification = {
   title: '通知',
-  description: '查看系统、工作区与应用的最新动态。',
+  description: '查看系统、工作区与 Agent 的最新动态。',
   actions: {
     markAllRead: '全部标为已读',
     markRead: '标记为已读',

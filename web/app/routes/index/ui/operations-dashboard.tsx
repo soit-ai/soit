@@ -159,17 +159,17 @@ export function OperationsDashboard({
   const completionPercent = tokenTotal > 0 ? 100 - promptPercent : 0
 
   return (
-    <Card className="overflow-hidden border-slate-200/70 bg-white/84 shadow-none backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/62">
-      <CardHeader className="space-y-3 border-b border-slate-200/70 dark:border-slate-800">
-        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
+    <Card className="overflow-hidden">
+      <CardHeader className="space-y-3 border-b border-border/70">
+        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
           {t('agent.home.dashboard.eyebrow')}
         </div>
         <CardTitle className="text-2xl">{t('agent.home.dashboard.title')}</CardTitle>
         <CardDescription>{t('agent.home.dashboard.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <section className="rounded-[30px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(241,245,249,0.92)_100%)] p-4 dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.76)_0%,rgba(15,23,42,0.52)_100%)]">
-          <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+        <section className="rounded-[var(--radius-2xl)] border border-border/70 bg-[linear-gradient(180deg,rgba(248,251,254,0.96)_0%,rgba(241,246,251,0.88)_100%)] p-4 dark:bg-[linear-gradient(180deg,rgba(18,28,44,0.72)_0%,rgba(18,28,44,0.56)_100%)]">
+          <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
             {t('agent.home.dashboard.traceEyebrow')}
           </div>
           <div className="mt-2 text-lg font-semibold">{t('agent.home.dashboard.traceTitle')}</div>

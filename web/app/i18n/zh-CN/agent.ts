@@ -16,9 +16,9 @@ const translation = {
       badge: 'SOIT 工作区',
       mode: '企业级 Agent 操作台',
       partialFailure: '部分数据暂时不可用',
-      title: '一个首页，看清 SOIT 当前的构建状态和执行状态。',
+      title: '用一张指挥台管理整个 Agent 工作区。',
       description:
-        '以 Agent 为中心，把 Knowledge、Workflow、Tasks 与 Run Ledger 收拢到同一张控制台。进入系统后，先判断，再行动。',
+        '先判断发布姿态、检索健康度、执行压力和下一步动作，再决定进入哪条业务链路。',
       ctaAgents: 'Agent 中心',
       ctaWorkflow: 'Workflow 编排',
       ctaRuns: '打开 Run Explorer',
@@ -94,6 +94,11 @@ const translation = {
           title: 'Plugins',
           description: '安装工具与外部集成，扩展执行边界。',
           value: '集成层',
+        },
+        settings: {
+          title: 'Settings',
+          description: '管理工作区规则、权限以及展示默认值。',
+          value: '治理层',
         },
         models: {
           title: 'Models',

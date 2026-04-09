@@ -11,7 +11,7 @@ const translation = {
     changeLogoTip: 'SVG 或 PNG 格式，最小尺寸为 40x40px',
   },
   app: {
-    title: '定制应用品牌',
+    title: '定制 Agent 工作台头部品牌',
     changeLogoTip: 'SVG 或 PNG 格式，最小尺寸为 80x80px',
   },
   upload: '上传',
@@ -22,7 +22,7 @@ const translation = {
   restore: '恢复默认',
   customize: {
     contactUs: '联系我们',
-    prefix: '如需在 Soit 内自定义品牌图标，请',
+    prefix: '如需在 Agent 工作台内自定义品牌图标，请',
     suffix: '升级至企业版。',
   },
 }

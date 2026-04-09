@@ -194,7 +194,7 @@ const translation = {
     pluginsTips: 'Integrate third-party plugins or create ChatGPT-compatible AI-Plugins.',
     knowledge: 'Knowledge',
     knowledgeTips: 'COMING SOON: Import your own text data or write data in real-time via Webhook for LLM context enhancement.',
-    newApp: 'New App',
+    newApp: 'New Agent',
     newKnowledge: 'Create Knowledge',
     tools: 'Tools',
   },
@@ -369,7 +369,7 @@ const translation = {
     setupModelFirst: 'Please set up your model first',
     systemReasoningModel: {
       key: 'System Reasoning Model',
-      tip: 'Set the default inference model to be used for creating applications, as well as features such as dialogue name generation and next question suggestion will also use the default inference model.',
+      tip: 'Set the default inference model used for creating agents. Dialogue naming and next-question suggestions will also use this default model.',
     },
     embeddingModel: {
       key: 'Embedding Model',
@@ -507,7 +507,7 @@ const translation = {
     },
   },
   apiBasedExtension: {
-    title: 'API extensions provide centralized API management, simplifying configuration for easy use across Soit\'s applications.',
+    title: 'API extensions provide centralized API management, simplifying configuration for easy use across Soit\'s agents and workflows.',
     link: 'Learn how to develop your own API Extension.',
     linkUrl: 'https://docs.soit.ai/features/extension/api_based_extension',
     add: 'Add API Extension',
@@ -554,7 +554,7 @@ const translation = {
   },
   appModes: {
     completionApp: 'Text Generator',
-    chatApp: 'Chat App',
+    chatApp: 'Agent Chat',
   },
   knowledgeMenus: {
     documents: 'Documents',

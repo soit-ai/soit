@@ -126,7 +126,7 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
               <div className={cn('flex h-full flex-col w-full  max-w-[var(--thread-max-width)] items-center justify-center mt-[0px]')}>
                 <ThreadWelcome />
                 {inputPosition === 'center' && <Composer className="bottom-0 mb-5 w-full max-w-[var(--thread-max-width)]" />}
-                {!isInModal && <ThreadWelcomeSuggestions />}
+                {/* {!isInModal && <ThreadWelcomeSuggestions />} */}
               </div>
             </ThreadPrimitive.Empty>
             <ThreadPrimitive.Messages

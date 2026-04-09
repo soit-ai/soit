@@ -4,13 +4,17 @@ import { Clock3, Database, Puzzle, Shapes } from 'lucide-react'
 import { NavLayout } from '@/components/layout/nav-layout'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
+import { useCapabilityGovernanceUsage } from '@/hooks/use-capability-governance-usage'
 import {
   formatCapabilityMetadataValue,
   getCapabilityMetadataEntries,
   listCapabilityRegistry,
   type CapabilityRegistryItem,
 } from '@/services/capability-service'
+import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 
 const formatSourceLabel = (item: CapabilityRegistryItem) => {
   const segments = [item.source_kind]
@@ -30,7 +34,15 @@ const summarizeSourceKinds = (items: CapabilityRegistryItem[]) => {
   }, {})
 }
 
+const formatTimestamp = (value?: string | null) => {
+  if (!value) {
+    return '-'
+  }
+  return formatDateTime(isoToZonedDate(value))
+}
+
 export default function PluginPage() {
+  const navigate = useNavigate()
   const { data, isLoading } = useQuery({
     queryKey: ['capabilities', 'plugin'],
     queryFn: () => listCapabilityRegistry({ source_kind: 'plugin', page_size: 100 }),
@@ -45,6 +57,9 @@ export default function PluginPage() {
   const metadataFieldCount = useMemo(
     () => capabilityItems.reduce((count, item) => count + Object.keys(item.metadata_json || {}).length, 0),
     [capabilityItems]
+  )
+  const { boundAgents, recentRuns, isLoading: usageLoading } = useCapabilityGovernanceUsage(
+    capabilityItems.map((item) => item.ref)
   )
 
   return (
@@ -153,6 +168,66 @@ export default function PluginPage() {
               <div>Capability refs are stable anchors for runtime bindings.</div>
               <div>Source IDs and versions are shown when they are present.</div>
               <div>Metadata JSON is rendered directly so governance data stays intact.</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Bound By Agents</CardTitle>
+              <CardDescription>Agents currently binding plugin-sourced runtime capabilities.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {boundAgents.length === 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {usageLoading ? 'Loading bindings...' : 'No agents are currently bound to plugin-sourced capabilities.'}
+                </div>
+              )}
+              {boundAgents.map((agent) => (
+                <div key={agent.agentId} className="rounded-lg border p-3">
+                  <div className="font-medium">{agent.agentName}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{agent.agentId}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {agent.capabilityRefs.map((ref) => (
+                      <Badge key={`${agent.agentId}-${ref}`} variant="outline">
+                        {ref}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Runtime Usage</CardTitle>
+              <CardDescription>Latest runs emitted by agents currently bound to plugin-sourced capabilities.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {recentRuns.length === 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {usageLoading ? 'Loading runtime usage...' : 'No recent runtime usage found for bound agents.'}
+                </div>
+              )}
+              {recentRuns.map((run) => (
+                <div key={run.id} className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{run.mode}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{run.subject_id || run.id}</div>
+                    </div>
+                    <Badge variant="outline">{run.status}</Badge>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">Started: {formatTimestamp(run.started_at)}</div>
+                  <div className="mt-3 flex justify-end">
+                    <Button variant="ghost" size="sm" onClick={() => navigate(`/observability/runs/${run.id}`)}>
+                      Open Run
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>

@@ -40,9 +40,9 @@ export function PlatformMap({ summary }: PlatformMapProps) {
   }))
 
   return (
-    <Card className="overflow-hidden border-slate-200/70 bg-white/78 shadow-none backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/60">
-      <CardHeader className="space-y-3 border-b border-slate-200/70 dark:border-slate-800">
-        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
+    <Card className="overflow-hidden">
+      <CardHeader className="space-y-3 border-b border-border/70">
+        <div className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
           {t('agent.home.platform.eyebrow')}
         </div>
         <CardTitle className="text-2xl">{t('agent.home.platform.title')}</CardTitle>

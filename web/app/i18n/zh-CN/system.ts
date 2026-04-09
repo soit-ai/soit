@@ -488,7 +488,7 @@ const system = {
         },
         notifications: {
           label: '通知设置',
-          description: '管理系统和应用通知',
+          description: '管理系统和 Agent 通知',
         },
         appearance: {
           label: '界面主题',

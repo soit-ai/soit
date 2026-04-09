@@ -23,7 +23,7 @@ const chat = {
     changeLogoTip: 'SVG 或 PNG 格式，最小尺寸为 40x40px',
   },
   app: {
-    title: '定制应用品牌',
+    title: '定制 Agent 对话头部品牌',
     changeLogoTip: 'SVG 或 PNG 格式，最小尺寸为 80x80px',
   },
   upload: '上传',
@@ -34,7 +34,7 @@ const chat = {
   restore: '恢复默认',
   customize: {
     contactUs: '联系我们',
-    prefix: '如需在 Soit 内自定义品牌图标，请',
+    prefix: '如需在 Agent 对话工作台内自定义品牌图标，请',
     suffix: '升级至企业版。',
   },
   sidebar: {
@@ -100,7 +100,7 @@ const chat = {
       }
     },
     composer: {
-      placeholder: '发送消息给 SOIT AI 助手...',
+      placeholder: '向当前 Agent 发送消息...',
       tabCompletion: '按',
       tab: 'Tab',
       complete: '补全',
