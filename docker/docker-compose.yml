@@ -63,7 +63,7 @@ services:
         --tenant-name ${BOOTSTRAP_TENANT_NAME:-default}
     restart: "no"
 
-  dataset-worker:
+  knowledge-ingest-worker:
     build:
       context: ./server
     env_file:
@@ -88,9 +88,9 @@ services:
       VAULT_URL: ${VAULT_URL:-http://vault:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-soit-vault-root}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      DATASET_INGEST_WORKER_POLL_INTERVAL: ${DATASET_INGEST_WORKER_POLL_INTERVAL:-1.0}
-      DATASET_INGEST_WORKER_MAX_TASKS: ${DATASET_INGEST_WORKER_MAX_TASKS:-}
-      DATASET_INGEST_WORKER_CONCURRENCY: ${DATASET_INGEST_WORKER_CONCURRENCY:-1}
+      KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL: ${KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL:-1.0}
+      KNOWLEDGE_INGEST_WORKER_MAX_TASKS: ${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-}
+      KNOWLEDGE_INGEST_WORKER_CONCURRENCY: ${KNOWLEDGE_INGEST_WORKER_CONCURRENCY:-1}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -104,7 +104,7 @@ services:
         condition: service_healthy
       vault:
         condition: service_healthy
-    command: ["python", "scripts/ingest_worker.py"]
+    command: ["python", "scripts/knowledge_ingest_worker.py"]
     restart: unless-stopped
 
   redis:

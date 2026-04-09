@@ -54,7 +54,7 @@ RUNTIME_TERM_GUARDED_PATHS = (
 
 FORBIDDEN_RUNTIME_TERM_PATTERNS = (
     re.compile(r"legacy_app_ref"),
-    re.compile(r"dataset_id"),
+    re.compile(r"knowledge_id"),
     re.compile(r"\bcreateApp\b"),
     re.compile(r"\bnewApp\b", re.IGNORECASE),
     re.compile(r"\bdeleteApp\b"),
@@ -62,10 +62,10 @@ FORBIDDEN_RUNTIME_TERM_PATTERNS = (
     re.compile(r"\bappSelector\b"),
     re.compile(r"['\"]App['\"]"),
     re.compile(r"['\"]Application['\"]"),
-    re.compile(r"['\"]Dataset['\"]"),
+    re.compile(r"['\"]Knowledge['\"]"),
     re.compile(r"应用设置"),
     re.compile(r"应用类型"),
-    re.compile(r"数据集"),
+    re.compile(r"知识库"),
 )
 
 

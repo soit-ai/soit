@@ -588,7 +588,7 @@ const translation = {
     conversationNameCanNotEmpty: 'Conversation name required',
     citation: {
       title: 'CITATIONS',
-      linkToDataset: 'Link to Knowledge',
+      linkToKnowledge: 'Link to Knowledge',
       characters: 'Characters:',
       hitCount: 'Retrieval count:',
       vectorHash: 'Vector hash:',

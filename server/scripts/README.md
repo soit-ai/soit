@@ -7,7 +7,7 @@ Rules:
 - Prefer idempotent scripts.
 
 Available:
-- `knowledge_ingest_worker.py`: run knowledge ingestion tasks for a tenant/workspace.
+- `ingest_worker.py`: run knowledge ingestion tasks.
 - `bootstrap_admin.py`: create a default admin user/tenant/workspace.
 - `migrate.sh`: apply database migrations (alembic upgrade head).
 - `smoke/run_all.py`: run release smoke tests (workflow/knowledge/responses/secrets).

@@ -30,7 +30,7 @@ Notes:
 - Web build reads `VITE_BASE_URL` at build time. Rebuild the web image after changing it.
 - Health checks are enabled for `api` and `web` in docker-compose.
 - Vault runs in dev mode by default. The root token is controlled by `VAULT_DEV_ROOT_TOKEN_ID`.
-- To process dataset ingestion tasks in the background, set `DATASET_INGEST_WORKER_ENABLED=true`.
+- To process knowledge ingestion tasks in the background, set `KNOWLEDGE_INGEST_WORKER_ENABLED=true`.
 - Alternatively, run the worker explicitly: `docker compose run --rm api uv run python scripts/ingest_worker.py`.
 
 ## One-shot bootstrap
