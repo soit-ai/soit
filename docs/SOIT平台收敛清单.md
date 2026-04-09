@@ -321,8 +321,11 @@ Agent 虽然已经是主体，但 binding 常常只覆盖：
 * model
 * tool
 * knowledge
+* workflow
+* skill
+* tool
 
-而 Skill / Workflow / Plugin / MCP 未完全进入统一绑定体系。
+而 Skill / Workflow / Tool 未完全进入统一绑定体系。
 
 #### 目标结构
 
@@ -332,8 +335,8 @@ Agent 虽然已经是主体，但 binding 常常只覆盖：
 * knowledge
 * workflow
 * skill
-* plugin
-* mcp_server / mcp_resource / mcp_tool
+* tool
+
 
 #### 执行动作
 

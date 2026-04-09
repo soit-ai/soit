@@ -14,7 +14,7 @@ from app.kernel.commons.ids import generate_ulid
 
 def generate_knowledge_id() -> str:
     """Generate knowledge ID."""
-    return f"ds_{generate_ulid()}"
+    return f"knw_{generate_ulid()}"
 
 
 def generate_document_id() -> str:

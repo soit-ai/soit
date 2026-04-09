@@ -89,7 +89,7 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
         mode="workflow",
         subject_kind="workflow",
         subject_id=workflow.id,
-        subject_version_id="test_app_version",
+        subject_version_id="test_agent_version",
         inputs={},
     )
     
