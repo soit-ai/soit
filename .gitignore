@@ -1,7 +1,9 @@
 .DS_Store
+.agents/*
 .cursor/*
 .claude/*
 .windsurf/*
+.vscode/*
 .worktrees/
 .superpowers/
 docs/superpowers/
