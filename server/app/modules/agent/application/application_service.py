@@ -251,8 +251,7 @@ class AgentApplicationService:
             "thread_id": inputs.get("thread_id"),
             "thread_title": inputs.get("thread_title"),
         }
-        return AgentRunRequest.model_validate(payload),
-        )
+        return AgentRunRequest.model_validate(payload)
 
     def _build_runner(self) -> AgentService:
         return AgentService(
