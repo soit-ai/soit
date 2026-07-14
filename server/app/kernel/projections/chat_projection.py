@@ -5,44 +5,30 @@ Build chat projections from chat.v1 spec.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def build_chat_refs(spec_json: Dict[str, Any], *, base_path: str = "$") -> List[Dict[str, Any]]:
+def build_chat_refs(spec_json: dict[str, Any], *, base_path: str = "$") -> list[dict[str, Any]]:
     """Extract external references from chat spec."""
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
 
-    model_ref = _resolve_model_ref(spec_json)
+    model_ref = spec_json.get("model_ref")
     if model_ref:
-        refs.append(_build_ref_entry("model", model_ref, f"{base_path}.model"))
+        refs.append(_build_ref_entry("model", model_ref, f"{base_path}.model_ref"))
 
-    tools = []
     if isinstance(spec_json.get("tool_refs"), list):
         tools = spec_json.get("tool_refs") or []
         for idx, tool in enumerate(tools):
             entry = _build_ref_entry("tool", tool, f"{base_path}.tool_refs[{idx}]")
             if entry:
                 refs.append(entry)
-    else:
-        allowlist = (spec_json.get("tools") or {}).get("allowlist") or []
-        if isinstance(allowlist, list):
-            for idx, tool in enumerate(allowlist):
-                entry = _build_ref_entry("tool", tool, f"{base_path}.tools.allowlist[{idx}]")
-                if entry:
-                    refs.append(entry)
 
     rag = spec_json.get("rag") or {}
     if isinstance(rag, dict):
-        knowledge_ids = rag.get("knowledge_ids") or rag.get("knowledges") or rag.get("knowledge_refs") or []
-        if rag.get("knowledge_ids") is not None:
-            knowledge_path = f"{base_path}.rag.knowledge_ids"
-        elif rag.get("knowledges") is not None:
-            knowledge_path = f"{base_path}.rag.knowledges"
-        else:
-            knowledge_path = f"{base_path}.rag.knowledge_refs"
-        if isinstance(knowledge_ids, list):
-            for idx, knowledge in enumerate(knowledge_ids):
-                entry = _build_ref_entry("knowledge", knowledge, f"{knowledge_path}[{idx}]")
+        knowledge_refs = rag.get("knowledge_refs") or []
+        if isinstance(knowledge_refs, list):
+            for idx, knowledge in enumerate(knowledge_refs):
+                entry = _build_ref_entry("knowledge", knowledge, f"{base_path}.rag.knowledge_refs[{idx}]")
                 if entry:
                     refs.append(entry)
         reranker_ref = rag.get("reranker_ref")
@@ -55,26 +41,8 @@ def build_chat_refs(spec_json: Dict[str, Any], *, base_path: str = "$") -> List[
     refs.extend(_extract_inline_refs(tool_configs, f"{base_path}.tools.configs"))
     return [item for item in refs if item]
 
-
-def _resolve_model_ref(spec_json: Dict[str, Any]) -> Optional[str]:
-    model_ref = spec_json.get("model_ref")
-    model = spec_json.get("model")
-    if model_ref:
-        return model_ref
-    if isinstance(model, str):
-        return model
-    if isinstance(model, dict):
-        if model.get("ref_key"):
-            return model.get("ref_key")
-        provider = model.get("provider")
-        model_name = model.get("model")
-        if provider and model_name:
-            return f"model:{provider}:{model_name}"
-    return None
-
-
-def _extract_inline_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
-    refs: List[Dict[str, Any]] = []
+def _extract_inline_refs(value: Any, base_path: str) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
     if isinstance(value, dict):
         for key, val in value.items():
             path = f"{base_path}.{key}"
@@ -92,10 +60,10 @@ def _extract_inline_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
     return refs
 
 
-def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> Optional[Dict[str, Any]]:
+def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> dict[str, Any] | None:
     if raw_value is None:
         return None
-    if isinstance(raw_value, (dict, list)):
+    if isinstance(raw_value, dict | list):
         return None
     ref_key = None
     ref_id = None

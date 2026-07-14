@@ -1,3 +1,5 @@
+import { debugLog } from './debug'
+
 // data storage
 let _storage = {
   // get
@@ -33,7 +35,7 @@ let _storage = {
           break
       }
     }
-    console.log('data get ', typeof val, key, val)
+    debugLog('data get ', typeof val, key, val)
     return val
   },
   // set
@@ -41,7 +43,7 @@ let _storage = {
     if (!key) {
       return false
     }
-    console.log('data set ', typeof value, key, value)
+    debugLog('data set ', typeof value, key, value)
     if (typeof window !== 'undefined') {
       switch (typeof value) {
         case 'boolean':

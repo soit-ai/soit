@@ -24,8 +24,6 @@ function Page() {
   // 升级订阅
   const handleUpgradeSubscription = () => {
     // 这里应该有API调用来升级订阅
-    console.log('升级订阅到', currentPlan === 'free' ? 'pro' : 'enterprise')
-    
     toast({
       title: '订阅升级请求已提交',
       description: '我们正在处理您的订阅升级请求',
@@ -35,8 +33,6 @@ function Page() {
   // 取消订阅
   const handleCancelSubscription = () => {
     // 这里应该有API调用来取消订阅
-    console.log('取消订阅')
-    
     toast({
       title: '订阅取消请求已提交',
       description: '您的订阅将在当前计费周期结束后取消',
@@ -47,8 +43,6 @@ function Page() {
   // 添加支付方式
   const handleAddPaymentMethod = () => {
     // 这里应该有API调用来添加支付方式
-    console.log('添加支付方式')
-    
     toast({
       title: '支付方式已添加',
       description: '您的新支付方式已成功添加',
@@ -58,8 +52,6 @@ function Page() {
   // 设置默认支付方式
   const handleSetDefaultPaymentMethod = (id: string) => {
     // 这里应该有API调用来设置默认支付方式
-    console.log('设置默认支付方式', id)
-    
     // 更新本地状态
     setPaymentMethods(paymentMethods.map(method => ({
       ...method,
@@ -75,8 +67,6 @@ function Page() {
   // 删除支付方式
   const handleDeletePaymentMethod = (id: string) => {
     // 这里应该有API调用来删除支付方式
-    console.log('删除支付方式', id)
-    
     // 更新本地状态
     setPaymentMethods(paymentMethods.filter(method => method.id !== id))
     
@@ -89,8 +79,6 @@ function Page() {
   // 下载发票
   const handleDownloadInvoice = (invoiceId: string) => {
     // 这里应该有API调用来下载发票
-    console.log('下载发票', invoiceId)
-    
     toast({
       title: '发票下载已开始',
       description: '您的发票正在下载中',

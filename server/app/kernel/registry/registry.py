@@ -13,9 +13,10 @@ Notes
 
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass
 from threading import RLock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from packaging.version import parse as parse_version
 
@@ -36,7 +37,7 @@ class Registry:
 
     def __init__(self) -> None:
         self._lock = RLock()
-        self._items: Dict[ArtifactKey, Dict[str, Any]] = {}
+        self._items: dict[ArtifactKey, dict[str, Any]] = {}
 
     def register(
         self,
@@ -46,7 +47,7 @@ class Registry:
         workspace_id: str,
         name: str,
         version: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
     ) -> None:
         """Register or overwrite an artifact payload."""
         key = ArtifactKey(
@@ -72,7 +73,7 @@ class Registry:
         workspace_id: str,
         name: str,
         version: str,
-    ) -> Optional[Tuple[ArtifactKey, Dict[str, Any]]]:
+    ) -> tuple[ArtifactKey, dict[str, Any]] | None:
         """Get a single artifact (key, payload) by exact version."""
         key = ArtifactKey(
             kind=kind,
@@ -90,14 +91,14 @@ class Registry:
     def list(
         self,
         *,
-        kind: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        workspace_id: Optional[str] = None,
-        name: Optional[str] = None,
-    ) -> List[Tuple[ArtifactKey, Dict[str, Any]]]:
+        kind: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        name: str | None = None,
+    ) -> builtins.list[tuple[ArtifactKey, dict[str, Any]]]:
         """List artifacts filtered by optional fields."""
         with self._lock:
-            out: List[Tuple[ArtifactKey, Dict[str, Any]]] = []
+            out: list[tuple[ArtifactKey, dict[str, Any]]] = []
             for k, v in self._items.items():
                 if kind is not None and k.kind != kind:
                     continue
@@ -117,7 +118,7 @@ class Registry:
         tenant_id: str,
         workspace_id: str,
         name: str,
-    ) -> Optional[Tuple[ArtifactKey, Dict[str, Any]]]:
+    ) -> tuple[ArtifactKey, dict[str, Any]] | None:
         """Get latest version by semantic version comparison.
 
         If versions are not valid semver/PEP440, it falls back to lexicographic order.
@@ -126,7 +127,7 @@ class Registry:
         if not items:
             return None
 
-        def _key(item: Tuple[ArtifactKey, Dict[str, Any]]):
+        def _key(item: tuple[ArtifactKey, dict[str, Any]]):
             k, _ = item
             try:
                 return parse_version(k.version)

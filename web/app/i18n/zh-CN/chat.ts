@@ -11,6 +11,9 @@ const chat = {
     archive: '归档',
     unarchive: '恢复',
   },
+  errors: {
+    loadFailed: '加载对话工作台失败',
+  },
   custom: '定制',
   upgradeTip: {
     prefix: '升级您的计划以',
@@ -121,6 +124,10 @@ const chat = {
     run: {
       viewRun: '查看运行详情',
       tokens: 'Tokens：提示 {{prompt}} · 补全 {{completion}} · 总计 {{total}}',
+      budget: '预算：{{status}} · {{reason}}',
+      budgetOk: '未超限',
+      budgetExceeded: '已超限',
+      cost: '成本：{{cost}}',
       finishReasonLabel: '结束原因',
       finishReasons: {
         stop: '正常结束',

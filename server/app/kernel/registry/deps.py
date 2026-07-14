@@ -5,10 +5,9 @@ Runtime accessors for the in-process Registry.
 
 from __future__ import annotations
 
-from typing import Optional
 from app.kernel.registry.registry import Registry
 
-_registry_singleton: Optional[Registry] = None
+_registry_singleton: Registry | None = None
 
 
 def get_registry() -> Registry:

@@ -11,19 +11,18 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Optional
 
 from fastapi import FastAPI, Request, Response
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.kernel.observability.context import (
-    set_request_context,
+from app.kernel.observe.context import (
     clear_request_context,
     clear_run_context,
     clear_step_context,
     get_log_context,
+    set_request_context,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,14 @@ class TracingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-Id") or getattr(request.state, "request_id", None) or str(uuid.uuid4())
-        trace_id = request.headers.get("X-Trace-Id") or getattr(request.state, "trace_id", None) or request_id
+        span_context = trace.get_current_span().get_span_context()
+        otel_trace_id = f"{span_context.trace_id:032x}" if span_context.is_valid else None
+        trace_id = (
+            otel_trace_id
+            or request.headers.get("X-Trace-Id")
+            or getattr(request.state, "trace_id", None)
+            or request_id
+        )
         workspace_id = request.headers.get("X-Workspace-Id") or getattr(request.state, "workspace_id", None)
 
         request.state.request_id = request_id
@@ -42,7 +48,7 @@ class TracingMiddleware(BaseHTTPMiddleware):
         set_request_context(request_id=request_id, trace_id=trace_id, workspace_id=workspace_id)
 
         start = time.monotonic()
-        response: Optional[Response] = None
+        response: Response | None = None
         status_code = 500
         try:
             response = await call_next(request)

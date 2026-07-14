@@ -27,7 +27,7 @@ All runtime code lives in the Python package **`app/`**. Within it, SOIT is orga
    - repositories (persistence boundary) and domain schemas
    - MUST call external systems via kernel ports (interfaces)
 3. **app/kernel/** (stable kernel, contract-first)
-   - contracts, scope, policies, execution semantics, trace, registry, security, specs
+   - contracts, scope, policies, execution semantics, runtime state, registry, security, specs
    - gateway interfaces + enforcement policies
    - MUST NOT depend on FastAPI routers, domain tables/models, or provider SDKs
 4. **app/adapters/** (infrastructure implementations)
@@ -95,7 +95,7 @@ Forbidden (must fail code review):
 
 ### 2.1 Kernel (stable)
 Kernel owns:
-- contracts, scope, policy, execution semantics, trace schema
+- contracts, scope, policy, execution semantics, runtime state schema
 - gateway interfaces and security guardrails
 - spec schemas and registry mechanism
 
@@ -316,8 +316,10 @@ These semantics are kernel-owned and MUST live under `app/kernel/`:
 
 - `app/kernel/execution/`  
   execution primitives, state machine, id generation helpers (if any)
-- `app/kernel/trace/`  
-  persistence contracts for run/step/artifact/cost + exporter interfaces
+- `app/kernel/runtime/runs/`
+  persistence contracts for run/step/artifact/cost, trace writer, and exporter interfaces
+- `app/kernel/runtime/db/models/`
+  all kernel-owned SQLModel table classes
 - `app/kernel/specs/v1/`  
   JSON Schemas for `run`, `run_step`, `run_artifact`, `run_cost_entries` payloads
 
@@ -354,9 +356,13 @@ Policy enforcement MUST happen consistently at the boundary:
 
 SOIT plugins are **runtime artifacts**. A plugin installation contributes:
 - one `plugin_spec` (validated by JSON Schema)
-- optionally, **exported tools** (each has a `tool_spec`)
-- optionally, **exported workflow nodes** (each has a `node_spec`)
+- optionally, **exported skills** (projected as plugin-owned artifacts)
+- optionally, **exported MCP servers** (projected as plugin-owned artifacts)
+- optionally, **exported tools** (registered into runtime tool registry)
+- optionally, **exported workflow nodes** (registered into workflow node registry)
 - optional runtime config (stored in `manifest.json` and/or installation `config_json`)
+
+`Plugin` is the public lifecycle boundary. Skill and MCP are plugin artifacts only; they do not have separate API, service, repository, table, or version-release lifecycles. Query plugin-owned resources through `/api/v1/plugins` with `plugin_type`, `artifact_kind`, or capability `kind` filters.
 
 ### Filesystem layout (authoritative)
 
@@ -373,6 +379,10 @@ A minimal plugin zip:
 manifest.json
 spec.json
 files/
+  skills/
+    <skill_name>.json
+  mcp/
+    <server_name>.json
   tools/
     <tool_name>.json
   nodes/
@@ -381,17 +391,36 @@ files/
 
 Rules:
 - `spec.json` MUST validate against `kernel/specs/v1/plugin_spec.schema.json`
+- `spec.plugin_type` SHOULD be one of `skill`, `mcp`, `tool`, `workflow_node`, or `mixed`
+- `spec.exports.skills` and `spec.exports.mcp_servers` declare plugin-owned skill and MCP artifacts
 - `spec.exports.tools` is a list of **tool refs**, e.g. `tool:http:ticket_create`
 - For each exported tool ref, SOIT will load the tool spec from:
   `files/tools/<tool_name>.json` (where `<tool_name>` is the last segment of the tool ref)
 - `spec.exports.workflow_nodes` is a list of **node refs**, e.g. `node:tool:health_check`
 - For each exported node ref, SOIT will load the node spec from:
   `files/nodes/<node_name>.json` (where `<node_name>` is the last segment of the node ref)
+- `spec.artifacts` can explicitly map exported refs to package JSON paths for skills, MCP servers, tools, and workflow nodes
 
 ### Enable/disable
 
 - `manifest.json` carries `enabled: true|false` (restart-safe).
 - `POST /api/v1/plugins/{plugin_id}/enabled` updates both DB (`config_json.enabled`) and FS (`manifest.json.enabled`).
+- Enabling, disabling, upgrading, and uninstalling call plugin projectors. Projectors invoke module application services; plugin lifecycle code must not write skill, MCP, tool, or workflow business details directly.
+
+### Public plugin API
+
+- `GET /api/v1/plugins?plugin_type=skill|mcp|tool|workflow_node|mixed`
+- `POST /api/v1/plugins/package?mode=auto|reinstall` uploads a local zip package. In `auto` mode the service creates and installs a new plugin when `spec.name` is unknown, upgrades an existing plugin when `spec.version` changes, and returns `409 CONFLICT` with `details.reason="same_version_exists"` when the same plugin name and version already exist. Use `mode=reinstall` only after user confirmation to overwrite same-version local package files and keep the plugin enabled.
+- `GET /api/v1/plugins/{plugin_id}/versions`
+- `GET /api/v1/plugins/{plugin_id}/releases`
+- `GET /api/v1/plugins/{plugin_id}/installations`
+- `GET /api/v1/plugins/{plugin_id}/artifacts?artifact_kind=skill|mcp_server|tool|workflow_node`
+- `GET /api/v1/plugins/artifacts?artifact_kind=skill|mcp_server|tool|workflow_node`
+- `GET /api/v1/plugins/capabilities?kind=skill|tool|mcp_tool|mcp_resource|workflow_node`
+- `POST /api/v1/plugins/{plugin_id}/upgrade-package` uploads a replacement zip for an existing installed plugin.
+- `DELETE /api/v1/plugins/{plugin_id}/install` uninstalls the workspace installation and archives plugin-owned projected artifacts.
+
+The web `/plugins` workbench uses the one-click package upload endpoint for local zip install/reinstall, uses `upgrade-package` from the installed plugin detail panel, and prompts before same-version reinstall or uninstall.
 
 ### Runtime registry & tool routing
 
@@ -463,6 +492,7 @@ Frontend:
 - typecheck
 - lint/format
 - build
+- initial-route and maximum-chunk bundle budget
 
 Security (recommended):
 - dependency scanning

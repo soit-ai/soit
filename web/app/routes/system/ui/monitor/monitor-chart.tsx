@@ -1,6 +1,26 @@
 import React, { useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import * as echarts from 'echarts'
+import { BarChart, LineChart } from 'echarts/charts'
+import {
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { init, use, type ECharts } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+
+use([
+  BarChart,
+  CanvasRenderer,
+  GridComponent,
+  LegendComponent,
+  LineChart,
+  MarkLineComponent,
+  TitleComponent,
+  TooltipComponent,
+])
 
 export interface ChartOptions {
   title?: string | {
@@ -29,20 +49,18 @@ interface MonitorChartProps {
 
 export function MonitorChart({ title, options, height = 300, description, className }: MonitorChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<echarts.ECharts | null>(null)
+  const chartInstance = useRef<ECharts | null>(null)
 
   useEffect(() => {
-    // 初始化图表
+    // Initialize the chart only after the container is mounted.
     if (chartRef.current) {
       if (!chartInstance.current) {
-        chartInstance.current = echarts.init(chartRef.current)
+        chartInstance.current = init(chartRef.current)
       }
-      
-      // 设置图表选项
+
       chartInstance.current.setOption(options)
     }
 
-    // 处理窗口大小变化
     const handleResize = () => {
       chartInstance.current?.resize()
     }

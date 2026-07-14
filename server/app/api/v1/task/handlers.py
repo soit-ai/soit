@@ -12,8 +12,11 @@ from app.kernel.runtime.schemas import (
     TaskCheckpointResponse,
     TaskControlResponse,
     TaskDetailResponse,
+    TaskHandlingResponse,
     TaskEventResponse,
     TaskResponse,
+    TaskWorkbenchItemsResponse,
+    TaskWorkbenchResponse,
 )
 
 
@@ -54,6 +57,41 @@ class TaskHandlers:
         next_offset = offset + len(tasks) if has_next else None
         return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
 
+    async def get_workbench(
+        self,
+        ctx: RequestContext,
+        *,
+        page_token: Optional[str],
+        page_size: int,
+    ) -> TaskWorkbenchResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return self.service.get_task_workbench(limit=limit, offset=offset)
+
+    async def get_workbench_items(
+        self,
+        ctx: RequestContext,
+        *,
+        tab: Optional[str],
+        keyword: Optional[str],
+        status: Optional[str],
+        date_from: Optional[str],
+        date_to: Optional[str],
+        page_token: Optional[str],
+        page_size: int,
+    ) -> TaskWorkbenchItemsResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return self.service.get_task_workbench_items(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
     async def get_task(self, ctx: RequestContext, task_id: str) -> TaskDetailResponse:
         task = self.service.get_task(task_id)
         checkpoints = self.service.list_task_checkpoints(task_id)
@@ -63,6 +101,9 @@ class TaskHandlers:
             checkpoints=[TaskCheckpointResponse.model_validate(item) for item in checkpoints],
             events=[TaskEventResponse.model_validate(item) for item in events],
         )
+
+    async def get_task_handling(self, ctx: RequestContext, task_id: str) -> TaskHandlingResponse:
+        return self.service.get_task_handling(task_id)
 
     async def cancel_task(self, ctx: RequestContext, task_id: str) -> TaskControlResponse:
         if not self.runtime_service:

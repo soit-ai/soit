@@ -55,16 +55,6 @@ function Page() {
   // 保存外观设置
   const handleSaveAppearance = () => {
     // 这里应该有API调用来保存设置
-    console.log('保存外观设置', {
-      theme,
-      fontSize,
-      colorScheme,
-      sidebarPosition,
-      compactMode,
-      animationsEnabled,
-      borderRadius
-    })
-    
     toast({
       title: '已保存',
       description: '外观设置已更新',

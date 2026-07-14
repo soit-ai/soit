@@ -1,7 +1,13 @@
 """Unit tests for Runtime Core repositories."""
 
-from app.kernel.runtime.models import Task, TaskCheckpoint, TaskEvent, Thread, ThreadMessage
-from app.kernel.runtime.repository import TaskRepository, ThreadRepository
+from sqlalchemy import select
+from sqlmodel import Session
+
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
+from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
+from app.kernel.runtime.tasks.repository import TaskRepository
+from app.kernel.runtime.threads.repository import ThreadRepository
 
 
 def test_thread_repository_create_and_list_messages(db, tenant1_ctx):
@@ -67,3 +73,39 @@ def test_task_repository_create_checkpoint_and_event(db, tenant1_ctx):
     assert repo.get_task(task.id).status == "running"
     assert repo.list_checkpoints(task.id)[0].payload_json["stage"] == "chunking"
     assert repo.list_events(task.id)[0].event_type == "task.progress"
+
+
+def test_task_and_outbox_rollback_together(db, tenant1_ctx):
+    repo = TaskRepository(db, tenant1_ctx)
+    task = repo.create_task(Task(task_type="agent", status="queued"))
+
+    db.rollback()
+
+    check = Session(db.get_bind())
+    try:
+        assert check.get(Task, task.id) is None
+        events = list(
+            check.exec(
+                select(EventOutbox).where(EventOutbox.task_id == task.id)
+            ).all()
+        )
+        assert events == []
+    finally:
+        check.close()
+
+
+def test_thread_and_message_rollback_together(db, tenant1_ctx):
+    repo = ThreadRepository(db, tenant1_ctx)
+    thread = repo.create_thread(Thread(title="atomic thread"))
+    message = repo.add_message(
+        ThreadMessage(thread_id=thread.id, role="user", content="atomic message")
+    )
+
+    db.rollback()
+
+    check = Session(db.get_bind())
+    try:
+        assert check.get(Thread, thread.id) is None
+        assert check.get(ThreadMessage, message.id) is None
+    finally:
+        check.close()

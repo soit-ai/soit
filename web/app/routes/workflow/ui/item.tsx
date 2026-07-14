@@ -10,7 +10,6 @@ export function Item(props: { item?: any; index: number }) {
   const navigate = useNavigate()
 
   const onClick = () => {
-    console.log('clicked')
     navigate(`/workflow/${item.id}`)
   }
   const renderButton = () => {

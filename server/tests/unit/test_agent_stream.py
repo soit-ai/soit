@@ -1,6 +1,5 @@
 """Tests for Agent streaming SSE support."""
 
-import asyncio
 import pytest
 
 from app.modules.agent.runtime.emitter import QueueEmitter

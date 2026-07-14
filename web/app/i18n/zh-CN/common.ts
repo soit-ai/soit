@@ -10,6 +10,7 @@ const translation = {
     create: '已创建',
     remove: '已移除',
   },
+  retry: '重试',
   operation: {
     create: '创建',
     confirm: '确认',

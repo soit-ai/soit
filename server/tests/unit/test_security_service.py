@@ -3,14 +3,21 @@
 Unit tests for SecurityService.
 """
 
+from sqlmodel import select
+
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.identity.domain.models import (
     Tenant,
     Workspace,
     generate_tenant_id,
     generate_workspace_id,
 )
-from app.modules.security.application.schemas import EgressPolicyUpdate, UsagePolicyUpdate
+from app.modules.identity.infra.policy_scope import DatabaseIdentityPolicyScopePort
+from app.modules.security.application.schemas import (
+    EgressPolicyUpdate,
+    UsagePolicyUpdate,
+)
 from app.modules.security.application.service import SecurityService
 
 
@@ -40,7 +47,7 @@ def test_security_policy_updates_and_audits(db):
         tenant_role="Owner",
         workspace_role="Owner",
     )
-    service = SecurityService(db, ctx)
+    service = SecurityService(db, ctx, DatabaseIdentityPolicyScopePort(db, ctx))
 
     tenant_policy = service.update_tenant_policy(
         EgressPolicyUpdate(
@@ -67,6 +74,9 @@ def test_security_policy_updates_and_audits(db):
     assert tenant_audits[0].scope == "tenant"
     assert len(workspace_audits) == 1
     assert workspace_audits[0].scope == "workspace"
+    audit_events = list(db.exec(select(AuditEvent)).all())
+    assert {event.event_type for event in audit_events} == {"security.egress_policy.updated"}
+    assert {event.resource_type for event in audit_events} == {"egress_policy"}
 
     tenant_limits = service.update_tenant_usage_policy(
         UsagePolicyUpdate(

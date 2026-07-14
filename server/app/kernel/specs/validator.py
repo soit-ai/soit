@@ -9,15 +9,15 @@ Validate JSON documents against SOIT JSON Schemas.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Union
+from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
 from app.kernel.commons.errors import ValidationError
-from app.kernel.specs.loader import load_schema, build_registry
+from app.kernel.specs.loader import build_registry, load_schema
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 SPEC_SCHEMA_MAP = {
     "workflow.v1": "workflow_spec",
@@ -33,7 +33,7 @@ class SpecIssue:
     schema_path: str
 
 
-def _json_pointer(path_parts: List[Union[str, int]]) -> str:
+def _json_pointer(path_parts: list[str | int]) -> str:
     def esc(s: str) -> str:
         return s.replace("~", "~0").replace("/", "~1")
 
@@ -58,7 +58,7 @@ class SpecValidator:
         *,
         version: str = "v1",
         raise_on_error: bool = True,
-    ) -> List[SpecIssue]:
+    ) -> list[SpecIssue]:
         schema = load_schema(schema_name, version=version)
         registry = build_registry(version=version)
 
@@ -72,7 +72,7 @@ class SpecValidator:
 
         errors = sorted(v.iter_errors(document), key=lambda e: list(e.absolute_path))
 
-        issues: List[SpecIssue] = [
+        issues: list[SpecIssue] = [
             SpecIssue(
                 message=e.message,
                 instance_path=_json_pointer(list(e.absolute_path)),
@@ -94,22 +94,22 @@ class SpecValidator:
         return issues
 
     # Convenience wrappers
-    def validate_workflow_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_workflow_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("workflow_spec", document, version=version)
 
-    def validate_tool_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_tool_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("tool_spec", document, version=version)
 
-    def validate_node_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_node_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("node_spec", document, version=version)
 
-    def validate_plugin_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_plugin_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("plugin_spec", document, version=version)
 
-    def validate_runtrace_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_runtrace_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("runtrace_spec", document, version=version)
 
-    def validate_memory_spec(self, document: JsonDict, *, version: str = "v1") -> List[SpecIssue]:
+    def validate_memory_spec(self, document: JsonDict, *, version: str = "v1") -> list[SpecIssue]:
         return self.validate("memory_spec", document, version=version)
 
 
@@ -121,7 +121,7 @@ def validate_runtime_spec(
     document: JsonDict,
     *,
     raise_on_error: bool = True,
-) -> List[SpecIssue]:
+) -> list[SpecIssue]:
     """Validate runtime spec by schema identifier (e.g., workflow.v1)."""
     if not spec_schema:
         raise ValidationError(message="Spec schema is required", details={"spec_schema": spec_schema})
@@ -139,7 +139,7 @@ def validate_runtime_spec(
     return validator.validate(schema_name, document, version=version, raise_on_error=raise_on_error)
 
 
-def validate_spec(document: JsonDict, schema: Union[str, JsonDict], *, version: str = "v1") -> bool:
+def validate_spec(document: JsonDict, schema: str | JsonDict, *, version: str = "v1") -> bool:
     """Validate a document and return True when it passes."""
     if isinstance(schema, str):
         validator.validate(schema, document, version=version, raise_on_error=True)

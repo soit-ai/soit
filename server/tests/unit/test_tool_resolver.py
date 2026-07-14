@@ -2,10 +2,10 @@
 
 import pytest
 
+from app.adapters.tools.router import RegistryToolRouterPort
 from app.kernel.ports.llm.interface import ToolDefinition
 from app.kernel.registry.deps import get_registry
-from app.adapters.tools.resolver import ToolResolver
-from app.adapters.tools.router import RegistryToolRouterPort
+from app.kernel.runtime.tools.resolver import ToolResolver
 
 
 @pytest.fixture
@@ -85,6 +85,32 @@ async def test_resolve_multiple_tools(resolver, ctx):
 
 
 @pytest.mark.asyncio
+async def test_resolve_registered_plugin_tool_ref(resolver, ctx):
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="tool:http:plugin_search",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "plugin_search",
+                "description": "Search through an installed plugin.",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            },
+            "plugin": {"name": "soit:search", "version": "1.0.0"},
+        },
+    )
+
+    result = await resolver.resolve(["tool:http:plugin_search"], ctx)
+
+    assert len(result) == 1
+    assert result[0].name == "tool:http:plugin_search"
+    assert result[0].description == "Search through an installed plugin."
+
+
+@pytest.mark.asyncio
 async def test_resolve_mcp_tool_ref_fallback(resolver, ctx):
     """mcp_tool: refs get a basic ToolDefinition even without mcp_tool_resolver."""
     result = await resolver.resolve(["mcp_tool:my-server:echo"], ctx)
@@ -103,7 +129,7 @@ async def test_resolve_mcp_tool_ref_with_resolver(ctx):
         parameters={"type": "object", "properties": {"value": {"type": "string"}}},
     )
 
-    async def mock_resolver(ref, ctx):
+    async def mock_resolver(_ref, _ctx):
         return expected_def
 
     resolver = ToolResolver(

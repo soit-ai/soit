@@ -3,9 +3,9 @@
 Local function tool adapter implementation.
 """
 
-from typing import Dict, Any
 import importlib
 import inspect
+from typing import Any
 
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 
@@ -16,7 +16,7 @@ class FunctionToolsPort(ToolPort):
     async def invoke(
         self,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         **kwargs: Any,
     ) -> ToolResponse:
         """Invoke a function tool."""

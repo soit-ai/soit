@@ -9,6 +9,15 @@
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
+html,
+body {
+  @apply bg-white dark:bg-gray-950;
+
+  /* @media (prefers-color-scheme: dark) {
+    color-scheme: dark;
+  } */
+}
+
 @theme inline {
   --radius-sm: 0.525rem;
   --radius-md: 0.675rem;
@@ -17,6 +26,13 @@
   --radius-2xl: 1.5rem;
   --radius-3xl: 2rem;
   --radius-4xl: 2.5rem;
+  /* --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px); */
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -230,3 +246,5 @@
 
 @import "./styles/custom.css";
 @import "tw-shimmer";
+
+@custom-variant dark (&:is(.dark *));

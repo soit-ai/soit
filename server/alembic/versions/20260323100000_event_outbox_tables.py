@@ -4,7 +4,7 @@ Revision ID: 20260323100000_event_outbox_tables
 Revises: 20260309153000_drop_run_app_version_id
 Create Date: 2026-03-23 10:00:00
 
-Aligned with docs/SOIT_Minimal_Outbox_EventDriven_Design_Checklist.md §7.1–7.3.
+Aligned with server/docs/architecture/OUTBOX_EVENT_MODEL.md.
 """
 
 from __future__ import annotations

@@ -24,15 +24,15 @@ POST {base_url}{invoke_path}
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError
-from app.kernel.registry.deps import get_registry
+from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.plugins.interface import PluginRuntimePort
+from app.kernel.registry.deps import get_registry
 from app.settings.settings import settings
 
 
@@ -42,13 +42,13 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
     def __init__(self) -> None:
         self._reg = get_registry()
 
-    def list_tools(self, *, plugin_name: str, version: str, ctx: RequestContext) -> List[Dict[str, Any]]:
+    def list_tools(self, *, plugin_name: str, version: str, ctx: RequestContext) -> list[dict[str, Any]]:
         found = self._reg.get(kind="plugin", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=plugin_name, version=version)
         if not found:
             raise ValidationError(f"Plugin not installed: {plugin_name}@{version}")
         _, payload = found
         tools = (payload or {}).get("tools") or []
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for tool_ref in tools:
             latest = self._reg.get_latest(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=tool_ref)
             if not latest:
@@ -65,10 +65,10 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
         plugin_name: str,
         version: str,
         tool_name: str,
-        input_json: Dict[str, Any],
+        input_json: dict[str, Any],
         ctx: RequestContext,
-        timeout_s: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
         found = self._reg.get(kind="plugin", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=plugin_name, version=version)
         if not found:
             raise ValidationError(f"Plugin not installed: {plugin_name}@{version}")
@@ -92,7 +92,7 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
             invoke_path = f"/{invoke_path}"
         url = base_url.rstrip("/") + invoke_path
 
-        context_json: Dict[str, Any] = {
+        context_json: dict[str, Any] = {
             "tenant_id": getattr(ctx, "tenant_id", None),
             "workspace_id": getattr(ctx, "workspace_id", None),
             "user_id": getattr(ctx, "user_id", None),

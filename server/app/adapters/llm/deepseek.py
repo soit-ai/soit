@@ -3,7 +3,6 @@
 DeepSeek LLM port adapter implementation.
 """
 
-from typing import Optional
 
 from app.adapters.llm.openai import OpenAILLMPort
 from app.settings.settings import settings
@@ -14,8 +13,8 @@ class DeepSeekLLMPort(OpenAILLMPort):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ):
         resolved_api_key = api_key or settings.deepseek_api_key
         resolved_base_url = base_url or settings.deepseek_base_url

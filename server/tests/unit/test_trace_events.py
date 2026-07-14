@@ -6,7 +6,7 @@ Unit tests for trace event emission.
 import asyncio
 
 from app.kernel.events.bus import InMemoryEventBus
-from app.kernel.trace.writer import TraceWriter
+from app.kernel.runtime.runs.writer import TraceWriter
 
 
 def test_trace_writer_emits_events(db, ctx):

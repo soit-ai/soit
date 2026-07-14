@@ -3,17 +3,18 @@
 Secrets port policies: audit/access-control.
 """
 
-import asyncio
-from typing import Optional, Any
-from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.secrets.interface import SecretsPort
-from app.kernel.identity.rbac import require_workspace_write_async
+from typing import Any
+
 from app.kernel.commons.errors import TimeoutError
+from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.rbac import require_workspace_write_async
+from app.kernel.ports.common.policy import run_with_timeout_retry
+from app.kernel.ports.secrets.interface import SecretsPort
 
 
 class SecretsPolicyGateway(SecretsPort):
     """Secrets port with policy enforcement."""
-    
+
     def __init__(
         self,
         gateway: SecretsPort,
@@ -21,7 +22,7 @@ class SecretsPolicyGateway(SecretsPort):
         timeout_seconds: int = 10,
     ):
         """Initialize policy gateway.
-        
+
         Args:
             gateway: Underlying secrets gateway.
             ctx: Request context.
@@ -30,7 +31,7 @@ class SecretsPolicyGateway(SecretsPort):
         self.gateway = gateway
         self.ctx = ctx
         self.timeout_seconds = timeout_seconds
-    
+
     async def get_secret(
         self,
         secret_ref: str,
@@ -39,18 +40,19 @@ class SecretsPolicyGateway(SecretsPort):
         """Get secret with access control."""
         # Verify workspace write permission (secrets are sensitive)
         await require_workspace_write_async(self.ctx)
-        # Apply timeout
-        try:
-            return await asyncio.wait_for(
-                self.gateway.get_secret(secret_ref=secret_ref, **kwargs),
-                timeout=self.timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            raise TimeoutError(
+        async def _get_secret():
+            return await self.gateway.get_secret(secret_ref=secret_ref, **kwargs)
+
+        return await run_with_timeout_retry(
+            _get_secret,
+            timeout_seconds=self.timeout_seconds,
+            max_retries=1,
+            timeout_factory=lambda: TimeoutError(
                 f"Secrets get timed out after {self.timeout_seconds} seconds",
                 {"timeout_seconds": self.timeout_seconds, "secret_ref": secret_ref}
-            )
-    
+            ),
+        )
+
     async def set_secret(
         self,
         secret_ref: str,
@@ -59,18 +61,20 @@ class SecretsPolicyGateway(SecretsPort):
     ) -> None:
         """Set secret with access control."""
         await require_workspace_write_async(self.ctx)
-        # Apply timeout
-        try:
-            await asyncio.wait_for(
-                self.gateway.set_secret(secret_ref=secret_ref, value=value, **kwargs),
-                timeout=self.timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            raise TimeoutError(
+
+        async def _set_secret():
+            return await self.gateway.set_secret(secret_ref=secret_ref, value=value, **kwargs)
+
+        await run_with_timeout_retry(
+            _set_secret,
+            timeout_seconds=self.timeout_seconds,
+            max_retries=1,
+            timeout_factory=lambda: TimeoutError(
                 f"Secrets set timed out after {self.timeout_seconds} seconds",
                 {"timeout_seconds": self.timeout_seconds, "secret_ref": secret_ref}
-            )
-    
+            ),
+        )
+
     async def delete_secret(
         self,
         secret_ref: str,
@@ -78,14 +82,16 @@ class SecretsPolicyGateway(SecretsPort):
     ) -> None:
         """Delete secret with access control."""
         await require_workspace_write_async(self.ctx)
-        # Apply timeout
-        try:
-            await asyncio.wait_for(
-                self.gateway.delete_secret(secret_ref=secret_ref, **kwargs),
-                timeout=self.timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            raise TimeoutError(
+
+        async def _delete_secret():
+            return await self.gateway.delete_secret(secret_ref=secret_ref, **kwargs)
+
+        await run_with_timeout_retry(
+            _delete_secret,
+            timeout_seconds=self.timeout_seconds,
+            max_retries=1,
+            timeout_factory=lambda: TimeoutError(
                 f"Secrets delete timed out after {self.timeout_seconds} seconds",
                 {"timeout_seconds": self.timeout_seconds, "secret_ref": secret_ref}
-            )
+            ),
+        )

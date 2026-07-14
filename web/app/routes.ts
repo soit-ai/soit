@@ -35,10 +35,6 @@ export default [
       ]),
     ]),
 
-    ...prefix('/skills', [
-      index('./routes/skill/index.tsx'),
-    ]),
-
     // workflow module route.
     ...prefix('/workflow', [
       index('./routes/workflow/index.tsx'),
@@ -52,12 +48,15 @@ export default [
     ]),
 
     ...prefix('/tasks', [
-      index('./routes/tasks/index.tsx'),
-      route(':taskId', './routes/tasks/detail.tsx'),
+      layout('./routes/tasks/layout.tsx', [
+        index('./routes/tasks/index.tsx'),
+        route('processing', './routes/tasks/processing.tsx'),
+        route(':taskId', './routes/tasks/detail.tsx'),
+      ]),
     ]),
 
-    ...prefix('/observability', [
-      index('./routes/observability/index.tsx'),
+    ...prefix('/observe', [
+      index('./routes/observe/index.tsx'),
       route('runs', './routes/run/index.tsx'),
       route('runs/:runId', './routes/run/detail.tsx'),
       route('feedback', './routes/system/feedback.tsx'),
@@ -72,16 +71,14 @@ export default [
       // ]),
     ]),
 
-    ...prefix('/mcp', [
-      index('./routes/mcp/index.tsx'),
-    ]),
-
     // model module route.
     ...prefix('/models', [
-      index('./routes/model/index.tsx'),
-      // layout('./routes/model/detail/ui/layout.tsx', [
-      //   route(':id/build?', './routes/model/detail/build.tsx'),
-      // ]),
+      layout('./routes/model/layout.tsx', [
+        index('./routes/model/index.tsx'),
+        route('overview', './routes/model/overview.tsx'),
+        route('library', './routes/model/library.tsx'),
+        route('providers', './routes/model/providers.tsx'),
+      ]),
     ]),
 
     route('/notifications', './routes/notifications/index.tsx'),

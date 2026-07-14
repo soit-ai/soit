@@ -1,10 +1,23 @@
-# SOIT-Pro
+# SOIT
 
-企业级 Agent 中心 AI 编排平台，提供 Agent、Knowledge、Workflow、Task、Plugin 与 Observability 的统一构建和运行能力。
+面向企业 AI 系统的可治理 Agent Runtime：把权限、密钥、外联控制、审计、成本、追踪和回放放在 Agent 运行时的核心位置。
 
 ## 项目概述
 
-SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
+SOIT 是一个开源的企业级 Agent Runtime and Governance Platform，面向已经验证 Agent 价值、但需要把 Agent 接入真实业务系统的团队。它把 Agent 构建、工作流执行、知识检索、工具/MCP 接入、模型路由和运行观测收敛到一个自托管控制平面，并把治理能力前置到运行时：权限、密钥、外联控制、审计、成本、追踪和回放不是后补功能，而是 Agent 能否进入企业生产流程的基础条件。
+
+SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
+
+## 治理优先能力
+
+- **权限**：租户、工作区、资源级 RBAC 与 grant 继承，约束 Agent 能访问什么。
+- **密钥**：Vault-backed secret 管理与工作区级可见性，工具调用通过受控注入获取密钥。
+- **外联控制**：egress policy 限制外部 HTTP 和工具适配器访问边界。
+- **Plugin 优先治理**：MCP server 与 Skill 作为 Plugin artifact 安装，运行时自动继承权限、密钥注入、外联边界、审计、成本归因、追踪和回放能力。
+- **审计**：记录特权操作、工具调用、审批、人审 checkpoint 和运行证据。
+- **成本**：按 run、模型、工具、工作流和工作区归因 token、延迟与成本。
+- **追踪**：以统一 Run/Task/RunStep/Response ledger 串起 Agent、Workflow、Tool 和 Knowledge 事件。
+- **回放**：通过 Observe run detail 复盘响应事件、运行步骤、工具调用、子工作流、引用、成本和审计记录。
 
 ## 技术栈
 
@@ -98,7 +111,7 @@ SOIT-Pro 是一个企业级的 LLM 开发平台，采用前后端分离架构。
 ## 项目结构
 
 ```
-soit-pro/
+soit/
 ├── app/                    # 后端应用
 │   ├── app/               # 应用代码
 │   │   ├── api/           # HTTP/WS/SSE 入口
@@ -127,20 +140,21 @@ soit-pro/
 ## 开发规范
 
 详细开发规范请参考：
-- [后端架构文档](app/docs/architecture/PROJECT_STRUCTURE.md)
+- [后端架构文档](server/docs/architecture/PROJECT_STRUCTURE.md)
 - [前端结构文档](web/docs/PROJECT_STRUCTURE.md)
 - [AGENTS规范文档](AGENTS.md)
 - [开发规范文档](dev.md)
-- [工程指南](app/docs/engineering/ENGINEERING_GUIDE.md)
-- [架构文档](app/docs/architecture/)
-- [历史规划归档](docs/archive/README.md)
+- [工程指南](server/docs/engineering/ENGINEERING_GUIDE.md)
+- [架构文档](server/docs/architecture/)
 
 ## 快速开始
+
+完整的 Phase 1 双语 Quickstart、demo seed 与 smoke 证据路径见：[docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)。
 
 ### 后端开发
 
 ```bash
-cd app
+cd server
 uv sync                    # 安装依赖
 uvicorn app.main:app --reload  # 启动开发服务器
 ```
@@ -156,7 +170,7 @@ npm run dev
 ### Docker Compose 启动
 
 ```bash
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
 ```
 
 启动后默认行为：
@@ -178,6 +192,12 @@ docker compose up -d
 - `api` 启动失败：优先查看 `migrate`/`bootstrap` 容器日志是否失败。
 - `web` 无法访问：确认 `web` 容器健康且 `PORT=5000` 生效。
 
+## 当前 MVP 聚焦
+
+当前非 Docker MVP 质量门禁聚焦一条可重复企业闭环：退款政策知识问答、引用证据、受治理工单工具调用、子工作流运行，以及 Observe 中可检查的响应事件、运行步骤、成本、引用和审计记录。
+
+这条路径是当前质量基线，用于约束后续扩展，避免平台演变成互不连通的演示功能集合。
+
 ## 许可证
 
-[待补充]
+SOIT 采用 [Apache License 2.0](LICENSE) 发布。

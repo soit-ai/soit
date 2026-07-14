@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.kernel.ports.llm.interface import ChatMessage, ToolDefinition, ToolCall
 from app.adapters.llm.openai import OpenAILLMPort
+from app.kernel.ports.llm.interface import ChatMessage, ToolCall, ToolDefinition
 
 
 def _make_openai_response(*, tool_calls=None, content=None, finish_reason="stop"):

@@ -5,7 +5,8 @@ from fastapi import status
 from app.api.v1.agent.dependencies import get_agent_application_service
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.runtime.models import Task
+from app.kernel.runtime.db.models.tasks import Task
+from app.kernel.runtime.threads.repository import ThreadRepository
 from app.modules.agent.application.application_service import AgentApplicationService
 
 
@@ -14,8 +15,10 @@ class QueueLLMPort(LLMPort):
 
     def __init__(self, responses):
         self._responses = list(responses)
+        self.messages = []
 
     async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        self.messages.append(messages)
         return self._responses.pop(0)
 
     async def embed(self, texts, model, **kwargs):
@@ -30,6 +33,19 @@ class StubToolPort(ToolPort):
 
     async def invoke(self, tool_ref, parameters, **kwargs):
         return ToolResponse(result={"tool_ref": tool_ref, "parameters": parameters})
+
+
+class FailingLLMPort(LLMPort):
+    """LLM stub that fails during planning."""
+
+    async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        raise RuntimeError("llm unavailable")
+
+    async def embed(self, texts, model, **kwargs):
+        raise NotImplementedError
+
+    async def rerank(self, query, documents, model, top_n=None, **kwargs):
+        raise NotImplementedError
 
 
 def test_agent_api_create_publish_and_execute(client, db, ctx):
@@ -98,7 +114,6 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
                     "tool_refs": ["tool:test:echo"],
                     "workflow_refs": ["wf:handoff"],
                     "skill_refs": ["skill:triage"],
-                    "plugin_refs": ["plugin:soit:search:1.0.0"],
                 },
                 "verify": True,
             },
@@ -118,7 +133,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert "knowledge" in binding_types
         assert "workflow" in binding_types
         assert "skill" in binding_types
-        assert "plugin" in binding_types
+        assert "plugin" not in binding_types
 
         publish_response = client.post(
             f"/api/v1/agents/{agent_id}/publish",
@@ -270,6 +285,768 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert "tool.call.requested" in event_types
         assert "tool.call.started" in event_types
         assert "tool.call.completed" in event_types
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, ctx):
+    from app.kernel.commons.time import utc_now
+    from app.kernel.runtime.db.models.runs import Run
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        published_response = client.post(
+            "/api/v1/agents",
+            json={"name": "Published Agent", "description": "Ready for runtime", "visibility": "private"},
+            headers=headers,
+        )
+        assert published_response.status_code == status.HTTP_201_CREATED
+        published_agent_id = published_response.json()["data"]["id"]
+
+        draft_response = client.post(
+            "/api/v1/agents",
+            json={"name": "Draft Agent", "description": "Needs configuration", "visibility": "private"},
+            headers=headers,
+        )
+        assert draft_response.status_code == status.HTTP_201_CREATED
+
+        version_response = client.post(
+            f"/api/v1/agents/{published_agent_id}/versions",
+            json={
+                "system_prompt": "Use configured capabilities.",
+                "bindings": {
+                    "model_ref": "model:test:primary",
+                    "knowledge_refs": ["knowledge:support"],
+                    "tool_refs": ["tool:test:echo"],
+                },
+                "verify": False,
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/agents/{published_agent_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        now = utc_now()
+        db.add_all(
+            [
+                Run(
+                    id="run_workbench_success",
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    mode="agent",
+                    kind="agent",
+                    subject_kind="agent",
+                    subject_id=published_agent_id,
+                    subject_version_id=version_id,
+                    status="succeeded",
+                    input_summary="hello",
+                    output_summary="done",
+                    started_at=now,
+                    ended_at=now,
+                    duration_ms=120,
+                ),
+                Run(
+                    id="run_workbench_failed",
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    mode="agent",
+                    kind="agent",
+                    subject_kind="agent",
+                    subject_id=published_agent_id,
+                    subject_version_id=version_id,
+                    status="failed",
+                    input_summary="fail",
+                    error_message="tool failed",
+                    started_at=now,
+                    ended_at=now,
+                    duration_ms=280,
+                ),
+            ]
+        )
+        db.commit()
+
+        response = client.get("/api/v1/agents/workbench?page_size=20", headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()["data"]
+        assert payload["summary"]["total_agents"] == 2
+        assert payload["summary"]["configured_agents"] == 1
+        assert payload["summary"]["running_agents"] == 1
+        assert payload["summary"]["today_calls"] == 2
+        assert payload["summary"]["avg_latency_ms"] == 200
+        assert payload["summary"]["success_rate"] == 50.0
+        assert payload["summary"]["pending_exceptions"] == 1
+        assert payload["tabs"]["all"] == 2
+        assert payload["tabs"]["unconfigured"] == 1
+        assert payload["tabs"]["low_success"] == 1
+        assert payload["tabs"]["long_latency"] == 0
+
+        published_row = next(item for item in payload["items"] if item["id"] == published_agent_id)
+        assert published_row["status"] == "abnormal"
+        assert published_row["today_calls"] == 2
+        assert published_row["avg_latency_ms"] == 200
+        assert published_row["success_rate"] == 50.0
+        assert published_row["recent_exception_count"] == 1
+        assert published_row["action_enabled"] is True
+        assert [capability["type"] for capability in published_row["capabilities"]] == ["model", "knowledge", "tool"]
+
+        draft_row = next(item for item in payload["items"] if item["name"] == "Draft Agent")
+        assert draft_row["status"] == "unconfigured"
+        assert draft_row["action_enabled"] is False
+
+        items_response = client.get(
+            "/api/v1/agents/workbench/items?tab=low-success&keyword=Published&page_size=1",
+            headers=headers,
+        )
+        assert items_response.status_code == status.HTTP_200_OK
+        items_payload = items_response.json()["data"]
+        assert "summary" not in items_payload
+        assert items_payload["page_size"] == 1
+        assert items_payload["next_page_token"] is None
+        assert [item["id"] for item in items_payload["items"]] == [published_agent_id]
+
+        paged_response = client.get("/api/v1/agents/workbench/items?page_size=1", headers=headers)
+        assert paged_response.status_code == status.HTTP_200_OK
+        assert paged_response.json()["data"]["next_page_token"] is not None
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
+    from app.main import app
+
+    workflow_ref_holder = {"ref": ""}
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort(
+                [
+                    ChatResponse(
+                        text=None,
+                        tokens_prompt=1,
+                        tokens_completion=1,
+                        finish_reason="tool_calls",
+                        tool_calls=[
+                            ToolCall(
+                                id="call_wf",
+                                name=workflow_ref_holder["ref"],
+                                arguments={"ticket_id": "TCK-3001"},
+                            )
+                        ],
+                    ),
+                    ChatResponse(text="workflow ticket processed", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+                ]
+            ),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        workflow_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "agent-ticket-workflow", "description": "Agent workflow binding test"},
+            headers=headers,
+        )
+        assert workflow_response.status_code == status.HTTP_201_CREATED
+        workflow_id = workflow_response.json()["data"]["id"]
+        workflow_ref_holder["ref"] = f"wf:{workflow_id}"
+
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={
+                "graph_json": {
+                    "name": "agent-ticket-flow",
+                    "inputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "outputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "set_ticket",
+                                "type": "set_var",
+                                "params": {"key": "ticket_id", "value": "{{ inputs.ticket_id }}"},
+                            },
+                            {
+                                "id": "out1",
+                                "type": "output",
+                                "params": {"ticket_id": "{{ steps.set_ticket.output.value }}"},
+                            },
+                        ],
+                        "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        workflow_version_id = version_response.json()["data"]["id"]
+        publish_workflow_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": workflow_version_id},
+            headers=headers,
+        )
+        assert publish_workflow_response.status_code == status.HTTP_200_OK
+
+        create_response = client.post(
+            "/api/v1/agents",
+            json={"name": "api-agent-workflow", "description": "Agent workflow API test", "visibility": "private"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        agent_version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Use the ticket workflow when needed.",
+                "bindings": {
+                    "model_ref": "model:test:primary",
+                    "workflow_refs": [workflow_ref_holder["ref"]],
+                },
+                "verify": False,
+            },
+            headers=headers,
+        )
+        assert agent_version_response.status_code == status.HTTP_201_CREATED
+        agent_version_id = agent_version_response.json()["data"]["id"]
+        publish_agent_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": agent_version_id},
+            headers=headers,
+        )
+        assert publish_agent_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={"messages": [{"role": "user", "content": "Process ticket TCK-3001"}]},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        payload = execute_response.json()["data"]
+        assert payload["output"] == "workflow ticket processed"
+        assert payload["tool_calls"] == 1
+
+        detail_response = client.get(
+            f"/api/v1/responses/{payload['response_id']}/detail",
+            headers=headers,
+        )
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_payload = detail_response.json()["data"]
+        tool_call = detail_payload["tool_calls"][0]
+        assert tool_call["tool_name"] == workflow_ref_holder["ref"]
+        assert tool_call["tool_type"] == "workflow"
+        assert tool_call["status"] == "completed"
+        assert tool_call["result_json"]["result"]["workflow_run_id"].startswith("run_")
+        assert tool_call["result_json"]["result"]["output"]["ticket_id"] == "TCK-3001"
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_and_run_detail(client, db, ctx, monkeypatch):
+    """Enterprise demo path should link knowledge citations, external tool calls, workflow calls, and run detail."""
+    from app.main import app
+
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    workflow_ref_holder = {"ref": ""}
+
+    async def fake_knowledge_query(**kwargs):
+        assert kwargs["knowledge_id"] == "kb_support"
+        return {
+            "results": [
+                {
+                    "chunk_id": "chunk_refund_1",
+                    "document_id": "doc_refund",
+                    "score": 0.93,
+                    "text": "Refund tickets require account verification before workflow escalation.",
+                    "metadata": {},
+                }
+            ],
+            "total": 1,
+            "citations": [
+                {
+                    "chunk_id": "chunk_refund_1",
+                    "document_id": "doc_refund",
+                    "rank": 1,
+                    "score": 0.93,
+                    "doc_key": "refund-policy.md",
+                    "title": "Refund Policy",
+                    "chunk_no": 2,
+                    "snippet": "Refund tickets require account verification before workflow escalation.",
+                }
+            ],
+        }
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort(
+                [
+                    ChatResponse(
+                        text=None,
+                        tokens_prompt=3,
+                        tokens_completion=2,
+                        finish_reason="tool_calls",
+                        tool_calls=[
+                            ToolCall(
+                                id="call_ticket_lookup",
+                                name="tool:test:ticket_lookup",
+                                arguments={"ticket_id": "TCK-DEMO-1"},
+                            )
+                        ],
+                    ),
+                    ChatResponse(
+                        text=None,
+                        tokens_prompt=3,
+                        tokens_completion=2,
+                        finish_reason="tool_calls",
+                        tool_calls=[
+                            ToolCall(
+                                id="call_ticket_workflow",
+                                name=workflow_ref_holder["ref"],
+                                arguments={"ticket_id": "TCK-DEMO-1", "priority": "high"},
+                            )
+                        ],
+                    ),
+                    ChatResponse(
+                        text="Verified the account and processed ticket TCK-DEMO-1.",
+                        tokens_prompt=4,
+                        tokens_completion=5,
+                        finish_reason="stop",
+                    ),
+                ]
+            ),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    monkeypatch.setattr("app.modules.knowledge.application.tools.knowledge_query", fake_knowledge_query)
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        workflow_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "enterprise-ticket-workflow", "description": "Enterprise demo ticket workflow"},
+            headers=headers,
+        )
+        assert workflow_response.status_code == status.HTTP_201_CREATED
+        workflow_id = workflow_response.json()["data"]["id"]
+        workflow_ref_holder["ref"] = f"wf:{workflow_id}"
+
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={
+                "graph_json": {
+                    "name": "enterprise-ticket-flow",
+                    "inputs_schema": {
+                        "type": "object",
+                        "properties": {
+                            "ticket_id": {"type": "string"},
+                            "priority": {"type": "string"},
+                        },
+                    },
+                    "outputs_schema": {
+                        "type": "object",
+                        "properties": {
+                            "ticket_id": {"type": "string"},
+                            "priority": {"type": "string"},
+                        },
+                    },
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "set_ticket",
+                                "type": "set_var",
+                                "params": {"set": {"ticket_id": "{{ inputs.ticket_id }}", "priority": "{{ inputs.priority }}"}},
+                            },
+                            {
+                                "id": "out1",
+                                "type": "output",
+                                "params": {
+                                    "ticket_id": "{{ steps.set_ticket.output.ticket_id }}",
+                                    "priority": "{{ steps.set_ticket.output.priority }}",
+                                },
+                            },
+                        ],
+                        "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        workflow_version_id = version_response.json()["data"]["id"]
+        publish_workflow_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": workflow_version_id},
+            headers=headers,
+        )
+        assert publish_workflow_response.status_code == status.HTTP_200_OK
+
+        create_response = client.post(
+            "/api/v1/agents",
+            json={
+                "name": "enterprise-demo-agent",
+                "description": "Enterprise demo agent smoke test",
+                "visibility": "private",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        agent_version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Use enterprise knowledge, then process the ticket workflow.",
+                    "bindings": {
+                        "model_ref": "model:test:primary",
+                        "knowledge_refs": ["knowledge:kb_support"],
+                        "tool_refs": ["tool:test:ticket_lookup"],
+                        "workflow_refs": [workflow_ref_holder["ref"]],
+                    },
+                "verify": False,
+            },
+            headers=headers,
+        )
+        assert agent_version_response.status_code == status.HTTP_201_CREATED
+        agent_version_id = agent_version_response.json()["data"]["id"]
+        publish_agent_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": agent_version_id},
+            headers=headers,
+        )
+        assert publish_agent_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={"messages": [{"role": "user", "content": "Handle refund ticket TCK-DEMO-1"}]},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        payload = execute_response.json()["data"]
+        assert payload["output"] == "Verified the account and processed ticket TCK-DEMO-1."
+        assert payload["tool_calls"] == 2
+        assert payload["citations"][0]["knowledge_id"] == "kb_support"
+        assert payload["citations"][0]["doc_key"] == "refund-policy.md"
+
+        messages = ThreadRepository(db, ctx).list_messages(payload["thread_id"])
+        assistant_message = next(message for message in messages if message.role == "assistant" and message.run_id == payload["run_id"])
+        persisted_tool_calls = assistant_message.tool_calls_json
+        assert len(persisted_tool_calls) == 2
+        assert {item["tool_name"] for item in persisted_tool_calls} == {
+            "tool:test:ticket_lookup",
+            workflow_ref_holder["ref"],
+        }
+        assert assistant_message.metadata_json["tool_calls"] == persisted_tool_calls
+        assert assistant_message.metadata_json["tool_calls_count"] == 2
+
+        response_detail = client.get(
+            f"/api/v1/responses/{payload['response_id']}/detail",
+            headers=headers,
+        )
+        assert response_detail.status_code == status.HTTP_200_OK
+        detail_payload = response_detail.json()["data"]
+        assert detail_payload["response"]["output_json"]["citations"] == payload["citations"]
+        assert detail_payload["response"]["usage_json"]["budget_exceeded"] is False
+        tool_calls = {item["tool_name"]: item for item in detail_payload["tool_calls"]}
+        external_tool_call = tool_calls["tool:test:ticket_lookup"]
+        assert external_tool_call["tool_type"] == "builtin"
+        assert external_tool_call["status"] == "completed"
+        assert external_tool_call["arguments_json"] == {"ticket_id": "TCK-DEMO-1"}
+        assert external_tool_call["result_json"]["result"]["tool_ref"] == "tool:test:ticket_lookup"
+        assert external_tool_call["result_json"]["result"]["parameters"] == {"ticket_id": "TCK-DEMO-1"}
+
+        workflow_tool_call = tool_calls[workflow_ref_holder["ref"]]
+        assert workflow_tool_call["tool_type"] == "workflow"
+        assert workflow_tool_call["status"] == "completed"
+        assert workflow_tool_call["result_json"]["result"]["workflow_run_id"].startswith("run_")
+        assert workflow_tool_call["result_json"]["result"]["output"] == {
+            "ticket_id": "TCK-DEMO-1",
+            "priority": "high",
+        }
+        event_types = [item["type"] for item in detail_payload["events"]]
+        assert "tool.call.completed" in event_types
+        assert "response.output_text.completed" in event_types
+
+        run_detail = client.get(
+            f"/api/v1/runs/{payload['run_id']}",
+            params={"include_steps": True, "include_cost": True, "include_artifacts": True},
+            headers=headers,
+        )
+        assert run_detail.status_code == status.HTTP_200_OK
+        run_payload = run_detail.json()["data"]
+        assert run_payload["run"]["status"] == "succeeded"
+        assert run_payload["cost_summary"]["tokens_prompt"] >= payload["tokens_prompt"]
+        assert run_payload["cost_summary"]["tokens_completion"] >= payload["tokens_completion"]
+        retrieval_steps = [step for step in run_payload["steps"] if step["step_type"] == "retrieval"]
+        assert retrieval_steps
+        assert retrieval_steps[0]["status"] == "succeeded"
+        assert retrieval_steps[0]["metrics_json"]["citation_count"] == 1
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_includes_attachment_context_in_runtime_messages(client, db, ctx):
+    from app.main import app
+
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(text="attachment processed", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+        ]
+    )
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=llm_port,
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/agents",
+            json={"name": "api-agent-attachments", "description": "Agent attachment API test", "visibility": "private"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Use supplied attachment context.",
+                "bindings": {"model_ref": "model:test:primary"},
+                "verify": False,
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+        publish_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Summarize the attached support notes",
+                        "metadata": {
+                            "attachments": [
+                                {
+                                    "id": "att_support",
+                                    "name": "support-notes.txt",
+                                    "type": "document",
+                                    "content": [{"type": "text", "text": "Refund tickets require account verification."}],
+                                }
+                            ]
+                        },
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        runtime_user_message = next(message for message in llm_port.messages[0] if message.role == "user")
+        assert "Summarize the attached support notes" in runtime_user_message.content
+        assert "Attached context:" in runtime_user_message.content
+        assert "[support-notes.txt]" in runtime_user_message.content
+        assert "Refund tickets require account verification." in runtime_user_message.content
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort(
+                [
+                    ChatResponse(
+                        text=None,
+                        tokens_prompt=1,
+                        tokens_completion=1,
+                        finish_reason="tool_calls",
+                        tool_calls=[ToolCall(id="call_1", name="tool:test:echo", arguments={"value": "blocked"})],
+                    ),
+                ]
+            ),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        create_response = client.post(
+            "/api/v1/agents",
+            json={
+                "name": "api-agent-budget",
+                "description": "Agent API budget test",
+                "visibility": "private",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Respect budgets.",
+                "bindings": {
+                    "model_ref": "model:test:primary",
+                    "tool_refs": ["tool:test:echo"],
+                },
+                "max_tool_calls": 0,
+                "verify": False,
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version_id},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={"messages": [{"role": "user", "content": "Use a tool"}]},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        payload = execute_response.json()["data"]
+        assert payload["budget_exceeded"] is True
+        assert payload["budget_reason"] == "tool_budget_exceeded"
+        assert payload["tool_calls"] == 0
+
+        detail_response = client.get(
+            f"/api/v1/responses/{payload['response_id']}/detail",
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert detail_response.status_code == status.HTTP_200_OK
+        usage = detail_response.json()["data"]["response"]["usage_json"]
+        assert usage["budget_exceeded"] is True
+        assert usage["budget_reason"] == "tool_budget_exceeded"
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=FailingLLMPort(),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        create_response = client.post(
+            "/api/v1/agents",
+            json={"name": "api-agent-failure", "description": "Agent failure persistence test", "visibility": "private"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        agent_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "Fail clearly.",
+                "bindings": {"model_ref": "model:test:primary"},
+                "verify": False,
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={"messages": [{"role": "user", "content": "Trigger a failure"}]},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+        thread = ThreadRepository(db, ctx).list_threads(agent_id=agent_id)[0]
+        messages = ThreadRepository(db, ctx).list_messages(thread.id)
+        assistant_message = next(message for message in messages if message.role == "assistant")
+        assert assistant_message.status == "failed"
+        assert assistant_message.content == "Agent execution failed: llm unavailable"
+        assert assistant_message.error_code == "agent_execution_failed"
+        assert assistant_message.error_message == "llm unavailable"
+        assert assistant_message.finish_reason == "agent_execution_failed"
+        assert assistant_message.run_id == thread.latest_run_id
+        assert assistant_message.response_id
+        assert assistant_message.metadata_json["error_code"] == "agent_execution_failed"
+        assert assistant_message.metadata_json["error_message"] == "llm unavailable"
+        assert assistant_message.metadata_json["tool_calls_count"] == 0
+
+        thread_response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
+        assert thread_response.status_code == status.HTTP_200_OK
+        api_assistant_message = next(
+            message for message in thread_response.json()["data"]["messages"] if message["role"] == "assistant"
+        )
+        assert api_assistant_message["status"] == "failed"
+        assert api_assistant_message["content"] == "Agent execution failed: llm unavailable"
+        assert api_assistant_message["error_code"] == "agent_execution_failed"
+        assert api_assistant_message["error_message"] == "llm unavailable"
+        assert api_assistant_message["finish_reason"] == "agent_execution_failed"
+        assert api_assistant_message["run_id"] == thread.latest_run_id
+        assert api_assistant_message["response_id"] == assistant_message.response_id
+        assert api_assistant_message["metadata_json"]["error_code"] == "agent_execution_failed"
+        assert api_assistant_message["metadata_json"]["error_message"] == "llm unavailable"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 

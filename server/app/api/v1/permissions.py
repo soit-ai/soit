@@ -7,10 +7,10 @@ from fastapi import Depends
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.rbac import (
+    require_tenant_admin_async,
+    require_workspace_owner_async,
     require_workspace_read_async,
     require_workspace_write_async,
-    require_workspace_owner_async,
-    require_tenant_admin_async,
 )
 from app.middleware.auth import get_current_context
 

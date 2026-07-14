@@ -3,16 +3,16 @@
 Auth primitives (JWT/session) used by entrypoints.
 """
 
+from datetime import UTC, datetime, timedelta
+
 import jwt
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
 
 from app.kernel.commons.errors import UnauthorizedError
 
 
 class JWTManager:
     """JWT token manager for authentication."""
-    
+
     def __init__(
         self,
         secret_key: str,
@@ -20,7 +20,7 @@ class JWTManager:
         access_token_expire_minutes: int = 30,
     ):
         """Initialize JWT manager.
-        
+
         Args:
             secret_key: Secret key for signing tokens.
             algorithm: JWT algorithm (default: HS256).
@@ -29,18 +29,18 @@ class JWTManager:
         self.secret_key = secret_key
         self.algorithm = algorithm
         self.access_token_expire_minutes = access_token_expire_minutes
-    
+
     def create_access_token(
         self,
         user_id: str,
         tenant_id: str,
-        workspace_id: Optional[str] = None,
-        tenant_role: Optional[str] = None,
-        workspace_role: Optional[str] = None,
-        expires_delta: Optional[timedelta] = None,
+        workspace_id: str | None = None,
+        tenant_role: str | None = None,
+        workspace_role: str | None = None,
+        expires_delta: timedelta | None = None,
     ) -> str:
         """Create JWT access token.
-        
+
         Args:
             user_id: User ID.
             tenant_id: Tenant ID.
@@ -48,42 +48,42 @@ class JWTManager:
             tenant_role: Optional tenant role.
             workspace_role: Optional workspace role.
             expires_delta: Optional custom expiration delta.
-            
+
         Returns:
             Encoded JWT token string.
         """
         if expires_delta:
-            expire = datetime.now(timezone.utc) + expires_delta
+            expire = datetime.now(UTC) + expires_delta
         else:
-            expire = datetime.now(timezone.utc) + timedelta(
+            expire = datetime.now(UTC) + timedelta(
                 minutes=self.access_token_expire_minutes
             )
-        
-        payload: Dict[str, any] = {
+
+        payload: dict[str, any] = {
             "sub": user_id,
             "tenant_id": tenant_id,
             "exp": expire,
-            "iat": datetime.now(timezone.utc),
+            "iat": datetime.now(UTC),
         }
-        
+
         if workspace_id:
             payload["workspace_id"] = workspace_id
         if tenant_role:
             payload["tenant_role"] = tenant_role
         if workspace_role:
             payload["workspace_role"] = workspace_role
-        
+
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
-    
-    def decode_token(self, token: str) -> Dict[str, any]:
+
+    def decode_token(self, token: str) -> dict[str, any]:
         """Decode and validate JWT token.
-        
+
         Args:
             token: JWT token string.
-            
+
         Returns:
             Decoded token payload.
-            
+
         Raises:
             UnauthorizedError: If token is invalid or expired.
         """
@@ -99,16 +99,16 @@ class JWTManager:
             raise UnauthorizedError("Token has expired")
         except jwt.InvalidTokenError as e:
             raise UnauthorizedError(f"Invalid token: {str(e)}")
-    
+
     def extract_user_id(self, token: str) -> str:
         """Extract user ID from token.
-        
+
         Args:
             token: JWT token string.
-            
+
         Returns:
             User ID.
-            
+
         Raises:
             UnauthorizedError: If token is invalid.
         """
@@ -117,16 +117,16 @@ class JWTManager:
         if not user_id:
             raise UnauthorizedError("Token missing user ID")
         return str(user_id)
-    
+
     def extract_tenant_id(self, token: str) -> str:
         """Extract tenant ID from token.
-        
+
         Args:
             token: JWT token string.
-            
+
         Returns:
             Tenant ID.
-            
+
         Raises:
             UnauthorizedError: If token is invalid.
         """
@@ -138,10 +138,10 @@ class JWTManager:
 
     def extract_workspace_id(self, token: str) -> str:
         """Extract workspace ID from token.
-        
+
         Args:
             token: JWT token string.
-            
+
         Returns:
             Workspace ID.
         """
@@ -153,7 +153,7 @@ class JWTManager:
 
     def extract_tenant_role(self, token: str) -> str:
         """Extract tenant role from token.
-        
+
         Args:
             token: JWT token string.
 
@@ -168,10 +168,10 @@ class JWTManager:
 
     def extract_workspace_role(self, token: str) -> str:
         """Extract workspace role from token.
-        
+
         Args:
             token: JWT token string.
-            
+
         Returns:
             Workspace role.
         """
@@ -183,12 +183,12 @@ class JWTManager:
 
 
 # Global JWT manager instance (lazy initialization)
-_jwt_manager: Optional[JWTManager] = None
+_jwt_manager: JWTManager | None = None
 
 
 def _get_jwt_manager() -> JWTManager:
     """Get or create global JWT manager instance.
-    
+
     Returns:
         JWTManager instance.
     """
@@ -203,18 +203,18 @@ def _get_jwt_manager() -> JWTManager:
     return _jwt_manager
 
 
-def decode_jwt_token(token: str) -> Dict[str, any]:
+def decode_jwt_token(token: str) -> dict[str, any]:
     """Decode and validate JWT token (convenience function).
-    
+
     Args:
         token: JWT token string.
-        
+
     Returns:
         Decoded token payload.
-        
+
     Raises:
         UnauthorizedError: If token is invalid or expired.
     """
     jwt_manager = _get_jwt_manager()
     return jwt_manager.decode_token(token)
-        
+

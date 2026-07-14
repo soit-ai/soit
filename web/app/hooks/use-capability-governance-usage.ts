@@ -49,7 +49,9 @@ export function useCapabilityGovernanceUsage(capabilityRefs: string[]): Capabili
         .map(({ agent, bindings }) => {
           const matches = bindings
             .map((binding) => binding.target_key)
-            .filter((targetKey): targetKey is string => Boolean(targetKey) && capabilityRefSet.has(targetKey))
+            .filter((targetKey): targetKey is string => {
+              return typeof targetKey === 'string' && capabilityRefSet.has(targetKey)
+            })
 
           if (!matches.length) {
             return null

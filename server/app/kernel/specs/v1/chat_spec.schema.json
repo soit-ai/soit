@@ -6,11 +6,8 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "runtime"
-  ],
-  "anyOf": [
-    {"required": ["model"]},
-    {"required": ["model_ref"]}
+    "runtime",
+    "model_ref"
   ],
   "properties": {
     "runtime": {
@@ -23,34 +20,6 @@
         "null"
       ],
       "maxLength": 8000
-    },
-    "model": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "ref_key": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "params": {
-          "type": [
-            "object",
-            "null"
-          ]
-        }
-      },
-      "anyOf": [
-        {"required": ["ref_key"]},
-        {"required": ["provider", "model"]}
-      ]
     },
     "model_ref": {
       "$ref": "refs.schema.json#/$defs/ModelRef"
@@ -85,15 +54,6 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "allowlist": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
         "configs": {
           "type": [
             "object",
@@ -117,26 +77,7 @@
         "null"
       ],
       "additionalProperties": false,
-      "anyOf": [
-        {"required": ["knowledge_ids"]},
-        {"required": ["knowledges"]},
-        {"required": ["knowledge_refs"]}
-      ],
       "properties": {
-        "knowledge_ids": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
-        },
-        "knowledges": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "refs.schema.json#/$defs/KnowledgeRef"
-          }
-        },
         "knowledge_refs": {
           "type": "array",
           "minItems": 1,

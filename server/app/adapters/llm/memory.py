@@ -5,17 +5,18 @@ In-memory LLM adapter for tests and local runs.
 
 from __future__ import annotations
 
-from typing import List, Optional, Dict, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from app.kernel.ports.llm.interface import (
-    LLMPort,
     ChatMessage,
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    LLMPort,
     RerankResponse,
-    ToolDefinition,
     ToolCall,
+    ToolDefinition,
 )
 
 
@@ -24,35 +25,53 @@ class InMemoryLLMPort(LLMPort):
 
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         *,
-        tools: Optional[List[ToolDefinition]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         model_name = model.split(":")[-1] if ":" in model else model
         prompt_tokens = sum(len((m.content or "").split()) for m in messages)
+        last_user = ""
+        last_tool = ""
+        for msg in reversed(messages):
+            if not last_tool and msg.role == "tool":
+                last_tool = msg.content or ""
+            if msg.role == "user":
+                last_user = msg.content or ""
+                break
+
+        if last_tool:
+            completion_tokens = len(last_tool.split())
+            return ChatResponse(
+                text=last_tool,
+                tokens_prompt=prompt_tokens,
+                tokens_completion=completion_tokens,
+                model=model_name,
+                finish_reason="stop",
+            )
 
         # When tools are provided, mock a tool call for the first tool
         if tools:
             tool = tools[0]
             return ChatResponse(
                 text=None,
-                tool_calls=[ToolCall(id=f"call_{tool.name}", name=tool.name, arguments={})],
+                tool_calls=[
+                    ToolCall(
+                        id=f"call_{tool.name}",
+                        name=tool.name,
+                        arguments=self._mock_tool_arguments(tool.parameters, last_user),
+                    )
+                ],
                 tokens_prompt=prompt_tokens,
                 tokens_completion=1,
                 model=model_name,
                 finish_reason="tool_calls",
             )
-
-        last_user = ""
-        for msg in reversed(messages):
-            if msg.role == "user":
-                last_user = msg.content or ""
-                break
 
         text = last_user or "ok"
         completion_tokens = len(text.split()) if text else 0
@@ -64,12 +83,42 @@ class InMemoryLLMPort(LLMPort):
             finish_reason="stop",
         )
 
+    def _mock_tool_arguments(self, parameters: dict[str, Any], last_user: str) -> dict[str, Any]:
+        required = parameters.get("required") or []
+        properties = parameters.get("properties") or {}
+        arguments: dict[str, Any] = {}
+        for name in required:
+            schema = properties.get(name) or {}
+            arguments[name] = self._mock_argument_value(name, schema, last_user)
+        return arguments
+
+    def _mock_argument_value(self, name: str, schema: dict[str, Any], last_user: str) -> Any:
+        value_type = schema.get("type")
+        lowered = name.lower()
+        if value_type == "string":
+            if any(token in lowered for token in ("message", "query", "prompt", "text", "description")):
+                return last_user or "demo request"
+            if "priority" in lowered:
+                return "normal"
+            if lowered.endswith("_id") or lowered == "id" or "customer" in lowered:
+                return "demo-customer"
+            return f"demo-{lowered.replace('_', '-')}"
+        if value_type in ("integer", "number"):
+            return 1
+        if value_type == "boolean":
+            return True
+        if value_type == "array":
+            return []
+        if value_type == "object":
+            return {}
+        return last_user or "demo"
+
     async def stream_chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
         # Strip tools/tool_choice from kwargs before passing to chat
@@ -90,7 +139,7 @@ class InMemoryLLMPort(LLMPort):
 
     async def embed(
         self,
-        texts: List[str],
+        texts: list[str],
         model: str,
         **kwargs: Any,
     ) -> EmbeddingResponse:
@@ -106,9 +155,9 @@ class InMemoryLLMPort(LLMPort):
     async def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         model: str,
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
         **kwargs: Any,
     ) -> RerankResponse:
         results = []

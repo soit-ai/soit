@@ -2,9 +2,9 @@
 
 import base64
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from app.infra.db.pagination import decode_cursor_token, encode_cursor_token
+from app.infra.db.pagination import PageToken, decode_cursor_token, encode_cursor_token
 
 
 def test_encode_cursor_token_requires_cursor_position():
@@ -27,12 +27,23 @@ def test_decode_cursor_token_preserves_canonical_cursor_tokens():
     token = encode_cursor_token(
         scope="responses",
         limit=15,
-        cursor_at=datetime(2026, 4, 9, 12, 30, tzinfo=timezone.utc),
+        cursor_at=datetime(2026, 4, 9, 12, 30, tzinfo=UTC),
         cursor_id="resp_123",
     )
 
     limit, cursor_at, cursor_id = decode_cursor_token(token, expected_scope="responses")
 
     assert limit == 15
-    assert cursor_at == datetime(2026, 4, 9, 12, 30, tzinfo=timezone.utc)
+    assert cursor_at == datetime(2026, 4, 9, 12, 30, tzinfo=UTC)
     assert cursor_id == "resp_123"
+
+
+def test_page_token_rejects_direct_json_tokens():
+    raw_token = json.dumps({"offset": 10, "limit": 20})
+
+    try:
+        PageToken.from_string(raw_token)
+    except ValueError:
+        return
+
+    raise AssertionError("Expected direct JSON page token to be rejected")

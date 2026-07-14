@@ -69,6 +69,7 @@ import { ComposerAddAttachment, ComposerAttachments, UserMessageAttachments } fr
 import { Toggle } from '../toggle'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from '@/hooks/use-navigate'
+import { debugLog } from '@/utils/debug'
 
 export type ThreadProps = ThreadPrimitive.Root.Props & {
   onSend?: (message: string) => void
@@ -98,7 +99,7 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
   }, [threadMessages])
 
   useEffect(() => {
-    console.log('ThreadBox aui state:', {
+    debugLog('ThreadBox aui state:', {
       threadState: aui.thread().getState(),
       composerState: aui.composer().getState(),
       threadMessages: aui.thread().getState().messages,
@@ -721,10 +722,24 @@ const AssistantMeta: FC = () => {
     customMetadata.finish_reason ??
     customMetadata.finishReason ??
     null
+  const budgetExceeded =
+    customMetadata.budget_exceeded ??
+    customMetadata.budgetExceeded ??
+    null
+  const budgetReason =
+    customMetadata.budget_reason ??
+    customMetadata.budgetReason ??
+    null
+  const costTotal =
+    customMetadata.cost_total ??
+    customMetadata.costTotal ??
+    null
   const hasTokens = tokensPrompt !== null || tokensCompletion !== null
+  const hasBudget = budgetExceeded !== null || budgetReason !== null
+  const hasCost = typeof costTotal === 'number'
   const totalTokens = (tokensPrompt ?? 0) + (tokensCompletion ?? 0)
 
-  if (!runId && !hasTokens && !finishReason) {
+  if (!runId && !hasTokens && !finishReason && !hasBudget && !hasCost) {
     return null
   }
 
@@ -735,7 +750,7 @@ const AssistantMeta: FC = () => {
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-xs"
-          onClick={() => navigate(`/observability/runs/${runId}`)}
+          onClick={() => navigate(`/observe/runs/${runId}`)}
         >
           <Activity className="mr-1 h-3 w-3" />
           {t('chat.thread.run.viewRun')}
@@ -762,6 +777,17 @@ const AssistantMeta: FC = () => {
             return `${t('chat.thread.run.finishReasonLabel')}: ${reasonText}`
           })()}
         </span>
+      ) : null}
+      {hasBudget ? (
+        <span>
+          {t('chat.thread.run.budget', {
+            status: budgetExceeded ? t('chat.thread.run.budgetExceeded') : t('chat.thread.run.budgetOk'),
+            reason: budgetReason || '-',
+          })}
+        </span>
+      ) : null}
+      {hasCost ? (
+        <span>{t('chat.thread.run.cost', { cost: Number(costTotal).toFixed(4) })}</span>
       ) : null}
     </div>
   )

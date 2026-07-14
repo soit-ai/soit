@@ -10,8 +10,14 @@ Public API:
 - validator (SpecValidator)
 """
 
-from .loader import get_specs_dir, list_schemas, load_schema, build_registry
-from .validator import validate_spec, validate_runtime_spec, validator, SpecValidator, SpecIssue
+from .loader import build_registry, get_specs_dir, list_schemas, load_schema
+from .validator import (
+    SpecIssue,
+    SpecValidator,
+    validate_runtime_spec,
+    validate_spec,
+    validator,
+)
 
 __all__ = [
     "get_specs_dir",

@@ -1,4 +1,4 @@
-# SOIT-Pro Backend
+# SOIT Backend
 
 Main backend workspace for SOIT.
 

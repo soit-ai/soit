@@ -98,6 +98,87 @@ async def test_anthropic_chat_test_uses_http_api(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_anthropic_embedding_test_is_unsupported():
+    adapter = ProviderCatalogAdapter()
+
+    with pytest.raises(ValueError) as exc_info:
+        await adapter.test_embeddings(
+            provider_kind="anthropic",
+            api_key="anthropic-key",
+            base_url=None,
+            model_id="claude-sonnet-4-6",
+            input_text="hello",
+        )
+
+    assert "Embedding test not supported for provider: anthropic" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_anthropic_model_catalog_enriches_latest_claude_metadata(monkeypatch):
+    adapter = ProviderCatalogAdapter()
+
+    class FakeHttpResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "id": "claude-opus-4-8",
+                        "display_name": "Claude Opus 4.8",
+                        "created_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "id": "claude-sonnet-4-6",
+                        "display_name": "Claude Sonnet 4.6",
+                    },
+                    {
+                        "id": "claude-haiku-4-5-20251001",
+                        "display_name": "Claude Haiku 4.5",
+                    },
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            assert url == "https://api.anthropic.com/v1/models?limit=200"
+            assert headers["x-api-key"] == "anthropic-key"
+            assert headers["anthropic-version"] == "2023-06-01"
+            return FakeHttpResponse()
+
+    monkeypatch.setattr("app.modules.modelhub.infra.providers.httpx.AsyncClient", FakeClient)
+
+    result = await adapter.list_models(
+        provider_kind="anthropic",
+        api_key="anthropic-key",
+        base_url=None,
+    )
+
+    by_id = {item["model_id"]: item for item in result}
+    assert by_id["claude-opus-4-8"]["context_window"] == 1_000_000
+    assert by_id["claude-opus-4-8"]["max_output_tokens"] == 128_000
+    assert by_id["claude-opus-4-8"]["capabilities_json"]["modalities"]["input"] == ["text", "image"]
+    assert by_id["claude-opus-4-8"]["raw_meta"]["modelhub"]["pricing_json"] == {
+        "currency": "USD",
+        "unit": "mtok",
+        "input": 5.0,
+        "output": 25.0,
+    }
+    assert by_id["claude-sonnet-4-6"]["context_window"] == 1_000_000
+    assert by_id["claude-haiku-4-5-20251001"]["context_window"] == 200_000
+
+
+@pytest.mark.asyncio
 async def test_gemini_chat_test_uses_http_api(monkeypatch):
     adapter = ProviderCatalogAdapter()
 

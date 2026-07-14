@@ -59,6 +59,21 @@ export interface ResponseEventRead {
   created_at: string
 }
 
+export interface ResponseCitationRead {
+  chunk_id?: string
+  document_id?: string
+  rank?: number
+  score?: number
+  knowledge_id?: string
+  doc_key?: string
+  title?: string
+  source_uri?: string
+  chunk_no?: number
+  page_no?: number
+  section_path?: string[]
+  snippet?: string
+}
+
 export interface ToolCallRead {
   id: string
   tenant_id: string

@@ -129,7 +129,7 @@ class KnowledgeDocument(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
     
-    knowledge_id: str = Field(foreign_key="knowledge.id", index=True)
+    knowledge_id: str = Field(index=True)
     """Knowledge ID (foreign key)."""
     
     doc_key: str = Field()
@@ -234,7 +234,7 @@ class KnowledgeIngestTask(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
 
-    knowledge_id: str = Field(foreign_key="knowledge.id", index=True)
+    knowledge_id: str = Field(index=True)
     """Knowledge ID (foreign key)."""
 
     document_id: Optional[str] = Field(
@@ -301,7 +301,7 @@ class KnowledgeChunk(SQLModel, table=True):
     knowledge_id: str = Field(index=True)
     """Knowledge ID (redundant for query performance)."""
     
-    document_id: str = Field(foreign_key="knowledge_documents.id", index=True)
+    document_id: str = Field(index=True)
     """Document ID (foreign key)."""
     
     document_version: int = Field()
@@ -382,7 +382,7 @@ class KnowledgeIndex(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
     
-    knowledge_id: str = Field(foreign_key="knowledge.id", index=True)
+    knowledge_id: str = Field(index=True)
     """Knowledge ID (foreign key)."""
     
     name: str = Field()

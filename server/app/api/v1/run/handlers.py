@@ -32,24 +32,12 @@ class RunHandlers:
     def __init__(self, service: RunService):
         self.service = service
 
-    @staticmethod
-    def _resolve_subject_scope(
-        workflow_id: Optional[str],
-        subject_kind: Optional[str],
-        subject_id: Optional[str],
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Resolve run subject filters."""
-        if workflow_id:
-            return "workflow", workflow_id
-        return subject_kind, subject_id
-
     async def list_runs(
         self,
         ctx: RequestContext,
         *,
         mode: Optional[str] = None,
         kind: Optional[str] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         subject_version_id: Optional[str] = None,
@@ -67,18 +55,13 @@ class RunHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         runs = self.service.list_runs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             trace_id=trace_id,
             user_id=user_id,
@@ -201,7 +184,6 @@ class RunHandlers:
         kind: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -209,18 +191,13 @@ class RunHandlers:
         started_before: Optional[datetime] = None,
     ) -> RunCostSummaryResponse:
         """Summarize run costs."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             started_after=started_after,
             started_before=started_before,
@@ -234,7 +211,6 @@ class RunHandlers:
         kind: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -242,18 +218,13 @@ class RunHandlers:
         started_before: Optional[datetime] = None,
     ) -> list[RunCostDailyResponse]:
         """Summarize run costs by day."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs_by_day(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             started_after=started_after,
             started_before=started_before,
@@ -266,7 +237,6 @@ class RunHandlers:
         mode: Optional[str] = None,
         kind: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         subject_version_id: Optional[str] = None,
@@ -275,17 +245,12 @@ class RunHandlers:
         started_before: Optional[datetime] = None,
     ) -> list[RunCostBySubjectResponse]:
         """Summarize run costs by subject version."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs_by_subject(
             mode=mode,
             kind=kind,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             subject_version_id=subject_version_id,
             status=status,
             started_after=started_after,
@@ -299,7 +264,6 @@ class RunHandlers:
         mode: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -308,17 +272,12 @@ class RunHandlers:
         kind: Optional[str] = None,
     ) -> list[RunCostByModeResponse]:
         """Summarize run costs by mode."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs_by_mode(
             mode=mode,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             started_after=started_after,
             started_before=started_before,
@@ -333,7 +292,6 @@ class RunHandlers:
         kind: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -341,18 +299,13 @@ class RunHandlers:
         started_before: Optional[datetime] = None,
     ) -> list[RunCostByProviderResponse]:
         """Summarize run costs by provider."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs_by_provider(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             started_after=started_after,
             started_before=started_before,
@@ -366,7 +319,6 @@ class RunHandlers:
         kind: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -374,18 +326,13 @@ class RunHandlers:
         started_before: Optional[datetime] = None,
     ) -> list[RunCostByModelResponse]:
         """Summarize run costs by model."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         return self.service.summarize_costs_by_model(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             started_after=started_after,
             started_before=started_before,
@@ -399,7 +346,6 @@ class RunHandlers:
         kind: Optional[str] = None,
         subject_version_id: Optional[str] = None,
         subject_version_ids: Optional[list[str]] = None,
-        workflow_id: Optional[str] = None,
         subject_kind: Optional[str] = None,
         subject_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -410,18 +356,13 @@ class RunHandlers:
         limit: int = 1000,
     ) -> str:
         """Export runs to CSV."""
-        resolved_subject_kind, resolved_subject_id = self._resolve_subject_scope(
-            workflow_id,
-            subject_kind,
-            subject_id,
-        )
         runs = self.service.list_runs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
-            subject_kind=resolved_subject_kind,
-            subject_id=resolved_subject_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
             status=status,
             trace_id=trace_id,
             user_id=user_id,

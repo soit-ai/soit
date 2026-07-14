@@ -20,7 +20,6 @@ const translation = {
     conversationLog: '对话记录',
     features: '功能',
     featuresDescription: '增强工作流运行体验',
-    ImageUploadLegacyTip: '现在可以在 start 表单中创建文件类型变量。未来我们将不继续支持图片上传功能。',
     fileUploadTip: '图片上传功能已扩展为文件上传。',
     featuresDocLink: '了解更多',
     debugAndPreview: '预览',
@@ -298,6 +297,14 @@ const translation = {
       templates: '模板',
     },
     templatesComingSoon: '工作流模板功能即将推出',
+    templates: {
+      ticketTriage: {
+        title: '工单分流',
+        description: '创建包含策略检索、分类、审批和工单创建的草稿工作流。',
+        created: '工单分流工作流已创建',
+        createError: '创建工单分流工作流失败',
+      },
+    },
     categories: {
       input: '输入',
       model: '模型',
@@ -893,6 +900,10 @@ const translation = {
     title: '工作流',
     searchPlaceholder: '搜索工作流...',
     menu: {
+      workspace: '工作台',
+      library: 'Workflow 库',
+      runHistory: '运行记录',
+      publishManagement: '发布管理',
       overview: '工作流概览',
       myWorkflows: {
         title: '我的工作流',
@@ -942,6 +953,9 @@ const translation = {
       title: '工作流统计',
       totalWorkflows: '工作流总数',
       activeWorkflows: '活跃工作流',
+      recentRuns: '最近运行',
+      runningRuns: '运行中',
+      failedRuns: '失败运行',
       cpuUsage: 'CPU 使用率',
       memoryUsage: '内存使用',
       memoryUnit: 'GB',
@@ -982,7 +996,7 @@ const translation = {
       actions: {
         run: '运行工作流',
         setting: '设置',
-        share: '分享',
+        share: '发布',
       },
     },
     build: {
@@ -1038,6 +1052,10 @@ const translation = {
         pausing: '暂停中...',
         resume: '恢复',
         resuming: '恢复中...',
+        cancel: '取消',
+        canceling: '取消中...',
+        fail: '标记失败',
+        failing: '标记失败中...',
         retry: '重试',
         retrying: '重试中...',
         replay: '重放',
@@ -1060,8 +1078,14 @@ const translation = {
         failedStep: '步骤 {{stepType}} ({{stepId}})',
       },
       confirm: {
+        cancel: '确认立即取消该运行吗？',
+        fail: '确认将该运行标记为失败吗？',
         retry: '确认立即重试该运行吗？',
         replay: '确认立即重放该运行吗？',
+      },
+      controlReasons: {
+        cancel: '从运行控制面板取消工作流运行',
+        fail: '从运行控制面板将工作流运行标记为失败',
       },
       fields: {
         input: '输入：{{input}}',
@@ -1076,6 +1100,10 @@ const translation = {
         pauseError: '暂停运行失败',
         resumeSuccess: '运行已恢复',
         resumeError: '恢复运行失败',
+        cancelSuccess: '运行已取消',
+        cancelError: '取消运行失败',
+        failSuccess: '运行已标记为失败',
+        failError: '标记运行失败失败',
         retrySuccess: '运行已重试',
         retryError: '重试运行失败',
         replaySuccess: '重放已触发',
@@ -1189,7 +1217,7 @@ const translation = {
         acceptance: {
           endToEnd: '端到端流程可用',
           tests: '已补充/通过测试（若行为变更）',
-          observability: '已补充可观测性（日志/指标/Trace）',
+          observe: '已补充观测（日志/指标/Trace）',
           docs: '对外行为变更已更新文档',
         },
         release: {
@@ -1575,6 +1603,66 @@ const translation = {
         },
         resultTitle: '调用结果',
       },
+    },
+  },
+  workspaceDashboard: {
+    header: {
+      title: 'Workflow 工作台',
+      description: '监控流程运行健康、发布状态与异常处理',
+      create: '创建 Workflow',
+    },
+    metrics: {
+      running: '运行中',
+      today: '今日执行',
+      latency: '平均耗时',
+      success: '成功率',
+      exceptions: '待处理异常',
+      deltaLabel: '较昨日',
+    },
+    tabs: {
+      all: '全部',
+      highVolume: '高调用',
+      publishing: '发布中',
+      incidents: '异常',
+      drafts: '草稿',
+    },
+    status: {
+      running: '运行中',
+      publishing: '发布中',
+      incident: '异常',
+      draft: '草稿',
+    },
+    columns: {
+      workflow: 'Workflow 名称',
+      status: '状态',
+      linkedAgent: '关联 Agent',
+      runsToday: '今日执行',
+      avgLatency: '平均耗时',
+      successRate: '成功率',
+      recentIncident: '最近异常',
+      owner: '负责人',
+      lastRun: '最近运行',
+      actions: '操作',
+    },
+    toolbar: {
+      searchPlaceholder: '搜索 Workflow 名称或描述',
+      filter: '筛选',
+      allTime: '全部时间',
+      refresh: '刷新',
+    },
+    alert: {
+      title: '异常优先处理',
+      description: '订单同步 Workflow 在 20:35 连续失败（共 7 次）',
+      action: '查看异常',
+    },
+    table: {
+      empty: '未找到匹配的 Workflow',
+    },
+    pagination: {
+      totalSuffix: '条',
+      pageSizeSuffix: '条/页',
+      goTo: '前往',
+      page: '页',
     },
   },
   adapterTest: {

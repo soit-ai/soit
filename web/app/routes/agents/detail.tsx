@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
+import { useTranslation } from '@/i18n'
+import type { TranslationKey } from '@/i18n/types'
 import {
   createAgentVersion,
   getAgent,
@@ -40,6 +42,7 @@ const formatTimestamp = (value?: string | null) => {
 
 function AgentDetailPage() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const { agentId = '' } = useParams()
   const [savingProfile, setSavingProfile] = useState(false)
   const [creatingVersion, setCreatingVersion] = useState(false)
@@ -56,6 +59,10 @@ function AgentDetailPage() {
     temperature: '0.2',
     maxIterations: '8',
     knowledgeRefs: [] as string[],
+    toolRefs: [] as string[],
+    workflowRefs: [] as string[],
+    skillRefs: [] as string[],
+    pluginRefs: [] as string[],
   })
 
   const {
@@ -107,8 +114,11 @@ function AgentDetailPage() {
     isLoading: bindingsLoading,
     refetch: refetchBindings,
   } = useQuery<AgentBinding[]>({
-    queryKey: ['agents', agentId, 'bindings', agent?.current_version_id || 'all'],
-    queryFn: () => listAgentBindings(agentId, agent?.current_version_id ? { version_id: agent.current_version_id } : undefined),
+    queryKey: ['agents', agentId, 'bindings', agent?.published_version_id || agent?.current_version_id || 'all'],
+    queryFn: () => {
+      const versionId = agent?.published_version_id || agent?.current_version_id
+      return listAgentBindings(agentId, versionId ? { version_id: versionId } : undefined)
+    },
     options: {
       enabled: Boolean(agentId),
       retry: false,
@@ -182,11 +192,34 @@ function AgentDetailPage() {
       model: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'model'),
       knowledge: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'knowledge'),
       workflow: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'workflow'),
+      plugin: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'plugin'),
       skill: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'skill'),
       tool: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'tool'),
     }),
     [capabilityCatalog],
   )
+
+  const parseVersionSpecBindings = (spec: Record<string, unknown>) => {
+    const bindingsSpec = (spec.bindings as Record<string, unknown> | undefined) || {}
+    const legacyModelSpec = (spec.model as Record<string, unknown> | undefined) || {}
+    const legacyRagSpec = (spec.rag as Record<string, unknown> | undefined) || {}
+    const readRefs = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [])
+    const bindingKnowledgeRefs = readRefs(bindingsSpec.knowledge_refs)
+
+    return {
+      modelRef:
+        typeof bindingsSpec.model_ref === 'string'
+          ? bindingsSpec.model_ref
+          : typeof legacyModelSpec.ref_key === 'string'
+            ? legacyModelSpec.ref_key
+            : '',
+      knowledgeRefs: bindingKnowledgeRefs.length > 0 ? bindingKnowledgeRefs : readRefs(legacyRagSpec.knowledges),
+      toolRefs: readRefs(bindingsSpec.tool_refs),
+      workflowRefs: readRefs(bindingsSpec.workflow_refs),
+      skillRefs: readRefs(bindingsSpec.skill_refs),
+      pluginRefs: readRefs(bindingsSpec.plugin_refs),
+    }
+  }
 
   useEffect(() => {
     if (!agent) {
@@ -204,21 +237,22 @@ function AgentDetailPage() {
   useEffect(() => {
     if (latestVersion) {
       const spec = latestVersion.spec_json || {}
-      const modelSpec = (spec.model as Record<string, unknown> | undefined) || {}
-      const modelParams = (modelSpec.params as Record<string, unknown> | undefined) || {}
-      const ragSpec = (spec.rag as Record<string, unknown> | undefined) || {}
+      const specBindings = parseVersionSpecBindings(spec)
+      const params = (spec.params as Record<string, unknown> | undefined) || {}
       const limits = (spec.limits as Record<string, unknown> | undefined) || {}
 
       setDraftForm({
         systemPrompt: typeof spec.system_prompt === 'string' ? spec.system_prompt : '',
-        modelRef: typeof modelSpec.ref_key === 'string' ? modelSpec.ref_key : modelOptions[0]?.modelName || '',
+        modelRef: specBindings.modelRef || modelOptions[0]?.modelName || '',
         temperature:
-          typeof modelParams.temperature === 'number' ? String(modelParams.temperature) : '0.2',
+          typeof params.temperature === 'number' ? String(params.temperature) : '0.2',
         maxIterations:
           typeof limits.max_iterations === 'number' ? String(limits.max_iterations) : '8',
-        knowledgeRefs: Array.isArray(ragSpec.knowledges)
-          ? ragSpec.knowledges.filter((item): item is string => typeof item === 'string')
-          : [],
+        knowledgeRefs: specBindings.knowledgeRefs,
+        toolRefs: specBindings.toolRefs,
+        workflowRefs: specBindings.workflowRefs,
+        skillRefs: specBindings.skillRefs,
+        pluginRefs: specBindings.pluginRefs,
       })
       return
     }
@@ -236,7 +270,7 @@ function AgentDetailPage() {
       return
     }
     if (!profileForm.name.trim()) {
-      toast.error('Agent name is required.')
+      toast.error(t('agent.detail.toast.nameRequired'))
       return
     }
 
@@ -249,9 +283,9 @@ function AgentDetailPage() {
         status: profileForm.status,
       })
       await refetchAgent()
-      toast.success('Agent profile updated.')
+      toast.success(t('agent.detail.toast.profileUpdated'))
     } catch (error) {
-      toast.error('Failed to update agent profile.')
+      toast.error(t('agent.detail.toast.profileUpdateFailed'))
       console.error('Failed to update agent:', error)
     } finally {
       setSavingProfile(false)
@@ -263,7 +297,7 @@ function AgentDetailPage() {
       return
     }
     if (!draftForm.modelRef) {
-      toast.error('Select a model before creating a version.')
+      toast.error(t('agent.detail.toast.modelRequired'))
       return
     }
 
@@ -271,15 +305,21 @@ function AgentDetailPage() {
       setCreatingVersion(true)
       await createAgentVersion(agentId, {
         system_prompt: draftForm.systemPrompt.trim() || undefined,
-        model_ref: draftForm.modelRef,
-        knowledge_refs: draftForm.knowledgeRefs,
+        bindings: {
+          model_ref: draftForm.modelRef,
+          knowledge_refs: draftForm.knowledgeRefs,
+          tool_refs: draftForm.toolRefs,
+          workflow_refs: draftForm.workflowRefs,
+          skill_refs: draftForm.skillRefs,
+          plugin_refs: draftForm.pluginRefs,
+        },
         temperature: draftForm.temperature ? Number(draftForm.temperature) : undefined,
         max_iterations: draftForm.maxIterations ? Number(draftForm.maxIterations) : undefined,
       })
       await Promise.all([refetchAgent(), refetchVersions(), refetchBindings()])
-      toast.success('Draft version created.')
+      toast.success(t('agent.detail.toast.versionCreated'))
     } catch (error) {
-      toast.error('Failed to create draft version.')
+      toast.error(t('agent.detail.toast.versionCreateFailed'))
       console.error('Failed to create agent version:', error)
     } finally {
       setCreatingVersion(false)
@@ -295,9 +335,9 @@ function AgentDetailPage() {
       setPublishingVersionId(versionId)
       await publishAgentVersion(agentId, { version_id: versionId })
       await Promise.all([refetchAgent(), refetchVersions(), refetchBindings(), refetchReleases()])
-      toast.success('Agent published.')
+      toast.success(t('agent.detail.toast.published'))
     } catch (error) {
-      toast.error('Failed to publish agent.')
+      toast.error(t('agent.detail.toast.publishFailed'))
       console.error('Failed to publish agent version:', error)
     } finally {
       setPublishingVersionId(null)
@@ -313,12 +353,69 @@ function AgentDetailPage() {
     }))
   }
 
-  const renderReleaseAction = (release: AgentRelease) => {
-    if (release.action === 'rollback') {
-      return 'Rollback'
-    }
-    return 'Publish'
+  const toggleCapabilityRef = (field: 'toolRefs' | 'workflowRefs' | 'skillRefs' | 'pluginRefs', ref: string) => {
+    setDraftForm((current) => ({
+      ...current,
+      [field]: current[field].includes(ref)
+        ? current[field].filter((item) => item !== ref)
+        : [...current[field], ref],
+    }))
   }
+
+  const visibilityOptions = [
+    { value: 'private', labelKey: 'agent.detail.visibility.private' },
+    { value: 'workspace', labelKey: 'agent.detail.visibility.workspace' },
+    { value: 'tenant', labelKey: 'agent.detail.visibility.tenant' },
+    { value: 'public', labelKey: 'agent.detail.visibility.public' },
+  ] satisfies { value: string; labelKey: TranslationKey }[]
+
+  const statusOptions = [
+    { value: 'active', labelKey: 'agent.detail.status.active' },
+    { value: 'archived', labelKey: 'agent.detail.status.archived' },
+    { value: 'disabled', labelKey: 'agent.detail.status.disabled' },
+  ] satisfies { value: string; labelKey: TranslationKey }[]
+
+  const capabilityFields = [
+    {
+      field: 'toolRefs',
+      labelKey: 'agent.detail.assembly.toolBindings',
+      emptyKey: 'agent.detail.assembly.emptyToolBindings',
+      items: capabilityCatalogGroups.tool,
+    },
+    {
+      field: 'workflowRefs',
+      labelKey: 'agent.detail.assembly.workflowBindings',
+      emptyKey: 'agent.detail.assembly.emptyWorkflowBindings',
+      items: capabilityCatalogGroups.workflow,
+    },
+    {
+      field: 'skillRefs',
+      labelKey: 'agent.detail.assembly.skillBindings',
+      emptyKey: 'agent.detail.assembly.emptySkillBindings',
+      items: capabilityCatalogGroups.skill,
+    },
+    {
+      field: 'pluginRefs',
+      labelKey: 'agent.detail.assembly.pluginBindings',
+      emptyKey: 'agent.detail.assembly.emptyPluginBindings',
+      items: capabilityCatalogGroups.plugin,
+    },
+  ] satisfies {
+    field: 'toolRefs' | 'workflowRefs' | 'skillRefs' | 'pluginRefs'
+    labelKey: TranslationKey
+    emptyKey: TranslationKey
+    items: CapabilityRegistryItem[]
+  }[]
+
+  const capabilityGroupLabelKeys = {
+    model: 'agent.detail.capabilityGroups.model',
+    knowledge: 'agent.detail.capabilityGroups.knowledge',
+    workflow: 'agent.detail.capabilityGroups.workflow',
+    skill: 'agent.detail.capabilityGroups.skill',
+    plugin: 'agent.detail.capabilityGroups.plugin',
+    tool: 'agent.detail.capabilityGroups.tool',
+  } satisfies Record<string, TranslationKey>
+  type CapabilityGroupName = keyof typeof capabilityGroupLabelKeys
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
@@ -326,46 +423,46 @@ function AgentDetailPage() {
         <CardHeader className="gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/10">
-              Agent Detail
+              {t('agent.detail.hero.badge')}
             </Badge>
             {agent?.published_version_id ? (
               <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">
-                Published
+                {t('agent.detail.hero.published')}
               </Badge>
             ) : (
               <Badge variant="secondary" className="bg-amber-500/20 text-amber-100 hover:bg-amber-500/20">
-                Draft Only
+                {t('agent.detail.hero.draftOnly')}
               </Badge>
             )}
           </div>
           <div className="space-y-2">
             <CardTitle className="text-3xl font-semibold tracking-tight">
-              {agentLoading ? 'Loading agent...' : agent?.name || agentId}
+              {agentLoading ? t('agent.detail.hero.loadingAgent') : agent?.name || agentId}
             </CardTitle>
             <CardDescription className="max-w-2xl text-slate-300">
-              {agent?.description || 'Configure runtime bindings, publish a version, then move into chat or runs.'}
+              {agent?.description || t('agent.detail.hero.description')}
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => navigate(`/chat/${agentId}`)} className="bg-white text-slate-950 hover:bg-slate-100">
               <Bot className="mr-2 h-4 w-4" />
-              Open Chat
+              {t('agent.detail.hero.openChat')}
             </Button>
             <Button variant="secondary" onClick={() => navigate('/knowledge')}>
               <ScrollText className="mr-2 h-4 w-4" />
-              Knowledge
+              {t('agent.detail.hero.knowledge')}
             </Button>
             <Button variant="secondary" onClick={() => navigate('/models')}>
               <Settings2 className="mr-2 h-4 w-4" />
-              Models
+              {t('agent.detail.hero.models')}
             </Button>
             <Button variant="secondary" onClick={() => navigate(`/observability/runs?subject_id=${agentId}`)}>
               <Clock3 className="mr-2 h-4 w-4" />
-              View Runs
+              {t('agent.detail.hero.viewRuns')}
             </Button>
             <Button variant="secondary" onClick={() => navigate('/workflow')}>
               <Workflow className="mr-2 h-4 w-4" />
-              Workflow
+              {t('agent.detail.hero.workflow')}
             </Button>
           </div>
         </CardHeader>
@@ -374,17 +471,17 @@ function AgentDetailPage() {
       {agentLoading && !agent && (
         <PageStatus
           variant="loading"
-          title="Loading agent"
-          description="Fetching the agent shell, versions, bindings, and recent runs."
+          title={t('agent.detail.statusPage.loadingTitle')}
+          description={t('agent.detail.statusPage.loadingDescription')}
         />
       )}
 
       {!agentLoading && agentLoadFailed && (
         <PageStatus
           variant="error"
-          title="Failed to load agent"
-          description={agentLoadError instanceof Error ? agentLoadError.message : 'The agent could not be loaded right now.'}
-          actionLabel="Retry"
+          title={t('agent.detail.statusPage.errorTitle')}
+          description={agentLoadError instanceof Error ? agentLoadError.message : t('agent.detail.statusPage.errorDescription')}
+          actionLabel={t('agent.detail.statusPage.retry')}
           onAction={() => refetchAgent()}
         />
       )}
@@ -392,9 +489,9 @@ function AgentDetailPage() {
       {!agentLoading && !agentLoadFailed && !agent && (
         <PageStatus
           variant="empty"
-          title="Agent not found"
-          description="The requested agent is unavailable or no longer exists in this workspace."
-          actionLabel="Back to Agents"
+          title={t('agent.detail.statusPage.emptyTitle')}
+          description={t('agent.detail.statusPage.emptyDescription')}
+          actionLabel={t('agent.detail.statusPage.backToAgents')}
           onAction={() => navigate('/agents')}
         />
       )}
@@ -404,12 +501,12 @@ function AgentDetailPage() {
       <div className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Overview</CardTitle>
-            <CardDescription>Edit the agent shell before managing runtime assembly and releases.</CardDescription>
+            <CardTitle>{t('agent.detail.overview.title')}</CardTitle>
+            <CardDescription>{t('agent.detail.overview.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="agent-name">Name</Label>
+              <Label htmlFor="agent-name">{t('agent.detail.overview.name')}</Label>
               <Input
                 id="agent-name"
                 value={profileForm.name}
@@ -417,7 +514,7 @@ function AgentDetailPage() {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="agent-description">Description</Label>
+              <Label htmlFor="agent-description">{t('agent.detail.overview.agentDescription')}</Label>
               <Textarea
                 id="agent-description"
                 value={profileForm.description}
@@ -426,84 +523,87 @@ function AgentDetailPage() {
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Visibility</Label>
+                <Label>{t('agent.detail.overview.visibility')}</Label>
                 <Select
                   value={profileForm.visibility}
                   onValueChange={(value) => setProfileForm((current) => ({ ...current, visibility: value }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select visibility" />
+                    <SelectValue placeholder={t('agent.detail.overview.selectVisibility')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="private">Private</SelectItem>
-                    <SelectItem value="workspace">Workspace</SelectItem>
-                    <SelectItem value="tenant">Tenant</SelectItem>
-                    <SelectItem value="public">Public</SelectItem>
+                    {visibilityOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(option.labelKey)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Status</Label>
+                <Label>{t('agent.detail.overview.status')}</Label>
                 <Select
                   value={profileForm.status}
                   onValueChange={(value) => setProfileForm((current) => ({ ...current, status: value }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
+                    <SelectValue placeholder={t('agent.detail.overview.selectStatus')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="archived">Archived</SelectItem>
-                    <SelectItem value="disabled">Disabled</SelectItem>
+                    {statusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(option.labelKey)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid gap-2 rounded-xl border p-4 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Current Version</span>
+                <span className="text-muted-foreground">{t('agent.detail.overview.currentVersion')}</span>
                 <span className="font-medium">{agent?.current_version_id || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Published Version</span>
+                <span className="text-muted-foreground">{t('agent.detail.overview.publishedVersion')}</span>
                 <span className="font-medium">{agent?.published_version_id || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Updated</span>
+                <span className="text-muted-foreground">{t('agent.detail.overview.updated')}</span>
                 <span className="font-medium">{formatTimestamp(agent?.updated_at)}</span>
               </div>
             </div>
             <Button onClick={handleSaveProfile} disabled={savingProfile || agentLoading}>
-              {savingProfile ? 'Saving...' : 'Save Profile'}
+              {savingProfile ? t('agent.detail.overview.saving') : t('agent.detail.overview.saveProfile')}
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Assembly Draft</CardTitle>
-            <CardDescription>Create a new immutable version with assembly-ready model and knowledge bindings.</CardDescription>
+            <CardTitle>{t('agent.detail.assembly.title')}</CardTitle>
+            <CardDescription>{t('agent.detail.assembly.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="agent-system-prompt">System Prompt</Label>
+              <Label htmlFor="agent-system-prompt">{t('agent.detail.assembly.systemPrompt')}</Label>
               <Textarea
                 id="agent-system-prompt"
                 value={draftForm.systemPrompt}
                 onChange={(event) => setDraftForm((current) => ({ ...current, systemPrompt: event.target.value }))}
-                placeholder="You are a precise support copilot that uses workspace knowledge when available."
+                placeholder={t('agent.detail.assembly.systemPromptPlaceholder')}
                 className="min-h-32"
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Model</Label>
+                <Label>{t('agent.detail.assembly.model')}</Label>
                 <Select
                   value={draftForm.modelRef}
                   onValueChange={(value) => setDraftForm((current) => ({ ...current, modelRef: value }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select model" />
+                    <SelectValue placeholder={t('agent.detail.assembly.selectModel')} />
                   </SelectTrigger>
                   <SelectContent>
                     {modelOptions.map((model) => (
@@ -515,7 +615,7 @@ function AgentDetailPage() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="agent-temperature">Temperature</Label>
+                <Label htmlFor="agent-temperature">{t('agent.detail.assembly.temperature')}</Label>
                 <Input
                   id="agent-temperature"
                   type="number"
@@ -528,7 +628,7 @@ function AgentDetailPage() {
               </div>
             </div>
             <div className="grid gap-2 md:max-w-xs">
-              <Label htmlFor="agent-max-iterations">Max Iterations</Label>
+              <Label htmlFor="agent-max-iterations">{t('agent.detail.assembly.maxIterations')}</Label>
               <Input
                 id="agent-max-iterations"
                 type="number"
@@ -539,10 +639,10 @@ function AgentDetailPage() {
               />
             </div>
             <div className="grid gap-2">
-              <Label>Knowledge Bindings</Label>
+              <Label>{t('agent.detail.assembly.knowledgeBindings')}</Label>
               <div className="flex flex-wrap gap-2 rounded-xl border p-3">
                 {knowledgeOptions.length === 0 && (
-                  <div className="text-sm text-muted-foreground">No knowledge bases available yet.</div>
+                  <div className="text-sm text-muted-foreground">{t('agent.detail.assembly.emptyKnowledgeBindings')}</div>
                 )}
                 {knowledgeOptions.map((knowledge) => {
                   const selected = draftForm.knowledgeRefs.includes(knowledge.id)
@@ -560,14 +660,38 @@ function AgentDetailPage() {
                 })}
               </div>
             </div>
+            {capabilityFields.map(({ field, labelKey, emptyKey, items }) => (
+              <div key={field} className="grid gap-2">
+                <Label>{t(labelKey)}</Label>
+                <div className="flex flex-wrap gap-2 rounded-xl border p-3">
+                  {items.length === 0 && (
+                    <div className="text-sm text-muted-foreground">{t(emptyKey)}</div>
+                  )}
+                  {items.map((item) => {
+                    const selected = draftForm[field].includes(item.ref)
+                    return (
+                      <Button
+                        key={item.ref}
+                        type="button"
+                        variant={selected ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => toggleCapabilityRef(field, item.ref)}
+                      >
+                        {item.name}
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
             <div className="flex flex-wrap gap-2">
               <Button onClick={handleCreateVersion} disabled={creatingVersion || !draftForm.modelRef}>
                 <Rocket className="mr-2 h-4 w-4" />
-                {creatingVersion ? 'Creating Version...' : 'Create Draft Version'}
+                {creatingVersion ? t('agent.detail.assembly.creatingVersion') : t('agent.detail.assembly.createDraftVersion')}
               </Button>
               <Button variant="outline" onClick={() => refetchVersions()} disabled={versionsLoading}>
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh Versions
+                {t('agent.detail.assembly.refreshVersions')}
               </Button>
             </div>
           </CardContent>
@@ -577,24 +701,20 @@ function AgentDetailPage() {
       <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Versions</CardTitle>
-            <CardDescription>Publish a version before using the agent as a stable runtime entry.</CardDescription>
+            <CardTitle>{t('agent.detail.versions.title')}</CardTitle>
+            <CardDescription>{t('agent.detail.versions.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {versionsLoading && <div className="text-sm text-muted-foreground">Loading versions...</div>}
+            {versionsLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.versions.loading')}</div>}
             {!versionsLoading && versions.length === 0 && (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                No versions found for this agent.
+                {t('agent.detail.versions.empty')}
               </div>
             )}
             {!versionsLoading &&
               versions.map((version: AgentVersion) => {
                 const spec = version.spec_json || {}
-                const modelSpec = (spec.model as Record<string, unknown> | undefined) || {}
-                const ragSpec = (spec.rag as Record<string, unknown> | undefined) || {}
-                const knowledgeRefs = Array.isArray(ragSpec.knowledges)
-                  ? ragSpec.knowledges.filter((item): item is string => typeof item === 'string')
-                  : []
+                const versionBindings = parseVersionSpecBindings(spec)
 
                 return (
                   <Card key={version.id}>
@@ -609,8 +729,8 @@ function AgentDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{typeof modelSpec.ref_key === 'string' ? modelSpec.ref_key : 'No model'}</Badge>
-                        {knowledgeRefs.map((knowledgeId) => {
+                        <Badge variant="outline">{versionBindings.modelRef || t('agent.detail.versions.noModel')}</Badge>
+                        {versionBindings.knowledgeRefs.map((knowledgeId) => {
                           const knowledge = knowledgeOptions.find((item) => item.id === knowledgeId)
                           return (
                             <Badge key={knowledgeId} variant="secondary">
@@ -618,6 +738,10 @@ function AgentDetailPage() {
                             </Badge>
                           )
                         })}
+                        {versionBindings.toolRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                        {versionBindings.workflowRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                        {versionBindings.skillRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                        {versionBindings.pluginRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
                       </div>
                       {typeof spec.system_prompt === 'string' && spec.system_prompt && (
                         <div className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
@@ -631,13 +755,13 @@ function AgentDetailPage() {
                           disabled={publishingVersionId === version.id || version.status === 'published'}
                         >
                           {version.status === 'published'
-                            ? 'Published'
+                            ? t('agent.detail.versions.published')
                             : publishingVersionId === version.id
-                              ? 'Publishing...'
-                              : 'Publish'}
+                              ? t('agent.detail.versions.publishing')
+                              : t('agent.detail.versions.publish')}
                         </Button>
                         <Button variant="outline" onClick={() => navigate(`/chat/${agentId}`)}>
-                          Open Chat
+                          {t('agent.detail.hero.openChat')}
                         </Button>
                       </div>
                     </CardContent>
@@ -650,16 +774,16 @@ function AgentDetailPage() {
         <div className="grid gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Assembly Catalog</CardTitle>
-              <CardDescription>Runtime capabilities currently available in this workspace for future agent bindings.</CardDescription>
+              <CardTitle>{t('agent.detail.catalog.title')}</CardTitle>
+              <CardDescription>{t('agent.detail.catalog.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {capabilityCatalogLoading && <div className="text-sm text-muted-foreground">Loading capability catalog...</div>}
+              {capabilityCatalogLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.catalog.loading')}</div>}
               {!capabilityCatalogLoading &&
-                Object.entries(capabilityCatalogGroups).map(([groupName, items]) => (
+                (Object.entries(capabilityCatalogGroups) as [CapabilityGroupName, CapabilityRegistryItem[]][]).map(([groupName, items]) => (
                   <div key={groupName} className="rounded-lg border p-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-medium capitalize">{groupName}</div>
+                      <div className="text-sm font-medium">{t(capabilityGroupLabelKeys[groupName])}</div>
                       <Badge variant="outline">{items.length}</Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -668,9 +792,13 @@ function AgentDetailPage() {
                           {item.name}
                         </Badge>
                       ))}
-                      {items.length > 3 && <Badge variant="outline">+{items.length - 3} more</Badge>}
+                      {items.length > 3 && (
+                        <Badge variant="outline">{t('agent.detail.catalog.more', { count: items.length - 3 })}</Badge>
+                      )}
                       {items.length === 0 && (
-                        <div className="text-xs text-muted-foreground">No {groupName} capabilities registered.</div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('agent.detail.catalog.emptyGroup', { group: t(capabilityGroupLabelKeys[groupName]) })}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -680,23 +808,23 @@ function AgentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Bindings</CardTitle>
-              <CardDescription>Bindings are grouped from the current version snapshot so assembly stays readable.</CardDescription>
+              <CardTitle>{t('agent.detail.bindings.title')}</CardTitle>
+              <CardDescription>{t('agent.detail.bindings.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {bindingsLoading && <div className="text-sm text-muted-foreground">Loading bindings...</div>}
+              {bindingsLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.bindings.loading')}</div>}
               {!bindingsLoading && bindings.length === 0 && (
-                <div className="text-sm text-muted-foreground">No bindings yet. Create a draft version first.</div>
+                <div className="text-sm text-muted-foreground">{t('agent.detail.bindings.empty')}</div>
               )}
               {!bindingsLoading &&
-                Object.entries(bindingGroups).map(([groupName, groupBindings]) => (
+                (Object.entries(bindingGroups) as [CapabilityGroupName, AgentBinding[]][]).map(([groupName, groupBindings]) => (
                   <div key={groupName} className="space-y-2">
                     <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                      {groupName}
+                      {t(capabilityGroupLabelKeys[groupName])}
                     </div>
                     {groupBindings.length === 0 ? (
                       <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                        No {groupName} bindings yet.
+                        {t('agent.detail.bindings.emptyGroup', { group: t(capabilityGroupLabelKeys[groupName]) })}
                       </div>
                     ) : (
                       groupBindings.map((binding) => (
@@ -713,26 +841,30 @@ function AgentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Releases</CardTitle>
-              <CardDescription>Formal publish and rollback ledger exposed by the backend release API.</CardDescription>
+              <CardTitle>{t('agent.detail.releases.title')}</CardTitle>
+              <CardDescription>{t('agent.detail.releases.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {releasesLoading && <div className="text-sm text-muted-foreground">Loading release history...</div>}
+              {releasesLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.releases.loading')}</div>}
               {!releasesLoading && releases.length === 0 && (
-                <div className="text-sm text-muted-foreground">No releases yet. Publish a version to create live history.</div>
+                <div className="text-sm text-muted-foreground">{t('agent.detail.releases.empty')}</div>
               )}
               {!releasesLoading &&
                 releases.map((release) => (
                   <div key={release.id} className="rounded-lg border px-3 py-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <Badge variant={release.action === 'rollback' ? 'outline' : 'default'}>{renderReleaseAction(release)}</Badge>
+                        <Badge variant={release.action === 'rollback' ? 'outline' : 'default'}>
+                          {release.action === 'rollback' ? t('agent.detail.releases.rollback') : t('agent.detail.releases.publish')}
+                        </Badge>
                         <span className="font-medium">{release.to_version_id}</span>
                       </div>
                       <span className="text-xs text-muted-foreground">{formatTimestamp(release.created_at)}</span>
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">
-                      {release.from_version_id ? `from ${release.from_version_id} -> ${release.to_version_id}` : `to ${release.to_version_id}`}
+                      {release.from_version_id
+                        ? t('agent.detail.releases.fromTo', { from: release.from_version_id, to: release.to_version_id })
+                        : t('agent.detail.releases.to', { to: release.to_version_id })}
                     </div>
                     {release.notes && <div className="mt-2 text-xs text-muted-foreground">{release.notes}</div>}
                   </div>
@@ -742,13 +874,13 @@ function AgentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Recent Runs</CardTitle>
-              <CardDescription>Recent execution history for this agent.</CardDescription>
+              <CardTitle>{t('agent.detail.runs.title')}</CardTitle>
+              <CardDescription>{t('agent.detail.runs.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {runsLoading && <div className="text-sm text-muted-foreground">Loading runs...</div>}
+              {runsLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.runs.loading')}</div>}
               {!runsLoading && recentRuns.length === 0 && (
-                <div className="text-sm text-muted-foreground">No runs yet. Publish the agent and start a chat.</div>
+                <div className="text-sm text-muted-foreground">{t('agent.detail.runs.empty')}</div>
               )}
               {!runsLoading &&
                 recentRuns.map((run: RunResponse) => (
@@ -760,11 +892,11 @@ function AgentDetailPage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-medium">{run.mode}</div>
-                      <Badge variant={run.status === 'completed' ? 'default' : 'outline'}>{run.status}</Badge>
+                      <Badge variant={run.status === 'completed' || run.status === 'succeeded' ? 'default' : 'outline'}>{run.status}</Badge>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{formatTimestamp(run.started_at)}</div>
                     <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                      {run.input_summary || run.output_summary || run.error_message || 'No summary available.'}
+                      {run.input_summary || run.output_summary || run.error_message || t('agent.detail.runs.noSummary')}
                     </div>
                   </button>
                 ))}
@@ -775,7 +907,7 @@ function AgentDetailPage() {
 
       <div className="flex justify-end">
         <Button variant="ghost" onClick={() => navigate('/agents')}>
-          Back to Agents
+          {t('agent.detail.statusPage.backToAgents')}
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </div>

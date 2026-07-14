@@ -1,28 +1,24 @@
 <div align="center">
-  <img src="./docs/assets/logo.svg" alt="SOIT" width="96" />
-
   <h1>SOIT</h1>
 
-  <p><strong>An Enterprise Platform for Orchestrating, Building, and Running Agents.</strong></p>
+  <p><strong>Governed Agent Runtime for Enterprise AI Systems.</strong></p>
 
   <p>
-    <code>Build</code> &nbsp;·&nbsp; <code>Execute</code> &nbsp;·&nbsp; <code>Observe</code> &nbsp;·&nbsp; <code>Control</code>
+    <code>Build</code> &nbsp;·&nbsp; <code>Govern</code> &nbsp;·&nbsp; <code>Execute</code> &nbsp;·&nbsp; <code>Observe</code>
   </p>
 
   <p>
-    <a href="https://github.com/soit-ai/soit/blob/main/LICENSE"><img src="https://img.shields.io/github/license/soit-ai/soit?style=flat-square&color=000" alt="License"/></a>
-    <a href="https://github.com/soit-ai/soit/stargazers"><img src="https://img.shields.io/github/stars/soit-ai/soit?style=flat-square&color=000" alt="Stars"/></a>
-    <a href="https://github.com/soit-ai/soit/actions"><img src="https://img.shields.io/github/actions/workflow/status/soit-ai/soit/ci.yml?style=flat-square&color=000" alt="Build"/></a>
-    <a href="https://discord.gg/soit"><img src="https://img.shields.io/discord/0000000000000000?style=flat-square&color=000&label=discord" alt="Discord"/></a>
-    <a href="https://github.com/soit-ai/soit/blob/main/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-000?style=flat-square" alt="PRs welcome"/></a>
+    <a href="./LICENSE">Apache-2.0</a> &nbsp;·&nbsp;
+    <a href="./CONTRIBUTING.md">Contributing</a> &nbsp;·&nbsp;
+    <a href="./.github/workflows/quality.yml">Quality gate</a>
   </p>
 
   <p>
     <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
     <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
-    <a href="https://docs.soit.ai">Documentation</a> &nbsp;·&nbsp;
+    <a href="./docs/quickstart.md">Documentation</a> &nbsp;·&nbsp;
     <a href="#roadmap">Roadmap</a> &nbsp;·&nbsp;
-    <a href="./README.zh-CN.md">中文</a>
+    <a href="./README-cn.md">中文</a>
   </p>
 </div>
 
@@ -36,11 +32,11 @@
 
 ## What is SOIT?
 
-SOIT is an open-source platform for **building, running, and governing AI agents in production**. It combines the flexibility of a modern agent framework with the discipline of enterprise infrastructure: multi-tenant by default, event-driven at the core, and audit-ready out of the box.
+SOIT is an open-source **Agent Runtime and Governance Platform** for teams that need AI agents to touch real enterprise systems without losing control. It combines agent building, workflow execution, knowledge retrieval, tool/MCP access, model routing, and runtime observability with the governance layer enterprises need before agents can operate on sensitive data and systems.
 
-Most agent platforms stop at "make a chatbot work." SOIT is built for the harder problem — making agents reliable enough that your CIO will sign off on them touching real systems.
+The core product wedge is governed execution: every agent run is scoped by permissions, bound to approved capabilities, protected by secret boundaries, constrained by egress policy, traced through a runtime ledger, attributed with cost, recorded in audit logs, and inspectable through replay.
 
-If you have ever shipped an agent prototype and then discovered you also need permissions, multi-tenancy, retries, traces, evaluations, secret management, and a way to explain failures to a compliance officer — SOIT is built for you.
+SOIT is not trying to be another lightweight chatbot builder. It is built for teams that already proved agents can be useful and now need permissions, secrets, outbound-network control, auditability, cost accountability, traceability, and replay before those agents can be trusted in production workflows.
 
 ## Why SOIT?
 
@@ -50,6 +46,9 @@ If you have ever shipped an agent prototype and then discovered you also need pe
 | Model-neutral routing            | yes                 | partial               | vendor-locked       | **first-class**     |
 | Workflow + Agent dual model      | partial             | one or the other      | partial             | **both, equal**     |
 | Audit-ready execution ledger     | —                   | partial               | partial             | **built-in**        |
+| Permission + secret boundaries   | manual              | partial               | cloud-native        | **built-in**        |
+| Egress control                   | manual              | partial               | cloud-native        | **policy-driven**   |
+| Cost, trace, and replay evidence | manual              | partial               | partial             | **runtime-native**  |
 | Self-hosted, single command      | yes                 | —                     | —                   | **yes**             |
 | Spec-first contracts             | —                   | —                     | —                   | **every primitive** |
 
@@ -67,6 +66,7 @@ Compose agents from a unified capability registry: models, knowledge bases, work
 - DAG workflow editor with 18+ node types — LLM, tool, condition, loop, transform, knowledge search, code execution, parameter extraction, and more
 - Knowledge ingestion pipeline for PDF, DOCX, Markdown, and HTML, with chunking, embedding, and Milvus-backed retrieval
 - MCP-friendly: any Model Context Protocol server resolves into the runtime tool registry without code changes
+- Plugin-first governance: MCP servers and Skills are installed as Plugin artifacts, so permission checks, secret injection, egress limits, audit, cost attribution, trace, and replay apply automatically at runtime
 
 ### Execute — Run with reliability and reproducibility
 
@@ -88,16 +88,18 @@ Most platforms give you a list of runs. SOIT gives you a **workspace control con
 - Knowledge retrieval quality metrics
 - OpenTelemetry-compatible tracing, structured JSON logs, and Prometheus metrics
 
-### Control — Govern access, secrets, and execution boundaries
+### Govern — Permissions, secrets, egress, audit, cost, trace, replay
 
 Enterprise platforms live and die by what they refuse to do. SOIT treats governance as a kernel concern, not an afterthought.
 
 - Tenant and workspace scoping enforced at every API and data layer
 - RBAC with resource-level permissions and grant inheritance
 - Vault-backed secret management with workspace-scoped visibility
-- Egress policy enforcement for outbound HTTP calls
-- Per-version capability allowlists for every agent
-- Full audit log of every privileged operation
+- Egress policy enforcement for outbound HTTP calls and tool adapters
+- Per-version capability allowlists for models, knowledge, workflows, tools, plugins, and MCP servers
+- Full audit log of privileged operations and runtime tool use
+- Cost attribution by run, model, tool, workflow, and workspace
+- Trace timeline and replay for agent, workflow, response, and tool-call execution
 
 ## Quick start
 
@@ -107,7 +109,7 @@ The fastest way to try SOIT locally:
 git clone https://github.com/soit-ai/soit.git
 cd soit
 cp .env.example .env
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
 ```
 
 Then open `http://localhost:5000` and sign in with the bootstrap admin credentials from your `.env` file.
@@ -121,6 +123,39 @@ What you get on first launch:
 
 For a local development setup with hot reload (Python and Node), see [docs/development.md](./docs/development.md).
 
+For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [docs/quickstart.md](./docs/quickstart.md).
+
+## Enterprise MVP Demo
+
+From the repository root, start the full local demo stack:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+```
+
+Then open `http://localhost:5000` and sign in with `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults: `admin@example.com` / `changeme123`). The API is available at `http://localhost:9200/api/v1`.
+
+If a local service already owns one of the default host ports, override only the host binding, for example `MINIO_HOST_PORT=19000 API_HOST_PORT=19200 WEB_HOST_PORT=15000`.
+
+For the backend smoke path:
+
+```bash
+cd server
+uv run python scripts/bootstrap_enterprise_mvp.py
+uv run pytest tests/integration/test_enterprise_agent_mvp.py -q
+```
+
+## Current MVP Focus
+
+The current non-Docker MVP gate focuses on one repeatable enterprise loop:
+
+- Refund-policy knowledge answer with citation evidence.
+- Support-ticket workflow execution through a governed tool call.
+- Parent Agent run linked to child Workflow run.
+- Observe run detail showing response events, run steps, tool calls, child workflow runs, costs, citations, and audits.
+
+This path is intentionally narrow. It is the quality baseline for expanding SOIT without turning the platform into a collection of disconnected demos.
+
 ## Architecture
 
 SOIT follows a strict hexagonal architecture: a stable kernel at the center, replaceable adapters at the edges, and domain modules in between.
@@ -131,7 +166,7 @@ SOIT follows a strict hexagonal architecture: a stable kernel at the center, rep
 ├─────────────────────────────────────────────────────────────┤
 │  Kernel  (stable core)                                      │
 │    Runtime · Identity · Trace · Specs · Security            │
-│    Events · Responses · Observability · Registry            │
+│    Events · Responses · Observe · Registry            │
 │    Ports:  LLM · Tools · Vector · Storage · Secrets         │
 ├─────────────────────────────────────────────────────────────┤
 │  Domain Modules                                             │
@@ -183,30 +218,27 @@ We ship in tight, themed iterations. The current focus areas:
 - [x] Capability registry with source-agnostic tool binding
 - [x] Agent versioning and release management
 - [x] Hexagonal kernel with strict port-adapter boundaries
-- [ ] Workspace observability console — *in progress*
+- [ ] Workspace observe console — *in progress*
 - [ ] Agent evaluation framework with regression testing
 - [ ] MCP marketplace for one-click tool installation
 - [ ] Cost-aware multi-model routing policies
 - [ ] Approval workflows with human-in-the-loop checkpoints
 
-See the full [roadmap](./docs/roadmap.md) and [open issues](https://github.com/soit-ai/soit/issues) to track progress and propose ideas.
+See the full [roadmap](./docs/roadmap.md) and [contributing guide](./CONTRIBUTING.md) to track direction and propose changes.
 
 ## Contributing
 
 We welcome contributions of all sizes. Before opening a PR:
 
 1. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and code style
-2. Browse existing issues — find one tagged `good first issue` if you are new
-3. For larger changes, open a discussion first so we can align on direction
+2. Review the [roadmap](./docs/roadmap.md) and keep proposed changes scoped
+3. For larger changes, include the problem statement and verification plan in the PR description
 
-SOIT follows a `spec-first` development model: significant features begin as a written spec in `docs/specs/` before any code is written. We have found this catches design problems early and keeps the architecture coherent as the project grows.
+SOIT follows a `spec-first` development model: significant features should start from a written design note or public documentation update before code changes. This catches design problems early and keeps the architecture coherent as the project grows.
 
-## Community
+## Questions and contributions
 
-- **GitHub Discussions** — questions, ideas, and show-and-tell
-- **Discord** — real-time chat with maintainers and users
-- **Twitter / X** — release announcements and product updates
-- **Blog** — engineering deep-dives and customer case studies
+Use the [contributing guide](./CONTRIBUTING.md) for local setup, quality checks, and pull request expectations. Public community channels should be listed here only after their URLs are live and maintained.
 
 ## License
 

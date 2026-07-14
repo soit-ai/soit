@@ -5,6 +5,8 @@ Workflow API routes (FastAPI).
 
 from typing import Optional
 from fastapi import APIRouter, Depends, status, Body
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.kernel.contracts.context import RequestContext
 from app.infra.db.pagination import PaginatedResponse
@@ -24,12 +26,21 @@ from app.modules.workflow.application.schemas import (
     WorkflowDSLExport,
     WorkflowPublishRequest,
     WorkflowRollbackRequest,
+    WorkflowWorkbenchItemsResponse,
+    WorkflowWorkbenchResponse,
 )
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.handlers import WorkflowHandlers
+from app.api.v1.workflow.streaming import SSEHandlers
 
 
 router = APIRouter()
+
+
+class WorkflowStreamRequest(BaseModel):
+    """Workflow stream request payload."""
+
+    inputs: dict = Field(default_factory=dict)
 
 
 @router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
@@ -72,6 +83,38 @@ async def list_workflows(
     """
     handlers = WorkflowHandlers(service)
     return await handlers.list_workflows(ctx, page_token=page_token, page_size=page_size)
+
+
+@router.get("/workbench", response_model=WorkflowWorkbenchResponse)
+async def get_workflow_workbench(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Get Workflow workbench aggregate data."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.get_workbench(ctx, page_token=page_token, page_size=page_size)
+
+
+@router.get("/workbench/items", response_model=WorkflowWorkbenchItemsResponse)
+async def list_workflow_workbench_items(
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Get Workflow workbench table rows."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.get_workbench_items(
+        ctx,
+        page_token=page_token,
+        page_size=page_size,
+        tab=tab,
+        keyword=keyword,
+    )
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
@@ -248,6 +291,31 @@ async def execute_workflow(
     return await handlers.execute_workflow(ctx, workflow_id, inputs)
 
 
+@router.post("/{workflow_id}/stream")
+async def stream_workflow(
+    workflow_id: str,
+    payload: WorkflowStreamRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Stream workflow execution updates."""
+    handlers = SSEHandlers(service)
+
+    async def generate():
+        async for chunk in handlers.stream_execution(ctx, workflow_id, payload.inputs):
+            yield chunk
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/{workflow_id}/runs/{run_id}/pause")
 async def pause_run(
     workflow_id: str,
@@ -270,6 +338,32 @@ async def resume_run(
     """Resume workflow run."""
     handlers = WorkflowHandlers(service)
     return await handlers.resume_run(ctx, workflow_id, run_id)
+
+
+@router.post("/{workflow_id}/runs/{run_id}/cancel")
+async def cancel_run(
+    workflow_id: str,
+    run_id: str,
+    payload: Optional[dict] = Body(default=None),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Cancel workflow run."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.cancel_run(ctx, workflow_id, run_id, payload)
+
+
+@router.post("/{workflow_id}/runs/{run_id}/fail")
+async def fail_run(
+    workflow_id: str,
+    run_id: str,
+    payload: Optional[dict] = Body(default=None),
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Mark workflow run failed."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.fail_run(ctx, workflow_id, run_id, payload)
 
 
 @router.post("/{workflow_id}/runs/{run_id}/retry")

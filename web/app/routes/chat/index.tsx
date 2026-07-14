@@ -204,6 +204,9 @@ function IndexPage() {
     if (!payload || payload.agentId !== agentId) {
       return
     }
+    if (payload.threadId) {
+      chat.setThreadId(payload.threadId)
+    }
     if (payload.threadId && payload.threadId !== threadId) {
       navigate(`/chat/${agentId}/${payload.threadId}`)
     }
@@ -213,7 +216,7 @@ function IndexPage() {
     if (!payload || payload.agentId !== agentId) {
       return
     }
-    if (payload.threadId && payload.threadId === threadId) {
+    if (payload.threadId && (payload.threadId === threadId || payload.threadId === chat.threadId)) {
       chat.refreshHistory()
     }
     emit('refresh_chat_sidebar')

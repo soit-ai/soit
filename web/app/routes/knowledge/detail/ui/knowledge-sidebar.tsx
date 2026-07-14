@@ -14,7 +14,7 @@ import {
 
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar'
 import { useNavigate } from '@/hooks/use-navigate'
-import { BoxHeader } from '@/components/ui/entity/box-card'
+import { BoxHeader } from '@/components/ui/app/box-card'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getKnowledgeBase, type KnowledgeBase } from '@/services/knowledge-service'
-// This is sample data.
 
 export interface NavSidebarProps extends React.ComponentProps<typeof Sidebar> {
   knowledgeId?: string

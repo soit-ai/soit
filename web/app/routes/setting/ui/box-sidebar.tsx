@@ -28,7 +28,8 @@ import {
   ChevronDownIcon,
   ServerIcon,
   RefreshCwIcon,
-  ExternalLink
+  ExternalLink,
+  GitBranch as Github
 } from 'lucide-react'
 
 import { NavMain } from '@/components/nav/nav-main'
@@ -44,7 +45,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { useEffect, useState } from 'react'
-import { Github } from '@lobehub/icons/es/icons'
 
 // Define menu item types.
 interface MenuItem {

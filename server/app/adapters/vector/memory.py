@@ -5,8 +5,8 @@ In-memory vector adapter for tests and local runs.
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, Optional
 import math
+from typing import Any
 
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
 
@@ -15,9 +15,10 @@ class InMemoryVectorPort(VectorPort):
     """In-memory VectorPort implementation."""
 
     def __init__(self) -> None:
-        self._collections: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._collections: dict[str, dict[str, dict[str, Any]]] = {}
+        self._collection_definitions: dict[str, dict[str, Any]] = {}
 
-    def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
+    def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
         if not a or not b:
             return 0.0
         length = min(len(a), len(b))
@@ -30,16 +31,37 @@ class InMemoryVectorPort(VectorPort):
             return 0.0
         return dot / (norm_a * norm_b)
 
+    async def ensure_collection(
+        self,
+        collection: str,
+        dimension: int,
+        metric_type: str,
+        metadata_schema: dict[str, Any] | None = None,
+        *,
+        index_ref: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        if collection in self._collection_definitions:
+            return
+        self._collection_definitions[collection] = {
+            "dimension": dimension,
+            "metric_type": metric_type,
+            "metadata_schema": metadata_schema or {},
+            "index_ref": index_ref,
+            "run_id": run_id,
+        }
+        self._collections.setdefault(collection, {})
+
     async def query(
         self,
         collection: str,
-        vector: List[float],
+        vector: list[float],
         top_k: int = 10,
-        filter: Optional[Dict[str, Any]] = None,
+        filter: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> VectorQueryResult:
         items = self._collections.get(collection, {})
-        results: List[tuple[str, float, List[float], Dict[str, Any]]] = []
+        results: list[tuple[str, float, list[float], dict[str, Any]]] = []
         for doc_id, payload in items.items():
             metadata = payload.get("metadata") or {}
             if filter:
@@ -60,9 +82,9 @@ class InMemoryVectorPort(VectorPort):
     async def insert(
         self,
         collection: str,
-        vectors: List[List[float]],
-        ids: List[str],
-        metadata: Optional[List[Dict[str, Any]]] = None,
+        vectors: list[list[float]],
+        ids: list[str],
+        metadata: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         store = self._collections.setdefault(collection, {})
@@ -77,7 +99,7 @@ class InMemoryVectorPort(VectorPort):
     async def delete(
         self,
         collection: str,
-        ids: List[str],
+        ids: list[str],
         **kwargs: Any,
     ) -> None:
         store = self._collections.get(collection)

@@ -3,48 +3,36 @@
 Storage port policies: timeout/retry/audit/quota.
 """
 
-import asyncio
-from typing import Optional, Dict, Any
-from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+from typing import Any
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.storage.interface import StoragePort
-from app.kernel.trace.writer import TraceWriter
+from app.kernel.commons.errors import KernelError, TimeoutError
 from app.kernel.commons.time import utc_now
-from app.kernel.commons.errors import TimeoutError, KernelError
+from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.common.policy import (
+    error_details,
+    resolve_run_id,
+    run_with_timeout_retry,
+    unwrap_retry_error,
+)
+from app.kernel.ports.storage.interface import (
+    StoragePort,
+    StorageReader,
+    StorageWriter,
+    StreamingStoragePort,
+)
+from app.kernel.runtime.runs.writer import TraceWriter
 
-def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
-    """Resolve run_id for trace emission.
 
-    When trace_writer is enabled, run_id must be present. We allow reading from ctx (best-effort)
-    to support propagation via execution context.
-    """
-    run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
-    return str(run_id) if run_id else ""
+def _resolve_run_id(kwargs: dict[str, Any], ctx: RequestContext) -> str:
+    return resolve_run_id(kwargs, ctx)
 
 
 def _unwrap_error(exc: Exception) -> Exception:
-    if isinstance(exc, RetryError):
-        try:
-            last_exc = exc.last_attempt.exception()
-        except Exception:
-            last_exc = None
-        if last_exc:
-            return last_exc
-    return exc
+    return unwrap_retry_error(exc)
 
 
-def _error_details(exc: Exception) -> Dict[str, Any]:
-    root_exc = _unwrap_error(exc)
-    details: Dict[str, Any] = {"error_type": type(root_exc).__name__}
-    if isinstance(root_exc, KernelError):
-        details["code"] = root_exc.code
-        details.update(root_exc.details or {})
-    else:
-        details["detail"] = str(root_exc)
-    if root_exc is not exc:
-        details["retry_error"] = str(exc)
-    return details
+def _error_details(exc: Exception) -> dict[str, Any]:
+    return error_details(exc)
 
 
 def _raise_storage_error(code: str, exc: Exception, message: str) -> None:
@@ -52,19 +40,19 @@ def _raise_storage_error(code: str, exc: Exception, message: str) -> None:
         raise
     raise KernelError(code, message, details=_error_details(exc)) from exc
 
-class StoragePolicyGateway(StoragePort):
+class StoragePolicyGateway(StreamingStoragePort):
     """Storage port with policy enforcement."""
-    
+
     def __init__(
         self,
         gateway: StoragePort,
         ctx: RequestContext,
-        trace_writer: Optional[TraceWriter] = None,
+        trace_writer: TraceWriter | None = None,
         timeout_seconds: int = 60,
         max_retries: int = 3,
     ):
         """Initialize policy gateway.
-        
+
         Args:
             gateway: Underlying storage gateway.
             ctx: Request context.
@@ -77,13 +65,13 @@ class StoragePolicyGateway(StoragePort):
         self.trace_writer = trace_writer
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
-    
+
     async def put(
         self,
         key: str,
         data: bytes,
-        content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> str:
         """Upload object with policy enforcement."""
@@ -100,11 +88,7 @@ class StoragePolicyGateway(StoragePort):
             self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
-        @retry(
-            stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-        )
-        async def _put_with_retry():
+        async def _put():
             return await self.gateway.put(
                 key=key,
                 data=data,
@@ -112,18 +96,20 @@ class StoragePolicyGateway(StoragePort):
                 metadata=metadata,
                 **kwargs,
             )
-        
-        # Apply timeout
+
         try:
-            result_key = await asyncio.wait_for(
-                _put_with_retry(),
-                timeout=self.timeout_seconds
+            result_key = await run_with_timeout_retry(
+                _put,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=self.max_retries,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage put timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key}
+                ),
+                wait_min=2,
+                wait_max=10,
             )
-        except asyncio.TimeoutError:
-            exc = TimeoutError(
-                f"Storage put timed out after {self.timeout_seconds} seconds",
-                {"timeout_seconds": self.timeout_seconds, "key": key}
-            )
+        except TimeoutError as exc:
             if step and self.trace_writer:
                 self.trace_writer.update_step_status(
                     step.id,
@@ -143,7 +129,7 @@ class StoragePolicyGateway(StoragePort):
                     error_details=_error_details(exc),
                 )
             _raise_storage_error("STORAGE_PUT_ERROR", exc, "Storage put failed")
-        
+
         # Update cost if trace writer available
         if self.trace_writer and step:
             self.trace_writer.record_cost(
@@ -162,9 +148,9 @@ class StoragePolicyGateway(StoragePort):
                     "latency_ms": elapsed_ms,
                 },
             )
-        
+
         return result_key
-    
+
     async def get(
         self,
         key: str,
@@ -184,18 +170,20 @@ class StoragePolicyGateway(StoragePort):
             self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
-        @retry(
-            stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-        )
-        async def _get_with_retry():
+        async def _get():
             return await self.gateway.get(key=key, **kwargs)
-        
-        # Apply timeout
+
         try:
-            data = await asyncio.wait_for(
-                _get_with_retry(),
-                timeout=self.timeout_seconds
+            data = await run_with_timeout_retry(
+                _get,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=self.max_retries,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage get timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key}
+                ),
+                wait_min=2,
+                wait_max=10,
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -215,11 +203,7 @@ class StoragePolicyGateway(StoragePort):
                     provider="storage",
                 )
             return data
-        except asyncio.TimeoutError:
-            exc = TimeoutError(
-                f"Storage get timed out after {self.timeout_seconds} seconds",
-                {"timeout_seconds": self.timeout_seconds, "key": key}
-            )
+        except TimeoutError as exc:
             if step and self.trace_writer:
                 self.trace_writer.update_step_status(
                     step.id,
@@ -239,7 +223,7 @@ class StoragePolicyGateway(StoragePort):
                     error_details=_error_details(exc),
                 )
             _raise_storage_error("STORAGE_GET_ERROR", exc, "Storage get failed")
-    
+
     async def delete(
         self,
         key: str,
@@ -259,18 +243,20 @@ class StoragePolicyGateway(StoragePort):
             self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
-        @retry(
-            stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1, min=1, max=5),
-        )
-        async def _delete_with_retry():
+        async def _delete():
             return await self.gateway.delete(key=key, **kwargs)
-        
-        # Apply timeout
+
         try:
-            await asyncio.wait_for(
-                _delete_with_retry(),
-                timeout=self.timeout_seconds
+            await run_with_timeout_retry(
+                _delete,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=self.max_retries,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage delete timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key}
+                ),
+                wait_min=1,
+                wait_max=5,
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -288,11 +274,7 @@ class StoragePolicyGateway(StoragePort):
                     quantity=1,
                     provider="storage",
                 )
-        except asyncio.TimeoutError:
-            exc = TimeoutError(
-                f"Storage delete timed out after {self.timeout_seconds} seconds",
-                {"timeout_seconds": self.timeout_seconds, "key": key}
-            )
+        except TimeoutError as exc:
             if step and self.trace_writer:
                 self.trace_writer.update_step_status(
                     step.id,
@@ -312,7 +294,7 @@ class StoragePolicyGateway(StoragePort):
                     error_details=_error_details(exc),
                 )
             _raise_storage_error("STORAGE_DELETE_ERROR", exc, "Storage delete failed")
-    
+
     async def exists(
         self,
         key: str,
@@ -332,11 +314,18 @@ class StoragePolicyGateway(StoragePort):
             self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
-        # Apply timeout
         try:
-            result = await asyncio.wait_for(
-                self.gateway.exists(key=key, **kwargs),
-                timeout=self.timeout_seconds
+            async def _exists():
+                return await self.gateway.exists(key=key, **kwargs)
+
+            result = await run_with_timeout_retry(
+                _exists,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=1,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage exists check timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key}
+                ),
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -356,11 +345,7 @@ class StoragePolicyGateway(StoragePort):
                     provider="storage",
                 )
             return result
-        except asyncio.TimeoutError:
-            exc = TimeoutError(
-                f"Storage exists check timed out after {self.timeout_seconds} seconds",
-                {"timeout_seconds": self.timeout_seconds, "key": key}
-            )
+        except TimeoutError as exc:
             if step and self.trace_writer:
                 self.trace_writer.update_step_status(
                     step.id,
@@ -380,3 +365,68 @@ class StoragePolicyGateway(StoragePort):
                     error_details=_error_details(exc),
                 )
             _raise_storage_error("STORAGE_EXISTS_ERROR", exc, "Storage exists check failed")
+
+    async def open_reader(self, key: str, **kwargs: Any) -> StorageReader:
+        """Open a streaming reader with timeout/error policy."""
+        open_reader = getattr(self.gateway, "open_reader", None)
+        if not open_reader:
+            raise KernelError(
+                "STORAGE_STREAMING_NOT_SUPPORTED",
+                "Storage gateway does not support streaming reads",
+                {"key": key},
+            )
+        try:
+            async def _open_reader():
+                return await open_reader(key=key, **kwargs)
+
+            return await run_with_timeout_retry(
+                _open_reader,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=1,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage open_reader timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key},
+                ),
+            )
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            _raise_storage_error("STORAGE_OPEN_READER_ERROR", exc, "Storage open_reader failed")
+
+    async def open_writer(
+        self,
+        key: str,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> StorageWriter:
+        """Open a streaming writer with timeout/error policy."""
+        open_writer = getattr(self.gateway, "open_writer", None)
+        if not open_writer:
+            raise KernelError(
+                "STORAGE_STREAMING_NOT_SUPPORTED",
+                "Storage gateway does not support streaming writes",
+                {"key": key},
+            )
+        try:
+            async def _open_writer():
+                return await open_writer(
+                    key=key,
+                    content_type=content_type,
+                    metadata=metadata,
+                    **kwargs,
+                )
+
+            return await run_with_timeout_retry(
+                _open_writer,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=1,
+                timeout_factory=lambda: TimeoutError(
+                    f"Storage open_writer timed out after {self.timeout_seconds} seconds",
+                    {"timeout_seconds": self.timeout_seconds, "key": key},
+                ),
+            )
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            _raise_storage_error("STORAGE_OPEN_WRITER_ERROR", exc, "Storage open_writer failed")

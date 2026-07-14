@@ -6,6 +6,7 @@ type TranslationKeys = {
   common: typeof import('./en-US/common').default
   layout: typeof import('./en-US/layout').default
   login: typeof import('./en-US/login').default
+  model: typeof import('./en-US/model').default
   chat: typeof import('./en-US/chat').default
   knowledge: typeof import('./en-US/knowledge').default
   run: typeof import('./en-US/run').default
@@ -17,6 +18,7 @@ type TranslationKeys = {
   store: typeof import('./en-US/store').default
   safe: typeof import('./en-US/safe').default
   notification: typeof import('./en-US/notification').default
+  task: typeof import('./en-US/task').default
 }
 
 // Convert nested objects to dot-separated string paths

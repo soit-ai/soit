@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.kernel.events.envelope import DEFAULT_EVENT_VERSION, DomainEventEnvelope
+from app.kernel.events.payload_registry import (
+    get_event_payload_version,
+    is_registered_event_type,
+)
 
 
 def test_envelope_json_roundtrip_preserves_core_fields() -> None:
-    occurred = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
+    occurred = datetime(2025, 3, 23, 12, 0, 0, tzinfo=UTC)
     original = DomainEventEnvelope(
         event_id="evt_01",
         event_type="run.created",
@@ -45,7 +49,7 @@ def test_envelope_json_roundtrip_preserves_core_fields() -> None:
 
 
 def test_envelope_default_version_and_optional_omitted() -> None:
-    occurred = datetime.now(timezone.utc)
+    occurred = datetime.now(UTC)
     env = DomainEventEnvelope(
         event_id="evt_02",
         event_type="task.completed",
@@ -56,3 +60,13 @@ def test_envelope_default_version_and_optional_omitted() -> None:
     roundtrip = DomainEventEnvelope.from_json_dict(data)
     assert roundtrip.task_id is None
     assert roundtrip.payload == {}
+
+
+def test_registered_kernel_events_have_payload_versions() -> None:
+    assert get_event_payload_version("task.created") == "1"
+    assert get_event_payload_version("task.status") == "1"
+    assert get_event_payload_version("run.created") == "1"
+    assert get_event_payload_version("run.status.updated") == "1"
+    assert get_event_payload_version("response.completed") == "1"
+    assert get_event_payload_version("approval.approved") == "1"
+    assert is_registered_event_type("unknown.compat.event") is False

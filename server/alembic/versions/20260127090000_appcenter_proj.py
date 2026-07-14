@@ -8,9 +8,9 @@ Revises: 20260126230000_baseline_apps
 Create Date: 2026-01-27 09:00:00
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260127090000_appcenter_proj"
@@ -23,18 +23,19 @@ def upgrade() -> None:
     connection = op.get_bind()
     inspector = sa.inspect(connection)
     existing_tables = set(inspector.get_table_names())
-    existing_columns = {col["name"] for col in inspector.get_columns("app_versions")}
-    existing_indexes = {idx["name"] for idx in inspector.get_indexes("app_versions")}
+    if "app_versions" in existing_tables:
+        existing_columns = {col["name"] for col in inspector.get_columns("app_versions")}
+        existing_indexes = {idx["name"] for idx in inspector.get_indexes("app_versions")}
 
-    if "checksum" not in existing_columns:
-        op.add_column("app_versions", sa.Column("checksum", sa.String(), nullable=True))
-    if "created_from_version_id" not in existing_columns:
-        op.add_column(
-            "app_versions",
-            sa.Column("created_from_version_id", sa.String(), nullable=True),
-        )
-    if "ix_app_versions_spec_checksum" not in existing_indexes:
-        op.create_index("ix_app_versions_spec_checksum", "app_versions", ["checksum"])
+        if "checksum" not in existing_columns:
+            op.add_column("app_versions", sa.Column("checksum", sa.String(), nullable=True))
+        if "created_from_version_id" not in existing_columns:
+            op.add_column(
+                "app_versions",
+                sa.Column("created_from_version_id", sa.String(), nullable=True),
+            )
+        if "ix_app_versions_spec_checksum" not in existing_indexes:
+            op.create_index("ix_app_versions_spec_checksum", "app_versions", ["checksum"])
 
     if "app_components" not in existing_tables:
         op.create_table(

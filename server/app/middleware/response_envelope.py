@@ -6,20 +6,76 @@ Standard API response envelope middleware.
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response, JSONResponse
+from starlette.responses import JSONResponse, Response
 
-from app.api.v1.schemas.response import success_envelope, is_enveloped
-from app.kernel.observability.context import get_log_context
+from app.kernel.observe.context import get_log_context
+
+
+def success_envelope(
+    *,
+    data: Any,
+    message: str = "OK",
+    code: str = "OK",
+    request_id: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a standard success envelope."""
+    payload: dict[str, Any] = {
+        "success": True,
+        "code": code,
+        "message": message,
+        "data": data,
+    }
+    if request_id:
+        payload["request_id"] = request_id
+    if run_id:
+        payload["run_id"] = run_id
+    return payload
+
+
+def error_envelope(
+    *,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+    request_id: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a standard error envelope."""
+    detail_payload = details or {}
+    payload: dict[str, Any] = {
+        "success": False,
+        "code": code,
+        "message": message,
+        "details": detail_payload,
+    }
+    if request_id:
+        payload["request_id"] = request_id
+    if run_id:
+        payload["run_id"] = run_id
+    return payload
+
+
+def is_enveloped(payload: Any) -> bool:
+    """Check if payload already matches the standard envelope shape."""
+    if not isinstance(payload, dict):
+        return False
+    if {"success", "code", "message"}.issubset(payload.keys()):
+        return True
+    error = payload.get("error")
+    if isinstance(error, dict) and {"code", "message"}.issubset(error.keys()):
+        return True
+    return False
 
 
 class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
     """Wrap JSON responses in the standard API envelope."""
 
-    def _resolve_trace_ids(self, request: Request) -> tuple[Optional[str], Optional[str]]:
+    def _resolve_trace_ids(self, request: Request) -> tuple[str | None, str | None]:
         log_ctx = get_log_context()
         request_id = getattr(request.state, "request_id", None) or log_ctx.get("request_id")
         run_id = getattr(request.state, "run_id", None) or log_ctx.get("run_id")

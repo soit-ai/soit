@@ -5,8 +5,8 @@ State machine for run/step lifecycle.
 
 from enum import Enum
 
-from app.kernel.runtime.contracts.status import ExecutionStatus
-from app.kernel.trace.models import Run, RunStep
+from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.runtime.tasks.status import ExecutionStatus
 
 
 class RunStatus(str, Enum):
@@ -31,7 +31,7 @@ class StepStatus(str, Enum):
 
 class StateMachine:
     """State machine for run/step transitions."""
-    
+
     # Valid transitions
     RUN_TRANSITIONS = {
         RunStatus.QUEUED: [RunStatus.RUNNING, RunStatus.CANCELED],
@@ -41,7 +41,7 @@ class StateMachine:
         RunStatus.FAILED: [],
         RunStatus.CANCELED: [],
     }
-    
+
     STEP_TRANSITIONS = {
         StepStatus.QUEUED: [StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.CANCELED],
         StepStatus.RUNNING: [StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.CANCELED],
@@ -50,48 +50,48 @@ class StateMachine:
         StepStatus.SKIPPED: [],
         StepStatus.CANCELED: [],
     }
-    
+
     @classmethod
     def can_transition_run(cls, current: str, target: str) -> bool:
         """Check if run can transition from current to target status.
-        
+
         Args:
             current: Current status.
             target: Target status.
-            
+
         Returns:
             True if transition is valid.
         """
         current_enum = RunStatus(current)
         target_enum = RunStatus(target)
         return target_enum in cls.RUN_TRANSITIONS.get(current_enum, [])
-    
+
     @classmethod
     def can_transition_step(cls, current: str, target: str) -> bool:
         """Check if step can transition from current to target status.
-        
+
         Args:
             current: Current status.
             target: Target status.
-            
+
         Returns:
             True if transition is valid.
         """
         current_enum = StepStatus(current)
         target_enum = StepStatus(target)
         return target_enum in cls.STEP_TRANSITIONS.get(current_enum, [])
-    
+
     @classmethod
     def transition_run(cls, run: Run, target_status: str) -> Run:
         """Transition run to target status.
-        
+
         Args:
             run: Run instance.
             target_status: Target status.
-            
+
         Returns:
             Updated run.
-            
+
         Raises:
             ValueError: If transition is invalid.
         """
@@ -101,18 +101,18 @@ class StateMachine:
             )
         run.status = target_status
         return run
-    
+
     @classmethod
     def transition_step(cls, step: RunStep, target_status: str) -> RunStep:
         """Transition step to target status.
-        
+
         Args:
             step: Step instance.
             target_status: Target status.
-            
+
         Returns:
             Updated step.
-            
+
         Raises:
             ValueError: If transition is invalid.
         """

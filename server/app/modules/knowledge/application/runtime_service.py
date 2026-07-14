@@ -54,6 +54,8 @@ from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.identity.guard import rbac_guard, workspace_guard
 from app.kernel.identity.permissions import RESOURCE_KNOWLEDGE
 
+UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
+
 
 class KnowledgeRuntimeService:
     """Service for managing knowledge data."""
@@ -454,7 +456,7 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         document: KnowledgeDocument,
         document_in: DocumentUpload,
-        file_content: Optional[bytes],
+        file_content: Optional[Any],
         run_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist upload file to storage and normalize payload."""
@@ -483,36 +485,112 @@ class KnowledgeRuntimeService:
         if not self.storage_port:
             raise KernelError("STORAGE_NOT_AVAILABLE", "Storage gateway is not configured")
 
-        size_bytes = payload.get("size_bytes") or len(file_content)
-        checksum = payload.get("checksum") or hashlib.sha256(file_content).hexdigest()
+        is_stream = self._is_upload_stream(file_content)
+        if is_stream:
+            size_bytes = payload.get("size_bytes")
+            checksum = payload.get("checksum")
+        else:
+            size_bytes = payload.get("size_bytes") or len(file_content)
+            checksum = payload.get("checksum") or hashlib.sha256(file_content).hexdigest()
         content_hash = payload.get("content_hash") or checksum
 
-        payload["size_bytes"] = size_bytes
-        payload["checksum"] = checksum
-        payload["content_hash"] = content_hash
+        if size_bytes is not None:
+            payload["size_bytes"] = size_bytes
+        if checksum:
+            payload["checksum"] = checksum
+            payload["content_hash"] = content_hash
 
         if not payload.get("file_id"):
             storage_key = (
                 f"tenants/{self.ctx.tenant_id}/workspaces/{self.ctx.workspace_id}/"
                 f"knowledge/{knowledge_id}/raw/{generate_ulid()}"
             )
-            await self.storage_port.put(
-                key=storage_key,
-                data=file_content,
-                content_type=document.mime_type,
-                run_id=run_id,
-            )
+            if is_stream:
+                size_bytes, checksum = await self._stream_upload_to_storage(
+                    storage_key,
+                    file_content,
+                    content_type=document.mime_type,
+                    run_id=run_id,
+                )
+                content_hash = payload.get("content_hash") or checksum
+                payload["size_bytes"] = size_bytes
+                payload["checksum"] = checksum
+                payload["content_hash"] = content_hash
+            else:
+                await self.storage_port.put(
+                    key=storage_key,
+                    data=file_content,
+                    content_type=document.mime_type,
+                    run_id=run_id,
+                )
             payload["file_id"] = storage_key
             document.file_id = storage_key
 
-        document.size_bytes = size_bytes
-        document.checksum = checksum
-        document.content_hash = content_hash
+        document.size_bytes = payload.get("size_bytes")
+        document.checksum = payload.get("checksum")
+        document.content_hash = payload.get("content_hash")
         document.updated_by = self.ctx.user_id
         document.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(document)
         return payload
+
+    @staticmethod
+    def _is_upload_stream(file_content: Any) -> bool:
+        return file_content is not None and not isinstance(file_content, bytes) and hasattr(file_content, "read")
+
+    async def _stream_upload_to_storage(
+        self,
+        storage_key: str,
+        file_content: Any,
+        *,
+        content_type: Optional[str],
+        run_id: Optional[str],
+    ) -> tuple[int, str]:
+        hasher = hashlib.sha256()
+        size_bytes = 0
+
+        open_writer = getattr(self.storage_port, "open_writer", None)
+        if open_writer:
+            async with await open_writer(
+                key=storage_key,
+                content_type=content_type,
+                run_id=run_id,
+            ) as writer:
+                while True:
+                    chunk = await self._read_upload_chunk(file_content)
+                    if not chunk:
+                        break
+                    size_bytes += len(chunk)
+                    hasher.update(chunk)
+                    await writer.write(chunk)
+            return size_bytes, hasher.hexdigest()
+
+        chunks: list[bytes] = []
+        while True:
+            chunk = await self._read_upload_chunk(file_content)
+            if not chunk:
+                break
+            size_bytes += len(chunk)
+            hasher.update(chunk)
+            chunks.append(chunk)
+        await self.storage_port.put(
+            key=storage_key,
+            data=b"".join(chunks),
+            content_type=content_type,
+            run_id=run_id,
+        )
+        return size_bytes, hasher.hexdigest()
+
+    @staticmethod
+    async def _read_upload_chunk(file_content: Any) -> bytes:
+        try:
+            chunk = await file_content.read(UPLOAD_STREAM_CHUNK_SIZE)
+        except TypeError:
+            chunk = await file_content.read()
+        if isinstance(chunk, str):
+            return chunk.encode("utf-8")
+        return chunk
 
     @staticmethod
     def _guess_filename_from_uri(source_uri: str) -> str:
@@ -579,7 +657,7 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         document_in: DocumentUpload,
-        file_content: Optional[bytes] = None,
+        file_content: Optional[Any] = None,
         max_retries: int = 1,
     ) -> tuple[KnowledgeDocument, KnowledgeIngestTask]:
         """Enqueue a knowledge ingestion task and return the document."""
@@ -1168,7 +1246,7 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         document_in: DocumentUpload,
-        file_content: Optional[bytes] = None,
+        file_content: Optional[Any] = None,
         async_ingest: bool = False,
         max_retries: int = 1,
     ) -> KnowledgeDocument:
@@ -1251,7 +1329,7 @@ class KnowledgeRuntimeService:
             document = await self._process_document_ingest(
                 knowledge,
                 document,
-                file_content,
+                None if self._is_upload_stream(file_content) else file_content,
                 run_id=run_id,
             )
 
@@ -1981,8 +2059,14 @@ class KnowledgeRuntimeService:
                 "strategy": strategy,
                 "top_k": query_request.top_k,
                 "result_count": len(results),
+                "citation_count": len(citations),
                 "use_rerank": use_rerank,
             }
+            scores = [float(result.score) for result in results if result.score is not None]
+            if scores:
+                metrics["avg_score"] = sum(scores) / len(scores)
+                metrics["max_score"] = max(scores)
+                metrics["min_score"] = min(scores)
             if strategy == "multi_index":
                 metrics["index_count"] = len(index_ids)
             if strategy in ("vector", "hybrid"):

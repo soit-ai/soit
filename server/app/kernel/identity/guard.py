@@ -5,24 +5,25 @@ RBAC decorators for service-layer authorization.
 
 from __future__ import annotations
 
-from functools import wraps
-from typing import Callable, Optional, Any
 import inspect
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
 
 from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.permissions import (
+    require_resource_create_async,
+    require_resource_delete_async,
+    require_resource_read_async,
+    require_resource_run_async,
+    require_resource_update_async,
+    require_resource_write_async,
+)
 from app.kernel.identity.rbac import (
+    require_tenant_admin_async,
+    require_workspace_owner_async,
     require_workspace_read_async,
     require_workspace_write_async,
-    require_workspace_owner_async,
-    require_tenant_admin_async,
-)
-from app.kernel.identity.permissions import (
-    require_resource_read_async,
-    require_resource_write_async,
-    require_resource_delete_async,
-    require_resource_create_async,
-    require_resource_update_async,
-    require_resource_run_async,
 )
 
 
@@ -39,8 +40,8 @@ def _resolve_ctx(bound_args: inspect.BoundArguments) -> RequestContext:
 
 def _resolve_value(
     bound_args: inspect.BoundArguments,
-    arg_name: Optional[str],
-    resolver: Optional[Callable[..., Any]],
+    arg_name: str | None,
+    resolver: Callable[..., Any] | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> Any:
@@ -56,10 +57,10 @@ def rbac_guard(
     resource_type: str,
     action: str,
     *,
-    resource_id_arg: Optional[str] = None,
-    resource_id_resolver: Optional[Callable[..., Any]] = None,
-    owner_id_arg: Optional[str] = None,
-    owner_id_resolver: Optional[Callable[..., Any]] = None,
+    resource_id_arg: str | None = None,
+    resource_id_resolver: Callable[..., Any] | None = None,
+    owner_id_arg: str | None = None,
+    owner_id_resolver: Callable[..., Any] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for resource-level RBAC checks."""
     action_key = action.strip().lower()
@@ -132,7 +133,7 @@ async def _apply_resource_guard_async(
     resource_type: str,
     action: str,
     resource_id: str,
-    owner_id: Optional[str],
+    owner_id: str | None,
 ) -> None:
     """Apply resource permission check asynchronously."""
     if action == "read":

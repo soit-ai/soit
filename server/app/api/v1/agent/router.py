@@ -17,10 +17,13 @@ from app.modules.agent.application.schemas import (
     AgentCreate,
     AgentUpdate,
     AgentResponse,
+    AgentCapabilityResponse,
     AgentVersionCreate,
     AgentVersionResponse,
     AgentReleaseResponse,
     AgentBindingResponse,
+    AgentWorkbenchItemsResponse,
+    AgentWorkbenchResponse,
     AgentPublishRequest,
     AgentRollbackRequest,
 )
@@ -63,6 +66,55 @@ async def list_agents(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.list_agents(ctx, page_token=page_token, page_size=page_size)
+
+
+@router.get("/workbench", response_model=AgentWorkbenchResponse)
+async def get_agent_workbench(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.get_workbench(ctx, page_token=page_token, page_size=page_size)
+
+
+@router.get("/workbench/items", response_model=AgentWorkbenchItemsResponse)
+async def list_agent_workbench_items(
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.get_workbench_items(
+        ctx,
+        page_token=page_token,
+        page_size=page_size,
+        tab=tab,
+        keyword=keyword,
+    )
+
+
+@router.get("/capabilities", response_model=PaginatedResponse[AgentCapabilityResponse])
+async def list_agent_capabilities(
+    kind: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 200,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    handlers = AgentAppHandlers(service)
+    return await handlers.list_capabilities(
+        ctx,
+        kind=kind,
+        source_kind=source_kind,
+        page_token=page_token,
+        page_size=page_size,
+    )
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
@@ -189,7 +241,7 @@ async def stream_agent(
 
     async def run_agent():
         try:
-            result = await service.execute_agent_streaming(agent_id, data.model_dump(exclude_none=True), emitter)
+            result = await service.execute_agent_streaming(agent_id, data.model_dump(exclude_none=True, exclude_unset=True), emitter)
             await emitter.queue.put(("agent.result", result))
         except Exception as exc:
             await emitter.queue.put(("agent.error", {"error": str(exc)}))

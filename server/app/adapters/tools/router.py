@@ -12,20 +12,21 @@ Supported adapters (initial)
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, Callable, List
 import re
+from collections.abc import Callable
+from typing import Any
 
-from app.kernel.commons.errors import ValidationError, ForbiddenError
+from app.adapters.tools.function import FunctionToolsPort
+from app.adapters.tools.http import HTTPToolsPort
+from app.adapters.tools.mcp import MCPToolAdapter
+from app.kernel.commons.errors import ForbiddenError, ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.registry.deps import get_registry
-from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.secrets.interface import SecretsPort
+from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.registry.deps import get_registry
 from app.kernel.security.egress import get_egress_policy
 from app.kernel.specs.validator import validate_spec
-from app.adapters.tools.http import HTTPToolsPort
-from app.adapters.tools.function import FunctionToolsPort
-from app.adapters.tools.mcp import MCPToolAdapter
 
 
 class RegistryToolRouterPort(ToolPort):
@@ -34,11 +35,11 @@ class RegistryToolRouterPort(ToolPort):
     def __init__(
         self,
         *,
-        http_port: Optional[HTTPToolsPort] = None,
-        function_port: Optional[FunctionToolsPort] = None,
-        mcp_adapter: Optional[MCPToolAdapter] = None,
-        plugin_runtime_port: Optional[PluginRuntimePort] = None,
-        secrets_port_factory: Optional[Callable[[RequestContext], SecretsPort]] = None,
+        http_port: HTTPToolsPort | None = None,
+        function_port: FunctionToolsPort | None = None,
+        mcp_adapter: MCPToolAdapter | None = None,
+        plugin_runtime_port: PluginRuntimePort | None = None,
+        secrets_port_factory: Callable[[RequestContext], SecretsPort] | None = None,
     ):
         self.http_port = http_port or HTTPToolsPort()
         self.function_port = function_port or FunctionToolsPort()
@@ -47,7 +48,7 @@ class RegistryToolRouterPort(ToolPort):
         self.secrets_port_factory = secrets_port_factory
         self._template_pattern = re.compile(r"\{\{\s*inputs\.([^\s{}]+)\s*\}\}")
 
-    def _builtin_tool_spec(self, tool_ref: str) -> Optional[Dict[str, Any]]:
+    def _builtin_tool_spec(self, tool_ref: str) -> dict[str, Any] | None:
         """Return builtin tool spec for known refs."""
         if tool_ref == "tool:http:request":
             return {
@@ -126,11 +127,43 @@ class RegistryToolRouterPort(ToolPort):
                 },
                 "output_schema": {"type": "object"},
                 "policy": {"audit_level": "basic"},
-                "function": {"entrypoint": "app.modules.knowledge.application.tools:knowledge_query"},
+                "function": {"entrypoint": "app.modules.knowledge.runtime.tool_entrypoint:knowledge_query"},
+            }
+        if tool_ref == "builtin.ticket.create_review_ticket":
+            return {
+                "name": "create_review_ticket",
+                "adapter": "function",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "customer_id": {"type": "string"},
+                        "priority": {"type": "string"},
+                        "message": {"type": "string"},
+                        "classification": {"type": "string"},
+                        "api_token": {"type": "string"},
+                    },
+                    "required": ["customer_id", "message"],
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ticket_id": {"type": "string"},
+                        "status": {"type": "string"},
+                        "review_url": {"type": "string"},
+                    },
+                    "required": ["ticket_id", "status", "review_url"],
+                },
+                "policy": {
+                    "audit_level": "full",
+                    "secret_refs": ["secret:ticket_api_key"],
+                    "egress": {"allow": ["tickets.example.local"]},
+                },
+                "function": {"entrypoint": "app.utils.demo_ticket_tools:create_review_ticket"},
             }
         return None
 
-    def _register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
+    def register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
         """Register builtin tool spec into registry for current scope."""
         tool_spec = self._builtin_tool_spec(tool_ref)
         if not tool_spec:
@@ -146,11 +179,15 @@ class RegistryToolRouterPort(ToolPort):
         )
         return True
 
+    def _register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
+        """Backward-compatible alias for older adapter callers."""
+        return self.register_builtin(tool_ref, ctx)
+
     async def _resolve_api_key(
         self,
         ctx: RequestContext,
-        auth_cfg: Dict[str, Any],
-    ) -> Optional[str]:
+        auth_cfg: dict[str, Any],
+    ) -> str | None:
         """Resolve api key secret if configured."""
         api_key_cfg = auth_cfg.get("api_key") or {}
         secret_ref = api_key_cfg.get("secret_ref")
@@ -161,7 +198,7 @@ class RegistryToolRouterPort(ToolPort):
         secrets_port = self.secrets_port_factory(ctx)
         return await secrets_port.get_secret(secret_ref=secret_ref)
 
-    def _resolve_input_path(self, inputs: Dict[str, Any], path: str) -> Any:
+    def _resolve_input_path(self, inputs: dict[str, Any], path: str) -> Any:
         """Resolve nested input value by dot path."""
         current: Any = inputs
         for part in path.split("."):
@@ -172,7 +209,7 @@ class RegistryToolRouterPort(ToolPort):
                 return None
         return current
 
-    def _render_template(self, value: Any, inputs: Dict[str, Any]) -> Any:
+    def _render_template(self, value: Any, inputs: dict[str, Any]) -> Any:
         """Render template strings using inputs."""
         if isinstance(value, str):
             matches = list(self._template_pattern.finditer(value))
@@ -195,25 +232,41 @@ class RegistryToolRouterPort(ToolPort):
             return [self._render_template(v, inputs) for v in value]
         return value
 
-    def _validate_inputs(self, tool_ref: str, tool_spec: Dict[str, Any], inputs: Dict[str, Any]) -> None:
+    def _validate_inputs(self, tool_ref: str, tool_spec: dict[str, Any], inputs: dict[str, Any]) -> None:
         """Validate tool inputs against input_schema."""
         input_schema = tool_spec.get("input_schema")
         if input_schema is None:
             raise ValidationError(f"Tool '{tool_ref}' missing input_schema")
         validate_spec(inputs, input_schema)
 
-    def _validate_output(self, tool_ref: str, tool_spec: Dict[str, Any], output: Any) -> None:
+    def _validate_output(self, tool_ref: str, tool_spec: dict[str, Any], output: Any) -> None:
         """Validate tool output against output_schema."""
         output_schema = tool_spec.get("output_schema")
         if output_schema is None:
             return
         validate_spec(output, output_schema)
 
+    def _resolve_http_url(
+        self,
+        tool_spec: dict[str, Any],
+        tool_inputs: dict[str, Any],
+        parameters: dict[str, Any],
+    ) -> str | None:
+        http_cfg = tool_spec.get("http") or {}
+        url = self._render_template(http_cfg.get("url"), tool_inputs) if http_cfg.get("url") else None
+        if not url:
+            url = parameters.get("url")
+        base_url = http_cfg.get("base_url")
+        path = http_cfg.get("path")
+        if not url and base_url and path:
+            url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+        return url
+
     def _enforce_tool_egress(
         self,
         ctx: RequestContext,
-        url: Optional[str],
-        allowlist: Optional[list],
+        url: str | None,
+        allowlist: list | None,
         tool_ref: str,
     ) -> None:
         """Enforce tool-level egress allowlist if provided."""
@@ -227,13 +280,32 @@ class RegistryToolRouterPort(ToolPort):
                 {"tool_ref": tool_ref, "url": url},
             )
 
-    async def invoke(self, tool_ref: str, parameters: Dict[str, Any], **kwargs: Any) -> ToolResponse:
+    async def _resolve_reserved_auth_payload(
+        self,
+        ctx: RequestContext,
+        auth_cfg: dict[str, Any],
+    ) -> dict[str, dict[str, str]]:
+        """Resolve plugin runtime auth material into a reserved transport envelope."""
+        auth_payload: dict[str, dict[str, str]] = {"headers": {}, "query": {}}
+        if auth_cfg.get("type") != "api_key":
+            return auth_payload
+        api_key = await self._resolve_api_key(ctx, auth_cfg)
+        api_key_cfg = auth_cfg.get("api_key") or {}
+        key_in = api_key_cfg.get("in")
+        key_name = api_key_cfg.get("name")
+        if api_key and key_in == "header" and key_name:
+            auth_payload["headers"][key_name] = api_key
+        elif api_key and key_in == "query" and key_name:
+            auth_payload["query"][key_name] = api_key
+        return auth_payload
+
+    async def invoke(self, tool_ref: str, parameters: dict[str, Any], **kwargs: Any) -> ToolResponse:
         # Route mcp_tool:* refs directly to MCP adapter
         if tool_ref.startswith("mcp_tool:"):
             return await self.mcp_adapter.invoke(tool_ref, parameters, **kwargs)
 
         strict_registry: bool = bool(kwargs.get("strict_registry", False))
-        ctx: Optional[RequestContext] = kwargs.get("ctx")
+        ctx: RequestContext | None = kwargs.get("ctx")
         if ctx is None:
             # allow callers to pass tenant/workspace explicitly
             tenant_id = kwargs.get("tenant_id")
@@ -265,7 +337,7 @@ class RegistryToolRouterPort(ToolPort):
         _, payload = found
         tool_spec = payload.get("tool_spec") or {}
         adapter = tool_spec.get("adapter")
-        tool_inputs: Dict[str, Any] = {}
+        tool_inputs: dict[str, Any] = {}
         if adapter == "http":
             body = parameters.get("body")
             if isinstance(body, dict):
@@ -309,8 +381,23 @@ class RegistryToolRouterPort(ToolPort):
                 raise ValidationError("Plugin metadata missing name/version")
             if not self.plugin_runtime_port:
                 raise ValidationError("Plugin runtime port not configured")
+            policy_cfg = tool_spec.get("policy") or {}
+            egress_cfg = policy_cfg.get("egress") or {}
+            allowlist = egress_cfg.get("allow") or []
+            self._enforce_tool_egress(
+                ctx,
+                self._resolve_http_url(tool_spec, tool_inputs, parameters),
+                allowlist,
+                tool_ref,
+            )
+            auth_payload = await self._resolve_reserved_auth_payload(ctx, tool_spec.get("auth") or {})
+            if auth_payload["headers"] or auth_payload["query"]:
+                tool_inputs = {
+                    **tool_inputs,
+                    "_soit_auth": auth_payload,
+                }
             tool_name = tool_ref.split(":")[-1] if ":" in tool_ref else tool_ref
-            return await self.plugin_runtime_port.invoke(
+            result = await self.plugin_runtime_port.invoke(
                 plugin_name=plugin_name,
                 version=version,
                 tool_name=tool_name,
@@ -318,15 +405,21 @@ class RegistryToolRouterPort(ToolPort):
                 ctx=ctx,
                 timeout_s=kwargs.get("timeout_s"),
             )
+            self._validate_output(tool_ref, tool_spec, result)
+            return ToolResponse(
+                result=result,
+                success=True,
+                metadata={
+                    "source_kind": "plugin",
+                    "adapter": "plugin",
+                    "plugin_name": plugin_name,
+                    "plugin_version": version,
+                    "tool_ref": tool_ref,
+                },
+            )
         if adapter == "http":
             http_cfg = tool_spec.get("http") or {}
-            url = self._render_template(http_cfg.get("url"), tool_inputs) if http_cfg.get("url") else None
-            if not url:
-                url = parameters.get("url")
-            base_url = http_cfg.get("base_url")
-            path = http_cfg.get("path")
-            if not url and base_url and path:
-                url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            url = self._resolve_http_url(tool_spec, tool_inputs, parameters)
             if not url:
                 raise ValidationError(f"HTTP tool '{tool_ref}' missing url (tool_spec.http.url)")
             method = parameters.get("method") or http_cfg.get("method") or "POST"
@@ -398,7 +491,23 @@ class RegistryToolRouterPort(ToolPort):
             )
             if response.success:
                 self._validate_output(tool_ref, tool_spec, response.result)
-            return response
+            policy_cfg = tool_spec.get("policy") or {}
+            metadata = {
+                **(response.metadata or {}),
+                "source_kind": "registry",
+                "adapter": "function",
+                "tool_ref": tool_ref,
+            }
+            if policy_cfg.get("secret_refs"):
+                metadata["secret_refs"] = policy_cfg.get("secret_refs")
+            if policy_cfg.get("egress"):
+                metadata["egress_policy"] = policy_cfg.get("egress")
+            return ToolResponse(
+                result=response.result,
+                success=response.success,
+                error=response.error,
+                metadata=metadata,
+            )
 
         # adapter not supported yet
         raise ValidationError(f"Unsupported tool adapter: {adapter} (tool_ref={tool_ref})")

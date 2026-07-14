@@ -6,7 +6,6 @@ export function Item(props: { item?: any; index: number }) {
   const { item = {}, index } = props
 
   const onClick = () => {
-    console.log('clicked')
   }
   const renderButton = () => (
     <Button size="icon" type="button" variant="default" className="h-6" onClick={onClick}>

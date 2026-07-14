@@ -21,7 +21,7 @@ export interface ModelConfig {
 export interface ProviderConfig {
   id: string
   name: string
-  kind: 'openai' | 'anthropic' | 'gemini' | 'openai_compat'
+  kind: 'openai' | 'deepseek' | 'anthropic' | 'gemini' | 'openai_compat'
   baseUrl?: string
   credentialRef?: string
   status: 'active' | 'disabled' | 'error'

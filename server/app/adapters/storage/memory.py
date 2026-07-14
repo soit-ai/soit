@@ -3,7 +3,7 @@
 In-memory storage port for tests and lightweight workflows.
 """
 
-from typing import Optional, Dict, Tuple, Any
+from typing import Any
 
 from app.kernel.ports.storage.interface import StoragePort
 
@@ -11,16 +11,16 @@ from app.kernel.ports.storage.interface import StoragePort
 class InMemoryStoragePort(StoragePort):
     """In-memory object storage implementation."""
 
-    def __init__(self, bucket: Optional[str] = "in-memory"):
+    def __init__(self, bucket: str | None = "in-memory"):
         self._bucket = bucket or "in-memory"
-        self._store: Dict[Tuple[str, str], bytes] = {}
+        self._store: dict[tuple[str, str], bytes] = {}
 
     async def put(
         self,
         key: str,
         data: bytes,
-        content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> str:
         self._store[(self._bucket, key)] = data

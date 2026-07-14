@@ -27,7 +27,7 @@ GUARDED_DIRS = (
     Path("web/app/routes/agents"),
     Path("web/app/routes/knowledge"),
     Path("web/app/routes/tasks"),
-    Path("web/app/routes/observability"),
+    Path("web/app/routes/observe"),
     Path("web/app/modules/agents"),
     Path("web/app/modules/knowledge"),
     Path("web/app/modules/runs"),
@@ -42,19 +42,20 @@ FORBIDDEN_IMPORT_PATTERNS = (
 
 RUNTIME_TERM_GUARDED_PATHS = (
     Path("server/app/api/v1/knowledge"),
+    Path("server/app/modules/knowledge"),
     Path("server/app/modules/knowledge/application/schemas.py"),
-    Path("server/tests/entrypoints/test_knowledge_api.py"),
-    Path("server/tests/entrypoints/test_thread_api.py"),
     Path("web/app/components/nav/root-sidebar.tsx"),
     Path("web/app/i18n/en-US/agent.ts"),
     Path("web/app/i18n/zh-CN/agent.ts"),
+    Path("web/app/services/knowledge-service.ts"),
     Path("web/app/routes/agents"),
     Path("web/app/routes/index"),
+    Path("web/app/routes/knowledge"),
 )
 
 FORBIDDEN_RUNTIME_TERM_PATTERNS = (
     re.compile(r"legacy_app_ref"),
-    re.compile(r"knowledge_id"),
+    re.compile(r"source_type"),
     re.compile(r"\bcreateApp\b"),
     re.compile(r"\bnewApp\b", re.IGNORECASE),
     re.compile(r"\bdeleteApp\b"),
@@ -62,10 +63,8 @@ FORBIDDEN_RUNTIME_TERM_PATTERNS = (
     re.compile(r"\bappSelector\b"),
     re.compile(r"['\"]App['\"]"),
     re.compile(r"['\"]Application['\"]"),
-    re.compile(r"['\"]Knowledge['\"]"),
     re.compile(r"应用设置"),
     re.compile(r"应用类型"),
-    re.compile(r"知识库"),
 )
 
 

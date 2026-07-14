@@ -7,11 +7,12 @@ from sqlmodel import Session, select
 
 from app.kernel.commons.time import utc_now
 from app.kernel.events.dispatcher import OutboxDispatcher
-from app.kernel.runtime.contracts.status import ApprovalStatus, TaskStatus
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.trace.models import Run
-from app.modules.observability.domain.models import ApprovalRequest
-from app.modules.observability.infra.repository import ApprovalRepository
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.tasks.service import TaskService
+from app.kernel.runtime.tasks.status import ApprovalStatus, TaskStatus
+from app.modules.observe.domain.models import ApprovalRequest
+from app.modules.observe.infra.repository import ApprovalRepository
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
 
@@ -33,7 +34,7 @@ async def test_approval_approved_outbox_resumes_waiting_task(db: Session, ctx) -
     db.add(run)
     db.commit()
 
-    core = RuntimeCoreService(db, ctx)
+    core = TaskService(db, ctx)
     task = core.create_task(
         task_type="demo",
         status=TaskStatus.WAITING_APPROVAL.value,
@@ -63,6 +64,14 @@ async def test_approval_approved_outbox_resumes_waiting_task(db: Session, ctx) -
     db.commit()
 
     assert core.get_task(task.id).status == TaskStatus.RUNNING.value
+    started_event = db.exec(
+        select(EventOutbox).where(
+            EventOutbox.event_type == "task.started",
+            EventOutbox.task_id == task.id,
+        )
+    ).first()
+    assert started_event is not None
+    assert started_event.payload_json["status"] == TaskStatus.RUNNING.value
 
 
 @pytest.mark.asyncio
@@ -83,7 +92,7 @@ async def test_approval_rejected_outbox_fails_waiting_task(db: Session, ctx) -> 
     db.add(run)
     db.commit()
 
-    core = RuntimeCoreService(db, ctx)
+    core = TaskService(db, ctx)
     task = core.create_task(
         task_type="demo",
         status=TaskStatus.WAITING_APPROVAL.value,

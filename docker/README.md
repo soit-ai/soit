@@ -1,55 +1,45 @@
 # docker/
 
-Docker and docker-compose deployment assets for local/dev/prod.
+Docker Compose deployment assets for local self-hosted development and Phase 1
+quickstart validation.
 
-Rules:
-- Avoid environment-specific secrets in version control.
-- Use env files and secret references.
+## Quick Start
 
-## Quick Start (local)
+From the repository root:
 
-1) Copy env file and edit values:
-   - `cp .env.example .env`
+```bash
+cp .env.example .env
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+```
 
-2) Start dependencies + services:
-   - `docker compose up -d`
+Open:
 
-3) Run migrations:
-   - `docker compose run --rm api uv run alembic upgrade head`
+- API: `http://localhost:9200`
+- Web: `http://localhost:5000`
+- MinIO console: `http://localhost:9001`
+- Vault dev server: `http://localhost:8200`
 
-4) Bootstrap admin user:
-   - `docker compose run --rm api uv run python scripts/bootstrap_admin.py --email admin@example.com --password changeme123`
+## Bootstrap Helpers
 
-5) Open services:
-   - API: `http://localhost:9200`
-   - Web: `http://localhost:5000`
-   - MinIO console: `http://localhost:9001`
-   - Vault (dev): `http://localhost:8200`
+The helper scripts run the same compose path and start the documented service
+set:
 
-Notes:
-- Web build reads `VITE_BASE_URL` at build time. Rebuild the web image after changing it.
-- Health checks are enabled for `api` and `web` in docker-compose.
-- Vault runs in dev mode by default. The root token is controlled by `VAULT_DEV_ROOT_TOKEN_ID`.
-- To process knowledge ingestion tasks in the background, set `KNOWLEDGE_INGEST_WORKER_ENABLED=true`.
-- Alternatively, run the worker explicitly: `docker compose run --rm api uv run python scripts/ingest_worker.py`.
-
-## One-shot bootstrap
-
-You can run a single script that starts services, runs migrations, and creates a default admin.
-
-- Bash (macOS/Linux/WSL): `bash docker/bootstrap.sh`
+- Bash: `bash docker/bootstrap.sh`
 - PowerShell: `powershell -ExecutionPolicy Bypass -File docker/bootstrap.ps1`
 
 Environment overrides:
-- `ADMIN_EMAIL` (default: `admin@example.com`)
-- `ADMIN_PASSWORD` (default: `changeme123`)
 
-## Vault (dev) defaults
+- `BOOTSTRAP_ADMIN_EMAIL` (default: `admin@example.com`)
+- `BOOTSTRAP_ADMIN_PASSWORD` (default: `changeme123`)
+- `BOOTSTRAP_ADMIN_NAME` (default: `Admin`)
+- `BOOTSTRAP_TENANT_NAME` (default: `default`)
 
-The compose file starts Vault in dev mode:
-- URL: `http://localhost:8200`
-- Token: `VAULT_DEV_ROOT_TOKEN_ID` (default `soit-vault-root`)
+## Evidence Gate
 
-Set these in your `.env`:
-- `VAULT_URL=http://vault:8200` (inside compose network)
-- `VAULT_TOKEN=soit-vault-root`
+The Phase 1 quickstart gate is not complete until fresh service health, API/Web
+health, demo seed, Chain A smoke, and regression evidence are captured and pass:
+
+```bash
+cd server
+uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickstart-deployment-evidence.example.json
+```

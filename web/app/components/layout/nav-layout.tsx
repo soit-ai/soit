@@ -76,19 +76,19 @@ export default function NavLayout(props: NavLayoutProps) {
   const { left = null, header = null, children, fixed = false } = props
   return (
     <NavLayoutProvider>
-      <div className="flex flex-1 flex-row h-[calc(100vh-var(--root-header-height))]">
+      <div className="flex min-w-0 w-[calc(100vw-var(--root-sidebar-width)-1px)] max-w-[calc(100vw-var(--root-sidebar-width)-1px)] flex-1 flex-row overflow-hidden h-[calc(100vh-var(--root-header-height))]">
         <div className="flex flex-col">
           <NavSidebar>{left}</NavSidebar>
         </div>
-        <div className="flex flex-1 flex-col w-full h-full">
-          {fixed ? <div className="flex flex-1 flex-col h-full">
-            <div className={cn('flex flex-1 flex-col min-h-[calc(100vh-var(--root-header-height)-2px)]', props?.className)}>
+        <div className="flex min-w-0 flex-1 flex-col h-full">
+          {fixed ? <div className="flex min-w-0 flex-1 flex-col h-full">
+            <div className={cn('flex min-w-0 flex-1 flex-col min-h-[calc(100vh-var(--root-header-height)-2px)]', props?.className)}>
               <NavHeader>{header}</NavHeader>
-              <div className={cn('flex flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
+              <div className={cn('flex min-w-0 flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
             </div>
-          </div> : <ScrollArea className="flex flex-1 flex-col h-full bg-transparent">
+          </div> : <ScrollArea className="flex min-w-0 flex-1 flex-col h-full overflow-x-hidden overflow-y-auto bg-transparent">
             <NavHeader>{header}</NavHeader>
-            <div className={cn('flex flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
+            <div className={cn('flex min-w-0 flex-1 flex-col h-full p-0', props?.className)}>{children}</div>
           </ScrollArea>}
         </div>
       </div>

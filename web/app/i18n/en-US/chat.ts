@@ -12,6 +12,9 @@ const chat = {
     archive: 'Archive',
     unarchive: 'Unarchive',
   },
+  errors: {
+    loadFailed: 'Failed to load chat workspace',
+  },
   custom: 'Customization',
   upgradeTip: {
     prefix: 'Upgrade your plan to',
@@ -122,6 +125,10 @@ const chat = {
     run: {
       viewRun: 'View run details',
       tokens: 'Tokens: prompt {{prompt}} · completion {{completion}} · total {{total}}',
+      budget: 'Budget: {{status}} · {{reason}}',
+      budgetOk: 'within limit',
+      budgetExceeded: 'exceeded',
+      cost: 'Cost: {{cost}}',
       finishReasonLabel: 'Finish reason',
       finishReasons: {
         stop: 'Stop',

@@ -5,14 +5,16 @@ Run knowledge ingest worker loop.
 
 import asyncio
 
-from app.settings.settings import settings
+from app.infra.telemetry import configure_telemetry
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+from app.settings.settings import settings
 
 
 async def main() -> None:
     """Start knowledge ingest worker."""
     import logging
     logging.basicConfig(level=settings.log_level or "INFO")
+    configure_telemetry(service_name="soit-knowledge-worker")
     print(
         f"Starting ingest worker: poll_interval={max(0.1, settings.knowledge_ingest_worker_poll_interval)} "
         f"max_tasks={settings.knowledge_ingest_worker_max_tasks} "

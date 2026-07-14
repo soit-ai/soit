@@ -3,9 +3,10 @@
 LLM port interface (chat/embed/rerank).
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Dict, Any, AsyncIterator
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -14,7 +15,7 @@ class ToolDefinition:
 
     name: str
     description: str
-    parameters: Dict[str, Any]  # JSON Schema
+    parameters: dict[str, Any]  # JSON Schema
 
 
 @dataclass
@@ -23,7 +24,7 @@ class ToolCall:
 
     id: str
     name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 class ChatMessage:
@@ -32,11 +33,11 @@ class ChatMessage:
     def __init__(
         self,
         role: str,
-        content: Optional[str],
+        content: str | None,
         *,
-        tool_call_id: Optional[str] = None,
-        tool_calls: Optional[List[ToolCall]] = None,
-        name: Optional[str] = None,
+        tool_call_id: str | None = None,
+        tool_calls: list[ToolCall] | None = None,
+        name: str | None = None,
     ):
         """Initialize chat message.
 
@@ -59,12 +60,12 @@ class ChatResponse:
 
     def __init__(
         self,
-        text: Optional[str],
+        text: str | None,
         tokens_prompt: int = 0,
         tokens_completion: int = 0,
-        model: Optional[str] = None,
-        finish_reason: Optional[str] = None,
-        tool_calls: Optional[List[ToolCall]] = None,
+        model: str | None = None,
+        finish_reason: str | None = None,
+        tool_calls: list[ToolCall] | None = None,
     ):
         """Initialize chat response.
 
@@ -93,8 +94,8 @@ class ChatStreamChunk:
         done: bool = False,
         tokens_prompt: int = 0,
         tokens_completion: int = 0,
-        model: Optional[str] = None,
-        finish_reason: Optional[str] = None,
+        model: str | None = None,
+        finish_reason: str | None = None,
     ):
         """Initialize stream chunk."""
         self.delta = delta
@@ -110,9 +111,9 @@ class EmbeddingResponse:
 
     def __init__(
         self,
-        embeddings: List[List[float]],
+        embeddings: list[list[float]],
         tokens_used: int = 0,
-        model: Optional[str] = None,
+        model: str | None = None,
     ):
         """Initialize embedding response.
 
@@ -131,9 +132,9 @@ class RerankResponse:
 
     def __init__(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         tokens_used: int = 0,
-        model: Optional[str] = None,
+        model: str | None = None,
     ):
         """Initialize rerank response.
 
@@ -153,13 +154,13 @@ class LLMPort(ABC):
     @abstractmethod
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         *,
-        tools: Optional[List[ToolDefinition]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         """Chat completion.
@@ -180,10 +181,10 @@ class LLMPort(ABC):
 
     async def stream_chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
         """Stream chat completion."""
@@ -192,7 +193,7 @@ class LLMPort(ABC):
     @abstractmethod
     async def embed(
         self,
-        texts: List[str],
+        texts: list[str],
         model: str,
         **kwargs: Any,
     ) -> EmbeddingResponse:
@@ -212,9 +213,9 @@ class LLMPort(ABC):
     async def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         model: str,
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
         **kwargs: Any,
     ) -> RerankResponse:
         """Rerank documents.

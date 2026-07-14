@@ -69,7 +69,7 @@ class PlatformModelRepository(Repository[PlatformModel]):
             .where(
                 and_(
                     PlatformModel.provider_kind == provider_kind,
-                    PlatformModel.is_active.is_(True),
+                    PlatformModel.status == "active",
                 )
             )
             .order_by(desc(PlatformModel.updated_at))

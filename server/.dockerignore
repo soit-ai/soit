@@ -3,6 +3,21 @@ __pycache__
 app.egg-info
 *.pyc
 .mypy_cache
+.pytest_cache
+.ruff_cache
 .coverage
+coverage.xml
+report.xml
 htmlcov
 .venv
+
+# Local configuration and runtime state
+.env
+.soit
+var
+
+# Development-only content
+tests
+docs
+logs
+*.log

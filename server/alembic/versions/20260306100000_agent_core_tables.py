@@ -64,7 +64,6 @@ def upgrade() -> None:
             sa.Column("changelog", sa.Text(), nullable=True),
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
             sa.UniqueConstraint("agent_id", "version", name="uq_agent_versions_agent_id_version"),
         )
         op.create_index("ix_agent_versions_agent_id_status", "agent_versions", ["agent_id", "status"])
@@ -85,8 +84,6 @@ def upgrade() -> None:
             sa.Column("sort_order", sa.Integer(), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["agent_version_id"], ["agent_versions.id"]),
             sa.UniqueConstraint(
                 "agent_version_id",
                 "binding_type",
@@ -114,8 +111,6 @@ def upgrade() -> None:
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["agent_version_id"], ["agent_versions.id"]),
         )
         op.create_index("ix_agent_publishes_agent_id", "agent_publishes", ["agent_id"])
         op.create_index("ix_agent_publishes_version_id", "agent_publishes", ["agent_version_id"])

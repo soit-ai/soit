@@ -28,6 +28,10 @@ from app.modules.modelhub.application.schemas import (
     SyncFromPlatformRequest,
     SyncJobResponse,
     HealthcheckResponse,
+    ProviderSupportMatrixResponse,
+    ModelWorkbenchOverviewResponse,
+    ModelWorkbenchModelsResponse,
+    ModelWorkbenchProvidersResponse,
     ModelTestChatRequest,
     ModelTestEmbeddingRequest,
     ModelTestResponse,
@@ -89,6 +93,72 @@ async def healthcheck_provider(
     return await handlers.healthcheck_provider(ctx, provider_id)
 
 
+@router.get("/providers/support-matrix", response_model=ProviderSupportMatrixResponse)
+async def get_provider_support_matrix(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ModelHubService = Depends(get_modelhub_service),
+):
+    handlers = ModelHubHandlers(service)
+    return await handlers.get_provider_support_matrix(ctx)
+
+
+@router.get("/workbench/overview", response_model=ModelWorkbenchOverviewResponse)
+async def get_workbench_overview(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ModelHubService = Depends(get_modelhub_service),
+):
+    handlers = ModelHubHandlers(service)
+    return await handlers.get_workbench_overview(ctx)
+
+
+@router.get("/workbench/models", response_model=ModelWorkbenchModelsResponse)
+async def get_workbench_models(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    provider_id: Optional[str] = None,
+    status: Optional[str] = None,
+    model_type: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ModelHubService = Depends(get_modelhub_service),
+):
+    handlers = ModelHubHandlers(service)
+    return await handlers.get_workbench_models(
+        ctx,
+        page_token=page_token,
+        page_size=page_size,
+        tab=tab,
+        keyword=keyword,
+        provider_id=provider_id,
+        status=status,
+        model_type=model_type,
+    )
+
+
+@router.get("/workbench/providers", response_model=ModelWorkbenchProvidersResponse)
+async def get_workbench_providers(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    model_type: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ModelHubService = Depends(get_modelhub_service),
+):
+    handlers = ModelHubHandlers(service)
+    return await handlers.get_workbench_providers(
+        ctx,
+        page_token=page_token,
+        page_size=page_size,
+        tab=tab,
+        keyword=keyword,
+        status=status,
+        model_type=model_type,
+    )
+
+
 @router.post("/providers/{provider_id}/sync-from-platform", response_model=SyncJobResponse)
 async def sync_from_platform(
     provider_id: str,
@@ -115,11 +185,12 @@ async def list_sync_jobs(
 async def list_provider_models(
     provider_id: str,
     page_size: int = 200,
+    status: Optional[str] = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ModelHubService = Depends(get_modelhub_service),
 ):
     handlers = ModelHubHandlers(service)
-    return await handlers.list_provider_models(ctx, provider_id, page_size=page_size)
+    return await handlers.list_provider_models(ctx, provider_id, page_size=page_size, status=status)
 
 
 @router.post("/providers/{provider_id}/models", response_model=ProviderModelResponse, status_code=status.HTTP_201_CREATED)

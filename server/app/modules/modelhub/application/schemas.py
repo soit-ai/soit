@@ -165,6 +165,27 @@ class HealthcheckResponse(BaseModel):
     checked_at: datetime
 
 
+class ProviderSupportStatusResponse(BaseModel):
+    """Provider support and workspace configuration status."""
+
+    provider_kind: str
+    display_name: str
+    support_status: str
+    configured: bool
+    provider_count: int = 0
+    configured_provider_ids: List[str] = Field(default_factory=list)
+    chat_supported: bool
+    embeddings_supported: bool
+    catalog_supported: bool
+    notes: Optional[str] = None
+
+
+class ProviderSupportMatrixResponse(BaseModel):
+    """Provider support matrix for the MVP ModelHub surface."""
+
+    providers: List[ProviderSupportStatusResponse]
+
+
 class ModelTestChatRequest(BaseModel):
     """Model chat test request schema."""
 

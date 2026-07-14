@@ -2,10 +2,10 @@
 """Tests for LLM port function calling types."""
 
 from app.kernel.ports.llm.interface import (
-    ToolDefinition,
-    ToolCall,
     ChatMessage,
     ChatResponse,
+    ToolCall,
+    ToolDefinition,
 )
 
 

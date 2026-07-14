@@ -2,14 +2,14 @@
 
 import pytest
 
+from app.adapters.llm.memory import InMemoryLLMPort
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
-    ToolDefinition,
     ToolCall,
+    ToolDefinition,
 )
-from app.adapters.llm.memory import InMemoryLLMPort
-from app.modules.agent.runtime.planner import AgentPlanner, PlanResult
+from app.modules.agent.runtime.planner import AgentPlanner
 
 
 class MockFCLLMPort(InMemoryLLMPort):

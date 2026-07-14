@@ -1,21 +1,21 @@
 """run_all
 
-Run smoke tests for SOIT-Pro demo scenarios.
+Run smoke tests for SOIT demo scenarios.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import subprocess
 import sys
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import requests
-
 
 DEFAULT_BASE_URL = "http://localhost:9200/api/v1"
 
@@ -38,7 +38,7 @@ class SmokeContext:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SOIT-Pro smoke tests.")
+    parser = argparse.ArgumentParser(description="SOIT smoke tests.")
     parser.add_argument("--base-url", default=os.getenv("API_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--admin-email", default=os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@example.com"))
     parser.add_argument("--admin-password", default=os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "changeme123"))
@@ -60,7 +60,15 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run one local knowledge ingest worker pass after upload for local smoke runs.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--enterprise-mvp",
+        action="store_true",
+        help="Run Enterprise MVP bootstrap plus golden-path integration smoke before HTTP demos.",
+    )
+    args = parser.parse_args()
+    if args.embedding_model_ref.startswith("model:test:") and args.response_model_ref.startswith("model:openai:"):
+        args.response_model_ref = "model:test:chat"
+    return args
 
 
 def _log(message: str) -> None:
@@ -148,13 +156,171 @@ def _run_inline_ingest_worker(ctx: SmokeContext) -> None:
         db.close()
 
 
-def _ensure_llm_ready(strict: bool, label: str) -> bool:
+def _run_inline_knowledge_demo(ctx: SmokeContext) -> str:
+    os.environ.setdefault("SOIT_TESTING", "1")
+
+    from app.infra.db.session import get_db_sync
+    from app.kernel.contracts.context import RequestContext
+    from app.modules.knowledge.application.runtime_schemas import (
+        DocumentUpload,
+        IndexCreate,
+        KnowledgeCreate,
+        QueryRequest,
+    )
+    from app.modules.knowledge.runtime.ingest_worker import KnowledgeIngestWorker
+    from app.wiring.services import build_knowledge_service
+
+    async def scenario() -> str:
+        db = get_db_sync()
+        try:
+            worker_ctx = RequestContext(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                user_id=ctx.user_id,
+                tenant_role="Owner",
+                workspace_role="Owner",
+            )
+            service = build_knowledge_service(db=db, ctx=worker_ctx)
+            knowledge = await service.create_knowledge(
+                KnowledgeCreate(
+                    name=f"smoke-knowledge-{uuid.uuid4().hex[:8]}",
+                    type="document",
+                    visibility="workspace",
+                    description="smoke test knowledge base",
+                    default_embedding_model_ref=ctx.embedding_model_ref,
+                )
+            )
+            indexes = await service.list_indexes(knowledge.id, limit=50, offset=0)
+            index = indexes[0] if indexes else await service.create_index(
+                knowledge.id,
+                IndexCreate(
+                    name="primary",
+                    provider="memory",
+                    embedding_model_ref=ctx.embedding_model_ref,
+                    dimension=0,
+                    metric_type="cosine",
+                    is_primary=True,
+                ),
+            )
+
+            document = await service.upload_document(
+                knowledge.id,
+                DocumentUpload(
+                    doc_key="smoke-doc",
+                    source_kind="upload",
+                    filename="smoke.txt",
+                    mime_type="text/plain",
+                    title="Smoke Doc",
+                ),
+                file_content=b"SOIT smoke test document. This text is used for knowledge ingestion.",
+                async_ingest=True,
+                max_retries=1,
+            )
+
+            worker = KnowledgeIngestWorker(service.runtime_service)
+            await worker.run_once()
+            tasks = await service.list_ingest_tasks(knowledge.id, status=None, limit=20, offset=0)
+            task = next((item for item in tasks if item.document_id == document.id), None)
+            if not task or task.status != "succeeded":
+                raise RuntimeError(
+                    "Inline ingest did not succeed: "
+                    f"task_id={getattr(task, 'id', None)} status={getattr(task, 'status', None)}"
+                )
+
+            query = await service.query(
+                knowledge.id,
+                QueryRequest(query="smoke test document", top_k=3, strategy="keyword", include_snippets=True),
+            )
+            if not query.results or not query.citations:
+                raise RuntimeError("Inline knowledge query returned no citation.")
+            query_runs = await service.list_runs_for_knowledge(
+                knowledge.id,
+                mode="knowledge_query",
+                limit=1,
+                offset=0,
+            )
+            query_run_id = query_runs[0].id if query_runs else None
+
+            rebuilt = await service.rebuild_index(knowledge.id, index.id)
+            query_after_rebuild = await service.query(
+                knowledge.id,
+                QueryRequest(query="smoke test document", top_k=3, strategy="keyword", include_snippets=True),
+            )
+            if not query_after_rebuild.results or not query_after_rebuild.citations:
+                raise RuntimeError("Inline knowledge query after rebuild returned no citation.")
+
+            _log(
+                "[OK] Demo-2 "
+                f"knowledge_id={knowledge.id} "
+                f"document_id={document.id} "
+                f"task_id={task.id} "
+                f"task_run_id={task.run_id} "
+                f"query_run_id={query_run_id} "
+                f"rebuild_run_id={rebuilt.last_run_id}"
+            )
+            return knowledge.id
+        finally:
+            db.close()
+
+    import asyncio
+
+    return asyncio.run(scenario())
+
+
+def _ensure_llm_ready(strict: bool, label: str, *model_refs: str) -> bool:
+    if any(model_ref.startswith("model:test:") for model_ref in model_refs if model_ref):
+        return True
     if os.getenv("OPENAI_API_KEY"):
         return True
     if strict:
         raise RuntimeError(f"{label} requires OPENAI_API_KEY but it is not set.")
     _log(f"[SKIP] {label}: OPENAI_API_KEY is not set.")
     return False
+
+
+def _latest_knowledge_run_id(ctx: SmokeContext, knowledge_id: str, mode: str) -> str | None:
+    runs = _request(
+        ctx,
+        "GET",
+        f"/knowledge/{knowledge_id}/runs",
+        params={"mode": mode, "limit": 1, "offset": 0},
+    )
+    if not runs:
+        return None
+    return runs[0].get("id")
+
+
+def _run_enterprise_mvp_smoke(args: argparse.Namespace) -> int:
+    server_root = Path(__file__).resolve().parents[2]
+    commands = [
+        [
+            sys.executable,
+            "scripts/bootstrap_enterprise_mvp.py",
+            "--email",
+            args.admin_email,
+            "--password",
+            args.admin_password,
+            "--name",
+            "Smoke Admin",
+            "--tenant-name",
+            "default",
+            "--workspace-name",
+            "default",
+        ],
+        [sys.executable, "-m", "pytest", "tests/integration/test_enterprise_agent_mvp.py", "-q"],
+    ]
+    failures = 0
+    for command in commands:
+        _log(f"[RUN] {' '.join(command)}")
+        result = subprocess.run(command, cwd=server_root, check=False)
+        if result.returncode:
+            failures += 1
+            _log(f"[FAIL] {' '.join(command)} exited with {result.returncode}")
+    if failures:
+        _log(f"[FAIL] Enterprise MVP smoke completed with {failures} failures.")
+    else:
+        _log("[OK] Enterprise MVP smoke passed.")
+    return failures
 
 
 def demo_workflow(ctx: SmokeContext) -> None:
@@ -207,6 +373,8 @@ def demo_workflow(ctx: SmokeContext) -> None:
 
 def demo_knowledge(ctx: SmokeContext) -> str:
     _log("[RUN] Demo-2 knowledge upload/ingest/query")
+    if ctx.inline_ingest_worker and ctx.embedding_model_ref.startswith("model:test:"):
+        return _run_inline_knowledge_demo(ctx)
 
     knowledge = _request(
         ctx,
@@ -236,14 +404,15 @@ def demo_knowledge(ctx: SmokeContext) -> str:
             "is_primary": True,
         },
     )
-    if not index.get("id"):
+    index_id = index.get("id")
+    if not index_id:
         raise RuntimeError("Index creation failed.")
 
     sample_text = "SOIT smoke test document. This text is used for knowledge ingestion."
     files = {"file": ("smoke.txt", sample_text.encode("utf-8"), "text/plain")}
     data = {
         "doc_key": "smoke-doc",
-        "source_type": "upload",
+        "source_kind": "upload",
         "async_ingest": "true",
         "max_retries": "1",
     }
@@ -264,6 +433,8 @@ def demo_knowledge(ctx: SmokeContext) -> str:
 
     deadline = time.time() + ctx.timeout_seconds
     task_status = None
+    task_id = None
+    task_run_id = None
     last_error = None
     while time.time() < deadline:
         tasks = _request(
@@ -276,6 +447,8 @@ def demo_knowledge(ctx: SmokeContext) -> str:
         if not task:
             time.sleep(ctx.poll_interval)
             continue
+        task_id = task.get("id")
+        task_run_id = task.get("run_id")
         task_status = task.get("status")
         last_error = (task.get("error_code"), task.get("error_message"))
         if task_status in {"succeeded", "failed", "canceled"}:
@@ -293,7 +466,31 @@ def demo_knowledge(ctx: SmokeContext) -> str:
     )
     if not query.get("results"):
         raise RuntimeError("Knowledge query returned no results.")
-    _log(f"[OK] Demo-2 knowledge_id={knowledge_id}")
+    query_run_id = _latest_knowledge_run_id(ctx, knowledge_id, "knowledge_query")
+
+    rebuilt = _request(ctx, "POST", f"/knowledge/{knowledge_id}/indexes/{index_id}/rebuild")
+    rebuild_run_id = rebuilt.get("last_run_id")
+    if not rebuild_run_id:
+        raise RuntimeError(f"Index rebuild did not return last_run_id: {rebuilt}")
+
+    query_after_rebuild = _request(
+        ctx,
+        "POST",
+        f"/knowledge/{knowledge_id}/query",
+        json={"query": "smoke test document", "top_k": 3, "strategy": "keyword", "include_snippets": True},
+    )
+    if not query_after_rebuild.get("results"):
+        raise RuntimeError("Knowledge query after rebuild returned no results.")
+
+    _log(
+        "[OK] Demo-2 "
+        f"knowledge_id={knowledge_id} "
+        f"document_id={document_id} "
+        f"task_id={task_id} "
+        f"task_run_id={task_run_id} "
+        f"query_run_id={query_run_id} "
+        f"rebuild_run_id={rebuild_run_id}"
+    )
     return knowledge_id
 
 
@@ -386,6 +583,7 @@ def demo_secrets(ctx: SmokeContext) -> None:
 
 def main() -> int:
     args = _parse_args()
+    enterprise_failures = _run_enterprise_mvp_smoke(args) if args.enterprise_mvp else 0
 
     token = args.token
     workspace_id = args.workspace_id
@@ -408,7 +606,7 @@ def main() -> int:
     )
     ctx.user_id, ctx.tenant_id = _get_current_actor(ctx)
 
-    failures = 0
+    failures = enterprise_failures
     try:
         demo_workflow(ctx)
     except Exception as exc:
@@ -416,14 +614,14 @@ def main() -> int:
         _log(f"[FAIL] Demo-1 workflow: {exc}")
 
     knowledge_id = None
-    if _ensure_llm_ready(ctx.strict, "Demo-2 knowledge ingest"):
+    if _ensure_llm_ready(ctx.strict, "Demo-2 knowledge ingest", ctx.embedding_model_ref):
         try:
             knowledge_id = demo_knowledge(ctx)
         except Exception as exc:
             failures += 1
             _log(f"[FAIL] Demo-2 knowledge: {exc}")
 
-    if knowledge_id and _ensure_llm_ready(ctx.strict, "Demo-3 responses runtime"):
+    if knowledge_id and _ensure_llm_ready(ctx.strict, "Demo-3 responses runtime", ctx.response_model_ref, ctx.embedding_model_ref):
         try:
             demo_chat_runtime(ctx, knowledge_id)
         except Exception as exc:

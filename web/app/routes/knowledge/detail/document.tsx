@@ -48,7 +48,7 @@ interface Document {
 const detectType = (doc: ApiDocument) => {
   if (doc.mime_type?.startsWith('image/')) return 'image'
   if (doc.mime_type?.startsWith('video/')) return 'video'
-  if (doc.source_type === 'crawler' || doc.source_uri) return 'website'
+  if (doc.source_kind === 'crawler' || doc.source_uri) return 'website'
   return 'document'
 }
 

@@ -57,7 +57,6 @@ def upgrade() -> None:
             sa.Column("created_from_version_id", sa.String(), nullable=True),
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["workflow_id"], ["workflows.id"]),
             sa.UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_workflow_id_version"),
         )
         op.create_index("ix_workflow_versions_workflow_id_status", "workflow_versions", ["workflow_id", "status"])
@@ -76,8 +75,6 @@ def upgrade() -> None:
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["workflow_id"], ["workflows.id"]),
-            sa.ForeignKeyConstraint(["workflow_version_id"], ["workflow_versions.id"]),
         )
         op.create_index("ix_workflow_publishes_workflow_id", "workflow_publishes", ["workflow_id"])
         op.create_index("ix_workflow_publishes_version_id", "workflow_publishes", ["workflow_version_id"])

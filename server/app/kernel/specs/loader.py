@@ -13,11 +13,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from referencing import Registry, Resource
 
-SchemaDict = Dict[str, Any]
+SchemaDict = dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -27,9 +27,9 @@ class SchemaKey:
 
 
 # Cache: (version, name) -> schema dict
-_SCHEMA_CACHE: Dict[SchemaKey, SchemaDict] = {}
+_SCHEMA_CACHE: dict[SchemaKey, SchemaDict] = {}
 # Cache: version -> referencing.Registry
-_REGISTRY_CACHE: Dict[str, Registry] = {}
+_REGISTRY_CACHE: dict[str, Registry] = {}
 
 
 def _specs_root() -> Path:
@@ -52,10 +52,10 @@ def _schema_path(name: str, version: str = "v1") -> Path:
     return p
 
 
-def list_schemas(version: str = "v1") -> List[str]:
+def list_schemas(version: str = "v1") -> list[str]:
     """List available schema names for a given version."""
     specs_dir = get_specs_dir(version)
-    out: List[str] = []
+    out: list[str] = []
     for schema_file in sorted(specs_dir.glob("*.schema.json")):
         name = schema_file.name.replace(".schema.json", "")
         out.append(name)

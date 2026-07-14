@@ -9,7 +9,7 @@ through this port. Adapters decide how to execute plugins (subprocess, container
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.kernel.contracts.context import RequestContext
 
@@ -24,7 +24,7 @@ class PluginRuntimePort(ABC):
         plugin_name: str,
         version: str,
         ctx: RequestContext,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return tool specs (tool_spec-compatible dicts)."""
 
     @abstractmethod
@@ -34,8 +34,17 @@ class PluginRuntimePort(ABC):
         plugin_name: str,
         version: str,
         tool_name: str,
-        input_json: Dict[str, Any],
+        input_json: dict[str, Any],
         ctx: RequestContext,
-        timeout_s: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
         """Invoke a plugin tool and return output JSON."""
+
+    def resolve_skill_context(
+        self,
+        *,
+        skill_refs: list[str],
+        ctx: RequestContext,
+    ) -> str | None:
+        """Render installed plugin skill refs into runtime context."""
+        raise NotImplementedError("Plugin runtime does not support skill context resolution")

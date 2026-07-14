@@ -185,6 +185,26 @@ export const resumeRun = (workflowId: string, runId: string): Promise<WorkflowRu
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
+export const cancelRun = (
+  workflowId: string,
+  runId: string,
+  data?: { reason?: string }
+): Promise<WorkflowRunControlResponse> => {
+  return post(`/workflows/${workflowId}/runs/${runId}/cancel`, data)
+    .then((response) => response.data)
+    .catch((error) => Promise.reject(mapRunControlError(error)))
+}
+
+export const failRun = (
+  workflowId: string,
+  runId: string,
+  data?: { error_code?: string; error_message?: string }
+): Promise<WorkflowRunControlResponse> => {
+  return post(`/workflows/${workflowId}/runs/${runId}/fail`, data)
+    .then((response) => response.data)
+    .catch((error) => Promise.reject(mapRunControlError(error)))
+}
+
 export const retryRun = (
   workflowId: string,
   runId: string,

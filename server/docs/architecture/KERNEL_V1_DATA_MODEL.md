@@ -181,11 +181,11 @@ now unified as `knowledge`.
 
 Public API rules:
 - create/read flows use `knowledge_type` as the stable upstream field
-- `source_type` is retained in responses as a compatibility alias for existing UI code
+- document flows use `source_kind` for document origin (`upload | crawler | api | manual`)
 - internal storage details must not leak into new product docs or APIs
 
 For detailed design see:
-- `app/app/app/modules/knowledge/KNOWLEDGE_DATA_MODEL.md`
+- `server/app/modules/knowledge/KNOWLEDGE_DATA_MODEL.md`
 
 ### knowledge base (`knowledge`)
 Workspace-scoped.
@@ -201,7 +201,7 @@ Workspace-scoped.
 - `id` PK
 - `tenant_id`, `workspace_id`, `knowledge_id`
 - `doc_key`, `version`, `is_latest`
-- `source_type`, `source_uri`, `file_id`
+- `source_kind`, `source_uri`, `file_id`
 - `status`, `error_code`, `retry_count`
 - UNIQUE `(tenant_id, workspace_id, knowledge_id, doc_key, version)`
 - INDEX `(tenant_id, workspace_id, knowledge_id, is_latest)`
@@ -239,8 +239,9 @@ Workspace-scoped.
 ### plugins (tenant-scoped install)
 - `id` PK
 - `tenant_id`
-- `name`, `publisher`
+- `name`, `publisher`, `plugin_type`
 - `status`
+- `current_version_id`, `published_version_id`
 - `spec_json` stores the capability contract and compatibility surface
 - `manifest_json` stores package/release metadata
 - installation `config_json` stores environment-specific enablement and runtime config
@@ -251,6 +252,31 @@ Workspace-scoped.
 - `manifest_json` (PluginSpec)
 - `digest`, `signature`
 - `created_at`
+
+### plugin_releases (append-only ledger)
+- `id` PK
+- `plugin_id` FK → plugins.id
+- `plugin_version_id` FK → plugin_versions.id
+- `action` (`publish` or `rollback`)
+- `version`, `release_version_id`, `notes`
+- `created_at`
+
+### plugin_installations (workspace-scoped install)
+- `id` PK
+- `tenant_id`, `workspace_id`
+- `plugin_id` FK → plugins.id
+- `plugin_version_id` FK → plugin_versions.id
+- `enabled`, `state`
+- `config_json`, `install_dir`
+- UNIQUE `(tenant_id, workspace_id, plugin_id)`
+
+### plugin_installed_artifacts (projection ledger)
+- `id` PK
+- `tenant_id`, `workspace_id`
+- `plugin_id`, `plugin_version_id`, `installation_id`
+- `artifact_kind` (`skill`, `mcp_server`, `tool`, `workflow_node`)
+- `artifact_ref`, `artifact_id`, `status`
+- `metadata_json`
 
 ### secrets (tenant-scoped)
 - `id` PK

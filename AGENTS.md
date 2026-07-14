@@ -1,4 +1,4 @@
-# Agent Task Template (SOIT-Pro)
+# Agent Task Template (SOIT)
 
 ## Goal
 - Deliverable (one sentence describing the outcome):
@@ -11,6 +11,7 @@
   - server/docs/architecture/PROJECT_STRUCTURE.md
   - web/docs/README.md
   - web/docs/PROJECT_STRUCTURE.md
+- Project Name is SOIT
 
 ## Scope
 - In scope:
@@ -24,9 +25,12 @@
 
 ## Implementation Notes
 - Boundaries: kernel/ does not depend on modules/; adapters/ contains no business logic; api/ orchestrates only.
+- Database relationships must not use database-level foreign keys; enforce reference integrity in business code and repositories.
 - Backend commands (from app/): `uv sync`, `uv run uvicorn app.main:app`, `uv run pytest`
 - Frontend structure (web/): routes/components/services/stores/hooks/styles/assets/i18n/config
 - Compatibility: keep existing directories and naming conventions; avoid unrelated dependencies.
+- Code comments and identifiers must be English only; do not use any other language in code.
+
 
 ## Acceptance Checklist
 - [ ] Works end-to-end

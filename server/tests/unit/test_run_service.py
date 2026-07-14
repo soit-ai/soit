@@ -3,13 +3,18 @@
 Unit tests for RunService cost summaries and filtering.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlmodel import SQLModel
 
+from app.kernel.commons.ids import (
+    generate_artifact_id,
+    generate_run_id,
+    generate_step_id,
+)
 from app.kernel.contracts.context import RequestContext
-from app.kernel.commons.ids import generate_run_id, generate_step_id, generate_artifact_id
-from app.kernel.trace.models import Run, RunCostEntry, RunStep, RunArtifact
-from app.kernel.trace.service import RunService
+from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
+from app.kernel.runtime.runs.service import RunService
 
 
 def test_run_cost_summary_filters(db):
@@ -276,7 +281,7 @@ def test_cost_summaries_group_by_day_mode_subject(db):
         subject_kind="thread",
         subject_id="thr-day-1",
         subject_version_id="subj-1",
-        started_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        started_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
     run_day2 = Run(
         id=generate_run_id(),
@@ -287,7 +292,7 @@ def test_cost_summaries_group_by_day_mode_subject(db):
         subject_kind="workflow",
         subject_id="wf-day-2",
         subject_version_id="subj-2",
-        started_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+        started_at=datetime(2024, 1, 2, tzinfo=UTC),
     )
     db.add(run_day1)
     db.add(run_day2)

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from typing import Optional
 
 
 def sha256_hex(data: bytes) -> str:

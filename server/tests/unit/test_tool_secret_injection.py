@@ -6,11 +6,20 @@ Unit tests for tool secret injection and redaction.
 import pytest
 from sqlalchemy import select
 
-from app.kernel.ports.tools.policy import ToolPolicyGateway
-from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.adapters.tools.router import RegistryToolRouterPort
+from app.kernel.commons.errors import ForbiddenError, ValidationError
 from app.kernel.ports.secrets.interface import SecretsPort
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.trace.models import RunStep
+from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.ports.tools.policy import ToolPolicyGateway
+from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.runtime.responses.repository import (
+    ResponseEventRepository,
+    ResponseRepository,
+)
+from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.security import egress
+from app.settings.settings import settings
 
 
 class DummySecretsPort(SecretsPort):
@@ -35,6 +44,16 @@ class DummyToolPort(ToolPort):
     async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
         self.last_parameters = parameters
         return ToolResponse(result={"ok": True}, success=True, metadata={})
+
+
+def _disable_db_policy_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.infra.db.session as db_session
+
+    monkeypatch.setattr(
+        db_session,
+        "get_db_sync",
+        lambda: (_ for _ in ()).throw(RuntimeError("DB disabled in unit test")),
+    )
 
 
 @pytest.mark.asyncio
@@ -75,9 +94,9 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
 
     result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
     if result is None:
-        assert False, "Expected run step for tool invocation"
+        raise AssertionError("Expected run step for tool invocation")
     if not isinstance(result, RunStep):
-        if isinstance(result, (list, tuple)):
+        if isinstance(result, list | tuple):
             result = result[0]
         elif hasattr(result, "_mapping"):
             result = result[0]
@@ -86,5 +105,146 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     audit_json = (step.metrics_json or {}).get("audit_json", "")
     assert "supersecret" not in audit_json
     assert "secret:test_token" in audit_json
+    tool_call = (step.metrics_json or {}).get("tool_call")
+    assert tool_call["tool_ref"] == "tool:http:demo"
+    assert tool_call["status"] == "completed"
+    assert tool_call["arguments"]["headers"]["Authorization"]["secret_ref"] == "secret:test_token"
+    assert "supersecret" not in str(tool_call)
+
+    response_service = ResponseService(
+        db=db,
+        ctx=ctx,
+        response_repo=ResponseRepository(db, ctx),
+        event_repo=ResponseEventRepository(db, ctx),
+        trace_writer=trace_writer,
+    )
+    response = response_service.create_linked_response(run_id=run.id)
+    _, _, tool_calls = response_service.get_response_detail(response.id)
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["tool_name"] == "tool:http:demo"
+    assert tool_calls[0]["arguments_json"]["headers"]["Authorization"]["secret_ref"] == "secret:test_token"
+
+
+@pytest.mark.asyncio
+async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
+    """Blocked egress attempts are auditable even when the tool is never invoked."""
+    monkeypatch.setattr(settings, "enable_egress_policy", True)
+    monkeypatch.setattr(settings, "egress_allowlist", ["api.example.com"])
+    monkeypatch.setattr(settings, "egress_blocklist", [])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    _disable_db_policy_lookup(monkeypatch)
+
+    dummy_tool = DummyToolPort()
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(
+        mode="workflow",
+        kind="workflow",
+        subject_kind="workflow",
+        subject_id="wf_egress",
+        subject_version_id="ver_workflow",
+    )
+    gateway = ToolPolicyGateway(
+        gateway=dummy_tool,
+        ctx=ctx,
+        trace_writer=trace_writer,
+    )
+
+    with pytest.raises(ForbiddenError):
+        await gateway.invoke(
+            tool_ref="tool:http:demo",
+            parameters={"url": "https://evil.example/api"},
+            run_id=run.id,
+        )
+
+    assert dummy_tool.last_parameters is None
+    result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
+    if result is None:
+        raise AssertionError("Expected run step for blocked egress")
+    if not isinstance(result, RunStep):
+        if isinstance(result, list | tuple):
+            result = result[0]
+        elif hasattr(result, "_mapping"):
+            result = result[0]
+    step = result
+    assert step.status == "failed"
+    audit_json = (step.metrics_json or {}).get("audit_json", "")
+    assert "https://evil.example/api" in audit_json
+    assert "ForbiddenError" in audit_json
+    tool_call = (step.metrics_json or {}).get("tool_call")
+    assert tool_call["tool_ref"] == "tool:http:demo"
+    assert tool_call["status"] == "failed"
+    assert tool_call["arguments"]["url"] == "https://evil.example/api"
+
+
+@pytest.mark.asyncio
+async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monkeypatch):
+    """Ticket tool requires workspace context, applies egress, and audits redacted inputs."""
+    monkeypatch.setattr(settings, "enable_egress_policy", True)
+    monkeypatch.setattr(settings, "egress_allowlist", ["tickets.example.local"])
+    monkeypatch.setattr(settings, "egress_blocklist", [])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    _disable_db_policy_lookup(monkeypatch)
+
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(
+        mode="workflow",
+        kind="workflow",
+        subject_kind="workflow",
+        subject_id="wf_ticket",
+        subject_version_id="ver_ticket",
+    )
+    router = RegistryToolRouterPort()
+    gateway = ToolPolicyGateway(
+        gateway=router,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        secrets_port=DummySecretsPort(),
+    )
+
+    with pytest.raises(ValidationError):
+        await router.invoke(
+            "builtin.ticket.create_review_ticket",
+            {"customer_id": "cust-1", "message": "refund request"},
+            strict_registry=True,
+        )
+
+    response = await gateway.invoke(
+        tool_ref="builtin.ticket.create_review_ticket",
+        parameters={
+            "url": "https://tickets.example.local/reviews",
+            "customer_id": "cust-1",
+            "priority": "high",
+            "message": "Refund request for invoice 123",
+            "api_token": {"secret_ref": "secret:ticket_api"},
+        },
+        strict_registry=True,
+        ctx=ctx,
+        run_id=run.id,
+    )
+
+    assert response.success is True
+    assert response.result["ticket_id"] == "TICKET-A5EBADC2"
+    assert response.result["status"] == "created"
+    assert response.result["review_url"] == "https://tickets.example.local/reviews/TICKET-A5EBADC2"
+    assert "supersecret" not in str(response.result)
+
+    result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
+    if result is None:
+        raise AssertionError("Expected run step for ticket tool invocation")
+    if not isinstance(result, RunStep):
+        if isinstance(result, list | tuple):
+            result = result[0]
+        elif hasattr(result, "_mapping"):
+            result = result[0]
+    step = result
+    assert step.status == "succeeded"
+    audit_json = (step.metrics_json or {}).get("audit_json", "")
+    assert "supersecret" not in audit_json
+    assert "secret:ticket_api" in audit_json
+    tool_call = (step.metrics_json or {}).get("tool_call")
+    assert tool_call["tool_ref"] == "builtin.ticket.create_review_ticket"
+    assert tool_call["status"] == "completed"
+    assert tool_call["arguments"]["api_token"]["secret_ref"] == "secret:ticket_api"
+    assert "supersecret" not in str(tool_call)
 
 

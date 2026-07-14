@@ -33,6 +33,7 @@ export default defineConfig(({ command, mode }) => ({
   build: {
     target: 'esnext',
     polyfillDynamicImport: true,
+    chunkSizeWarningLimit: 1000,
   },
   plugins: [tailwindcss(), reactRouter()],
 }))

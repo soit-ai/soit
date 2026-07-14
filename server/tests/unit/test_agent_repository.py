@@ -1,6 +1,11 @@
 """Unit tests for the standalone Agent repositories."""
 
-from app.modules.agent.domain.models import Agent, AgentBinding, AgentPublish, AgentVersion
+from app.modules.agent.domain.models import (
+    Agent,
+    AgentBinding,
+    AgentPublish,
+    AgentVersion,
+)
 from app.modules.agent.infra.repository import (
     AgentBindingRepository,
     AgentPublishRepository,

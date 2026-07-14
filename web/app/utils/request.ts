@@ -1,13 +1,14 @@
 import { toast } from 'sonner'
 import { fetchEventSource, type FetchEventSourceInit } from '@microsoft/fetch-event-source'
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import { debugLog } from './debug'
 import { uuidv4 } from './uuid'
 
 const TIME_OUT = 100000
 const BASE_URL = (import.meta.env.VITE_BASE_URL || '/api/v1').replace(/\/$/, '')
 export const API_BASE_URL = BASE_URL
 const ERROR_CODES_OK = new Set([0, 200])
-const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized', 'forbidden', "UNAUTHORIZED", "FORBIDDEN"])
+const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized', 'forbidden', 'UNAUTHORIZED', 'FORBIDDEN'])
 const AUTO_REDIRECT_UNAUTHORIZED = true
 
 export const ContentType = {
@@ -25,11 +26,14 @@ const request = axios.create({
   baseURL: BASE_URL,
   timeout: TIME_OUT,
 })
+
+export type RequestConfigWithToast = AxiosRequestConfig & {
+  suppressErrorToast?: boolean
+}
 // Add request interceptors
 request.interceptors.request.use(
   // @ts-ignore
   function (config) {
-    // console.log('request.use config', config);
     const token = localStorage.getItem('token') || ''
     const headers = {
       'Content-Type': ContentType.json,
@@ -43,18 +47,12 @@ request.interceptors.request.use(
       headers['X-Workspace-Id'] = workspaceId
     }
     const newConfig = { ...config, headers } as AxiosRequestConfig
-    // console.log('request.use newConfig', newConfig);
     return newConfig
   },
   function (error) {
-    console.log('Request ErrorHandler error:', error)
+    debugLog('Request ErrorHandler error:', error)
     let _key = uuidv4()
-    let msg =
-      error?.response?.data?.message ||
-      error?.response?.data?.msg ||
-      error?.response?.data?.detail ||
-      error?.message ||
-      'Response ErrorHandler Error'
+    let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
     toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
     return Promise.reject(error)
   }
@@ -65,54 +63,50 @@ const resolveResponseError = (data: any): string | null => {
     return null
   }
   if (data.success === false) {
-    return data.message || data.msg || data.detail || 'Request failed'
+    return data.message || 'Request failed'
   }
   if (typeof data.code === 'number' && !ERROR_CODES_OK.has(data.code)) {
-    return data.message || data.msg || data.detail || `Request failed with code ${data.code}`
-  }
-  if (data.error) {
-    if (typeof data.error === 'string') {
-      return data.error
-    }
-    if (typeof data.error === 'object' && data.error.message) {
-      return data.error.message
-    }
+    return data.message || `Request failed with code ${data.code}`
   }
   return null
 }
 
 request.interceptors.response.use(
   async function (response: any) {
-    console.log('response.use res', response)
+    debugLog('response.use res', response)
     const msg = resolveResponseError(response?.data)
     if (msg) {
       let _key = uuidv4()
       isUnauthorizedError(response?.data?.code) && (_key = 'nologin_notice')
-      console.log('response.use msg', msg, _key)
-      toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
+      debugLog('response.use msg', msg, _key)
+      const suppressErrorToast = Boolean((response?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
+      if (!suppressErrorToast) {
+        toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
+      }
       return Promise.reject(new Error(msg))
     }
     return Promise.resolve(response)
   },
   function (error) {
-    console.log('Response ErrorHandler error:', error, error?.response?.data)
+    debugLog('Response ErrorHandler error:', error, error?.response?.data)
     let _key = uuidv4()
-    let msg =
-      error?.response?.data?.message ||
-      error?.response?.data?.msg ||
-      error?.response?.data?.detail ||
-      error?.message ||
-      'Response ErrorHandler Error'
+    let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
     isUnauthorizedError(error?.response?.data?.code) && (_key = 'nologin_notice')
-    console.log('Response ErrorHandler error:', error, msg, _key)
-    toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
+    debugLog('Response ErrorHandler resolved message:', msg, _key)
+    const suppressErrorToast = Boolean((error?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
+    if (!suppressErrorToast) {
+      toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
+    }
     return Promise.reject(error)
   }
 )
 
-function isUnauthorizedError(code: number | string): boolean {
+function isUnauthorizedError(code: number | string | null | undefined): boolean {
+  if (code === null || code === undefined) {
+    return false
+  }
   if (ERROR_CODES_UNAUTHORIZED.has(code.toString().toLowerCase())) {
-    console.log('isUnauthorizedError', code)
+    debugLog('isUnauthorizedError', code)
     if (AUTO_REDIRECT_UNAUTHORIZED) {
       setTimeout(() => {
         // Preserve current URL.
@@ -134,7 +128,7 @@ export async function post<T = any>(url: string, data?: any, config?: AxiosReque
     const res = await request.post(url, data, config)
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
-    console.log('post error:', error, url, data, config)
+    debugLog('post error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -145,7 +139,7 @@ export async function get<T = any>(url: string, params?: Record<string, any>, co
     const res = await request.get(url, { params, ...config })
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
-    console.log('get error:', error, url, params, config)
+    debugLog('get error:', error, url, params, config)
     return Promise.reject(error)
   }
 }
@@ -154,11 +148,10 @@ export async function get<T = any>(url: string, params?: Record<string, any>, co
 export async function put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
   try {
     const res = await request.put(url, data, config)
-    // console.log('PUT res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('put error:', error, url, data, config)
+    debugLog('put error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -167,11 +160,10 @@ export async function put<T = any>(url: string, data?: any, config?: AxiosReques
 export async function del<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
   try {
     const res = await request.delete(url, { params: data, ...config })
-    // console.log('DELETE res:', res, url);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('delete error:', error, url, data, config)
+    debugLog('delete error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -180,11 +172,10 @@ export async function del<T = any>(url: string, data?: any, config?: AxiosReques
 export async function patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
   try {
     const res = await request.patch(url, data, config)
-    // console.log('PATCH res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('patch error:', error, url, data, config)
+    debugLog('patch error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -202,11 +193,10 @@ export async function postForm<T = any>(url: string, data?: any, config?: AxiosR
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('postForm error:', error, url, data, config)
+    debugLog('postForm error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -224,11 +214,10 @@ export async function getForm<T = any>(url: string, params?: Record<string, any>
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('getForm error:', error, url, params, config)
+    debugLog('getForm error:', error, url, params, config)
     return Promise.reject(error)
   }
 }
@@ -247,11 +236,10 @@ export const getFile = async <T = any>(url: string, params?: Record<string, any>
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('getExportFile error:', error, url, params, config)
+    debugLog('getExportFile error:', error, url, params, config)
     return Promise.reject(error)
   }
 }
@@ -270,17 +258,16 @@ export const postFile = async <T = any>(url: string, data?: any, config?: AxiosR
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('postExportFile error:', error, url, data, config)
+    debugLog('postExportFile error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
 
 // upload file
-export const uploadFile = async <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> => {
+export const uploadFile = async <T = any>(url: string, data?: any, config?: RequestConfigWithToast): Promise<AxiosResponse<T, any>> => {
   try {
     const res = await request({
       url: url,
@@ -292,11 +279,10 @@ export const uploadFile = async <T = any>(url: string, data?: any, config?: Axio
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('uploadFile error:', error, url, data, config)
+    debugLog('uploadFile error:', error, url, data, config)
     return Promise.reject(error)
   }
 }
@@ -315,7 +301,6 @@ export const downloadFile = async <T = any>(url: string, params?: Record<string,
         ...config?.headers,
       },
     })
-    // console.log('POST res:', res, url, data);
     if (res.status !== 200) {
       throw new Error('downloadFile error')
     }
@@ -327,7 +312,7 @@ export const downloadFile = async <T = any>(url: string, params?: Record<string,
     return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
   } catch (error) {
     // throw new Error(error);
-    console.log('downloadFile error:', error, url, params, config)
+    debugLog('downloadFile error:', error, url, params, config)
     return Promise.reject(error)
   }
 }
@@ -344,14 +329,14 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
     let end = false
     let error = null
     let resolveQueue: ((value: any) => void) | null = null
-    console.log('fetchEventSource start')
+    debugLog('fetchEventSource start')
     // listen abortSignal
     config?.signal?.addEventListener('abort', () => {
-      console.log('fetchEventSource abort')
+      debugLog('fetchEventSource abort')
       end = true
       resolveQueue?.(null)
     })
-    fetchEventSource(url, {
+    const sourcePromise = fetchEventSource(url, {
       method: 'POST',
       headers: {
         'Content-Type': ContentType.json,
@@ -361,7 +346,7 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
       signal: config?.signal,
       body: JSON.stringify(data),
       async onopen(response) {
-        console.log('fetchEventSource onopen:', response)
+        debugLog('fetchEventSource onopen:', response)
         if (response.ok) {
           return
         } else {
@@ -369,7 +354,7 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
         }
       },
       onmessage(event) {
-        console.log('fetchEventSource onmessage:', event.data)
+        debugLog('fetchEventSource onmessage:', event.data)
         const _res = {
           event: event.event || 'message',
           data: event.data,
@@ -382,14 +367,14 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
         }
       },
       onclose() {
-        console.log('fetchEventSource onclose')
+        debugLog('fetchEventSource onclose')
         end = true
         Promise.resolve().then(() => {
           resolveQueue?.(null)
         })
       },
       onerror(err) {
-        console.log('fetchEventSource onerror:', err)
+        debugLog('fetchEventSource onerror:', err)
         error = err
         end = true
         Promise.resolve().then(() => {
@@ -397,27 +382,32 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
         })
         throw err
       },
+    }).catch((err) => {
+      debugLog('fetchEventSource rejected:', err)
+      error = err
+      end = true
+      Promise.resolve().then(() => {
+        resolveQueue?.(null)
+      })
     })
-    // console.log('POST res:', res, url, data);
     while (true) {
       if (error) {
-        console.log('fetchEventSource error')
+        debugLog('fetchEventSource error')
         throw new Error(error)
-        break
-      }
-      if (end) {
-        console.log('fetchEventSource end')
         break
       }
       if (eventQueue.length > 0) {
         yield await eventQueue.shift()
+      } else if (end) {
+        debugLog('fetchEventSource end')
+        break
       } else {
         yield await new Promise((resolve) => (resolveQueue = resolve))
       }
     }
+    await sourcePromise
   } catch (error) {
-    // throw new Error(error);
-    console.log('sse error:', error, url, data, config)
-    return Promise.reject(error)
+    debugLog('sse error:', error, url, data, config)
+    throw error
   }
 }

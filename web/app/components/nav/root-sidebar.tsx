@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AudioWaveform, Bot, BrainCog, Command, GalleryVerticalEnd, Workflow, ScrollText, MessageCircleMore, Activity, Settings, Send, Sparkles, Unplug, Waypoints } from 'lucide-react'
+import { AudioWaveform, Bot, BrainCog, Command, GalleryVerticalEnd, Workflow, ScrollText, MessageCircleMore, Activity, Settings, Send, Unplug } from 'lucide-react'
 
 import { NavUser } from '@/components/common/nav-user'
 import { TeamSwitcher } from '@/components/common/team-switcher'
@@ -42,18 +42,18 @@ const data = {
   ],
   navPrimary: [
     {
-      title: 'Agents',
-      url: '/agents',
-      type: 'agents',
-      icon: Bot,
-      isActive: true,
-      isNav: true,
-    },
-    {
       title: 'Chat',
       url: '/chat',
       type: 'chat',
       icon: MessageCircleMore,
+      isActive: true,
+      isNav: true,
+    },
+    {
+      title: 'Agents',
+      url: '/agents',
+      type: 'agents',
+      icon: Bot,
       isActive: false,
       isNav: true,
     },
@@ -73,14 +73,6 @@ const data = {
       isActive: false,
       isNav: true,
     },
-    // {
-    //   title: 'Skills',
-    //   url: '/skills',
-    //   type: 'skills',
-    //   icon: Sparkles,
-    //   isActive: false,
-    //   isNav: true,
-    // },
     {
       title: 'Plugins',
       url: '/plugins',
@@ -89,14 +81,6 @@ const data = {
       isActive: false,
       isNav: true,
     },
-    // {
-    //   title: 'MCP',
-    //   url: '/mcp',
-    //   type: 'mcp',
-    //   icon: Waypoints,
-    //   isActive: false,
-    //   isNav: true,
-    // },
     {
       title: 'Tasks',
       url: '/tasks',
@@ -106,9 +90,9 @@ const data = {
       isNav: true,
     },
     {
-      title: 'Observability',
-      url: '/observability',
-      type: 'observability',
+      title: 'Observe',
+      url: '/observe',
+      type: 'observe',
       icon: Activity,
       isActive: false,
       isNav: true,
@@ -125,12 +109,12 @@ const data = {
   navSecondary: [
     {
       title: 'Feedback',
-      url: '/observability/feedback',
+      url: '/observe/feedback',
       icon: Send,
     },
     // {
     //   title: 'Monitor',
-    //   url: '/observability/monitor',
+    //   url: '/observe/monitor',
     //   icon: Activity,
     // },
     {

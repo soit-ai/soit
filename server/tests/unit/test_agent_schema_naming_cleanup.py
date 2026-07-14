@@ -38,3 +38,14 @@ def test_agent_version_create_requires_bindings():
         AgentVersionCreate(
             verify=True,
         )
+
+
+def test_agent_version_create_rejects_plugin_refs_binding():
+    with pytest.raises(ValidationError):
+        AgentVersionCreate(
+            bindings={
+                "model_ref": "model:test:primary",
+                "plugin_refs": ["plugin:legacy"],
+            },
+            verify=True,
+        )

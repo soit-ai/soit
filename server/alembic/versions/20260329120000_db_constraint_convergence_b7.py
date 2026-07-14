@@ -1,7 +1,7 @@
 """B7: converge database constraint names and core relationship columns.
 
 Revision ID: 20260329120000_db_constraint_convergence_b7
-Revises: 20260324120000_observability_projection_records
+Revises: 20260324120000_observe_projection_records
 Create Date: 2026-03-29 12:00:00
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "20260329120000_db_constraint_convergence_b7"
-down_revision = "20260324120000_observability_projection_records"
+down_revision = "20260324120000_observe_projection_records"
 branch_labels = None
 depends_on = None
 

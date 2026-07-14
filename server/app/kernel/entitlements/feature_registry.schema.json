@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/feature_registry.schema.json",
+  "title": "FeatureRegistry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "owner", "features"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "editions", "kind"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "editions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": ["community", "enterprise", "cloud"]
+            }
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

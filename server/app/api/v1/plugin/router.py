@@ -10,15 +10,23 @@ from app.api.v1.plugin.handlers import PluginHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
 from app.modules.plugin.application.schemas import (
+    PluginArtifactResponse,
+    PluginCapabilityResponse,
     PluginCreate,
     PluginEnableRequest,
     PluginInstallationResponse,
     PluginInstallRequest,
     PluginPackageInstallResponse,
+    PluginPackageUploadResponse,
+    PluginPublishRequest,
+    PluginReleaseResponse,
     PluginResponse,
+    PluginRollbackRequest,
     PluginRuntimeReloadResponse,
     PluginUpdate,
     PluginUpgradeResponse,
+    PluginVersionCreate,
+    PluginVersionResponse,
     RuntimeToolListResponse,
 )
 from app.modules.plugin.application.service import PluginService
@@ -40,13 +48,67 @@ async def create_plugin(
 @router.get("", response_model=PaginatedResponse[PluginResponse])
 async def list_plugins(
     published_only: bool = False,
+    plugin_type: Optional[str] = None,
     page_token: Optional[str] = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
-    return await handlers.list_plugins(ctx, published_only, page_token, page_size)
+    return await handlers.list_plugins(ctx, published_only, plugin_type, page_token, page_size)
+
+
+@router.get("/artifacts", response_model=PaginatedResponse[PluginArtifactResponse])
+async def list_plugin_artifacts(
+    artifact_kind: Optional[str] = None,
+    enabled: Optional[bool] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_artifacts(
+        ctx,
+        plugin_id=None,
+        artifact_kind=artifact_kind,
+        enabled=enabled,
+        page_token=page_token,
+        page_size=page_size,
+    )
+
+
+@router.get("/capabilities", response_model=PaginatedResponse[PluginCapabilityResponse])
+async def list_plugin_capabilities(
+    kind: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 100,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_capabilities(
+        ctx,
+        kind=kind,
+        page_token=page_token,
+        page_size=page_size,
+    )
+
+
+@router.post("/package", response_model=PluginPackageUploadResponse)
+async def upload_plugin_package(
+    package: UploadFile = File(...),
+    mode: str = "auto",
+    expected_sha256: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    handlers = PluginHandlers(service)
+    package_bytes = await package.read()
+    return await handlers.upload_plugin_package(
+        ctx,
+        package_bytes,
+        mode=mode,
+        expected_sha256=expected_sha256,
+    )
 
 
 @router.get("/{plugin_id}", response_model=PluginResponse)
@@ -68,6 +130,89 @@ async def update_plugin(
 ):
     handlers = PluginHandlers(service)
     return await handlers.update_plugin(ctx, plugin_id, plugin_in)
+
+
+@router.post("/{plugin_id}/versions", response_model=PluginVersionResponse, status_code=status.HTTP_201_CREATED)
+async def create_plugin_version(
+    plugin_id: str,
+    payload: PluginVersionCreate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).create_version(ctx, plugin_id, payload)
+
+
+@router.get("/{plugin_id}/versions", response_model=PaginatedResponse[PluginVersionResponse])
+async def list_plugin_versions(
+    plugin_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_versions(ctx, plugin_id, page_token=page_token, page_size=page_size)
+
+
+@router.get("/{plugin_id}/releases", response_model=PaginatedResponse[PluginReleaseResponse])
+async def list_plugin_releases(
+    plugin_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_releases(ctx, plugin_id, page_token=page_token, page_size=page_size)
+
+
+@router.post("/{plugin_id}/publish", response_model=PluginResponse)
+async def publish_plugin_version(
+    plugin_id: str,
+    payload: PluginPublishRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).publish_version(ctx, plugin_id, payload)
+
+
+@router.post("/{plugin_id}/rollback", response_model=PluginResponse)
+async def rollback_plugin_version(
+    plugin_id: str,
+    payload: PluginRollbackRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).rollback_version(ctx, plugin_id, payload)
+
+
+@router.get("/{plugin_id}/installations", response_model=PaginatedResponse[PluginInstallationResponse])
+async def list_plugin_installations(
+    plugin_id: str,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_installations(ctx, plugin_id, page_token=page_token, page_size=page_size)
+
+
+@router.get("/{plugin_id}/artifacts", response_model=PaginatedResponse[PluginArtifactResponse])
+async def list_plugin_artifacts_for_plugin(
+    plugin_id: str,
+    artifact_kind: Optional[str] = None,
+    enabled: Optional[bool] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: PluginService = Depends(get_plugin_service),
+):
+    return await PluginHandlers(service).list_artifacts(
+        ctx,
+        plugin_id=plugin_id,
+        artifact_kind=artifact_kind,
+        enabled=enabled,
+        page_token=page_token,
+        page_size=page_size,
+    )
 
 
 @router.post("/{plugin_id}/install")

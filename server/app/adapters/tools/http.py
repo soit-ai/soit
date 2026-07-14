@@ -3,7 +3,8 @@
 HTTP tools port adapter implementation.
 """
 
-from typing import Dict, Any
+from typing import Any
+
 import httpx
 
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -11,21 +12,18 @@ from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 
 class HTTPToolsPort(ToolPort):
     """HTTP tool gateway adapter."""
-    
+
     def __init__(self):
         """Initialize HTTP tool gateway."""
         self.client = httpx.AsyncClient(timeout=30.0)
-    
+
     async def invoke(
         self,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         **kwargs,
     ) -> ToolResponse:
         """Invoke HTTP tool."""
-        # Parse tool reference (e.g., "tool:http:create_ticket")
-        tool_name = tool_ref.split(":")[-1] if ":" in tool_ref else tool_ref
-        
         # Extract HTTP parameters
         url = parameters.get("url")
         method = parameters.get("method", "POST")
@@ -33,14 +31,14 @@ class HTTPToolsPort(ToolPort):
         body = parameters.get("body", {})
         query = parameters.get("query", {})
         timeout_s = kwargs.get("timeout_s")
-        
+
         if not url:
             return ToolResponse(
                 result=None,
                 success=False,
                 error="Missing URL parameter",
             )
-        
+
         try:
             # Make HTTP request
             method_upper = method.upper()
@@ -67,9 +65,9 @@ class HTTPToolsPort(ToolPort):
                     success=False,
                     error=f"Unsupported method: {method}",
                 )
-            
+
             response.raise_for_status()
-            
+
             return ToolResponse(
                 result=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
                 success=True,

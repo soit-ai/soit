@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 export function ModeSwitcher({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme()
   const toggleTheme = () => {
-    console.log('toggleTheme')
     setTheme(theme === 'dark' ? 'light' : 'dark')
   }
 

@@ -3,24 +3,25 @@
 LLM provider router adapter.
 """
 
-from typing import Dict, Optional, List, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
+from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.interface import (
-    LLMPort,
     ChatMessage,
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    LLMPort,
     RerankResponse,
 )
-from app.kernel.commons.errors import ValidationError
 from app.settings.settings import settings
 
 
 class LLMRouterPort(LLMPort):
     """Route LLM calls to provider-specific ports."""
 
-    def __init__(self, providers: Dict[str, LLMPort]):
+    def __init__(self, providers: dict[str, LLMPort]):
         """Initialize router with provider mapping."""
         self.providers = providers
 
@@ -46,10 +47,10 @@ class LLMRouterPort(LLMPort):
 
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         """Route chat completion."""
@@ -64,10 +65,10 @@ class LLMRouterPort(LLMPort):
 
     async def stream_chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
         """Route streaming chat completion."""
@@ -89,7 +90,7 @@ class LLMRouterPort(LLMPort):
 
     async def embed(
         self,
-        texts: List[str],
+        texts: list[str],
         model: str,
         **kwargs: Any,
     ) -> EmbeddingResponse:
@@ -100,9 +101,9 @@ class LLMRouterPort(LLMPort):
     async def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         model: str,
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
         **kwargs: Any,
     ) -> RerankResponse:
         """Route rerank request."""

@@ -1,37 +1,32 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.api.v1.modelhub.handlers import ModelHubHandlers
 from app.kernel.execution.state_machine import RunStatus, StepStatus
-from app.kernel.runtime.contracts.status import ExecutionStatus
+from app.kernel.runtime.tasks.status import ExecutionStatus
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.plugin.application.service import PluginService
 
 
 def test_plugin_publish_status_helpers():
-    assert PluginService.publish_status_for(SimpleNamespace(published=False)) == "draft"
-    assert PluginService.publish_status_for(SimpleNamespace(published=True)) == "published"
-    assert PluginService.resolve_published_flag(publish_status="published", current=False) is True
-    assert PluginService.resolve_published_flag(publish_status="draft", current=True) is False
+    assert PluginService.publish_status_for(SimpleNamespace(publish_status="draft")) == "draft"
+    assert PluginService.publish_status_for(SimpleNamespace(publish_status="published")) == "published"
+    assert PluginService.normalize_publish_status("published", current="draft") == "published"
+    assert PluginService.normalize_publish_status("archived", current="published") == "archived"
 
 
 def test_modelhub_service_status_normalizers():
     service = object.__new__(ModelHubService)
 
-    assert service.provider_model_status(True) == "active"
-    assert service.provider_model_status(False) == "disabled"
-    assert service.platform_model_status(True) == "active"
-    assert service.platform_model_status(False) == "disabled"
-    assert service._normalize_model_enabled(status="active", enabled=None, current=False) is True
-    assert service._normalize_model_enabled(status="disabled", enabled=True, current=True) is False
-    assert service._resolve_lifecycle_status(lifecycle_status="deprecated", lifecycle="ga", current=None) == "deprecated"
-    assert service._resolve_lifecycle_status(lifecycle_status=None, lifecycle="ga", current=None) == "ga"
+    assert service.normalize_model_status("active", current="disabled") == "active"
+    assert service.normalize_model_status("disabled", current="active") == "disabled"
+    assert service.normalize_model_status(None, current="active") == "active"
 
 
-def test_modelhub_handlers_expose_new_and_compat_status_fields():
+def test_modelhub_handlers_expose_canonical_status_fields_only():
     service = object.__new__(ModelHubService)
     handler = ModelHubHandlers(service)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     platform_payload = handler._as_platform_model_response(
         SimpleNamespace(
@@ -42,9 +37,9 @@ def test_modelhub_handlers_expose_new_and_compat_status_fields():
             capabilities_json={"capabilities": ["chat"]},
             context_window=128000,
             max_output_tokens=8192,
-            lifecycle="ga",
+            lifecycle_status="ga",
             raw_meta={},
-            is_active=True,
+            status="active",
             last_seen_at=None,
             created_at=now,
             updated_at=now,
@@ -52,8 +47,8 @@ def test_modelhub_handlers_expose_new_and_compat_status_fields():
     )
     assert platform_payload.status == "active"
     assert platform_payload.lifecycle_status == "ga"
-    assert platform_payload.lifecycle == "ga"
-    assert platform_payload.is_active is True
+    assert not hasattr(platform_payload, "lifecycle")
+    assert not hasattr(platform_payload, "is_active")
 
     provider_model_payload = handler._as_provider_model_response(
         SimpleNamespace(
@@ -67,9 +62,9 @@ def test_modelhub_handlers_expose_new_and_compat_status_fields():
             config_json={},
             context_window=128000,
             max_output_tokens=8192,
-            lifecycle="deprecated",
+            lifecycle_status="deprecated",
             raw_meta={},
-            enabled=False,
+            status="disabled",
             source="platform",
             platform_model_id="plm_1",
             sync_status="platform_removed",
@@ -81,8 +76,14 @@ def test_modelhub_handlers_expose_new_and_compat_status_fields():
     )
     assert provider_model_payload.status == "disabled"
     assert provider_model_payload.lifecycle_status == "deprecated"
-    assert provider_model_payload.lifecycle == "deprecated"
-    assert provider_model_payload.enabled is False
+    assert provider_model_payload.architecture_json is None
+    assert provider_model_payload.capability_matrix_json is None
+    assert provider_model_payload.parameter_config_json is None
+    assert provider_model_payload.pricing_json is None
+    assert provider_model_payload.diagnostics_json is None
+    assert not hasattr(provider_model_payload, "lifecycle")
+    assert not hasattr(provider_model_payload, "enabled")
+    assert not hasattr(provider_model_payload, "is_active")
 
 
 def test_legacy_state_machine_statuses_share_runtime_execution_values():

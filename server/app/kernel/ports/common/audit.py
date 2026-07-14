@@ -4,17 +4,18 @@ Gateway audit logging utilities.
 """
 
 import json
-from typing import Dict, Any, Optional
-from app.kernel.trace.writer import TraceWriter
+from typing import Any
+
 from app.kernel.commons.time import utc_now
+from app.kernel.runtime.runs.writer import TraceWriter
 
 
 def filter_sensitive_data(data: Any) -> Any:
     """Filter sensitive information from audit data.
-    
+
     Args:
         data: Data to filter (dict, list, or primitive).
-        
+
     Returns:
         Filtered data.
     """
@@ -38,7 +39,7 @@ def filter_sensitive_data(data: Any) -> Any:
                 "privatekey", "access_token", "refresh_token",
             }
             is_sensitive = any(sensitive in key_lower for sensitive in sensitive_fields)
-            
+
             if is_sensitive:
                 filtered[key] = "***REDACTED***"
             else:
@@ -55,12 +56,12 @@ async def log_gateway_request(
     run_id: str,
     step_id: str,
     gateway_type: str,
-    request_data: Dict[str, Any],
-    response_data: Optional[Dict[str, Any]] = None,
-    storage_port: Optional[Any] = None,
+    request_data: dict[str, Any],
+    response_data: dict[str, Any] | None = None,
+    storage_port: Any | None = None,
 ) -> None:
     """Log gateway request/response to audit log.
-    
+
     Args:
         trace_writer: Trace writer instance.
         run_id: Run ID.
@@ -72,11 +73,11 @@ async def log_gateway_request(
     """
     if not trace_writer:
         return
-    
+
     # Filter sensitive data
     filtered_request = filter_sensitive_data(request_data)
     filtered_response = filter_sensitive_data(response_data) if response_data else None
-    
+
     # Prepare audit log
     audit_log = {
         "gateway_type": gateway_type,
@@ -84,11 +85,11 @@ async def log_gateway_request(
         "response": filtered_response,
         "timestamp": str(utc_now()),
     }
-    
+
     audit_json = json.dumps(audit_log, ensure_ascii=True, default=str, separators=(",", ":"))
     audit_bytes = audit_json.encode("utf-8")
     inline_limit = 8 * 1024
-    
+
     if len(audit_bytes) <= inline_limit:
         trace_writer.update_step_metrics(
             step_id,

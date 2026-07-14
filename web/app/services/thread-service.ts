@@ -106,6 +106,7 @@ export const listThreads = (params?: {
   page_size?: number
   status?: string
   agent_id?: string
+  search?: string
 }): Promise<PaginatedResponse<Thread>> => {
   return get<PaginatedResponse<Thread>>('/threads', params).then((response) => response.data)
 }

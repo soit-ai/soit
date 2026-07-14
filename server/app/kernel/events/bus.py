@@ -5,15 +5,15 @@ In-process event bus for kernel-level signals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, Optional
 import asyncio
 import inspect
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
-
 
 EventHandler = Callable[["Event"], Any]
 EventPredicate = Callable[["Event"], bool]
@@ -25,12 +25,12 @@ class Event:
 
     id: str
     type: str
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     created_at: datetime
-    tenant_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    run_id: Optional[str] = None
-    trace_id: Optional[str] = None
+    tenant_id: str | None = None
+    workspace_id: str | None = None
+    run_id: str | None = None
+    trace_id: str | None = None
 
 
 class EventBus:
@@ -43,8 +43,8 @@ class EventBus:
         self,
         handler: EventHandler,
         *,
-        event_type: Optional[str] = None,
-        predicate: Optional[EventPredicate] = None,
+        event_type: str | None = None,
+        predicate: EventPredicate | None = None,
     ) -> str:  # pragma: no cover - interface only
         raise NotImplementedError
 
@@ -55,15 +55,15 @@ class EventBus:
 @dataclass
 class _Subscription:
     handler: EventHandler
-    event_type: Optional[str]
-    predicate: Optional[EventPredicate]
+    event_type: str | None
+    predicate: EventPredicate | None
 
 
 class InMemoryEventBus(EventBus):
     """In-memory event bus implementation."""
 
     def __init__(self) -> None:
-        self._subs: Dict[str, _Subscription] = {}
+        self._subs: dict[str, _Subscription] = {}
         self._lock = asyncio.Lock()
 
     async def publish(self, event: Event) -> int:
@@ -85,8 +85,8 @@ class InMemoryEventBus(EventBus):
         self,
         handler: EventHandler,
         *,
-        event_type: Optional[str] = None,
-        predicate: Optional[EventPredicate] = None,
+        event_type: str | None = None,
+        predicate: EventPredicate | None = None,
     ) -> str:
         """Register a handler and return subscription id."""
         subscription_id = f"sub_{generate_ulid()}"
@@ -107,11 +107,11 @@ class InMemoryEventBus(EventBus):
         self,
         *,
         event_type: str,
-        payload: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
-        workspace_id: Optional[str] = None,
-        run_id: Optional[str] = None,
-        trace_id: Optional[str] = None,
+        payload: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        run_id: str | None = None,
+        trace_id: str | None = None,
     ) -> Event:
         """Create a new event with defaults."""
         return Event(

@@ -3,22 +3,22 @@
 DB engine/session management.
 """
 
-from typing import Generator, Optional
-from sqlalchemy import create_engine, Engine
+from collections.abc import Generator
+
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel, Session
+from sqlmodel import Session, SQLModel
 
 from app.settings.settings import settings
 
-
 # Global engine instance
-_engine: Optional[Engine] = None
-_SessionLocal: Optional[sessionmaker] = None
+_engine: Engine | None = None
+_SessionLocal: sessionmaker | None = None
 
 
 def get_engine() -> Engine:
     """Get or create database engine.
-    
+
     Returns:
         SQLAlchemy engine instance.
     """
@@ -41,7 +41,7 @@ def get_engine() -> Engine:
 
 def get_session_local() -> sessionmaker:
     """Get or create session factory.
-    
+
     Returns:
         Session factory.
     """
@@ -59,7 +59,7 @@ def get_session_local() -> sessionmaker:
 
 def create_tables() -> None:
     """Create all database tables.
-    
+
     This should be called after all models are imported.
     """
     engine = get_engine()
@@ -68,21 +68,24 @@ def create_tables() -> None:
 
 def get_db() -> Generator[Session, None, None]:
     """Dependency for FastAPI to get database session.
-    
+
     Yields:
         Database session.
     """
     SessionLocal = get_session_local()
     db = SessionLocal()
     try:
-        yield db
+        from app.infra.db.transaction import SQLAlchemyUnitOfWork
+
+        with SQLAlchemyUnitOfWork(db):
+            yield db
     finally:
         db.close()
 
 
 def get_db_sync() -> Session:
     """Get a synchronous database session (for non-async contexts).
-    
+
     Returns:
         Database session.
     """

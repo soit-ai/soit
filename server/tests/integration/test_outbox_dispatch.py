@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlmodel import Session
@@ -18,7 +18,7 @@ def _env(eid: str, etype: str = "integration.demo") -> DomainEventEnvelope:
     return DomainEventEnvelope(
         event_id=eid,
         event_type=etype,
-        occurred_at=datetime(2025, 3, 23, 10, 0, 0, tzinfo=timezone.utc),
+        occurred_at=datetime(2025, 3, 23, 10, 0, 0, tzinfo=UTC),
         payload={"n": 1},
     )
 

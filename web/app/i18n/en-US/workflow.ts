@@ -20,7 +20,6 @@ const translation = {
     conversationLog: 'Conversation Log',
     features: 'Features',
     featuresDescription: 'Enhance the workflow runtime experience',
-    ImageUploadLegacyTip: 'You can now create file type variables in the start form. We will no longer support the image upload feature in the future. ',
     fileUploadTip: 'Image upload features have been upgraded to file upload. ',
     featuresDocLink: 'Learn more',
     debugAndPreview: 'Preview',
@@ -298,6 +297,14 @@ const translation = {
       templates: 'Templates',
     },
     templatesComingSoon: 'Workflow templates are coming soon',
+    templates: {
+      ticketTriage: {
+        title: 'Ticket triage',
+        description: 'Create a draft workflow for policy lookup, classification, approval, and ticket creation.',
+        created: 'Ticket triage workflow created',
+        createError: 'Failed to create ticket triage workflow',
+      },
+    },
     categories: {
       input: 'Input',
       model: 'Model',
@@ -893,6 +900,10 @@ const translation = {
     title: 'Workflow',
     searchPlaceholder: 'Search workflows...',
     menu: {
+      workspace: 'Workbench',
+      library: 'Workflow Library',
+      runHistory: 'Run History',
+      publishManagement: 'Publish Management',
       overview: 'Overview',
       myWorkflows: {
         title: 'My Workflows',
@@ -942,6 +953,9 @@ const translation = {
       title: 'Workflow Stats',
       totalWorkflows: 'Total Workflows',
       activeWorkflows: 'Active Workflows',
+      recentRuns: 'Recent Runs',
+      runningRuns: 'Running Runs',
+      failedRuns: 'Failed Runs',
       cpuUsage: 'CPU Usage',
       memoryUsage: 'Memory Usage',
       memoryUnit: 'GB',
@@ -982,7 +996,7 @@ const translation = {
       actions: {
         run: 'Run workflow',
         setting: 'Setting',
-        share: 'Share',
+        share: 'Publish',
       },
     },
     build: {
@@ -1038,6 +1052,10 @@ const translation = {
         pausing: 'Pausing...',
         resume: 'Resume',
         resuming: 'Resuming...',
+        cancel: 'Cancel',
+        canceling: 'Canceling...',
+        fail: 'Mark failed',
+        failing: 'Marking failed...',
         retry: 'Retry',
         retrying: 'Retrying...',
         replay: 'Replay',
@@ -1060,8 +1078,14 @@ const translation = {
         failedStep: 'Step {{stepType}} ({{stepId}})',
       },
       confirm: {
+        cancel: 'Cancel this run now?',
+        fail: 'Mark this run as failed?',
         retry: 'Retry this run now?',
         replay: 'Replay this run now?',
+      },
+      controlReasons: {
+        cancel: 'Workflow run canceled from the run control panel',
+        fail: 'Workflow run marked failed from the run control panel',
       },
       fields: {
         input: 'Input: {{input}}',
@@ -1076,6 +1100,10 @@ const translation = {
         pauseError: 'Failed to pause run',
         resumeSuccess: 'Run resumed',
         resumeError: 'Failed to resume run',
+        cancelSuccess: 'Run canceled',
+        cancelError: 'Failed to cancel run',
+        failSuccess: 'Run marked failed',
+        failError: 'Failed to mark run failed',
         retrySuccess: 'Run retried',
         retryError: 'Failed to retry run',
         replaySuccess: 'Run replay started',
@@ -1189,7 +1217,7 @@ const translation = {
         acceptance: {
           endToEnd: 'Works end-to-end',
           tests: 'Tests added/passed (if behavior changed)',
-          observability: 'Observability added (logs/metrics/traces if needed)',
+          observe: 'Observe added (logs/metrics/traces if needed)',
           docs: 'Docs updated (when public behavior changes)',
         },
         release: {
@@ -1575,6 +1603,66 @@ const translation = {
         },
         resultTitle: 'Call result',
       },
+    },
+  },
+  workspaceDashboard: {
+    header: {
+      title: 'Workflow Console',
+      description: 'Monitor flow health, publish status, and incident handling',
+      create: 'Create Workflow',
+    },
+    metrics: {
+      running: 'Running',
+      today: 'Runs today',
+      latency: 'Avg latency',
+      success: 'Success rate',
+      exceptions: 'Open incidents',
+      deltaLabel: 'vs yesterday',
+    },
+    tabs: {
+      all: 'All',
+      highVolume: 'High volume',
+      publishing: 'Publishing',
+      incidents: 'Incidents',
+      drafts: 'Drafts',
+    },
+    status: {
+      running: 'Running',
+      publishing: 'Publishing',
+      incident: 'Incident',
+      draft: 'Draft',
+    },
+    columns: {
+      workflow: 'Workflow',
+      status: 'Status',
+      linkedAgent: 'Linked Agent',
+      runsToday: 'Runs today',
+      avgLatency: 'Avg latency',
+      successRate: 'Success rate',
+      recentIncident: 'Recent incident',
+      owner: 'Owner',
+      lastRun: 'Last run',
+      actions: 'Actions',
+    },
+    toolbar: {
+      searchPlaceholder: 'Search workflow name or description',
+      filter: 'Filter',
+      allTime: 'All time',
+      refresh: 'Refresh',
+    },
+    alert: {
+      title: 'Incident priority',
+      description: 'Order sync workflow failed repeatedly at 20:35 (7 total)',
+      action: 'View incident',
+    },
+    table: {
+      empty: 'No matching workflow',
+    },
+    pagination: {
+      totalSuffix: 'total',
+      pageSizeSuffix: '/ page',
+      goTo: 'Go to',
+      page: 'page',
     },
   },
   adapterTest: {

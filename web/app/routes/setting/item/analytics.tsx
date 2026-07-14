@@ -28,19 +28,6 @@ function Page() {
   // 保存分析设置
   const handleSaveAnalyticsSettings = () => {
     // 这里应该有API调用来保存设置
-    console.log('保存分析设置', {
-      usageAnalytics,
-      featureUsage,
-      performanceMetrics,
-      errorReporting,
-      userJourney,
-      defaultTimeRange,
-      autoRefresh,
-      defaultChartType,
-      emailReports,
-      reportFrequency
-    })
-    
     toast({
       title: '设置已保存',
       description: '您的数据分析偏好已更新',
@@ -50,8 +37,6 @@ function Page() {
   // 导出分析数据
   const handleExportAnalytics = () => {
     // 这里应该有API调用来导出数据
-    console.log('导出分析数据')
-    
     toast({
       title: '数据导出已开始',
       description: '您的分析数据正在准备中，完成后将通知您',

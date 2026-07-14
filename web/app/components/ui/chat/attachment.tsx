@@ -45,12 +45,14 @@ const useFileSrc = (file: File | undefined) => {
   return src;
 };
 
+const EMPTY_ATTACHMENT_SRC: { file?: File; src?: string } = {};
+
 const useAttachmentSrc = () => {
   const { file, src } = useAuiState(({ attachment }): { file?: File; src?: string } => {
-    if (attachment.type !== "image") return {};
+    if (attachment.type !== "image") return EMPTY_ATTACHMENT_SRC;
     if (attachment.file) return { file: attachment.file };
     const src = attachment.content?.filter((c) => c.type === "image")[0]?.image;
-    if (!src) return {};
+    if (!src) return EMPTY_ATTACHMENT_SRC;
     return { src };
   });
 

@@ -92,15 +92,6 @@
           "items": {
             "$ref": "refs.schema.json#/$defs/SkillRef"
           }
-        },
-        "plugin_refs": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "$ref": "refs.schema.json#/$defs/PluginRef"
-          }
         }
       }
     },

@@ -23,17 +23,6 @@ function Page() {
   // 保存隐私设置
   const handleSavePrivacySettings = () => {
     // 这里应该有API调用来保存设置
-    console.log('保存隐私设置', {
-      dataCollection,
-      usageAnalytics,
-      crashReports,
-      marketingEmails,
-      essentialCookies,
-      analyticsCookies,
-      marketingCookies,
-      thirdPartyCookies
-    })
-    
     toast({
       title: '设置已保存',
       description: '您的隐私设置已更新',
@@ -43,8 +32,6 @@ function Page() {
   // 请求导出数据
   const handleRequestDataExport = () => {
     // 这里应该有API调用来请求数据导出
-    console.log('请求数据导出')
-    
     toast({
       title: '请求已提交',
       description: '您的数据导出请求已提交，我们将在24小时内处理',
@@ -54,8 +41,6 @@ function Page() {
   // 请求删除数据
   const handleRequestDataDeletion = () => {
     // 这里应该有API调用来请求数据删除
-    console.log('请求数据删除')
-    
     toast({
       title: '请求已提交',
       description: '您的数据删除请求已提交，我们将在7个工作日内处理',

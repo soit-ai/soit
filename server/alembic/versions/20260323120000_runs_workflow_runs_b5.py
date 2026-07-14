@@ -39,12 +39,6 @@ def upgrade() -> None:
         if not _has_column("runs", "current_task_id"):
             with op.batch_alter_table("runs") as batch:
                 batch.add_column(sa.Column("current_task_id", sa.String(), nullable=True))
-                batch.create_foreign_key(
-                    "fk_runs_current_task_id_tasks",
-                    "tasks",
-                    ["current_task_id"],
-                    ["id"],
-                )
                 batch.create_index("ix_runs_current_task_id", ["current_task_id"])
         if not _has_column("runs", "last_error"):
             op.add_column("runs", sa.Column("last_error", sa.Text(), nullable=True))
@@ -64,8 +58,6 @@ def upgrade() -> None:
             sa.Column("waiting_nodes", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
-            sa.ForeignKeyConstraint(["workflow_id"], ["workflows.id"]),
         )
         op.create_index(
             "ix_workflow_runs_scope_updated",

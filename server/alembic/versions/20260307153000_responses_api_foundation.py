@@ -47,10 +47,6 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(), nullable=False),
             sa.Column("completed_at", sa.DateTime(), nullable=True),
             sa.Column("canceled_at", sa.DateTime(), nullable=True),
-            sa.ForeignKeyConstraint(["thread_id"], ["threads.id"]),
-            sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
         )
         op.create_index(
             "ix_responses_scope_status_created",
@@ -77,11 +73,6 @@ def upgrade() -> None:
             sa.Column("source", sa.String(), nullable=False),
             sa.Column("payload_json", sa.JSON(), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["response_id"], ["responses.id"]),
-            sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
-            sa.ForeignKeyConstraint(["thread_id"], ["threads.id"]),
-            sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
             sa.UniqueConstraint("response_id", "sequence", name="uq_response_events_response_sequence"),
         )
         op.create_index("ix_response_events_response_created", "response_events", ["response_id", "created_at"])

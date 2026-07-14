@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from sqlmodel import select
 
-from app.kernel.events.outbox_models import EventOutbox
-from app.kernel.runtime.contracts.status import TaskStatus
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.runtime.events import TaskEventType
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.tasks.events import TaskEventType
+from app.kernel.runtime.tasks.service import TaskService
+from app.kernel.runtime.tasks.status import TaskStatus
 
 
 def test_task_lifecycle_emits_outbox_event_types(db, tenant1_ctx) -> None:
-    svc = RuntimeCoreService(db, tenant1_ctx)
+    svc = TaskService(db, tenant1_ctx)
     task = svc.create_task(task_type="agent_batch", input_payload={"batch_size": 1})
 
     types_after_create = {r.event_type for r in db.exec(select(EventOutbox).where(EventOutbox.task_id == task.id)).all()}
@@ -31,7 +31,7 @@ def test_task_lifecycle_emits_outbox_event_types(db, tenant1_ctx) -> None:
 
 
 def test_task_failed_emits_failed_outbox(db, tenant1_ctx) -> None:
-    svc = RuntimeCoreService(db, tenant1_ctx)
+    svc = TaskService(db, tenant1_ctx)
     task = svc.create_task(task_type="x", input_payload={})
     svc.transition_task(
         task_id=task.id,

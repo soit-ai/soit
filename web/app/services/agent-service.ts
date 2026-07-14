@@ -1,4 +1,5 @@
-import { del, get, post, put } from '@/utils/request'
+import { del, get, post, put, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
+import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
 
 export interface PaginatedResponse<T> {
   items: T[]
@@ -62,11 +63,6 @@ export interface AgentRelease {
 
 export interface AgentVersionCreateRequest {
   system_prompt?: string
-  model_ref?: string
-  knowledge_refs?: string[]
-  workflow_refs?: string[]
-  skill_refs?: string[]
-  plugin_refs?: string[]
   temperature?: number
   max_iterations?: number
   max_tool_calls?: number
@@ -76,7 +72,6 @@ export interface AgentVersionCreateRequest {
   max_tokens_total?: number
   max_cost?: number
   cost_currency?: string
-  tool_refs?: string[]
   memory_strategy?: string
   memory_top_k?: number
   verify?: boolean
@@ -129,6 +124,23 @@ export interface AgentUpdateRequest {
 
 export interface AgentPublishRequest {
   version_id: string
+}
+
+export interface AgentRunMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  metadata?: Record<string, unknown>
+}
+
+export interface AgentRunRequest {
+  messages: AgentRunMessage[]
+  thread_id?: string
+  thread_title?: string
+  rag_top_k?: number
+  rag_strategy?: 'system_message' | 'planner_context'
+  memory_query?: string
+  context_window_messages?: number
+  context_window_chars?: number
 }
 
 export const listAgents = (params?: {
@@ -195,4 +207,12 @@ export const publishAgentVersion = (
   data: AgentPublishRequest
 ): Promise<Agent> => {
   return post<Agent>(`/agents/${agentId}/publish`, data).then((response) => response.data)
+}
+
+export const streamAgentExecution = (
+  agentId: string,
+  data: AgentRunRequest,
+  config?: FetchEventSourceInit
+): AsyncGenerator<SseEvent, void, unknown> => {
+  return sse(`${API_BASE_URL}/agents/${agentId}/stream`, data, config)
 }

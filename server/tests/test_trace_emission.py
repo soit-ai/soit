@@ -4,16 +4,17 @@ Trace emission tests - verify all executions create trace.
 """
 
 import asyncio
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
-from app.modules.workflow.runtime.engine import ExecutionEngine
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.trace.models import Run, RunStep
+from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.domain.models import Workflow
+from app.modules.workflow.runtime.engine import ExecutionEngine
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def test_chat_execution_creates_trace(db: Session, ctx: RequestContext):
     """Test that chat execution creates run and steps."""
     trace_writer = TraceWriter(db, ctx)
     engine = ExecutionEngine(db, ctx, trace_writer)
-    
+
     plan = ExecutionPlan(
         mode="chat",
         subject_kind="thread",
@@ -45,13 +46,13 @@ def test_chat_execution_creates_trace(db: Session, ctx: RequestContext):
             "model": "model:openai:gpt-5.1",
         },
     )
-    
+
     # Execute (may fail if LLM gateway not configured, but trace should be created)
     try:
         asyncio.run(engine.execute(plan))
     except Exception:
         pass  # Expected if LLM not configured
-    
+
     # Check that run was created
     run = db.exec(
         select(Run).where(
@@ -59,15 +60,15 @@ def test_chat_execution_creates_trace(db: Session, ctx: RequestContext):
             Run.workspace_id == ctx.workspace_id,
         )
     ).scalars().first()
-    
+
     assert run is not None
     assert run.mode == "chat"
-    
+
     # Check that steps were created
     steps = db.exec(
         select(RunStep).where(RunStep.run_id == run.id)
     ).scalars().all()
-    
+
     assert len(steps) > 0
     assert any(step.step_type == "llm" for step in steps)
 
@@ -84,7 +85,7 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
     )
     db.add(workflow)
     db.commit()
-    
+
     plan = ExecutionPlan(
         mode="workflow",
         subject_kind="workflow",
@@ -92,13 +93,13 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
         subject_version_id="test_agent_version",
         inputs={},
     )
-    
+
     # Execute (may fail if workflow not configured)
     try:
         asyncio.run(engine.execute(plan))
     except Exception:
         pass
-    
+
     # Check that run was created
     run = db.exec(
         select(Run).where(
@@ -107,7 +108,7 @@ def test_workflow_execution_creates_trace(db: Session, ctx: RequestContext):
             Run.mode == "workflow",
         )
     ).scalars().first()
-    
+
     assert run is not None
 
 
@@ -115,7 +116,7 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
     """Test that agent execution creates run and steps."""
     trace_writer = TraceWriter(db, ctx)
     engine = ExecutionEngine(db, ctx, trace_writer)
-    
+
     plan = ExecutionPlan(
         mode="agent",
         subject_kind="agent",
@@ -129,13 +130,13 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
             "max_iterations": 1,
         },
     )
-    
+
     # Execute (may fail if LLM gateway not configured)
     try:
         asyncio.run(engine.execute(plan))
     except Exception:
         pass
-    
+
     # Check that run was created
     run = db.exec(
         select(Run).where(
@@ -144,9 +145,9 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
             Run.mode == "agent",
         )
     ).scalars().first()
-    
+
     assert run is not None
-    
+
     # Check that planning steps were created
     steps = db.exec(
         select(RunStep).where(
@@ -154,8 +155,7 @@ def test_agent_execution_creates_trace(db: Session, ctx: RequestContext):
             RunStep.step_type == "agent_plan",
         )
     ).scalars().all()
-    
-    # Should have at least one planning step
-    assert len(steps) >= 0  # May be 0 if execution failed early
+
+    assert steps, "Agent execution must emit an agent_plan audit step"
 
 

@@ -30,6 +30,8 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryResponse,
     KnowledgeResponse,
     KnowledgeUpdateRequest,
+    KnowledgeWorkbenchItemsResponse,
+    KnowledgeWorkbenchResponse,
 )
 from app.modules.knowledge.application.service import KnowledgeService
 
@@ -60,6 +62,40 @@ async def list_knowledge(
 
     handlers = KnowledgeHandlers(service)
     return await handlers.list_knowledge(ctx, page_token, page_size)
+
+
+@router.get("/workbench", response_model=KnowledgeWorkbenchResponse)
+async def get_knowledge_workbench(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """Get Knowledge workbench aggregate data."""
+
+    handlers = KnowledgeHandlers(service)
+    return await handlers.get_workbench(ctx, page_token, page_size)
+
+
+@router.get("/workbench/items", response_model=KnowledgeWorkbenchItemsResponse)
+async def list_knowledge_workbench_items(
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """Get Knowledge workbench table rows."""
+
+    handlers = KnowledgeHandlers(service)
+    return await handlers.get_workbench_items(
+        ctx,
+        page_token=page_token,
+        page_size=page_size,
+        tab=tab,
+        keyword=keyword,
+    )
 
 
 @router.get("/{knowledge_id}", response_model=KnowledgeResponse)
@@ -225,7 +261,7 @@ async def rebuild_knowledge_index(
 async def upload_knowledge_document(
     knowledge_id: str,
     doc_key: str = Form(...),
-    source_type: str = Form(...),
+    source_kind: str = Form(...),
     source_uri: Optional[str] = Form(None),
     file_id: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
@@ -259,7 +295,7 @@ async def upload_knowledge_document(
 
     payload = KnowledgeDocumentUpload(
         doc_key=doc_key,
-        source_type=source_type,
+        source_kind=source_kind,
         source_uri=source_uri,
         file_id=file_id,
         title=title,
@@ -271,13 +307,12 @@ async def upload_knowledge_document(
         content_hash=content_hash,
         access_policy_json=access_policy,
     )
-    file_content = await file.read() if file else None
     handlers = KnowledgeHandlers(service)
     return await handlers.upload_document(
         ctx,
         knowledge_id,
         payload,
-        file_content,
+        file,
         async_ingest=async_ingest,
         max_retries=max_retries,
     )

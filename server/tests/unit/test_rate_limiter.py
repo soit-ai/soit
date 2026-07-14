@@ -3,12 +3,13 @@
 Unit tests for rate limiter.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 import redis.asyncio as redis_async
 
-from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.commons.errors import ForbiddenError
+from app.kernel.ports.common.rate_limiter import RateLimiter
 
 
 @pytest.fixture
@@ -27,13 +28,13 @@ def mock_redis():
 async def test_rate_limit_allowed(mock_redis):
     """Test that request within limit is allowed."""
     limiter = RateLimiter(redis_client=mock_redis)
-    
+
     result = await limiter.check_rate_limit(
         key="test_key",
         limit=10,
         window_seconds=60,
     )
-    
+
     assert result is True
 
 
@@ -42,9 +43,9 @@ async def test_rate_limit_exceeded(mock_redis):
     """Test that exceeding rate limit raises ForbiddenError."""
     # Mock Redis to return 0 (rate limit exceeded)
     mock_redis.eval = AsyncMock(return_value=0)
-    
+
     limiter = RateLimiter(redis_client=mock_redis)
-    
+
     with pytest.raises(ForbiddenError):
         await limiter.check_rate_limit(
             key="test_key",
@@ -57,14 +58,14 @@ async def test_rate_limit_exceeded(mock_redis):
 async def test_get_remaining(mock_redis):
     """Test getting remaining requests."""
     mock_redis.zcard = AsyncMock(return_value=5)
-    
+
     limiter = RateLimiter(redis_client=mock_redis)
-    
+
     remaining = await limiter.get_remaining(
         key="test_key",
         limit=10,
         window_seconds=60,
     )
-    
+
     assert remaining == 5
 

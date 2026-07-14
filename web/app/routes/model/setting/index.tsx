@@ -13,6 +13,7 @@ import { useTranslation } from '@/i18n'
 
 const ProviderKindOptions = [
   { label: 'OpenAI', value: 'openai' },
+  { label: 'DeepSeek', value: 'deepseek' },
   { label: 'Anthropic', value: 'anthropic' },
   { label: 'Gemini', value: 'gemini' },
   { label: 'OpenAI Compatible', value: 'openai_compat' },

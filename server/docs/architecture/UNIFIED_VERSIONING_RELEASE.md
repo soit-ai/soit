@@ -136,8 +136,8 @@ class VersionControlService:
 Release ledger must be queryable through stable read endpoints so frontend code can render publish history and rollback provenance directly.
 
 - `GET /api/v1/agents/{agent_id}/releases`
-- `GET /api/v1/skills/{skill_id}/releases`
 - `GET /api/v1/workflows/{workflow_id}/releases`
+- `GET /api/v1/plugins/{plugin_id}/releases` for plugin-owned skill or MCP artifacts
 
 Returned items should expose:
 
@@ -258,10 +258,9 @@ Optional future state:
 
 ## Persistence Strategy
 
-Physical tables stay separate in this phase:
+Physical version tables stay separate for agent and workflow in this phase. Skill is now versioned only through plugin versions:
 
 - `agent_versions`, `agent_publishes`
-- `skill_versions`, `skill_publishes`
 - `workflow_versions`, `workflow_publishes`
 
 But schemas should converge on a minimum common contract.
@@ -271,7 +270,7 @@ But schemas should converge on a minimum common contract.
 - `id`
 - `tenant_id`
 - `workspace_id`
-- subject foreign key
+- subject id column
 - `version`
 - `status`
 - `spec_schema`
@@ -286,15 +285,15 @@ Notes:
 
 - `agent_versions` is already close.
 - `workflow_versions` should add `checksum` and `changelog`.
-- `skill_versions` should add `checksum`, `created_from_version_id`, and `changelog`.
+- Skill versions are not modeled independently; skill artifacts inherit `PluginVersion`.
 
 ### Publish tables: recommended common fields
 
 - `id`
 - `tenant_id`
 - `workspace_id`
-- subject foreign key
-- target version foreign key
+- subject id column
+- target version id column
 - `action`
 - `scope`
 - `status`
@@ -310,7 +309,7 @@ Notes:
 
 - `agent_publishes` already contains `notes` and `rollback_of_publish_id`.
 - `workflow_publishes` should add `action`, `from_version_id`, `to_version_id`, and `rollback_of_publish_id`.
-- `skill_publishes` should add the same fields plus `notes`.
+- Skill publish/rollback is handled by `PluginRelease`.
 
 ## Module-specific Integration
 
@@ -323,9 +322,9 @@ Notes:
 
 ### Skill
 
-- `create_version` should advance `current_version_id`
-- `publish_version` should stop doing ad-hoc pointer management and delegate to the shared service
-- keep skill-specific validation in the skill adapter
+- Skill is no longer an independent versioned module.
+- Skill specs are plugin artifacts stored in `PluginInstalledArtifact.metadata_json["skill"]`.
+- Skill lifecycle, publish, rollback, install, upgrade, and uninstall are handled by the plugin lifecycle.
 
 ### Workflow
 
@@ -338,7 +337,7 @@ Notes:
 
 ## API Compatibility Strategy
 
-Existing endpoints may stay initially, but their behavior should be redirected to the unified service.
+Existing agent and workflow endpoints may stay initially, but their behavior should be redirected to the unified service. Skill and MCP endpoints are removed; callers must use plugin APIs and capability queries.
 
 Recommended normalization:
 
@@ -360,14 +359,13 @@ This allows external API stability while removing internal semantic drift.
 
 ### Phase 2: align module behavior
 
-- make `skill.create_version` update head pointer
 - split workflow create-vs-publish behavior
 - ensure rollback always writes release ledger
 - ensure formal execution reads live version only
 
 ### Phase 3: align schema
 
-- add missing common columns to `skill_*` and `workflow_*` tables
+- add missing common columns to workflow tables
 - backfill fields where possible
 - add indexes for release history queries if needed
 
@@ -390,6 +388,7 @@ This allows external API stability while removing internal semantic drift.
 ## Acceptance Criteria
 
 - draft, publish, rollback, and live execution semantics are consistent for `agent`, `skill`, and `workflow`
+- skill lifecycle is consistent through `PluginVersion` and `PluginRelease`
 - all publish and rollback actions create release ledger records
 - live execution resolves from `published_version_id` only
 - module services delegate orchestration to a shared versioning service

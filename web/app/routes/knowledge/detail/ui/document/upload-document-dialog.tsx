@@ -47,7 +47,7 @@ export function UploadDocumentDialog({
           knowledgeId,
           {
             doc_key: docKey,
-            source_type: 'upload',
+            source_kind: 'upload',
             title: file.name,
             filename: file.name,
             mime_type: file.type,

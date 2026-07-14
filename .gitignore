@@ -6,5 +6,6 @@
 .vscode/*
 .worktrees/
 .superpowers/
+design/
 docs/superpowers/
 .env

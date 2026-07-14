@@ -60,12 +60,6 @@ def downgrade() -> None:
         sa.Column("completed_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["response_id"], ["responses.id"]),
-        sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
-        sa.ForeignKeyConstraint(["step_id"], ["run_steps.id"]),
-        sa.ForeignKeyConstraint(["thread_id"], ["threads.id"]),
-        sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
-        sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
     )
     op.create_index("ix_tool_calls_response_created", "tool_calls", ["response_id", "created_at"])
     op.create_index("ix_tool_calls_run_status", "tool_calls", ["run_id", "status"])

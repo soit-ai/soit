@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.kernel.events.outbox_models import EventOutbox
 from app.kernel.events.registry import OutboxHandlerRegistry
+from app.kernel.runtime.db.models.events import EventOutbox
 
 _registry = OutboxHandlerRegistry()
 _handlers_registered = False
@@ -29,47 +29,48 @@ def register_outbox_handlers() -> None:
 
     reg.register("outbox.smoke", "builtin.smoke", _builtin_smoke_handler)
 
-    from app.kernel.runtime.events import RunEventType, TaskEventType
-    from app.kernel.runtime.handlers.on_run_created import handle_run_created_outbox
-    from app.kernel.runtime.handlers.on_task_outbox import handle_task_runtime_outbox
+    from app.kernel.runtime.runs.events import RunEventType
+    from app.kernel.runtime.runs.handlers import handle_run_created_outbox
+    from app.kernel.runtime.tasks.events import TaskEventType
+    from app.kernel.runtime.tasks.on_task_outbox import handle_task_runtime_outbox
 
     reg.register(RunEventType.CREATED, "runtime.run_created.builtin", handle_run_created_outbox)
 
-    from app.kernel.observability.event_types import ObservabilityEventType
-    from app.kernel.observability.handlers.execution_observability import (
-        handle_cost_recorded_observability,
-        handle_run_created_observability,
-        handle_run_status_updated_observability,
-        handle_step_created_observability,
-        handle_step_status_updated_observability,
-        handle_task_lifecycle_observability,
-        handle_workflow_node_observability,
+    from app.kernel.observe.event_types import ObserveEventType
+    from app.kernel.observe.handlers.execution_observe import (
+        handle_cost_recorded_observe,
+        handle_run_created_observe,
+        handle_run_status_updated_observe,
+        handle_step_created_observe,
+        handle_step_status_updated_observe,
+        handle_task_lifecycle_observe,
+        handle_workflow_node_observe,
     )
 
     reg.register(
         RunEventType.CREATED,
-        "observability.run_created.trace_metrics",
-        handle_run_created_observability,
+        "observe.run_created.trace_metrics",
+        handle_run_created_observe,
     )
     reg.register(
-        ObservabilityEventType.COST_RECORDED,
-        "observability.cost.metrics",
-        handle_cost_recorded_observability,
+        ObserveEventType.COST_RECORDED,
+        "observe.cost.metrics",
+        handle_cost_recorded_observe,
     )
     reg.register(
-        ObservabilityEventType.RUN_STATUS_UPDATED,
-        "observability.run_status.trace_metrics",
-        handle_run_status_updated_observability,
+        ObserveEventType.RUN_STATUS_UPDATED,
+        "observe.run_status.trace_metrics",
+        handle_run_status_updated_observe,
     )
     reg.register(
-        ObservabilityEventType.STEP_CREATED,
-        "observability.step_created.trace_metrics",
-        handle_step_created_observability,
+        ObserveEventType.STEP_CREATED,
+        "observe.step_created.trace_metrics",
+        handle_step_created_observe,
     )
     reg.register(
-        ObservabilityEventType.STEP_STATUS_UPDATED,
-        "observability.step_status.trace_metrics",
-        handle_step_status_updated_observability,
+        ObserveEventType.STEP_STATUS_UPDATED,
+        "observe.step_status.trace_metrics",
+        handle_step_status_updated_observe,
     )
 
     for _name, event_type in (
@@ -87,20 +88,20 @@ def register_outbox_handlers() -> None:
         )
         reg.register(
             event_type,
-            f"observability.task.{_name}",
-            handle_task_lifecycle_observability,
+            f"observe.task.{_name}",
+            handle_task_lifecycle_observe,
         )
 
-    from app.modules.observability.domain.approval_events import ApprovalEventType
-    from app.modules.observability.handlers.on_approval_outbox import (
+    from app.modules.observe.domain.approval_events import ApprovalEventType
+    from app.modules.observe.handlers.on_approval_outbox import (
         handle_approval_approved_outbox,
         handle_approval_rejected_outbox,
         handle_approval_requested_outbox,
     )
 
-    reg.register(ApprovalEventType.REQUESTED, "observability.approval.requested", handle_approval_requested_outbox)
-    reg.register(ApprovalEventType.APPROVED, "observability.approval.approved", handle_approval_approved_outbox)
-    reg.register(ApprovalEventType.REJECTED, "observability.approval.rejected", handle_approval_rejected_outbox)
+    reg.register(ApprovalEventType.REQUESTED, "observe.approval.requested", handle_approval_requested_outbox)
+    reg.register(ApprovalEventType.APPROVED, "observe.approval.approved", handle_approval_approved_outbox)
+    reg.register(ApprovalEventType.REJECTED, "observe.approval.rejected", handle_approval_rejected_outbox)
 
     from app.modules.workflow.domain.workflow_events import WorkflowEventType
     from app.modules.workflow.handlers.on_workflow_node_outbox import (
@@ -120,11 +121,11 @@ def register_outbox_handlers() -> None:
     )
     reg.register(
         WorkflowEventType.NODE_COMPLETED,
-        "observability.workflow.node_completed",
-        handle_workflow_node_observability,
+        "observe.workflow.node_completed",
+        handle_workflow_node_observe,
     )
     reg.register(
         WorkflowEventType.NODE_FAILED,
-        "observability.workflow.node_failed",
-        handle_workflow_node_observability,
+        "observe.workflow.node_failed",
+        handle_workflow_node_observe,
     )

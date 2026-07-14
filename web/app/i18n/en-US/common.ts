@@ -10,6 +10,7 @@ const translation = {
     create: 'Created',
     remove: 'Removed',
   },
+  retry: 'Retry',
   operation: {
     create: 'Create',
     confirm: 'Confirm',

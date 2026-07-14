@@ -56,7 +56,7 @@ export interface KnowledgeDocument {
   doc_key: string
   version: number
   is_latest: boolean
-  source_type: string
+  source_kind: string
   title?: string | null
   language?: string | null
   mime_type?: string | null
@@ -146,19 +146,20 @@ export interface KnowledgeIngestTask {
   tenant_id: string
   workspace_id: string
   knowledge_id: string
-  document_id: string
+  document_id?: string | null
   status: string
-  mode: string
+  run_id?: string | null
+  error_code?: string | null
+  error_message?: string | null
   max_retries: number
   retry_count: number
-  last_error_code?: string | null
-  last_error_message?: string | null
-  checkpoint_json: Record<string, unknown>
   payload_json: Record<string, unknown>
+  created_by?: string | null
+  updated_by?: string | null
   created_at: string
   updated_at: string
   started_at?: string | null
-  ended_at?: string | null
+  finished_at?: string | null
 }
 
 export interface KnowledgeQueryRequest {
@@ -211,7 +212,7 @@ export interface KnowledgeQueryResponse {
 
 export interface KnowledgeDocumentUploadRequest {
   doc_key: string
-  source_type: string
+  source_kind: string
   source_uri?: string
   file_id?: string
   title?: string
@@ -239,11 +240,80 @@ export interface KnowledgeUsage {
   last_run_at?: string | null
 }
 
+export interface KnowledgeWorkbenchSummary {
+  total_knowledge_bases: number
+  ready_knowledge_bases: number
+  total_documents: number
+  total_chunks: number
+  today_calls: number
+  avg_latency_ms?: number | null
+  hit_rate?: number | null
+  recent_exceptions: number
+  updated_at: string
+}
+
+export interface KnowledgeWorkbenchTabs {
+  all: number
+  high_volume: number
+  low_hit: number
+  slow: number
+  unconfigured: number
+}
+
+export interface KnowledgeWorkbenchRow {
+  id: string
+  name: string
+  description?: string | null
+  status: 'ready' | 'indexing' | 'error' | 'unconfigured'
+  knowledge_type: string
+  content_source: string
+  document_count: number
+  chunk_count: number
+  today_calls: number
+  avg_latency_ms?: number | null
+  hit_rate?: number | null
+  recent_exception_count: number
+  owner?: string | null
+  last_sync_at?: string | null
+  action_enabled: boolean
+  updated_at: string
+}
+
+export interface KnowledgeWorkbenchResponse {
+  summary: KnowledgeWorkbenchSummary
+  tabs: KnowledgeWorkbenchTabs
+  items: KnowledgeWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
+}
+
+export interface KnowledgeWorkbenchItemsResponse {
+  items: KnowledgeWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
+}
+
 export const listKnowledgeBases = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<KnowledgeBase>> => {
   return get<PaginatedResponse<KnowledgeBase>>('/knowledge', params).then((response) => response.data)
+}
+
+export const getKnowledgeWorkbench = (params?: {
+  page_token?: string
+  page_size?: number
+}): Promise<KnowledgeWorkbenchResponse> => {
+  return get<KnowledgeWorkbenchResponse>('/knowledge/workbench', params).then((response) => response.data)
+}
+
+export const getKnowledgeWorkbenchItems = (params?: {
+  tab?: string
+  keyword?: string
+  page_token?: string
+  page_size?: number
+}): Promise<KnowledgeWorkbenchItemsResponse> => {
+  return get<KnowledgeWorkbenchItemsResponse>('/knowledge/workbench/items', params).then((response) => response.data)
 }
 
 export const getKnowledgeBase = (knowledgeId: string): Promise<KnowledgeBase> => {
@@ -325,7 +395,7 @@ export const uploadKnowledgeDocument = async (
 ): Promise<KnowledgeDocument> => {
   const formData = new FormData()
   formData.append('doc_key', data.doc_key)
-  formData.append('source_type', data.source_type)
+  formData.append('source_kind', data.source_kind)
   if (data.source_uri) formData.append('source_uri', data.source_uri)
   if (data.file_id) formData.append('file_id', data.file_id)
   if (data.title) formData.append('title', data.title)

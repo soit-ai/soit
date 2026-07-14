@@ -6,8 +6,7 @@ import {
   type ExportedMessageRepositoryItem,
   type ModelContext,
 } from '@assistant-ui/react'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
-import { DevToolsModal } from '@assistant-ui/react-devtools'
+import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import { Thread, type ThreadProps } from '@/components/ui/chat/thread'
 import { localRuntime } from '@/components/ui/chat/local-runtime'
 import { MessageConverter, type ChatLedgerMessage } from '@/components/ui/chat/message-adapter'
@@ -20,6 +19,13 @@ import {
   resolveStoredChatProvider,
   isDeepThinkingEnabled,
 } from '@/components/ui/chat/defaults'
+
+const ChatDevTools = import.meta.env.DEV
+  ? lazy(async () => {
+    const module = await import('@assistant-ui/react-devtools')
+    return { default: module.DevToolsModal }
+  })
+  : null
 
 export type ChatBoxProps = ThreadProps & {
   agentId: string
@@ -211,7 +217,11 @@ export const ChatBox = forwardRef<AssistantClient, ChatBoxProps>(
 
     return (
       <AssistantRuntimeProvider runtime={runtime}>
-        <DevToolsModal />
+        {ChatDevTools ? (
+          <Suspense fallback={null}>
+            <ChatDevTools />
+          </Suspense>
+        ) : null}
         <ModelContextBridge getModelContext={getModelContext} />
         <AuiBridge ref={ref} />
         <ThreadSyncEffect

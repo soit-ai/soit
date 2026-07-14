@@ -1,5 +1,4 @@
-import { scan } from 'react-scan' // import this BEFORE react
-import { useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 import { ThemeProvider } from '@/components/theme-provider'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -8,8 +7,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Route } from './+types/root'
 import stylesheet from './app.css?url'
 import { Toaster } from 'sonner'
-import { AssistantModal } from '@/components/ui/chat/assistant-modal'
-import { AssistantSidebar } from '@/components/ui/chat/assistant-sidebar'
 import { DrawerProvider } from '@/hooks/use-drawer'
 const queryClient = new QueryClient()
 // const persistor = createWebStoragePersistor({
@@ -30,20 +27,7 @@ export const links: Route.LinksFunction = () => [
   { rel: 'stylesheet', href: stylesheet },
 ]
 
-export function Layout({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    // Make sure to run react-scan only after hydration
-    if (typeof window !== 'undefined') {
-      // production mode clear
-      if (!import.meta.env.PROD) {
-        // scan({
-        //   enabled: true,
-        //   log: false, // logs render info to console (default: false)
-        // })
-      }
-    }
-  }, [])
-
+export function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="bg-background text-foreground">
       <head>
@@ -78,8 +62,6 @@ export default function App() {
         <DrawerProvider>
           <Outlet />
           <Toaster position="top-right" expand={true} closeButton={true} />
-          {/* <AssistantModal></AssistantModal> */}
-          {/* <AssistantSidebar></AssistantSidebar> */}
         </DrawerProvider>
       </QueryClientProvider>
       {/* </PersistQueryClientProvider> */}

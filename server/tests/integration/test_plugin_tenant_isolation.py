@@ -8,8 +8,6 @@ import json
 import zipfile
 from pathlib import Path
 
-import pytest
-
 from app.kernel.registry.deps import get_registry
 from app.modules.plugin.infra.installer import PluginInstaller
 from app.modules.plugin.runtime.loader import PluginRuntimeLoader

@@ -12,7 +12,6 @@ export function Item(props: { item?: any; index: number }) {
   const { item = {}, index } = props
 
   const onClick = () => {
-    console.log('clicked')
   }
 
   const renderHeader = () => {

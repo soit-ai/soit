@@ -180,7 +180,7 @@
         "doc_key",
         "version",
         "is_latest",
-        "source_type",
+        "source_kind",
         "status",
         "retry_count",
         "parse_meta_json",
@@ -213,7 +213,7 @@
         "is_latest": {
           "type": "boolean"
         },
-        "source_type": {
+        "source_kind": {
           "type": "string",
           "enum": [
             "upload",

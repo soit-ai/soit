@@ -57,10 +57,10 @@ export default function RootLayout() {
       ) : (
         <div className="flex h-full w-full overflow-hidden bg-transparent">
           <RootSidebar className="fixed z-30 flex h-full w-[calc(var(--root-sidebar-width)+1px)] flex-col overflow-hidden border-r border-border/60 bg-shell/78 p-0 backdrop-blur-xl" />
-          <div className="ml-[calc(var(--root-sidebar-width)+1px)] flex h-full w-full flex-1 flex-col p-0">
+          <div className="ml-[calc(var(--root-sidebar-width)+1px)] flex h-full min-w-0 flex-1 flex-col p-0">
             <RootHeader />
-            <div className="flex h-full w-full flex-1 flex-col gap-0 overflow-hidden p-0 pt-[var(--root-header-height)]">
-              <ScrollArea className="flex flex-1 h-screen">
+            <div className="flex h-full min-w-0 w-full flex-1 flex-col gap-0 overflow-hidden p-0 pt-[var(--root-header-height)]">
+              <ScrollArea className="flex min-w-0 flex-1 h-screen">
                 <Outlet />
               </ScrollArea>
             </div>

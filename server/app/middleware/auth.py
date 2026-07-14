@@ -3,27 +3,28 @@
 Authentication middleware for FastAPI.
 """
 
-from typing import Optional
-from fastapi import Depends, HTTPException, status, Request, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import logging
+
+from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.context_resolver import ContextResolver
+from app.kernel.commons.errors import ForbiddenError, NotFoundError, UnauthorizedError
 from app.kernel.contracts.context import RequestContext
-from app.settings.settings import settings
-from app.kernel.observability.context import set_request_context
 from app.kernel.identity.auth import decode_jwt_token
-
+from app.kernel.observe.context import set_request_context
 
 security = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 # Global context resolver instance
-_context_resolver: Optional[ContextResolver] = None
+_context_resolver: ContextResolver | None = None
 
 
 def get_context_resolver() -> ContextResolver:
     """Get or create context resolver instance.
-    
+
     Returns:
         ContextResolver instance.
     """
@@ -33,28 +34,35 @@ def get_context_resolver() -> ContextResolver:
         class SimpleJWTManager:
             def decode_token(self, token: str):
                 return decode_jwt_token(token)
-        
+
+        from app.modules.identity.infra.workspace_access import (
+            DatabaseWorkspaceAccessResolver,
+        )
+
         jwt_manager = SimpleJWTManager()
-        _context_resolver = ContextResolver(jwt_manager)
+        _context_resolver = ContextResolver(
+            jwt_manager,
+            workspace_access_resolver=DatabaseWorkspaceAccessResolver(),
+        )
     return _context_resolver
 
 
 async def get_current_context(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    x_workspace_id: Optional[str] = Header(None, alias="X-Workspace-Id"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    x_workspace_id: str | None = Header(None, alias="X-Workspace-Id"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ) -> RequestContext:
     """Dependency to get current request context.
-    
+
     Args:
         request: FastAPI request object.
         credentials: HTTP authorization credentials.
         x_workspace_id: Workspace ID from header.
-        
+
     Returns:
         RequestContext instance.
-        
+
     Raises:
         HTTPException: If authentication fails.
     """
@@ -90,26 +98,39 @@ async def get_current_context(
             user_id=context.user_id,
         )
         return context
-    except Exception as e:
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.message)
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",
+            detail=e.message,
+        )
+    except Exception:
+        logger.exception("Authentication context resolution failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
         )
 
 
 async def get_current_context_from_request(
     request: Request,
-    workspace_id_header: Optional[str] = None,
+    workspace_id_header: str | None = None,
 ) -> RequestContext:
     """Get current context from FastAPI request.
-    
+
     Args:
         request: FastAPI request object.
         workspace_id_header: Optional workspace ID from header.
-        
+
     Returns:
         RequestContext instance.
-        
+
     Raises:
         HTTPException: If authentication fails.
     """
@@ -143,8 +164,21 @@ async def get_current_context_from_request(
             user_id=context.user_id,
         )
         return context
-    except Exception as e:
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.message)
+    except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",
+            detail=e.message,
+        )
+    except Exception:
+        logger.exception("Authentication context resolution failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
         )

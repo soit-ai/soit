@@ -37,7 +37,6 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
             sa.Column("deleted_at", sa.DateTime(), nullable=True),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
         )
         op.create_index("ix_threads_agent_status", "threads", ["agent_id", "status"])
 
@@ -56,9 +55,6 @@ def upgrade() -> None:
             sa.Column("metadata_json", sa.JSON(), nullable=True),
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["thread_id"], ["threads.id"]),
-            sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
-            sa.ForeignKeyConstraint(["parent_message_id"], ["thread_messages.id"]),
         )
         op.create_index("ix_thread_messages_thread_created", "thread_messages", ["thread_id", "created_at"])
 
@@ -84,9 +80,6 @@ def upgrade() -> None:
             sa.Column("updated_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["thread_id"], ["threads.id"]),
-            sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
         )
         op.create_index("ix_tasks_agent_status", "tasks", ["agent_id", "status"])
         op.create_index("ix_tasks_run_status", "tasks", ["run_id", "status"])
@@ -102,7 +95,6 @@ def upgrade() -> None:
             sa.Column("status", sa.String(), nullable=False),
             sa.Column("payload_json", sa.JSON(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
             sa.UniqueConstraint("task_id", "checkpoint_no", name="uq_task_checkpoint_no"),
         )
         op.create_index("ix_task_checkpoints_task_id", "task_checkpoints", ["task_id"])
@@ -117,7 +109,6 @@ def upgrade() -> None:
             sa.Column("event_type", sa.String(), nullable=False),
             sa.Column("payload_json", sa.JSON(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
         )
         op.create_index("ix_task_events_task_created", "task_events", ["task_id", "created_at"])
 

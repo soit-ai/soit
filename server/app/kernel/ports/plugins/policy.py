@@ -5,34 +5,30 @@ Default policies for plugin runtime invocation.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Dict, Optional, List
+from typing import Any
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.plugins.interface import PluginRuntimePort
-from app.kernel.ports.common.audit import log_gateway_request
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.ports.storage.interface import StoragePort
+from app.kernel.commons.errors import TimeoutError
 from app.kernel.commons.time import utc_now
-from app.kernel.commons.errors import TimeoutError, KernelError
+from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.common.audit import log_gateway_request
+from app.kernel.ports.common.policy import (
+    error_details,
+    resolve_run_id,
+    run_with_timeout_retry,
+)
+from app.kernel.ports.plugins.interface import PluginRuntimePort
+from app.kernel.ports.storage.interface import StoragePort
+from app.kernel.runtime.runs.writer import TraceWriter
 
 DEFAULT_PLUGIN_TIMEOUT_S: float = 30.0
 
 
-def _resolve_run_id(kwargs: Dict[str, Any], ctx: RequestContext) -> str:
-    """Resolve run_id for trace emission."""
-    run_id = kwargs.get("run_id") or getattr(ctx, "run_id", None)
-    return str(run_id) if run_id else ""
+def _resolve_run_id(kwargs: dict[str, Any], ctx: RequestContext) -> str:
+    return resolve_run_id(kwargs, ctx)
 
 
-def _error_details(exc: Exception) -> Dict[str, Any]:
-    details: Dict[str, Any] = {"error_type": type(exc).__name__}
-    if isinstance(exc, KernelError):
-        details["code"] = exc.code
-        details.update(exc.details or {})
-    else:
-        details["detail"] = str(exc)
-    return details
+def _error_details(exc: Exception) -> dict[str, Any]:
+    return error_details(exc)
 
 
 def _plugin_tool_ref(plugin_name: str, tool_name: str) -> str:
@@ -46,8 +42,8 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
         self,
         gateway: PluginRuntimePort,
         ctx: RequestContext,
-        trace_writer: Optional[TraceWriter] = None,
-        storage_port: Optional[StoragePort] = None,
+        trace_writer: TraceWriter | None = None,
+        storage_port: StoragePort | None = None,
         timeout_seconds: int = DEFAULT_PLUGIN_TIMEOUT_S,
     ) -> None:
         self.gateway = gateway
@@ -62,8 +58,16 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
         plugin_name: str,
         version: str,
         ctx: RequestContext,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         return self.gateway.list_tools(plugin_name=plugin_name, version=version, ctx=ctx)
+
+    def resolve_skill_context(
+        self,
+        *,
+        skill_refs: list[str],
+        ctx: RequestContext,
+    ) -> str | None:
+        return self.gateway.resolve_skill_context(skill_refs=skill_refs, ctx=ctx)
 
     async def invoke(
         self,
@@ -71,11 +75,11 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
         plugin_name: str,
         version: str,
         tool_name: str,
-        input_json: Dict[str, Any],
+        input_json: dict[str, Any],
         ctx: RequestContext,
-        timeout_s: Optional[float] = None,
+        timeout_s: float | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         step = None
         if self.trace_writer:
             run_id = _resolve_run_id(kwargs, self.ctx)
@@ -90,23 +94,27 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
 
         start_time = utc_now()
         try:
-            try:
-                response = await asyncio.wait_for(
-                    self.gateway.invoke(
+            effective_timeout = timeout_s or self.timeout_seconds
+
+            async def _invoke():
+                return await self.gateway.invoke(
                         plugin_name=plugin_name,
                         version=version,
                         tool_name=tool_name,
                         input_json=input_json,
                         ctx=ctx,
                         timeout_s=timeout_s,
-                    ),
-                    timeout=timeout_s or self.timeout_seconds,
                 )
-            except asyncio.TimeoutError:
-                raise TimeoutError(
-                    f"Plugin invocation timed out after {timeout_s or self.timeout_seconds} seconds",
+
+            response = await run_with_timeout_retry(
+                _invoke,
+                timeout_seconds=effective_timeout,
+                max_retries=1,
+                timeout_factory=lambda: TimeoutError(
+                    f"Plugin invocation timed out after {effective_timeout} seconds",
                     {"plugin": plugin_name, "tool": tool_name},
-                )
+                ),
+            )
 
             if step and self.trace_writer:
                 await log_gateway_request(

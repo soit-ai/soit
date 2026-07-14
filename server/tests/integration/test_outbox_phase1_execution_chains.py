@@ -9,14 +9,14 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.events.dispatcher import OutboxDispatcher
 from app.kernel.events.envelope import DomainEventEnvelope
-from app.kernel.events.outbox_models import EventOutbox
 from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.publisher import OutboxPublisher
-from app.kernel.runtime.contracts.status import ApprovalStatus, TaskStatus
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.trace.writer import TraceWriter
-from app.modules.observability.domain.models import ApprovalRequest
-from app.modules.observability.infra.repository import ApprovalRepository
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.tasks.service import TaskService
+from app.kernel.runtime.tasks.status import ApprovalStatus, TaskStatus
+from app.modules.observe.domain.models import ApprovalRequest
+from app.modules.observe.infra.repository import ApprovalRepository
 from app.modules.workflow.domain.models import Workflow, WorkflowRun
 from app.modules.workflow.domain.workflow_events import WorkflowEventType
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
@@ -46,7 +46,7 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
     db.commit()
     assert db.get(EventOutbox, run_row.id).status == "done"
 
-    core = RuntimeCoreService(db, ctx)
+    core = TaskService(db, ctx)
     task_main = core.create_task(task_type="wf_step", status=TaskStatus.QUEUED.value, run_id=run.id)
     core.transition_task(task_id=task_main.id, status=TaskStatus.RUNNING.value)
     core.transition_task(task_id=task_main.id, status=TaskStatus.SUCCEEDED.value)

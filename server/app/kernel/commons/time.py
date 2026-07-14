@@ -3,41 +3,40 @@
 Time utilities (UTC, ISO8601).
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 
 def utc_now() -> datetime:
     """Get current UTC datetime.
-    
+
     Returns:
         Current datetime in UTC timezone.
     """
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def to_iso8601(dt: Optional[datetime]) -> Optional[str]:
+def to_iso8601(dt: datetime | None) -> str | None:
     """Convert datetime to ISO8601 string.
-    
+
     Args:
         dt: Datetime to convert. If None, returns None.
-        
+
     Returns:
         ISO8601 formatted string (e.g., "2025-01-01T00:00:00Z").
     """
     if dt is None:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.isoformat().replace("+00:00", "Z")
 
 
-def from_iso8601(iso_str: Optional[str]) -> Optional[datetime]:
+def from_iso8601(iso_str: str | None) -> datetime | None:
     """Parse ISO8601 string to datetime.
-    
+
     Args:
         iso_str: ISO8601 formatted string.
-        
+
     Returns:
         Datetime object, or None if parsing fails.
     """

@@ -337,19 +337,6 @@ def _upgrade_threads() -> None:
         with op.batch_alter_table("thread_messages") as batch_op:
             batch_op.create_unique_constraint("uq_thread_messages_thread_sequence", ["thread_id", "sequence_no"])
 
-    fk_names = _fk_names("thread_messages")
-    if "fk_thread_messages_task_id_tasks" not in fk_names:
-        op.create_foreign_key("fk_thread_messages_task_id_tasks", "thread_messages", "tasks", ["task_id"], ["id"])
-    if "fk_thread_messages_response_id_responses" not in fk_names:
-        op.create_foreign_key(
-            "fk_thread_messages_response_id_responses",
-            "thread_messages",
-            "responses",
-            ["response_id"],
-            ["id"],
-        )
-
-
 def _upgrade_agents_and_workflows() -> None:
     if _has_table("agents"):
         columns = _column_names("agents")

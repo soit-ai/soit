@@ -144,6 +144,58 @@ const splitReasoningContent = (
   }
 }
 
+const normalizeAttachments = (attachments: unknown): any[] => {
+  if (!Array.isArray(attachments)) {
+    return []
+  }
+  return attachments
+    .filter((attachment): attachment is Record<string, any> => !!attachment && typeof attachment === 'object')
+    .map((attachment) => ({
+      ...attachment,
+      type: attachment.type || 'file',
+      name: attachment.name || attachment.filename || 'Attachment',
+      source: 'message',
+    }))
+}
+
+const stringifyToolArgs = (args: unknown): string => {
+  if (typeof args === 'string') {
+    return args
+  }
+  try {
+    return JSON.stringify(args ?? {})
+  }
+  catch {
+    return '{}'
+  }
+}
+
+const normalizeToolCalls = (toolCalls: unknown): ThreadAssistantMessagePart[] => {
+  if (!Array.isArray(toolCalls)) {
+    return []
+  }
+  return toolCalls
+    .filter((toolCall): toolCall is Record<string, any> => !!toolCall && typeof toolCall === 'object')
+    .map((toolCall, index) => {
+      const toolCallId = toolCall.tool_call_id || toolCall.toolCallId || toolCall.id || `tool-${index + 1}`
+      const toolName = toolCall.tool_name || toolCall.toolName || toolCall.name || 'tool'
+      const args = toolCall.arguments_json ?? toolCall.arguments ?? toolCall.args ?? {}
+      const result = toolCall.result_json ?? toolCall.result
+      const status = toolCall.status === 'failed'
+        ? { type: 'incomplete', reason: 'error', error: toolCall.error || toolCall.error_message || 'Tool call failed' }
+        : { type: 'complete', reason: 'stop' }
+      return {
+        type: 'tool-call',
+        toolCallId: String(toolCallId),
+        toolName: String(toolName),
+        args,
+        argsText: stringifyToolArgs(args),
+        result,
+        status,
+      } as any
+    })
+}
+
 export const MessageConverter = {
   toThreadMessage(message: ChatLedgerMessage): ThreadMessage {
     const metadata = message.metadata_json || {}
@@ -161,6 +213,9 @@ export const MessageConverter = {
       tokens_prompt: message.tokens_prompt ?? metadata.tokens_prompt ?? undefined,
       tokens_completion: message.tokens_completion ?? metadata.tokens_completion ?? undefined,
       finish_reason: message.finish_reason ?? metadata.finish_reason ?? undefined,
+      budget_exceeded: metadata.budget_exceeded ?? undefined,
+      budget_reason: metadata.budget_reason ?? undefined,
+      cost_total: metadata.cost_total ?? undefined,
       citations: message.citations_json ?? metadata.citations ?? undefined,
       attachments: message.attachments_json ?? metadata.attachments ?? undefined,
       tool_calls: message.tool_calls_json ?? metadata.tool_calls ?? undefined,
@@ -192,7 +247,7 @@ export const MessageConverter = {
           ...baseProps,
           role: 'user',
           content: [{ type: 'text', text: message.content }] as readonly ThreadUserMessagePart[],
-          attachments: [],
+          attachments: normalizeAttachments(customMetadata.attachments) as any,
         } as ThreadUserMessage
 
       case 'assistant': {
@@ -204,6 +259,7 @@ export const MessageConverter = {
         if (answer || !assistantContent.length) {
           assistantContent.push({ type: 'text', text: answer } as any)
         }
+        assistantContent.push(...normalizeToolCalls(customMetadata.tool_calls))
         return {
           ...baseProps,
           role: 'assistant',

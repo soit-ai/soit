@@ -25,7 +25,7 @@ export function PlatformMap({ summary }: PlatformMapProps) {
       item.key === 'knowledge' ||
       item.key === 'workflow' ||
       item.key === 'tasks' ||
-      item.key === 'observability'
+      item.key === 'observe'
         ? t(`agent.home.platform.modules.${item.key}.value` as TranslationKey, {
             count:
               item.key === 'knowledge'

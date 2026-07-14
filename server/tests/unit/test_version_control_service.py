@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.modules.versioning.application.service import VersionControlService, VersioningAdapter
+import pytest
+
+from app.kernel.commons.errors import ValidationError
+from app.kernel.contracts.context import RequestContext
+from app.modules.versioning.application.service import (
+    VersionControlService,
+    VersioningAdapter,
+)
 
 
 class FakeAdapter(VersioningAdapter):
@@ -70,6 +77,36 @@ class FakeAdapter(VersioningAdapter):
         return self.releases[offset : offset + limit]
 
 
+class RequiredPublishApprovalGateway:
+    def __init__(self, requires_approval: bool) -> None:
+        self.requires_approval = requires_approval
+        self.requests: list[dict] = []
+
+    def evaluate(self, ctx: RequestContext, request: dict):
+        self.requests.append(dict(request))
+        return SimpleNamespace(
+            requires_approval=self.requires_approval,
+            reason="required_by_workspace_policy" if self.requires_approval else "no_matching_checkpoint_policy",
+            policy_ref="approval:publish" if self.requires_approval else None,
+            task_status="waiting_approval" if self.requires_approval else None,
+            approval_payload={
+                "title": request["title"],
+                "details_json": request["details"],
+            }
+            if self.requires_approval
+            else None,
+        )
+
+
+def _ctx() -> RequestContext:
+    return RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="user-1",
+        request_id="req-1",
+    )
+
+
 def test_version_control_service_tracks_head_and_live_independently():
     adapter = FakeAdapter()
     service = VersionControlService(adapter)
@@ -91,3 +128,52 @@ def test_version_control_service_tracks_head_and_live_independently():
     assert adapter.subject.published_version_id == v1.id
     assert adapter.releases[-1].status == "rolled_back"
     assert adapter.releases[-1].previous_live_version_id == v2.id
+
+
+def test_version_control_service_blocks_publish_when_approval_required():
+    adapter = FakeAdapter()
+    gateway = RequiredPublishApprovalGateway(requires_approval=True)
+    service = VersionControlService(adapter, ctx=_ctx(), approval_checkpoint_gateway=gateway)
+    version = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
+
+    with pytest.raises(ValidationError) as exc:
+        service.publish("subject_1", version.id, notes="release candidate")
+
+    assert exc.value.details["status"] == "waiting_approval"
+    assert exc.value.details["policy_ref"] == "approval:publish"
+    assert adapter.subject.published_version_id is None
+    assert adapter.releases == []
+    assert version.status == "draft"
+    assert gateway.requests == [
+        {
+            "action": "publish",
+            "resource_type": "fake",
+            "resource_ref": "fake:subject_1",
+            "risk_level": "high",
+            "run_id": None,
+            "task_id": None,
+            "thread_id": None,
+            "agent_id": None,
+            "title": "Approve publish: fake subject_1",
+            "details": {
+                "subject_kind": "fake",
+                "subject_id": "subject_1",
+                "version_id": version.id,
+                "version": version.version,
+                "scope": "workspace",
+                "notes": "release candidate",
+            },
+        }
+    ]
+
+
+def test_version_control_service_publishes_when_approval_not_required():
+    adapter = FakeAdapter()
+    gateway = RequiredPublishApprovalGateway(requires_approval=False)
+    service = VersionControlService(adapter, ctx=_ctx(), approval_checkpoint_gateway=gateway)
+    version = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
+
+    service.publish("subject_1", version.id)
+
+    assert adapter.subject.published_version_id == version.id
+    assert adapter.releases[-1].status == "published"

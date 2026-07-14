@@ -3,17 +3,17 @@
 Integration tests for Workflow API endpoints.
 """
 
-from sqlalchemy import select
-import pytest
 from fastapi import status
+from sqlalchemy import select
 
-from app.kernel.responses.models import Response
+from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.db.models.runs import Run
 from app.modules.workflow.domain.models import WorkflowPublish
 
 
 class TestWorkflowAPI:
     """Test workflow API endpoints."""
-    
+
     def test_create_workflow(self, client):
         """Test creating a workflow."""
         response = client.post(
@@ -63,7 +63,37 @@ class TestWorkflowAPI:
         assert payload["icon_url"] == "https://example.com/workflow.png"
         assert payload["category"] == "automation"
         assert payload["tags"] == ["ops", "etl"]
-    
+
+    def test_create_ticket_triage_template_workflow(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        response = client.post(
+            "/api/v1/workflows/templates/ticket-triage",
+            json={"name": "ticket-triage-template-api"},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        payload = response.json()["data"]
+        assert payload["name"] == "ticket-triage-template-api"
+        assert payload["published_version_id"] is None
+        assert payload["metadata_json"]["template_key"] == "ticket_triage"
+
+        version_response = client.get(
+            f"/api/v1/workflows/{payload['id']}/version/current",
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_200_OK
+        graph = version_response.json()["data"]["graph_json"]["graph"]
+        assert [node["id"] for node in graph["nodes"]] == [
+            "start",
+            "knowledge_search",
+            "classify",
+            "approval",
+            "ticket_tool",
+            "response",
+            "end",
+        ]
+
     def test_list_workflows(self, client):
         """Test listing workflows."""
         # Create a workflow first
@@ -76,7 +106,7 @@ class TestWorkflowAPI:
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert create_response.status_code == status.HTTP_201_CREATED
-        
+
         # List workflows
         response = client.get(
             "/api/v1/workflows",
@@ -88,7 +118,118 @@ class TestWorkflowAPI:
         payload = data["data"]
         assert "items" in payload
         assert isinstance(payload["items"], list)
-    
+
+    def test_workflow_workbench_returns_rows_and_runtime_metrics(self, client, db):
+        """Workflow workbench should aggregate workflow state and run health."""
+        from app.kernel.commons.time import utc_now
+
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        published_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "Published Workflow", "description": "Ready workflow"},
+            headers=headers,
+        )
+        assert published_response.status_code == status.HTTP_201_CREATED
+        published_payload = published_response.json()["data"]
+        workflow_id = published_payload["id"]
+        version_id = published_payload["current_version_id"]
+
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        draft_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "Draft Workflow", "description": "Needs publish"},
+            headers=headers,
+        )
+        assert draft_response.status_code == status.HTTP_201_CREATED
+
+        now = utc_now()
+        db.add_all(
+            [
+                Run(
+                    id="run_workflow_workbench_success",
+                    tenant_id="test-tenant",
+                    workspace_id="test-workspace",
+                    mode="workflow",
+                    kind="workflow",
+                    subject_kind="workflow",
+                    subject_id=workflow_id,
+                    subject_version_id=version_id,
+                    status="succeeded",
+                    input_summary="{}",
+                    output_summary="done",
+                    started_at=now,
+                    ended_at=now,
+                    duration_ms=1000,
+                ),
+                Run(
+                    id="run_workflow_workbench_failed",
+                    tenant_id="test-tenant",
+                    workspace_id="test-workspace",
+                    mode="workflow",
+                    kind="workflow",
+                    subject_kind="workflow",
+                    subject_id=workflow_id,
+                    subject_version_id=version_id,
+                    status="failed",
+                    input_summary="{}",
+                    error_message="node failed",
+                    started_at=now,
+                    ended_at=now,
+                    duration_ms=3000,
+                ),
+            ]
+        )
+        db.commit()
+
+        response = client.get("/api/v1/workflows/workbench?page_size=20", headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()["data"]
+        assert payload["summary"]["total_workflows"] == 2
+        assert payload["summary"]["published_workflows"] == 1
+        assert payload["summary"]["running_workflows"] == 1
+        assert payload["summary"]["today_runs"] == 2
+        assert payload["summary"]["avg_latency_ms"] == 2000
+        assert payload["summary"]["success_rate"] == 50.0
+        assert payload["summary"]["recent_exceptions"] == 1
+        assert payload["tabs"]["all"] == 2
+        assert payload["tabs"]["draft"] == 1
+        assert payload["tabs"]["abnormal"] == 1
+
+        published_row = next(item for item in payload["items"] if item["id"] == workflow_id)
+        assert published_row["status"] == "abnormal"
+        assert published_row["today_runs"] == 2
+        assert published_row["avg_latency_ms"] == 2000
+        assert published_row["success_rate"] == 50.0
+        assert published_row["recent_exception_count"] == 1
+        assert published_row["action_enabled"] is True
+        assert published_row["last_run_at"] is not None
+
+        draft_row = next(item for item in payload["items"] if item["name"] == "Draft Workflow")
+        assert draft_row["status"] == "draft"
+        assert draft_row["action_enabled"] is False
+
+        items_response = client.get(
+            "/api/v1/workflows/workbench/items?tab=abnormal&keyword=Published&page_size=1",
+            headers=headers,
+        )
+        assert items_response.status_code == status.HTTP_200_OK
+        items_payload = items_response.json()["data"]
+        assert "summary" not in items_payload
+        assert items_payload["page_size"] == 1
+        assert items_payload["next_page_token"] is None
+        assert [item["id"] for item in items_payload["items"]] == [workflow_id]
+
+        paged_response = client.get("/api/v1/workflows/workbench/items?page_size=1", headers=headers)
+        assert paged_response.status_code == status.HTTP_200_OK
+        assert paged_response.json()["data"]["next_page_token"] is not None
+
     def test_get_workflow(self, client):
         """Test getting a workflow by ID."""
         # Create a workflow first
@@ -102,7 +243,7 @@ class TestWorkflowAPI:
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
-        
+
         # Get workflow
         response = client.get(
             f"/api/v1/workflows/{workflow_id}",
@@ -260,7 +401,7 @@ class TestWorkflowAPI:
         assert latest.to_version_id == initial_version_id
         assert latest.rollback_of_publish_id == previous.id
         assert latest.notes == "rollback default"
-    
+
     def test_update_workflow(self, client):
         """Test updating a workflow."""
         # Create a workflow first
@@ -274,7 +415,7 @@ class TestWorkflowAPI:
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
-        
+
         # Update workflow
         response = client.put(
             f"/api/v1/workflows/{workflow_id}",
@@ -298,7 +439,7 @@ class TestWorkflowAPI:
         assert payload["visibility"] == "tenant"
         assert payload["category"] == "updated-category"
         assert payload["tags"] == ["updated"]
-    
+
     def test_delete_workflow(self, client):
         """Test deleting a workflow."""
         # Create a workflow first
@@ -312,14 +453,14 @@ class TestWorkflowAPI:
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
-        
+
         # Delete workflow
         response = client.delete(
             f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        
+
         # Verify workflow is deleted
         get_response = client.get(
             f"/api/v1/workflows/{workflow_id}",
@@ -331,10 +472,11 @@ class TestWorkflowAPI:
     def test_viewer_cannot_create_workflow(self, db):
         """Viewer role should not be able to create workflows."""
         from fastapi.testclient import TestClient
-        from app.main import app
+
         from app.infra.db.session import get_db
-        from app.middleware.auth import get_current_context
         from app.kernel.contracts.context import RequestContext
+        from app.main import app
+        from app.middleware.auth import get_current_context
 
         def _override_get_db():
             try:
@@ -365,7 +507,7 @@ class TestWorkflowAPI:
             assert response.status_code == status.HTTP_403_FORBIDDEN
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_context, None)
-    
+
     def test_list_runs(self, client):
         """Test listing workflow runs via run API."""
         # Create a workflow first
@@ -383,7 +525,7 @@ class TestWorkflowAPI:
         # List runs (should be empty initially)
         response = client.get(
             "/api/v1/runs",
-            params={"workflow_id": workflow_id, "mode": "workflow"},
+            params={"subject_kind": "workflow", "subject_id": workflow_id, "mode": "workflow"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_200_OK
@@ -392,7 +534,7 @@ class TestWorkflowAPI:
         payload = data["data"]
         assert "items" in payload
         assert isinstance(payload["items"], list)
-    
+
     def test_get_run(self, client):
         """Test getting a workflow run via run API."""
         # Create a workflow first
@@ -460,8 +602,8 @@ class TestWorkflowAPI:
 
         with client.stream(
             "POST",
-            "/api/v1/sse/execution",
-            json={"workflow_id": workflow_id, "inputs": {}},
+            f"/api/v1/workflows/{workflow_id}/stream",
+            json={"inputs": {}},
             headers=headers,
         ) as response:
             assert response.status_code == status.HTTP_200_OK
@@ -470,6 +612,7 @@ class TestWorkflowAPI:
         assert "event: start" in body
         assert "event: compiled" in body
         assert "event: complete" in body
+        assert "workflow_id" not in body
 
         run_id = None
         for raw_line in body.splitlines():
@@ -497,59 +640,257 @@ class TestWorkflowAPI:
         assert len(linked_responses) >= 1
         assert any(item.status == "completed" for item in linked_responses)
 
-    def test_sse_chat_streams_responses_semantic_events(self, client):
-        """Legacy SSE chat endpoint should now emit response semantic events."""
+        with client.stream(
+            "GET",
+            f"/api/v1/runs/{run_id}/stream",
+            headers=headers,
+        ) as response:
+            assert response.status_code == status.HTTP_200_OK
+            replay_body = response.read().decode("utf-8")
+
+        assert "event: run" in replay_body
+        assert "event: complete" in replay_body
+
+    def test_execute_ticket_tool_workflow_projects_tool_call_timeline(self, client):
+        """Ticket demo workflow execution should expose tool-call detail through Responses timeline."""
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
         create_response = client.post(
             "/api/v1/workflows",
             json={
-                "name": "test_workflow_sse_chat",
-                "description": "SSE chat response stream",
+                "name": "test_ticket_tool_workflow",
+                "description": "Ticket workflow tool call demo",
             },
             headers=headers,
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
 
-        with client.stream(
-            "POST",
-            "/api/v1/sse/chat",
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
             json={
-                "workflow_id": workflow_id,
-                "messages": [{"role": "user", "content": "hello semantic sse"}],
+                "graph_json": {
+                    "name": "ticket-tool-flow",
+                    "inputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "outputs_schema": {"type": "object", "properties": {"value": {"type": "object"}}},
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "ticket_tool",
+                                "type": "tool",
+                                "params": {
+                                    "tool_ref": "tool:function:time_now",
+                                    "ticket_id": "{{ inputs.ticket_id }}",
+                                },
+                            },
+                            {
+                                "id": "out1",
+                                "type": "output",
+                                "params": {
+                                    "value": {
+                                        "ticket_id": "{{ inputs.ticket_id }}",
+                                        "tool_ref": "{{ steps.ticket_tool.output.result.tool_ref }}",
+                                    }
+                                },
+                            },
+                        ],
+                        "edges": [{"id": "e1", "from": "ticket_tool", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
             },
             headers=headers,
-        ) as response:
-            assert response.status_code == status.HTTP_200_OK
-            body = response.read().decode("utf-8")
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
 
-        assert "event: response.created" in body
-        assert "event: response.input.added" in body
-        assert "event: response.output_text.delta" in body
-        assert "event: response.output_text.completed" in body
-        assert "event: response.completed" in body
-        assert "[DONE]" in body
-
-        response_id = None
-        for raw_line in body.splitlines():
-            if not raw_line.startswith("data: "):
-                continue
-            payload = raw_line[6:]
-            if payload == "[DONE]":
-                continue
-            import json
-
-            parsed = json.loads(payload)
-            response_id = parsed.get("response_id") or response_id
-            if response_id:
-                break
-
-        assert response_id is not None
-        get_response = client.get(
-            f"/api/v1/responses/{response_id}",
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": version_id},
             headers=headers,
         )
-        assert get_response.status_code == status.HTTP_200_OK
-        assert get_response.json()["data"]["status"] == "completed"
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        execute_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            json={"ticket_id": "TCK-1001"},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        run_id = execute_response.json()["data"]["run_id"]
+
+        timeline_response = client.get(
+            f"/api/v1/responses/by-run/{run_id}",
+            headers=headers,
+        )
+        assert timeline_response.status_code == status.HTTP_200_OK
+        items = timeline_response.json()["data"]["items"]
+        tool_items = [item for item in items if item["tool_calls"]]
+        assert len(tool_items) == 1
+        tool_call = tool_items[0]["tool_calls"][0]
+        assert tool_call["tool_name"] == "tool:function:time_now"
+        assert tool_call["status"] == "completed"
+        assert tool_call["arguments_json"]["ticket_id"] == "TCK-1001"
+
+    def test_ticket_workflow_run_control_contract(self, client, db):
+        """Ticket workflow run controls should pause/resume active runs and replay/retry failed runs."""
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "test_ticket_workflow_controls",
+                "description": "Ticket workflow run control demo",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        workflow_id = create_response.json()["data"]["id"]
+
+        version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={
+                "graph_json": {
+                    "name": "ticket-control-flow",
+                    "inputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "outputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "set_ticket",
+                                "type": "set_var",
+                                "params": {
+                                    "key": "ticket_id",
+                                    "value": "{{ inputs.ticket_id }}",
+                                },
+                            },
+                            {
+                                "id": "out1",
+                                "type": "output",
+                                "params": {"ticket_id": "{{ steps.set_ticket.output.value }}"},
+                            }
+                        ],
+                        "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
+                    },
+                },
+                "created_by": "test-user",
+            },
+            headers=headers,
+        )
+        assert version_response.status_code == status.HTTP_201_CREATED
+        version_id = version_response.json()["data"]["id"]
+
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        running_run = Run(
+            id="run_workflow_control_running",
+            tenant_id="test-tenant",
+            workspace_id="test-workspace",
+            user_id="test-user",
+            mode="workflow",
+            kind="workflow",
+            subject_kind="workflow",
+            subject_id=workflow_id,
+            subject_version_id=version_id,
+            status="running",
+            input_summary='{"ticket_id":"TCK-2001"}',
+        )
+        failed_run = Run(
+            id="run_workflow_control_failed",
+            tenant_id="test-tenant",
+            workspace_id="test-workspace",
+            user_id="test-user",
+            mode="workflow",
+            kind="workflow",
+            subject_kind="workflow",
+            subject_id=workflow_id,
+            subject_version_id=version_id,
+            status="failed",
+            input_summary='{"ticket_id":"TCK-2002"}',
+            error_code="ticket_failed",
+            error_message="ticket workflow failed",
+        )
+        queued_run = Run(
+            id="run_workflow_control_queued",
+            tenant_id="test-tenant",
+            workspace_id="test-workspace",
+            user_id="test-user",
+            mode="workflow",
+            kind="workflow",
+            subject_kind="workflow",
+            subject_id=workflow_id,
+            subject_version_id=version_id,
+            status="queued",
+            input_summary='{"ticket_id":"TCK-2004"}',
+        )
+        db.add(running_run)
+        db.add(failed_run)
+        db.add(queued_run)
+        db.commit()
+
+        pause_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/pause", headers=headers)
+        assert pause_response.status_code == status.HTTP_200_OK
+        assert pause_response.json()["data"] == {"run_id": running_run.id, "status": "paused"}
+
+        resume_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/resume", headers=headers)
+        assert resume_response.status_code == status.HTTP_200_OK
+        assert resume_response.json()["data"] == {"run_id": running_run.id, "status": "running"}
+
+        cancel_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/cancel",
+            json={"reason": "No longer needed"},
+            headers=headers,
+        )
+        assert cancel_response.status_code == status.HTTP_200_OK
+        assert cancel_response.json()["data"] == {"run_id": running_run.id, "status": "canceled"}
+        db.refresh(running_run)
+        assert running_run.status == "canceled"
+        assert running_run.error_code == "workflow_run_canceled"
+        assert running_run.error_message == "No longer needed"
+        assert running_run.ended_at is not None
+
+        fail_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/runs/{queued_run.id}/fail",
+            json={"error_code": "manual_fail", "error_message": "Manual test failure"},
+            headers=headers,
+        )
+        assert fail_response.status_code == status.HTTP_200_OK
+        assert fail_response.json()["data"] == {"run_id": queued_run.id, "status": "failed"}
+        db.refresh(queued_run)
+        assert queued_run.status == "failed"
+        assert queued_run.error_code == "manual_fail"
+        assert queued_run.error_message == "Manual test failure"
+        assert queued_run.ended_at is not None
+
+        retry_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/retry", headers=headers)
+        assert retry_response.status_code == status.HTTP_200_OK
+        retry_payload = retry_response.json()["data"]
+        assert retry_payload["run_id"]
+        assert retry_payload["source_run_id"] == failed_run.id
+        assert retry_payload["control_action"] == "retry"
+        assert retry_payload["output"]["ticket_id"] == "TCK-2002"
+
+        retry_canceled_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/retry", headers=headers)
+        assert retry_canceled_response.status_code == status.HTTP_200_OK
+        retry_canceled_payload = retry_canceled_response.json()["data"]
+        assert retry_canceled_payload["run_id"]
+        assert retry_canceled_payload["source_run_id"] == running_run.id
+        assert retry_canceled_payload["control_action"] == "retry"
+        assert retry_canceled_payload["output"]["ticket_id"] == "TCK-2001"
+
+        replay_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/replay",
+            json={"ticket_id": "TCK-2003"},
+            headers=headers,
+        )
+        assert replay_response.status_code == status.HTTP_200_OK
+        replay_payload = replay_response.json()["data"]
+        assert replay_payload["run_id"]
+        assert replay_payload["source_run_id"] == failed_run.id
+        assert replay_payload["control_action"] == "replay"
+        assert replay_payload["output"]["ticket_id"] == "TCK-2003"
 
 

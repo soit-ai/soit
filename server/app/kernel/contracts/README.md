@@ -10,4 +10,5 @@ Examples:
 
 Rules:
 - No DB models.
-- Keep backward compatibility.
+- Keep contract changes explicit and versioned.
+- Prefer additive dataclass contracts over loose dicts for new kernel-facing APIs.

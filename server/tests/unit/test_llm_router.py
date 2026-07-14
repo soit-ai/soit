@@ -3,8 +3,14 @@
 import pytest
 
 from app.adapters.llm.router import LLMRouterPort
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ChatResponse, EmbeddingResponse, RerankResponse
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.llm.interface import (
+    ChatMessage,
+    ChatResponse,
+    EmbeddingResponse,
+    LLMPort,
+    RerankResponse,
+)
 from app.settings.settings import settings
 
 

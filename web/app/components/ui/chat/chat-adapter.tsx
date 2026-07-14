@@ -5,12 +5,15 @@ import { globalMitt } from '@/hooks/use-mitt'
 import { type ChatModelAdapter } from '@assistant-ui/react'
 import { createThread, getThread } from '@/services/thread-service'
 import { cancelResponse, createResponse, createStreamResponse, type ResponseRead } from '@/services/responses-service'
+import { streamAgentExecution } from '@/services/agent-service'
 import { toast } from 'sonner'
 import { DEFAULT_CHAT_PROVIDER, resolveRuntimeChatModel, resolveStoredChatProvider } from './defaults'
 
 const THINK_OPEN_TAG = '<think>'
 const THINK_CLOSE_TAG = '</think>'
 const STREAM_EMIT_INTERVAL_MS = 40
+const CHAT_RETRY_ATTEMPTS = 3
+const CHAT_RETRY_BASE_DELAY_MS = 250
 
 type AssistantContentPart =
   | { type: 'reasoning'; text: string; duration?: number }
@@ -24,6 +27,16 @@ type ResponseStreamEvent =
   | { type: 'response.completed'; responseId?: string; runId?: string; model?: string; finishReason?: string; usage?: Record<string, unknown> }
   | { type: 'response.failed'; error: string }
   | { type: 'tool.call.requested' | 'tool.call.started' | 'tool.call.completed' | 'tool.call.failed'; toolCallId: string; toolName: string; argumentsText: string; resultText: string }
+
+type AgentStreamEvent =
+  | { type: 'agent.run.started'; runId?: string }
+  | { type: 'agent.response.completed'; output: string }
+  | { type: 'agent.run.completed'; runId?: string; status?: string }
+  | { type: 'agent.run.failed'; runId?: string; threadId?: string; taskId?: string; responseId?: string; errorCode?: string; errorMessage?: string }
+  | { type: 'agent.tool.started'; toolCallId: string; toolName: string }
+  | { type: 'agent.tool.completed'; toolCallId: string; toolName: string; resultText: string }
+  | { type: 'agent.result'; output: string; runId?: string; threadId?: string; responseId?: string; model?: string; finishReason?: string; tokensPrompt?: number; tokensCompletion?: number; toolCalls?: number; budgetExceeded?: boolean; budgetReason?: string; costTotal?: number; citations?: Array<Record<string, unknown>> }
+  | { type: 'agent.error'; error: string }
 
 const safeJsonParse = <T = unknown>(value: string): T | null => {
   try {
@@ -102,6 +115,81 @@ async function* parseResponseSSEStream(stream: AsyncGenerator<{ event: string; d
   }
 }
 
+async function* parseAgentSSEStream(stream: AsyncGenerator<{ event: string; data: string }, void, unknown>): AsyncGenerator<AgentStreamEvent, void, unknown> {
+  for await (const part of stream) {
+    if (!part) continue
+    if (typeof part.data === 'string' && part.data.trim() === '[DONE]') return
+    const payload = safeJsonParse<Record<string, unknown>>(part.data) || {}
+    if (part.event === 'agent.run.started') {
+      yield { type: 'agent.run.started', runId: typeof payload.run_id === 'string' ? payload.run_id : undefined }
+      continue
+    }
+    if (part.event === 'agent.response.completed') {
+      yield { type: 'agent.response.completed', output: typeof payload.output === 'string' ? payload.output : '' }
+      continue
+    }
+    if (part.event === 'agent.run.completed') {
+      yield {
+        type: 'agent.run.completed',
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        status: typeof payload.status === 'string' ? payload.status : undefined,
+      }
+      continue
+    }
+    if (part.event === 'agent.run.failed') {
+      yield {
+        type: 'agent.run.failed',
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        threadId: typeof payload.thread_id === 'string' ? payload.thread_id : undefined,
+        taskId: typeof payload.task_id === 'string' ? payload.task_id : undefined,
+        responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
+        errorCode: typeof payload.error_code === 'string' ? payload.error_code : undefined,
+        errorMessage: typeof payload.error_message === 'string' ? payload.error_message : undefined,
+      }
+      continue
+    }
+    if (part.event === 'agent.tool.started') {
+      yield {
+        type: 'agent.tool.started',
+        toolCallId: (typeof payload.tool_call_id === 'string' && payload.tool_call_id) || `tool-${Date.now()}`,
+        toolName: typeof payload.tool_ref === 'string' ? payload.tool_ref : 'tool',
+      }
+      continue
+    }
+    if (part.event === 'agent.tool.completed') {
+      yield {
+        type: 'agent.tool.completed',
+        toolCallId: (typeof payload.tool_call_id === 'string' && payload.tool_call_id) || (typeof payload.tool_ref === 'string' ? payload.tool_ref : `tool-${Date.now()}`),
+        toolName: typeof payload.tool_ref === 'string' ? payload.tool_ref : 'tool',
+        resultText: toJsonText(payload),
+      }
+      continue
+    }
+    if (part.event === 'agent.result') {
+      yield {
+        type: 'agent.result',
+        output: typeof payload.output === 'string' ? payload.output : '',
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        threadId: typeof payload.thread_id === 'string' ? payload.thread_id : undefined,
+        responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
+        model: typeof payload.model === 'string' ? payload.model : undefined,
+        finishReason: typeof payload.finish_reason === 'string' ? payload.finish_reason : undefined,
+        tokensPrompt: typeof payload.tokens_prompt === 'number' ? payload.tokens_prompt : undefined,
+        tokensCompletion: typeof payload.tokens_completion === 'number' ? payload.tokens_completion : undefined,
+        toolCalls: typeof payload.tool_calls === 'number' ? payload.tool_calls : undefined,
+        budgetExceeded: typeof payload.budget_exceeded === 'boolean' ? payload.budget_exceeded : undefined,
+        budgetReason: typeof payload.budget_reason === 'string' ? payload.budget_reason : undefined,
+        costTotal: typeof payload.cost_total === 'number' ? payload.cost_total : undefined,
+        citations: Array.isArray(payload.citations) ? payload.citations as Array<Record<string, unknown>> : undefined,
+      }
+      continue
+    }
+    if (part.event === 'agent.error') {
+      yield { type: 'agent.error', error: typeof payload.error === 'string' ? payload.error : 'Agent execution failed' }
+    }
+  }
+}
+
 const normalizeThinkTags = (content: string): string => content.replace(/\\u003c/gi, '<').replace(/\\u003e/gi, '>')
 
 const splitReasoningContent = (content: string): { reasoning: string; text: string } => {
@@ -142,6 +230,19 @@ const toBoolean = (value: unknown): boolean => {
   if (typeof value === 'string') return ['1', 'true', 'on', 'yes', 'enabled'].includes(value.trim().toLowerCase())
   return false
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const getRetryDelay = (attempt: number): number => CHAT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
+
+const normalizeAttachment = (attachment: any) => ({
+  id: attachment?.id,
+  name: attachment?.name || attachment?.file?.name || 'Attachment',
+  type: attachment?.type || 'file',
+  size: attachment?.size || attachment?.file?.size,
+  url: attachment?.url,
+  content: attachment?.content,
+})
 
 const buildAssistantContent = (
   reasoning: string,
@@ -188,6 +289,7 @@ export const ChatAdapter: ChatModelAdapter = {
     const stream = config.stream !== undefined ? Boolean(config.stream) : true
     const agentId = config.agentId || 'default'
     let activeThreadId = config.thread_id || ''
+    let createdThreadId = ''
     const workspaceId = localStorage.getItem('workspace_id') || ''
 
     const emitThreadCreated = (threadId: string) => {
@@ -196,7 +298,7 @@ export const ChatAdapter: ChatModelAdapter = {
     }
 
     const resolveMessageText = (message: any): string => message?.content?.find((content: any) => content.type === 'text')?.text || ''
-    const resolveMessageAttachments = (message: any) => Array.isArray(message?.attachments) ? message.attachments.map((attachment: any) => ({ id: attachment.id, name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url })) : []
+    const resolveMessageAttachments = (message: any) => Array.isArray(message?.attachments) ? message.attachments.map(normalizeAttachment) : []
     const resolveServerMessageId = (message: any): string | undefined => {
       const custom = (message?.metadata?.custom || {}) as Record<string, any>
       const byMetadata = custom.server_message_id || custom.message_id
@@ -249,8 +351,14 @@ export const ChatAdapter: ChatModelAdapter = {
         },
       })
       activeThreadId = createdThread.id
-      emitThreadCreated(activeThreadId)
+      createdThreadId = activeThreadId
       return activeThreadId
+    }
+
+    const emitCreatedThreadIfNeeded = () => {
+      if (!createdThreadId) return
+      emitThreadCreated(createdThreadId)
+      createdThreadId = ''
     }
 
     const resolveLatestMessage = async (runId?: string, threadId?: string) => {
@@ -263,6 +371,141 @@ export const ChatAdapter: ChatModelAdapter = {
     const { payloadMessages, parentMessageId } = buildCompletionPayload()
 
     try {
+      if (agentId !== 'default') {
+        const agentMessages = payloadMessages
+          .filter((message) => typeof message.content === 'string' && message.content.trim())
+          .map((message) => ({
+            role: message.role as 'system' | 'user' | 'assistant' | 'tool',
+            content: String(message.content),
+            metadata: (message.metadata as Record<string, unknown> | undefined) || undefined,
+          }))
+        if (!agentMessages.length) return
+
+        let activeRunId = ''
+        let activeResponseId = ''
+        let output = ''
+        let duration = 0
+        let finalMeta: Record<string, unknown> | null = null
+        const startTime = Date.now()
+        const toolCalls: Array<{ toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown }> = []
+
+        const upsertAgentToolCall = (toolCallId: string, toolName: string, resultText?: string) => {
+          const existing = toolCalls.find((item) => item.toolCallId === toolCallId)
+          if (existing) {
+            existing.toolName = toolName || existing.toolName
+            if (resultText) {
+              try { existing.result = JSON.parse(resultText) } catch { existing.result = resultText }
+            }
+            return
+          }
+          const nextToolCall: { toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown } = { toolCallId, toolName, args: {}, argsText: '{}', result: undefined }
+          if (resultText) {
+            try { nextToolCall.result = JSON.parse(resultText) } catch { nextToolCall.result = resultText }
+          }
+          toolCalls.push(nextToolCall)
+        }
+
+        for (let attempt = 0; attempt < CHAT_RETRY_ATTEMPTS; attempt += 1) {
+          try {
+            const streamResult = streamAgentExecution(agentId, {
+              messages: agentMessages,
+              thread_id: activeThreadId || undefined,
+              thread_title: agentMessages[agentMessages.length - 1]?.content?.slice(0, 120),
+            }, {
+              signal: abortSignal,
+              headers: { 'Content-Type': ContentType.json, authorization, ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}) },
+            })
+
+            for await (const ev of parseAgentSSEStream(streamResult)) {
+              duration = (Date.now() - startTime) / 1000
+              if (ev.type === 'agent.run.started') {
+                if (ev.runId) activeRunId = ev.runId
+                continue
+              }
+              if (ev.type === 'agent.tool.started') {
+                upsertAgentToolCall(ev.toolCallId, ev.toolName)
+                yield { content: buildAssistantContent('', output, 0, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId, response_id: activeResponseId, thread_id: activeThreadId || null } } }
+                continue
+              }
+              if (ev.type === 'agent.tool.completed') {
+                upsertAgentToolCall(ev.toolCallId, ev.toolName, ev.resultText)
+                yield { content: buildAssistantContent('', output, 0, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId, response_id: activeResponseId, thread_id: activeThreadId || null } } }
+                continue
+              }
+              if (ev.type === 'agent.response.completed') {
+                output = ev.output || output
+                continue
+              }
+              if (ev.type === 'agent.run.failed') {
+                if (ev.runId) activeRunId = ev.runId
+                if (ev.responseId) activeResponseId = ev.responseId
+                if (ev.threadId) {
+                  activeThreadId = ev.threadId
+                  emitThreadCreated(activeThreadId)
+                }
+                finalMeta = {
+                  run_id: activeRunId,
+                  response_id: activeResponseId,
+                  thread_id: activeThreadId || null,
+                  task_id: ev.taskId,
+                  finish_reason: ev.errorCode,
+                  error_code: ev.errorCode,
+                  error_message: ev.errorMessage,
+                }
+                globalMitt.emit('refresh_chat_sidebar')
+                globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...(finalMeta as Record<string, unknown>) })
+                continue
+              }
+              if (ev.type === 'agent.result') {
+                output = ev.output || output
+                if (ev.runId) activeRunId = ev.runId
+                if (ev.responseId) activeResponseId = ev.responseId
+                if (ev.threadId) {
+                  activeThreadId = ev.threadId
+                  emitThreadCreated(activeThreadId)
+                }
+                finalMeta = {
+                  run_id: activeRunId,
+                  response_id: activeResponseId,
+                  thread_id: activeThreadId || null,
+                  model: ev.model,
+                  finish_reason: ev.finishReason,
+                  tokens_prompt: ev.tokensPrompt,
+                  tokens_completion: ev.tokensCompletion,
+                  tool_calls: ev.toolCalls,
+                  budget_exceeded: ev.budgetExceeded,
+                  budget_reason: ev.budgetReason,
+                  cost_total: ev.costTotal,
+                  citations: ev.citations,
+                }
+                globalMitt.emit('refresh_chat_sidebar')
+                globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...(finalMeta as Record<string, unknown>) })
+                continue
+              }
+              if (ev.type === 'agent.error') {
+                throw new Error(ev.error)
+              }
+            }
+            break
+          } catch (streamError) {
+            const hasStartedResponse = Boolean(activeRunId || activeResponseId || output || toolCalls.length)
+            const shouldRetry = !abortSignal?.aborted && !hasStartedResponse && attempt < CHAT_RETRY_ATTEMPTS - 1
+            if (!shouldRetry) {
+              throw streamError
+            }
+            await sleep(getRetryDelay(attempt))
+          }
+        }
+
+        if (finalMeta || output || toolCalls.length) {
+          yield {
+            content: buildAssistantContent('', output, 0, duration, toolCalls) as any,
+            metadata: { custom: { ...(finalMeta || {}), thread_id: activeThreadId || null } },
+          }
+        }
+        return
+      }
+
       activeThreadId = await ensureThread()
       const requestPayload = {
         model,
@@ -287,10 +530,6 @@ export const ChatAdapter: ChatModelAdapter = {
         let activeResponseId = ''
         let cancelSent = false
         let completionMeta: Record<string, any> | null = null
-        const streamResult = createStreamResponse(requestPayload, {
-          signal: abortSignal,
-          headers: { 'Content-Type': ContentType.json, authorization, ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}) },
-        })
         let reasoning = ''
         let text = ''
         let duration = 0
@@ -352,69 +591,87 @@ export const ChatAdapter: ChatModelAdapter = {
           toolCalls.push(nextToolCall)
         }
 
-        for await (const ev of parseResponseSSEStream(streamResult)) {
-          if (ev.type === 'response.created') {
-            if (ev.threadId) activeThreadId = ev.threadId
-            if (ev.responseId) activeResponseId = ev.responseId
-            if (ev.runId) activeRunId = ev.runId
-            if (abortSignal?.aborted) {
-              void cancelActiveResponse()
+        for (let attempt = 0; attempt < CHAT_RETRY_ATTEMPTS; attempt += 1) {
+          try {
+            const streamResult = createStreamResponse(requestPayload, {
+              signal: abortSignal,
+              headers: { 'Content-Type': ContentType.json, authorization, ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}) },
+            })
+
+            for await (const ev of parseResponseSSEStream(streamResult)) {
+              if (ev.type === 'response.created') {
+                if (ev.threadId) activeThreadId = ev.threadId
+                if (ev.responseId) activeResponseId = ev.responseId
+                if (ev.runId) activeRunId = ev.runId
+                if (abortSignal?.aborted) {
+                  void cancelActiveResponse()
+                }
+                continue
+              }
+              if (ev.type === 'response.output_text.delta') {
+                latestRunId = activeRunId || latestRunId
+                appendDelta(ev.delta)
+                if (reasoning === '\n\n') { reasoning = ''; reasoningDuration = 0 }
+                duration = (Date.now() - startTime) / 1000
+                if ((!reasoning && !text && !toolCalls.length) || (reasoning === lastEmittedReasoning && text === lastEmittedText)) continue
+                const now = Date.now()
+                if (now - lastEmitAt < STREAM_EMIT_INTERVAL_MS) continue
+                yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
+                lastEmitAt = now
+                lastEmittedReasoning = reasoning
+                lastEmittedText = text
+                continue
+              }
+              if (ev.type === 'response.output_text.completed') {
+                if (ev.text) {
+                  rawResponse = ev.text
+                  const parsed = splitReasoningContent(ev.text)
+                  reasoning = parsed.reasoning
+                  text = parsed.text
+                }
+                continue
+              }
+              if (
+                (ev.type === 'tool.call.requested' ||
+                  ev.type === 'tool.call.started' ||
+                  ev.type === 'tool.call.completed' ||
+                  ev.type === 'tool.call.failed') &&
+                ev.toolCallId
+              ) {
+                upsertToolCall(ev.toolCallId, ev.toolName, ev.argumentsText, ev.resultText)
+                duration = (Date.now() - startTime) / 1000
+                yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
+                lastEmittedReasoning = reasoning
+                lastEmittedText = text
+                continue
+              }
+              if (ev.type === 'response.completed') {
+                if (ev.responseId) activeResponseId = ev.responseId
+                if (ev.runId) activeRunId = ev.runId
+                completionMeta = {
+                  run_id: ev.runId || activeRunId,
+                  response_id: ev.responseId || activeResponseId,
+                  model: ev.model || model,
+                  finish_reason: ev.finishReason,
+                  tokens_prompt: typeof ev.usage?.prompt_tokens === 'number' ? ev.usage.prompt_tokens : undefined,
+                  tokens_completion: typeof ev.usage?.completion_tokens === 'number' ? ev.usage.completion_tokens : undefined,
+                }
+                emitCreatedThreadIfNeeded()
+                globalMitt.emit('refresh_chat_sidebar')
+                globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...completionMeta })
+                continue
+              }
+              if (ev.type === 'response.failed') throw new Error(ev.error)
             }
-            continue
-          }
-          if (ev.type === 'response.output_text.delta') {
-            latestRunId = activeRunId || latestRunId
-            appendDelta(ev.delta)
-            if (reasoning === '\n\n') { reasoning = ''; reasoningDuration = 0 }
-            duration = (Date.now() - startTime) / 1000
-            if ((!reasoning && !text && !toolCalls.length) || (reasoning === lastEmittedReasoning && text === lastEmittedText)) continue
-            const now = Date.now()
-            if (now - lastEmitAt < STREAM_EMIT_INTERVAL_MS) continue
-            yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
-            lastEmitAt = now
-            lastEmittedReasoning = reasoning
-            lastEmittedText = text
-            continue
-          }
-          if (ev.type === 'response.output_text.completed') {
-            if (ev.text) {
-              rawResponse = ev.text
-              const parsed = splitReasoningContent(ev.text)
-              reasoning = parsed.reasoning
-              text = parsed.text
+            break
+          } catch (streamError) {
+            const hasStartedResponse = Boolean(activeResponseId || activeRunId || rawResponse || text || toolCalls.length)
+            const shouldRetry = !abortSignal?.aborted && !hasStartedResponse && attempt < CHAT_RETRY_ATTEMPTS - 1
+            if (!shouldRetry) {
+              throw streamError
             }
-            continue
+            await sleep(getRetryDelay(attempt))
           }
-          if (
-            (ev.type === 'tool.call.requested' ||
-              ev.type === 'tool.call.started' ||
-              ev.type === 'tool.call.completed' ||
-              ev.type === 'tool.call.failed') &&
-            ev.toolCallId
-          ) {
-            upsertToolCall(ev.toolCallId, ev.toolName, ev.argumentsText, ev.resultText)
-            duration = (Date.now() - startTime) / 1000
-            yield { content: buildAssistantContent(reasoning, text, reasoningDuration, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId || '', response_id: activeResponseId || '', thread_id: activeThreadId || null } } }
-            lastEmittedReasoning = reasoning
-            lastEmittedText = text
-            continue
-          }
-          if (ev.type === 'response.completed') {
-            if (ev.responseId) activeResponseId = ev.responseId
-            if (ev.runId) activeRunId = ev.runId
-            completionMeta = {
-              run_id: ev.runId || activeRunId,
-              response_id: ev.responseId || activeResponseId,
-              model: ev.model || model,
-              finish_reason: ev.finishReason,
-              tokens_prompt: typeof ev.usage?.prompt_tokens === 'number' ? ev.usage.prompt_tokens : undefined,
-              tokens_completion: typeof ev.usage?.completion_tokens === 'number' ? ev.usage.completion_tokens : undefined,
-            }
-            globalMitt.emit('refresh_chat_sidebar')
-            globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...completionMeta })
-            continue
-          }
-          if (ev.type === 'response.failed') throw new Error(ev.error)
         }
 
         if (!completionMeta) {
@@ -443,8 +700,24 @@ export const ChatAdapter: ChatModelAdapter = {
           }
         }
       } else {
-        const response = await createResponse(requestPayload)
+        let response: ResponseRead | null = null
+        for (let attempt = 0; attempt < CHAT_RETRY_ATTEMPTS; attempt += 1) {
+          try {
+            response = await createResponse(requestPayload)
+            break
+          } catch (requestError) {
+            const shouldRetry = !abortSignal?.aborted && attempt < CHAT_RETRY_ATTEMPTS - 1
+            if (!shouldRetry) {
+              throw requestError
+            }
+            await sleep(getRetryDelay(attempt))
+          }
+        }
+        if (!response) {
+          throw new Error('Chat request failed')
+        }
         const recovered = await resolveLatestMessage(response.run_id || undefined, activeThreadId)
+        emitCreatedThreadIfNeeded()
         globalMitt.emit('refresh_chat_sidebar')
         globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, run_id: response.run_id || '', response_id: response.id })
         if (recovered?.content) {

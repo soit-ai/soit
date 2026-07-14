@@ -3,32 +3,28 @@
 Global error handler middleware.
 """
 
+import logging
 import re
-from typing import Callable, Dict, Any, Optional
+from collections.abc import Callable
+from typing import Any
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel.commons.errors import (
     KernelError,
-    UnauthorizedError,
-    NotFoundError,
-    ForbiddenError,
-    ValidationError,
-    ConflictError,
-    TimeoutError,
 )
-from app.api.v1.schemas.response import error_envelope
-from app.kernel.observability.context import get_log_context
-import logging
+from app.kernel.observe.context import get_log_context
+from app.middleware.response_envelope import error_envelope
 
 logger = logging.getLogger(__name__)
 
 # Error code to HTTP status code mapping
-ERROR_CODE_TO_STATUS: Dict[str, int] = {
+ERROR_CODE_TO_STATUS: dict[str, int] = {
     "UNAUTHORIZED": 401,
     "FORBIDDEN": 403,
     "NOT_FOUND": 404,
@@ -64,10 +60,10 @@ SENSITIVE_FIELDS = {
 
 def filter_sensitive_data(data: Any) -> Any:
     """Filter sensitive information from error details.
-    
+
     Args:
         data: Data to filter (dict, list, or primitive).
-        
+
     Returns:
         Filtered data.
     """
@@ -77,7 +73,7 @@ def filter_sensitive_data(data: Any) -> Any:
             # Check if key contains sensitive field name
             key_lower = key.lower()
             is_sensitive = any(sensitive in key_lower for sensitive in SENSITIVE_FIELDS)
-            
+
             if is_sensitive:
                 filtered[key] = "***REDACTED***"
             else:
@@ -91,10 +87,10 @@ def filter_sensitive_data(data: Any) -> Any:
 
 def sanitize_error_message(message: str) -> str:
     """Sanitize error message to remove sensitive information.
-    
+
     Args:
         message: Error message string.
-        
+
     Returns:
         Sanitized message.
     """
@@ -110,8 +106,8 @@ def sanitize_error_message(message: str) -> str:
 
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """Middleware to handle errors globally with enhanced error handling."""
-    
-    def _resolve_trace_ids(self, request: Request) -> tuple[Optional[str], Optional[str]]:
+
+    def _resolve_trace_ids(self, request: Request) -> tuple[str | None, str | None]:
         log_ctx = get_log_context()
         request_id = getattr(request.state, "request_id", None) or log_ctx.get("request_id")
         run_id = getattr(request.state, "run_id", None) or log_ctx.get("run_id")
@@ -132,16 +128,16 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", None),
                 }
             )
-            
+
             # Get status code from mapping
             status_code = ERROR_CODE_TO_STATUS.get(e.code, 500)
-            
+
             # Filter sensitive data from details
             filtered_details = filter_sensitive_data(e.details) if e.details else {}
-            
+
             # Sanitize error message
             sanitized_message = sanitize_error_message(e.message)
-            
+
             request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code=e.code,
@@ -162,7 +158,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", None),
                 }
             )
-            
+
             # Extract validation errors
             errors = []
             for error in e.errors():
@@ -171,7 +167,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "message": error.get("msg", "Validation error"),
                     "type": error.get("type", "validation_error"),
                 })
-            
+
             request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code="VALIDATION_ERROR",
@@ -193,7 +189,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", None),
                 }
             )
-            
+
             # Map status code to error code
             status_to_code = {
                 400: "BAD_REQUEST",
@@ -206,7 +202,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 503: "SERVICE_UNAVAILABLE",
             }
             error_code = status_to_code.get(e.status_code, "HTTP_ERROR")
-            
+
             request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code=error_code,
@@ -227,11 +223,11 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "error_type": type(e).__name__,
                 }
             )
-            
+
             # In production, don't expose internal error details
             error_message = "Internal server error"
-            error_details: Optional[Dict[str, Any]] = None
-            
+            error_details: dict[str, Any] | None = None
+
             # In development, include more details
             import os
             if os.getenv("ENVIRONMENT", "production").lower() == "development":
@@ -240,7 +236,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     "error_type": type(e).__name__,
                     "error_message": str(e),
                 }
-            
+
             request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(
                 code="INTERNAL_ERROR",

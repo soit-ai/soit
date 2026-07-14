@@ -47,8 +47,8 @@ app/
 - `app/routes/workflow`: Workflow design surface
 - `app/routes/knowledge`: Knowledge list, detail, documents, and analytics pages
 - `app/routes/tasks`: Task execution list and task detail control surface
-- `app/routes/observability`: Approval, feedback, and runtime inspection entry point
+- `app/routes/observe`: Approval, feedback, and runtime inspection entry point
 - `app/routes/plugin`: plugin management surface mounted through `/plugins`
 - `app/routes/model`: model management surface mounted through `/models`
 - `app/routes/setting`: settings surface mounted through `/settings`
-- `app/routes/run`: Run list/detail pages mounted only through the observability route namespace
+- `app/routes/run`: Run list/detail pages mounted only through the observe route namespace

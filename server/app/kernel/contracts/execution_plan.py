@@ -3,8 +3,8 @@
 ExecutionPlan and node/step contract types.
 """
 
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.kernel.commons.ids import generate_run_id
 
@@ -16,22 +16,22 @@ class ExecutionPlan:
     mode: str
     """Execution mode (chat/workflow/agent/knowledge/memory/etc.)."""
 
-    inputs: Dict[str, Any] = field(default_factory=dict)
+    inputs: dict[str, Any] = field(default_factory=dict)
     """Input parameters."""
 
-    plan_data: Dict[str, Any] = field(default_factory=dict)
+    plan_data: dict[str, Any] = field(default_factory=dict)
     """Plan data (workflow graph, agent config, etc.)."""
 
-    run_id: Optional[str] = None
+    run_id: str | None = None
     """Run ID."""
 
-    subject_kind: Optional[str] = None
+    subject_kind: str | None = None
     """Execution subject kind (agent/workflow/chat/thread/knowledge/memory/etc.)."""
 
-    subject_id: Optional[str] = None
+    subject_id: str | None = None
     """Execution subject ID."""
 
-    subject_version_id: Optional[str] = None
+    subject_version_id: str | None = None
     """Optional execution subject version ID."""
 
     def __post_init__(self) -> None:
@@ -43,18 +43,18 @@ class ExecutionPlan:
 @dataclass
 class StepPlan:
     """Plan for a single step."""
-    
+
     step_id: str
     """Step ID."""
-    
+
     step_type: str
     """Step type (llm/retrieval/rerank/tool/workflow_node/agent_plan/memory_write/io/other)."""
-    
-    node_id: Optional[str] = None
+
+    node_id: str | None = None
     """Optional node ID."""
-    
-    input_data: Dict[str, Any] = field(default_factory=dict)
+
+    input_data: dict[str, Any] = field(default_factory=dict)
     """Input data for step."""
-    
-    config: Optional[Dict[str, Any]] = None
+
+    config: dict[str, Any] | None = None
     """Step configuration."""

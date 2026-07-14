@@ -9,14 +9,12 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
 
 import redis.asyncio as redis
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.events.bus import Event, EventBus, _Subscription
-
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +25,9 @@ class RedisEventBus(EventBus):
     def __init__(self, redis_url: str, channel: str) -> None:
         self._redis = redis.from_url(redis_url, decode_responses=False)
         self._channel = channel
-        self._subs: Dict[str, _Subscription] = {}
+        self._subs: dict[str, _Subscription] = {}
         self._lock = asyncio.Lock()
-        self._listener_task: Optional[asyncio.Task] = None
+        self._listener_task: asyncio.Task | None = None
         self._closed = False
 
     async def publish(self, event: Event) -> int:
@@ -54,7 +52,7 @@ class RedisEventBus(EventBus):
         self,
         handler,
         *,
-        event_type: Optional[str] = None,
+        event_type: str | None = None,
         predicate=None,
     ) -> str:
         """Register a handler and return subscription id."""
@@ -127,7 +125,7 @@ class RedisEventBus(EventBus):
             if asyncio.iscoroutine(result):
                 await result
 
-    def _decode_event(self, raw: str) -> Optional[Event]:
+    def _decode_event(self, raw: str) -> Event | None:
         try:
             payload = json.loads(raw)
         except Exception:

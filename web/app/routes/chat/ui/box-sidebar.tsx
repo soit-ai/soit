@@ -6,7 +6,7 @@ import { SidebarOptInForm } from '@/components/common/sidebar-opt-in-form'
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail, SidebarInput, useSidebar, SidebarTrigger } from '@/components/ui/sidebar'
 import { useNavigate, useWindowOpen } from '@/hooks/use-navigate'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { BoxHeader } from '@/components/ui/app/box-card'
 import { Label } from '@/components/ui/label'
@@ -79,32 +79,35 @@ export function BoxSidebar({
   const windowOpen = useWindowOpen()
   const navigate = useNavigate()
   const { emit, useSubcribe } = useMitt()
+  const resetConversationList = useCallback(() => {
+    setAllConversations([])
+    setPageToken(undefined)
+    setNextPageToken(null)
+    setHasMore(true)
+  }, [])
 
   const {
     data: conversations,
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ['chat-conversations', pageToken, agentId, statusFilter],
+    queryKey: ['chat-conversations', pageToken, agentId, statusFilter, searchQuery.trim()],
     queryFn: () =>
       listThreads({
         page_token: pageToken,
         page_size: PAGE_SIZE,
         status: statusFilter === 'all' ? undefined : statusFilter,
         agent_id: agentId === 'default' ? undefined : agentId,
+        search: searchQuery.trim() || undefined,
       }),
     options: {
-      enabled: false,
       retry: false,
     },
   })
 
   useEffect(() => {
-    setAllConversations([])
-    setPageToken(undefined)
-    setNextPageToken(null)
-    refetch()
-  }, [agentId, statusFilter, refetch])
+    resetConversationList()
+  }, [agentId, resetConversationList])
 
   useEffect(() => {
     if (conversations) {
@@ -167,15 +170,8 @@ export function BoxSidebar({
   }, [agentId, allConversations, modelProviderMap, selectedProvider])
 
   const searchedConversations = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return filteredConversations
-    }
-    const query = searchQuery.trim().toLowerCase()
-    return filteredConversations.filter((conversation) => {
-      const name = (conversation.title || t('chat.sidebar.untitled')).toLowerCase()
-      return name.includes(query)
-    })
-  }, [filteredConversations, searchQuery, t])
+    return filteredConversations
+  }, [filteredConversations])
 
   // Group conversations by date
   const groupedConversations = useMemo(() => {
@@ -230,9 +226,10 @@ export function BoxSidebar({
   }, [searchedConversations, t, formatDate, toZonedDate])
 
   useSubcribe('refresh_chat_sidebar', () => {
-    setPageToken(undefined)
-    setNextPageToken(null)
-    refetch()
+    resetConversationList()
+    if (!pageToken) {
+      refetch()
+    }
   })
 
   const openApp = () => {
@@ -255,7 +252,6 @@ export function BoxSidebar({
   const handleLoadMore = () => {
     if (!nextPageToken) return
     setPageToken(nextPageToken)
-    refetch()
   }
 
   const handleRename = async (id: string): Promise<void> => {
@@ -288,7 +284,9 @@ export function BoxSidebar({
         setTitle(updated.title)
       }
       setPageToken(undefined)
-      await refetch()
+      if (!pageToken) {
+        await refetch()
+      }
       setIsRenameDialogOpen(false)
       setNewTitle('')
       setConversationToRename(null)
@@ -328,7 +326,9 @@ export function BoxSidebar({
         }
       }
       setPageToken(undefined)
-      await refetch()
+      if (!pageToken) {
+        await refetch()
+      }
       emit('refresh_chat_sidebar')
       setIsDeleteDialogOpen(false)
       setConversationToDelete(null)
@@ -343,14 +343,18 @@ export function BoxSidebar({
 
   const handleArchive = async (conversation: Conversation) => {
     await updateThread(conversation.id, { status: 'archived' })
-    setPageToken(undefined)
-    await refetch()
+    resetConversationList()
+    if (!pageToken) {
+      await refetch()
+    }
   }
 
   const handleUnarchive = async (conversation: Conversation) => {
     await updateThread(conversation.id, { status: 'active' })
-    setPageToken(undefined)
-    await refetch()
+    resetConversationList()
+    if (!pageToken) {
+      await refetch()
+    }
   }
 
   // Add effect to update title when id changes
@@ -394,7 +398,13 @@ export function BoxSidebar({
             <Plus /> {t('chat.sidebar.newChat')}
           </Button>
           <div className="px-2">
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as 'all' | 'active' | 'archived')}>
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                resetConversationList()
+                setStatusFilter(value as 'all' | 'active' | 'archived')
+              }}
+            >
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder={t('chat.sidebar.filter.label')} />
               </SelectTrigger>
@@ -409,7 +419,10 @@ export function BoxSidebar({
             className="ml-2 mr-2 w-auto"
             placeholder={t('chat.sidebar.search')}
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => {
+              resetConversationList()
+              setSearchQuery(event.target.value)
+            }}
           />
         </SidebarHeader>
         <SidebarContent>

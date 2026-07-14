@@ -3,15 +3,42 @@
 Unit tests for RegistryToolRouterPort strict tenant/workspace behavior.
 """
 
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.adapters.tools.router import RegistryToolRouterPort
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import ForbiddenError, ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.registry.deps import get_registry
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolResponse
+from app.kernel.registry.deps import get_registry
+from app.kernel.security import egress
+from app.settings.settings import settings
+
+
+class DummyPluginRuntimePort:
+    """Plugin runtime stub for tool router tests."""
+
+    def __init__(self, result=None):
+        self.result = result or {"ok": True}
+        self.calls = []
+
+    def list_tools(self, *, plugin_name, version, ctx):
+        return []
+
+    async def invoke(self, *, plugin_name, version, tool_name, input_json, ctx, timeout_s=None):
+        self.calls.append(
+            {
+                "plugin_name": plugin_name,
+                "version": version,
+                "tool_name": tool_name,
+                "input_json": input_json,
+                "ctx": ctx,
+                "timeout_s": timeout_s,
+            }
+        )
+        return self.result
 
 
 class DummySecretsPort(SecretsPort):
@@ -149,3 +176,200 @@ async def test_builtin_tool_auto_registers_and_validates(test_context: RequestCo
     )
 
     http.invoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_registered_plugin_tool_routes_to_plugin_runtime_and_wraps_response(test_context: RequestContext):
+    plugin_runtime = DummyPluginRuntimePort(result={"echo": "ok"})
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:http:plugin_echo",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "http",
+                "input_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
+                "output_schema": {"type": "object", "required": ["echo"], "properties": {"echo": {"type": "string"}}},
+            },
+            "plugin": {"name": "demo-plugin", "version": "1.0.0"},
+        },
+    )
+
+    port = RegistryToolRouterPort(plugin_runtime_port=plugin_runtime)
+    response = await port.invoke(
+        "tool:http:plugin_echo",
+        {"value": "hello"},
+        strict_registry=True,
+        ctx=test_context,
+        timeout_s=5,
+    )
+
+    assert isinstance(response, ToolResponse)
+    assert response.success is True
+    assert response.result == {"echo": "ok"}
+    assert response.metadata == {
+        "source_kind": "plugin",
+        "adapter": "plugin",
+        "plugin_name": "demo-plugin",
+        "plugin_version": "1.0.0",
+        "tool_ref": "tool:http:plugin_echo",
+    }
+    assert plugin_runtime.calls == [
+        {
+            "plugin_name": "demo-plugin",
+            "version": "1.0.0",
+            "tool_name": "plugin_echo",
+            "input_json": {"value": "hello"},
+            "ctx": test_context,
+            "timeout_s": 5,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_registered_plugin_tool_enforces_egress_before_plugin_runtime(
+    monkeypatch,
+    test_context: RequestContext,
+):
+    monkeypatch.setattr(settings, "enable_egress_policy", True)
+    monkeypatch.setattr(settings, "egress_allowlist", [])
+    monkeypatch.setattr(settings, "egress_blocklist", [])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    plugin_runtime = DummyPluginRuntimePort()
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:http:plugin_blocked",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "http",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "http": {"url": "https://blocked.example.com/run"},
+                "policy": {"egress": {"allow": ["allowed.example.com"]}},
+            },
+            "plugin": {"name": "demo-plugin", "version": "1.0.0"},
+        },
+    )
+
+    port = RegistryToolRouterPort(plugin_runtime_port=plugin_runtime)
+    with pytest.raises(ForbiddenError):
+        await port.invoke(
+            "tool:http:plugin_blocked",
+            {},
+            strict_registry=True,
+            ctx=test_context,
+        )
+
+    assert plugin_runtime.calls == []
+
+
+@pytest.mark.asyncio
+async def test_registered_plugin_tool_injects_api_key_under_reserved_auth_key(
+    monkeypatch,
+    test_context: RequestContext,
+):
+    monkeypatch.setattr(settings, "enable_egress_policy", False)
+    plugin_runtime = DummyPluginRuntimePort(result={"ok": True})
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:http:plugin_secure",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "http",
+                "input_schema": {"type": "object", "properties": {"ticket": {"type": "string"}}},
+                "output_schema": {"type": "object"},
+                "auth": {
+                    "type": "api_key",
+                    "api_key": {"in": "header", "name": "X-Api-Key", "secret_ref": "secret:plugin-token"},
+                },
+            },
+            "plugin": {"name": "demo-plugin", "version": "1.0.0"},
+        },
+    )
+    secrets = DummySecretsPort("token-123")
+
+    port = RegistryToolRouterPort(
+        plugin_runtime_port=plugin_runtime,
+        secrets_port_factory=lambda ctx: secrets,
+    )
+    await port.invoke(
+        "tool:http:plugin_secure",
+        {"ticket": "T-1"},
+        strict_registry=True,
+        ctx=test_context,
+    )
+
+    assert plugin_runtime.calls[0]["input_json"] == {
+        "ticket": "T-1",
+        "_soit_auth": {"headers": {"X-Api-Key": "token-123"}, "query": {}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_registered_plugin_tool_validates_plugin_output_schema(test_context: RequestContext):
+    plugin_runtime = DummyPluginRuntimePort(result={"echo": 123})
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:http:plugin_echo_schema",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "http",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object", "properties": {"echo": {"type": "string"}}},
+            },
+            "plugin": {"name": "demo-plugin", "version": "1.0.0"},
+        },
+    )
+
+    port = RegistryToolRouterPort(plugin_runtime_port=plugin_runtime)
+    with pytest.raises(ValidationError):
+        await port.invoke(
+            "tool:http:plugin_echo_schema",
+            {},
+            strict_registry=True,
+            ctx=test_context,
+        )
+
+
+@pytest.mark.asyncio
+async def test_registered_plugin_tool_requires_plugin_runtime_port(test_context: RequestContext):
+    reg = get_registry()
+    reg.register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:http:plugin_missing_runtime",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "http",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+            },
+            "plugin": {"name": "demo-plugin", "version": "1.0.0"},
+        },
+    )
+
+    port = RegistryToolRouterPort()
+    with pytest.raises(ValidationError):
+        await port.invoke(
+            "tool:http:plugin_missing_runtime",
+            {},
+            strict_registry=True,
+            ctx=test_context,
+        )

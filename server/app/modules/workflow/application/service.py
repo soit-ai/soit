@@ -292,6 +292,48 @@ class WorkflowService:
         return {"run_id": run.id, "status": "running"}
 
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
+    async def cancel_run(
+        self,
+        workflow_id: str,
+        run_id: str,
+        reason: Optional[str] = None,
+    ) -> dict:
+        run = self._get_run_record(workflow_id, run_id)
+        if run.status not in ("queued", "running", "paused"):
+            raise ValidationError("Only queued, running, or paused runs can be canceled")
+        message = reason or "Workflow run canceled by user"
+        self.trace_writer.update_run_status(
+            run.id,
+            "canceled",
+            output_summary=message,
+            error_code="workflow_run_canceled",
+            error_message=message,
+        )
+        return {"run_id": run.id, "status": "canceled"}
+
+    @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
+    async def fail_run(
+        self,
+        workflow_id: str,
+        run_id: str,
+        *,
+        error_code: str = "workflow_run_failed",
+        error_message: Optional[str] = None,
+    ) -> dict:
+        run = self._get_run_record(workflow_id, run_id)
+        if run.status not in ("queued", "running", "paused"):
+            raise ValidationError("Only queued, running, or paused runs can be marked failed")
+        message = error_message or "Workflow run marked failed by user"
+        self.trace_writer.update_run_status(
+            run.id,
+            "failed",
+            output_summary=message,
+            error_code=error_code or "workflow_run_failed",
+            error_message=message,
+        )
+        return {"run_id": run.id, "status": "failed"}
+
+    @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def retry_run(
         self,
         workflow_id: str,
@@ -304,7 +346,10 @@ class WorkflowService:
         payload = inputs or self._load_run_inputs(run)
         if payload is None:
             raise ValidationError("Retry requires inputs or a parseable run input_summary")
-        return await self.execute_workflow(workflow_id, payload)
+        result = await self.execute_workflow(workflow_id, payload)
+        result["source_run_id"] = run.id
+        result["control_action"] = "retry"
+        return result
 
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def replay_run(
@@ -317,7 +362,10 @@ class WorkflowService:
         payload = inputs or self._load_run_inputs(run)
         if payload is None:
             raise ValidationError("Replay requires inputs or a parseable run input_summary")
-        return await self.execute_workflow(workflow_id, payload)
+        result = await self.execute_workflow(workflow_id, payload)
+        result["source_run_id"] = run.id
+        result["control_action"] = "replay"
+        return result
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def export_dsl(

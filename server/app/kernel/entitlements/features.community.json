@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "owner": "community",
+  "features": [
+    {
+      "key": "agent.runtime",
+      "editions": ["community", "enterprise", "cloud"],
+      "kind": "product"
+    },
+    {
+      "key": "workflow.runtime",
+      "editions": ["community", "enterprise", "cloud"],
+      "kind": "product"
+    },
+    {
+      "key": "knowledge.search",
+      "editions": ["community", "enterprise", "cloud"],
+      "kind": "product"
+    },
+    {
+      "key": "plugin.basic",
+      "editions": ["community", "enterprise", "cloud"],
+      "kind": "product"
+    },
+    {
+      "key": "mcp.basic",
+      "editions": ["community", "enterprise", "cloud"],
+      "kind": "product"
+    }
+  ]
+}

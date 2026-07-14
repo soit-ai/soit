@@ -47,14 +47,14 @@ class PlatformModel(SQLModel, table=True):
     max_output_tokens: Optional[int] = Field(default=None, nullable=True)
     """Max output tokens."""
 
-    lifecycle: Optional[str] = Field(default=None, nullable=True)
+    lifecycle_status: Optional[str] = Field(default=None, nullable=True)
     """Lifecycle tag (beta/ga/deprecated)."""
 
     raw_meta: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     """Raw metadata from provider."""
 
-    is_active: bool = Field(default=True)
-    """Whether the model is active upstream."""
+    status: str = Field(default="active", index=True)
+    """Model status (active/disabled)."""
 
     last_seen_at: Optional[datetime] = Field(default=None, nullable=True)
     """Last time the model was seen upstream."""
@@ -152,14 +152,14 @@ class ProviderModel(SQLModel, table=True):
     max_output_tokens: Optional[int] = Field(default=None, nullable=True)
     """Max output tokens."""
 
-    lifecycle: Optional[str] = Field(default=None, nullable=True)
+    lifecycle_status: Optional[str] = Field(default=None, nullable=True)
     """Lifecycle tag."""
 
     raw_meta: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     """Raw metadata from platform/provider."""
 
-    enabled: bool = Field(default=True)
-    """Whether the model is enabled in this workspace."""
+    status: str = Field(default="active", index=True)
+    """Model status (active/disabled)."""
 
     source: str = Field(default="platform")
     """Source of the model (platform/local)."""

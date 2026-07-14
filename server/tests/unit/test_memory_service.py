@@ -6,10 +6,10 @@ Unit tests for MemoryService.
 import pytest
 
 from app.kernel.commons.errors import ValidationError
-from app.kernel.ports.llm.interface import LLMPort, EmbeddingResponse
+from app.kernel.ports.llm.interface import EmbeddingResponse, LLMPort
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
-from app.modules.memory.application.service import MemoryService
 from app.modules.memory.application.schemas import MemoryCreate, MemoryQuery
+from app.modules.memory.application.service import MemoryService
 from app.modules.memory.domain.models import MemoryItem
 from app.modules.memory.infra.repository import MemoryRepository
 
@@ -33,6 +33,18 @@ class StubVectorPort(VectorPort):
     def __init__(self, ids, scores):
         self._ids = ids
         self._scores = scores
+
+    async def ensure_collection(
+        self,
+        collection,
+        dimension,
+        metric_type,
+        metadata_schema=None,
+        *,
+        index_ref=None,
+        run_id=None,
+    ):
+        return None
 
     async def query(self, collection, vector, top_k=10, filter=None, **kwargs):
         return VectorQueryResult(ids=self._ids, scores=self._scores)

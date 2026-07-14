@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useNavigate as _useNavigate, useSearchParams as _useSearchParams, type NavigateOptions, type To } from 'react-router'
+import { debugLog } from '@/utils/debug'
 
 export const useNavigate = () => {
   const navigate = _useNavigate()
@@ -8,8 +9,8 @@ export const useNavigate = () => {
   return useCallback(
     (to: To | number, options?: NavigateOptions) => {
       if (typeof to === 'number') {
-        console.log('useNavigate to', to)
-        navigate(to.toString() as To, options)
+        debugLog('useNavigate to', to)
+        navigate(to)
         return
       }
 
@@ -23,7 +24,7 @@ export const useNavigate = () => {
           nextTo = { ...to, search: mergedParams.toString() }
         }
       }
-      console.log('useNavigate nextTo', nextTo)
+      debugLog('useNavigate nextTo', nextTo)
       navigate(nextTo, options)
     },
     [navigate, searchParams],

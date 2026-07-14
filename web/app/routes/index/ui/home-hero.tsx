@@ -141,7 +141,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => navigate('/observability/runs')}
+                    onClick={() => navigate('/observe/runs')}
                   >
                     {t('agent.home.hero.ctaRuns')}
                     <ArrowRight className="ml-2 h-4 w-4" />

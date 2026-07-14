@@ -1,0 +1,171 @@
+name: quality
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend-p0:
+    name: backend-p0
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: soit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d soit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/soit_test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+
+      - name: Agent contract lint
+        run: >
+          uv run ruff check
+          app/modules/agent/application/schemas.py
+          app/modules/agent/application/service.py
+          app/modules/agent/application/application_service.py
+          app/api/v1/agent/handlers.py
+          tests/unit/test_agent_service.py
+          tests/unit/test_agent_rag.py
+          tests/integration/test_agent_publish_and_execute.py
+          tests/entrypoints/test_agent_api.py
+          tests/entrypoints/test_agent_stream_api.py
+          --select F,E402,I
+
+      - name: Import boundaries
+        run: uv run lint-imports --config importlinter.ini
+
+      - name: Agent contract tests
+        run: >
+          uv run pytest
+          tests/unit/test_agent_service.py
+          tests/unit/test_agent_rag.py
+          tests/integration/test_agent_publish_and_execute.py
+          tests/entrypoints/test_agent_api.py
+          tests/entrypoints/test_agent_stream_api.py
+          -q
+
+      - name: Enterprise MVP demo contracts
+        run: >
+          uv run pytest
+          tests/entrypoints/test_api_route_convergence.py
+          tests/integration/test_enterprise_agent_mvp.py
+          -q
+
+      - name: Support ticket regression evaluator
+        env:
+          SOIT_TESTING: "1"
+        run: >
+          uv run python
+          scripts/evaluate_support_ticket_regression.py
+          --json-output ../artifacts/support-ticket-regression/report-current.json
+
+      - name: Support ticket regression contract
+        run: uv run pytest tests/integration/test_support_ticket_regression_evaluator.py -q
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -q
+
+      - name: Entrypoint tests
+        run: uv run pytest tests/entrypoints -q
+
+      - name: Integration tests
+        run: uv run pytest tests/integration -q
+
+      - name: Top-level backend tests
+        run: >
+          uv run pytest
+          tests/test_spec_validation.py
+          tests/test_model_scope_audit.py
+          tests/test_trace_emission.py
+          -q
+
+  backend-strict:
+    name: backend-strict
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff
+        run: uv run ruff check app tests
+
+      - name: Mypy
+        run: uv run mypy app tests
+
+  frontend-p0:
+    name: frontend-p0
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e

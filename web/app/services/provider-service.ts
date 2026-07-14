@@ -35,6 +35,23 @@ interface ProviderResponse {
   updated_at: string
 }
 
+export interface ProviderSupportStatus {
+  provider_kind: string
+  display_name: string
+  support_status: 'supported' | 'unavailable' | 'unsupported'
+  configured: boolean
+  provider_count: number
+  configured_provider_ids: string[]
+  chat_supported: boolean
+  embeddings_supported: boolean
+  catalog_supported: boolean
+  notes?: string | null
+}
+
+interface ProviderSupportMatrixResponse {
+  providers: ProviderSupportStatus[]
+}
+
 const SYNC_POLICY_KEYS = ['auto_sync', 'interval_minutes', 'recreate_deleted', 'default_enabled'] as const
 
 const splitProviderSyncPolicy = (syncPolicyJson?: Record<string, any> | null) => {
@@ -213,6 +230,11 @@ const mapConfigToUpdatePayload = (data: Partial<ModelConfig>) => {
 export async function listProviders() {
   const response = await get<PaginatedResponse<ProviderResponse>>('/modelhub/providers', { page_size: 200 }).then(response => response.data)
   return (response?.items || []).map(mapProviderToConfig)
+}
+
+export async function getProviderSupportMatrix() {
+  const response = await get<ProviderSupportMatrixResponse>('/modelhub/providers/support-matrix').then(response => response.data)
+  return response.providers || []
 }
 
 export async function listModels(params?: { provider?: string }) {

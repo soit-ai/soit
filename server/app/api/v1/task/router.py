@@ -11,7 +11,14 @@ from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.core.service import RuntimeCoreService
 from app.kernel.runtime.query_service import RuntimeQueryService
-from app.kernel.runtime.schemas import TaskControlResponse, TaskDetailResponse, TaskResponse
+from app.kernel.runtime.schemas import (
+    TaskControlResponse,
+    TaskDetailResponse,
+    TaskHandlingResponse,
+    TaskResponse,
+    TaskWorkbenchItemsResponse,
+    TaskWorkbenchResponse,
+)
 
 
 router = APIRouter()
@@ -40,6 +47,58 @@ async def list_tasks(
         page_token=page_token,
         page_size=page_size,
     )
+
+
+@router.get("/workbench", response_model=TaskWorkbenchResponse)
+async def get_task_workbench(
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RuntimeQueryService = Depends(get_task_service),
+):
+    """Get runtime task workbench metrics and rows."""
+
+    handlers = TaskHandlers(service)
+    return await handlers.get_workbench(ctx, page_token=page_token, page_size=page_size)
+
+
+@router.get("/workbench/items", response_model=TaskWorkbenchItemsResponse)
+async def get_task_workbench_items(
+    tab: Optional[str] = None,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    page_token: Optional[str] = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RuntimeQueryService = Depends(get_task_service),
+):
+    """Get filtered runtime task workbench rows."""
+
+    handlers = TaskHandlers(service)
+    return await handlers.get_workbench_items(
+        ctx,
+        tab=tab,
+        keyword=keyword,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        page_token=page_token,
+        page_size=page_size,
+    )
+
+
+@router.get("/{task_id}/handling", response_model=TaskHandlingResponse)
+async def get_task_handling(
+    task_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RuntimeQueryService = Depends(get_task_service),
+):
+    """Get task handling drawer read model."""
+
+    handlers = TaskHandlers(service)
+    return await handlers.get_task_handling(ctx, task_id)
 
 
 @router.get("/{task_id}", response_model=TaskDetailResponse)

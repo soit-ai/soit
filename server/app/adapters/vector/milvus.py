@@ -3,22 +3,31 @@
 Milvus vector gateway adapter implementation.
 """
 
-from typing import List, Dict, Any, Optional
 import hashlib
 import json
 import re
-from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
+from typing import Any
 
+from pymilvus import (
+    Collection,
+    CollectionSchema,
+    DataType,
+    FieldSchema,
+    connections,
+    utility,
+)
+
+from app.kernel.commons.errors import KernelError
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
 from app.settings.settings import settings
 
 
 class MilvusVectorPort(VectorPort):
     """Milvus vector gateway adapter."""
-    
-    def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
+
+    def __init__(self, host: str | None = None, port: int | None = None):
         """Initialize Milvus gateway.
-        
+
         Args:
             host: Milvus host (defaults to settings).
             port: Milvus port (defaults to settings).
@@ -46,50 +55,88 @@ class MilvusVectorPort(VectorPort):
         trimmed = normalized[: max_len - 13]
         return f"{trimmed}_{digest}"
 
+    @staticmethod
+    def _to_milvus_metric(metric_type: str | None) -> str:
+        """Map public metric names to Milvus metric names."""
+        value = (metric_type or "cosine").lower()
+        return {
+            "cosine": "COSINE",
+            "ip": "IP",
+            "l2": "L2",
+        }.get(value, value.upper())
+
     def _ensure_collection(
         self,
         collection_name: str,
         dimension: int,
         include_metadata: bool,
+        metric_type: str = "L2",
     ) -> Collection:
         """Ensure collection exists with expected schema."""
         normalized = self._normalize_collection_name(collection_name)
-        if utility.has_collection(normalized):
-            return Collection(normalized)
+        try:
+            if utility.has_collection(normalized):
+                return Collection(normalized)
 
-        fields = [
-            FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=256),
-            FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
-        ]
+            fields = [
+                FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, auto_id=False, max_length=256),
+                FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
+            ]
 
-        if include_metadata:
-            fields.append(FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=8192))
+            if include_metadata:
+                fields.append(FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=8192))
 
-        schema = CollectionSchema(fields=fields, description="soit vector collection")
-        coll = Collection(name=normalized, schema=schema)
-        coll.create_index(
-            field_name="vector",
-            index_params={"index_type": "IVF_FLAT", "metric_type": "L2", "params": {"nlist": 1024}},
+            schema = CollectionSchema(fields=fields, description="soit vector collection")
+            coll = Collection(name=normalized, schema=schema)
+            coll.create_index(
+                field_name="vector",
+                index_params={"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
+            )
+            return coll
+        except Exception as exc:
+            raise KernelError(
+                "VECTOR_COLLECTION_ERROR",
+                f"Failed to ensure vector collection '{collection_name}': {exc}",
+                {"collection": collection_name, "normalized_collection": normalized},
+            ) from exc
+
+    async def ensure_collection(
+        self,
+        collection: str,
+        dimension: int,
+        metric_type: str,
+        metadata_schema: dict[str, Any] | None = None,
+        *,
+        index_ref: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        """Ensure Milvus collection exists."""
+        del index_ref, run_id
+        milvus_metric = self._to_milvus_metric(metric_type)
+        self._ensure_collection(
+            collection_name=collection,
+            dimension=dimension,
+            include_metadata=bool(metadata_schema),
+            metric_type=milvus_metric,
         )
-        return coll
-    
+
     async def query(
         self,
         collection: str,
-        vector: List[float],
+        vector: list[float],
         top_k: int = 10,
-        filter: Optional[Dict[str, Any]] = None,
+        filter: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> VectorQueryResult:
         """Query similar vectors.
-        
+
         Args:
             collection: Collection name.
             vector: Query vector.
             top_k: Number of results.
             filter: Optional metadata filter.
             **kwargs: Additional parameters.
-            
+
         Returns:
             VectorQueryResult instance.
         """
@@ -99,17 +146,20 @@ class MilvusVectorPort(VectorPort):
 
         coll = Collection(collection_name)
         coll.load()
-        
+
         # Build search params
-        search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
-        
+        search_params = {
+            "metric_type": self._to_milvus_metric(kwargs.get("metric_type")),
+            "params": {"nprobe": 10},
+        }
+
         # Build filter expression if provided
         expr = None
         if filter:
             # Convert filter dict to Milvus expression
             conditions = []
             for key, value in filter.items():
-                if isinstance(value, (int, float)):
+                if isinstance(value, int | float):
                     conditions.append(f"{key} == {value}")
                 elif isinstance(value, str):
                     conditions.append(f'{key} == "{value}"')
@@ -117,7 +167,7 @@ class MilvusVectorPort(VectorPort):
                     conditions.append(f"{key} in {value}")
             if conditions:
                 expr = " && ".join(conditions)
-        
+
         # Perform search
         output_fields = []
         if kwargs.get("include_metadata", False):
@@ -131,15 +181,15 @@ class MilvusVectorPort(VectorPort):
             expr=expr,
             output_fields=output_fields,
         )
-        
+
         # Extract results
         if not results or len(results) == 0:
             return VectorQueryResult(ids=[], scores=[])
-        
+
         result = results[0]
         ids = [str(id) for id in result.ids]
         scores = result.distances
-        
+
         # Extract metadata if available
         metadata = None
         if kwargs.get("include_metadata", False):
@@ -154,23 +204,23 @@ class MilvusVectorPort(VectorPort):
                     except Exception:
                         pass
                 metadata.append(raw_meta or {})
-        
+
         return VectorQueryResult(
             ids=ids,
             scores=scores,
             metadata=metadata,
         )
-    
+
     async def insert(
         self,
         collection: str,
-        vectors: List[List[float]],
-        ids: List[str],
-        metadata: Optional[List[Dict[str, Any]]] = None,
+        vectors: list[list[float]],
+        ids: list[str],
+        metadata: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         """Insert vectors.
-        
+
         Args:
             collection: Collection name (or index_ref from kwargs).
             vectors: List of vectors.
@@ -180,18 +230,17 @@ class MilvusVectorPort(VectorPort):
         """
         if not vectors or not ids:
             return
-        
+
         if len(vectors) != len(ids):
             raise ValueError("Vectors and IDs must have the same length")
-        
-        # Support both collection and index_ref parameters
-        collection_name = self._normalize_collection_name(kwargs.get("index_ref", collection))
-        
+
+        collection_name = self._normalize_collection_name(collection)
+
         dimension = len(vectors[0])
         include_metadata = bool(metadata)
         coll = self._ensure_collection(collection_name, dimension, include_metadata)
         coll.load()
-        
+
         # Prepare data for insertion
         # Milvus expects data as a list of lists, where each inner list represents a field
         # Format: [ids, vectors, ...metadata_fields]
@@ -199,19 +248,19 @@ class MilvusVectorPort(VectorPort):
         if metadata:
             serialized = [json.dumps(item, ensure_ascii=True, default=str) for item in metadata]
             data.append(serialized)
-        
+
         # Insert data
         coll.insert(data)
         coll.flush()
-    
+
     async def delete(
         self,
         collection: str,
-        ids: List[str],
+        ids: list[str],
         **kwargs: Any,
     ) -> None:
         """Delete vectors.
-        
+
         Args:
             collection: Collection name.
             ids: Document IDs to delete.
@@ -219,11 +268,11 @@ class MilvusVectorPort(VectorPort):
         """
         if not ids:
             return
-        
+
         collection_name = self._normalize_collection_name(collection)
         coll = Collection(collection_name)
         coll.load()
-        
+
         # Delete by IDs
         # Milvus delete expects a filter expression or list of IDs
         # For Milvus 2.x, we use delete with expr

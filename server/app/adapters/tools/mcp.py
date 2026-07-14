@@ -10,13 +10,15 @@ endpoint from the DB, and sends a tools/call JSON-RPC request.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from types import SimpleNamespace
+from typing import Any
 
 import httpx
+from sqlalchemy import and_, select
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.modules.integrations.mcp.infra.repository import MCPServerRepository
+from app.modules.plugin.domain.models import PluginInstalledArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class MCPToolAdapter(ToolPort):
         self,
         *,
         timeout: float = 30.0,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
     ):
         self._timeout = timeout
         self._client = client or httpx.AsyncClient(timeout=timeout)
@@ -50,16 +52,39 @@ class MCPToolAdapter(ToolPort):
         db: Any,
         ctx: RequestContext,
     ):
-        """Resolve MCP server by name or ID."""
-        repo = MCPServerRepository(db, ctx)
-        server = repo.get_by_name(server_key)
-        if not server:
-            server = repo.get_by_id(server_key)
-        return server
+        """Resolve an MCP server from plugin-owned artifact metadata."""
+        artifact_ref = f"mcp_server:{server_key}"
+        query = select(PluginInstalledArtifact).where(
+            and_(
+                PluginInstalledArtifact.tenant_id == ctx.tenant_id,
+                PluginInstalledArtifact.workspace_id == ctx.workspace_id,
+                PluginInstalledArtifact.artifact_kind == "mcp_server",
+                PluginInstalledArtifact.enabled.is_(True),
+                PluginInstalledArtifact.state == "enabled",
+            )
+        )
+        rows = list(db.exec(query).all())
+        for row in rows:
+            artifact = row[0] if hasattr(row, "__getitem__") and not isinstance(row, PluginInstalledArtifact) else row
+            metadata = artifact.metadata_json or {}
+            server = metadata.get("mcp_server") or {}
+            name = str(server.get("name") or artifact.artifact_ref.split(":", 1)[-1])
+            if artifact.artifact_ref != artifact_ref and name != server_key and artifact.artifact_id != artifact_ref:
+                continue
+            return SimpleNamespace(
+                id=artifact.artifact_id or artifact.artifact_ref,
+                name=name,
+                endpoint=server.get("endpoint"),
+                enabled=artifact.enabled,
+                status="active" if artifact.enabled and artifact.state == "enabled" else "disabled",
+                auth_config_json=server.get("auth_config_json") or server.get("auth_config") or {},
+                capabilities_json=server.get("capabilities_json") or {},
+            )
+        return None
 
-    def _build_auth_headers(self, server) -> Dict[str, str]:
+    def _build_auth_headers(self, server) -> dict[str, str]:
         """Build authentication headers from server config."""
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         auth_cfg = server.auth_config_json or {}
         auth_type = auth_cfg.get("type")
         if auth_type == "bearer":
@@ -78,7 +103,7 @@ class MCPToolAdapter(ToolPort):
     async def invoke(
         self,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         **kwargs: Any,
     ) -> ToolResponse:
         """Invoke an MCP tool on a remote server.
@@ -92,7 +117,7 @@ class MCPToolAdapter(ToolPort):
             ToolResponse with the tool result or error.
         """
         db = kwargs.get("db")
-        ctx: Optional[RequestContext] = kwargs.get("ctx")
+        ctx: RequestContext | None = kwargs.get("ctx")
         if not db or not ctx:
             return ToolResponse(
                 result=None,
@@ -118,6 +143,13 @@ class MCPToolAdapter(ToolPort):
                 result=None,
                 success=False,
                 error=f"MCP server is not active: {server_key}",
+            )
+
+        if not server.endpoint:
+            return ToolResponse(
+                result=None,
+                success=False,
+                error=f"MCP server endpoint missing: {server_key}",
             )
 
         endpoint = server.endpoint.rstrip("/")

@@ -19,6 +19,8 @@ from app.modules.workflow.application.schemas import (
     WorkflowDSLExport,
     WorkflowPublishRequest,
     WorkflowRollbackRequest,
+    WorkflowWorkbenchItemsResponse,
+    WorkflowWorkbenchResponse,
 )
 from app.infra.db.pagination import PaginatedResponse, parse_page_params, PageToken
 
@@ -117,6 +119,35 @@ class WorkflowHandlers:
             page_size=len(items),
             has_next=has_next,
             next_offset=next_offset,
+        )
+
+    async def get_workbench(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str] = None,
+        page_size: int = 20,
+    ) -> WorkflowWorkbenchResponse:
+        """Get workflow workbench aggregate data."""
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench(limit=limit, offset=offset)
+
+    async def get_workbench_items(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+        tab: Optional[str],
+        keyword: Optional[str],
+    ) -> WorkflowWorkbenchItemsResponse:
+        """Get workflow workbench table rows."""
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench_items(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
         )
     
     async def get_workflow(
@@ -307,6 +338,32 @@ class WorkflowHandlers:
     ) -> dict:
         """Resume workflow run."""
         return await self.service.resume_run(workflow_id, run_id)
+
+    async def cancel_run(
+        self,
+        ctx: RequestContext,
+        workflow_id: str,
+        run_id: str,
+        payload: Optional[dict] = None,
+    ) -> dict:
+        """Cancel workflow run."""
+        return await self.service.cancel_run(workflow_id, run_id, reason=(payload or {}).get("reason"))
+
+    async def fail_run(
+        self,
+        ctx: RequestContext,
+        workflow_id: str,
+        run_id: str,
+        payload: Optional[dict] = None,
+    ) -> dict:
+        """Mark workflow run failed."""
+        data = payload or {}
+        return await self.service.fail_run(
+            workflow_id,
+            run_id,
+            error_code=data.get("error_code") or "workflow_run_failed",
+            error_message=data.get("error_message"),
+        )
 
     async def retry_run(
         self,

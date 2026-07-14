@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.ids import generate_ulid
+from app.kernel.contracts.context import RequestContext
 
 
 @pytest.fixture
@@ -66,19 +66,14 @@ def db():
     Lazily imports sqlalchemy/sqlmodel to avoid hard dependency for pure-unit tests.
     """
     from sqlalchemy import create_engine
-    from sqlmodel import Session
     from sqlalchemy.pool import StaticPool
-    from sqlmodel import SQLModel
+    from sqlmodel import Session, SQLModel
+
+    import app.kernel.runtime.db.models  # noqa: F401
 
     # Ensure models are imported so SQLModel.metadata is populated.
     # Importing modules is safe in test env and keeps create_all deterministic.
     import app.modules  # noqa: F401
-    import app.kernel.trace.models  # noqa: F401
-    import app.kernel.runtime.models  # noqa: F401
-    import app.kernel.responses.models  # noqa: F401
-    import app.kernel.observability.idempotency  # noqa: F401
-    import app.kernel.events.outbox_models  # noqa: F401
-    import app.kernel.observability.projection_models  # noqa: F401
 
     engine = create_engine(
         "sqlite://",
@@ -100,8 +95,8 @@ def client(db, ctx: RequestContext):
     """FastAPI TestClient with DB dependency override."""
     from fastapi.testclient import TestClient
 
-    from app.main import app
     from app.infra.db.session import get_db
+    from app.main import app
     from app.middleware.auth import get_current_context
     from app.settings.settings import settings
 
@@ -133,9 +128,15 @@ def client(db, ctx: RequestContext):
 @pytest.fixture(autouse=True)
 def _clear_registry(test_context: RequestContext):
     """Ensure runtime registry is isolated per test (tenant/workspace scope)."""
+    from app.kernel.identity.permissions import reset_resource_grant_provider
     from app.kernel.registry.deps import get_registry
+    from app.kernel.security.egress import reset_egress_scope_policy_provider
 
+    reset_resource_grant_provider()
+    reset_egress_scope_policy_provider()
     reg = get_registry()
     reg.clear_scope(tenant_id=test_context.tenant_id, workspace_id=test_context.workspace_id)
     yield
     reg.clear_scope(tenant_id=test_context.tenant_id, workspace_id=test_context.workspace_id)
+    reset_resource_grant_provider()
+    reset_egress_scope_policy_provider()

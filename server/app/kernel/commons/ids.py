@@ -4,15 +4,14 @@ ULID/UUID helpers.
 """
 
 import uuid
-from typing import Optional
 
 
 def generate_ulid() -> str:
     """Generate a ULID-like sortable ID.
-    
+
     For now, we use UUID4 with prefix. In production, consider using
     python-ulid or similar library for true ULID generation.
-    
+
     Returns:
         A string ID prefixed with type indicator.
     """
@@ -21,7 +20,7 @@ def generate_ulid() -> str:
 
 def generate_run_id() -> str:
     """Generate a run ID.
-    
+
     Returns:
         A run ID string (e.g., "run_01H...").
     """
@@ -30,7 +29,7 @@ def generate_run_id() -> str:
 
 def generate_step_id() -> str:
     """Generate a step ID.
-    
+
     Returns:
         A step ID string (e.g., "st_01H...").
     """
@@ -39,7 +38,7 @@ def generate_step_id() -> str:
 
 def generate_tenant_id() -> str:
     """Generate a tenant ID.
-    
+
     Returns:
         A tenant ID string (e.g., "t_01H...").
     """
@@ -48,7 +47,7 @@ def generate_tenant_id() -> str:
 
 def generate_workspace_id() -> str:
     """Generate a workspace ID.
-    
+
     Returns:
         A workspace ID string (e.g., "w_01H...").
     """
@@ -57,7 +56,7 @@ def generate_workspace_id() -> str:
 
 def generate_user_id() -> str:
     """Generate a user ID.
-    
+
     Returns:
         A user ID string (e.g., "u_01H...").
     """
@@ -66,7 +65,7 @@ def generate_user_id() -> str:
 
 def generate_artifact_id() -> str:
     """Generate an artifact ID.
-    
+
     Returns:
         An artifact ID string (e.g., "art_01H...").
     """
@@ -75,7 +74,7 @@ def generate_artifact_id() -> str:
 
 def generate_workflow_id() -> str:
     """Generate a workflow ID.
-    
+
     Returns:
         A workflow ID string (e.g., "wf_01H...").
     """
@@ -84,7 +83,7 @@ def generate_workflow_id() -> str:
 
 def generate_workflow_version_id() -> str:
     """Generate a workflow version ID.
-    
+
     Returns:
         A workflow version ID string (e.g., "wfv_01H...").
     """
@@ -109,12 +108,12 @@ def generate_secret_id() -> str:
     return f"sec_{uuid.uuid4().hex}"
 
 
-def parse_id(id_str: str) -> Optional[str]:
+def parse_id(id_str: str) -> str | None:
     """Parse and validate an ID string.
-    
+
     Args:
         id_str: The ID string to parse.
-        
+
     Returns:
         The ID string if valid, None otherwise.
     """

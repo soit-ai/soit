@@ -37,7 +37,7 @@ const nodePositions: Record<string, { x: number; y: number }> = {
   settings: { x: 13, y: 50 },
   models: { x: 87, y: 50 },
   tasks: { x: 27, y: 82 },
-  observability: { x: 73, y: 82 },
+  observe: { x: 73, y: 82 },
 }
 
 function GraphNode({ node, onOpen }: { node: PositionedModule; onOpen: (href: string) => void }) {

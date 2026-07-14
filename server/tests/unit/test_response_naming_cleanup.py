@@ -1,6 +1,6 @@
 import app.api.v1.responses.dependencies as response_dependencies
-import app.kernel.responses as response_exports
-import app.kernel.responses.orchestrator as response_orchestrator
+import app.kernel.runtime.responses as response_exports
+import app.kernel.runtime.responses.orchestrator as response_orchestrator
 import app.wiring.services as wiring_services
 
 

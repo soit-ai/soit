@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { toast } from '@/hooks/use-toast'
-import { ExternalLink, Github, Mail, MessageSquare, Twitter, Heart, Info, CheckCircle2, AlertTriangle, Bug, Zap, Gift } from 'lucide-react'
+import { Code2, Mail, MessageCircle, MessageSquare, Heart, Info, CheckCircle2, Bug, Zap, Gift } from 'lucide-react'
 
 function Page() {
   const { t } = useTranslation()
@@ -58,8 +58,6 @@ function Page() {
   // 处理发送反馈
   const handleSendFeedback = () => {
     // 这里应该有API调用来发送反馈
-    console.log('发送反馈')
-    
     toast({
       title: "感谢您的反馈",
       description: "我们已收到您的反馈，感谢您帮助我们改进产品",
@@ -194,10 +192,10 @@ function Page() {
                       <p className="text-sm text-muted-foreground mb-4">{member.role}</p>
                       <div className="flex space-x-2">
                         <Button variant="ghost" size="icon">
-                          <Twitter className="h-4 w-4" />
+                          <MessageCircle className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon">
-                          <Github className="h-4 w-4" />
+                          <Code2 className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon">
                           <Mail className="h-4 w-4" />

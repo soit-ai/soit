@@ -81,8 +81,8 @@ export function IngestTasksDialog({ open, onOpenChange, tasks, loading, onRefres
                       {task.updated_at ? new Date(task.updated_at).toLocaleString() : '-'}
                     </TableCell>
                     <TableCell>
-                      {task.last_error_message ? (
-                        <span className="text-xs text-muted-foreground line-clamp-2">{task.last_error_message}</span>
+                      {task.error_message ? (
+                        <span className="text-xs text-muted-foreground line-clamp-2">{task.error_message}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
@@ -99,11 +99,11 @@ export function IngestTasksDialog({ open, onOpenChange, tasks, loading, onRefres
                             {t('knowledge.document.tasks.cancel')}
                           </Button>
                         )}
-                        {((task.payload_json as { run_id?: string } | null)?.run_id) && (
+                        {task.run_id && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => navigate(`/run/${(task.payload_json as { run_id?: string }).run_id}`)}
+                            onClick={() => navigate(`/observe/runs/${task.run_id}`)}
                           >
                             {t('knowledge.document.tasks.viewRun')}
                           </Button>

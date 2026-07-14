@@ -6,8 +6,7 @@ Stable notification contracts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
-
+from typing import Any
 
 NOTIFICATION_TYPE_SYSTEM = "system"
 NOTIFICATION_TYPE_MESSAGE = "message"
@@ -29,17 +28,17 @@ NOTIFICATION_STATUS_ARCHIVED = "archived"
 class NotificationAction:
     """Action target for notification routing."""
 
-    target: Optional[str] = None
+    target: str | None = None
     """Logical module or view target."""
 
-    route: Optional[str] = None
+    route: str | None = None
     """Frontend route path (e.g., /knowledge/{knowledge_id})."""
 
-    params: Optional[Dict[str, Any]] = None
+    params: dict[str, Any] | None = None
     """Optional query/path params for client routing."""
 
-    deeplink: Optional[str] = None
+    deeplink: str | None = None
     """Optional absolute URL for deep linking."""
 
-    resource_ref: Optional[str] = None
+    resource_ref: str | None = None
     """Stable resource ref (e.g., wf:xxx, knowledge:xxx)."""

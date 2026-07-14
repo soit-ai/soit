@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, List
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -27,10 +28,10 @@ class OutboxHandlerRegistry:
             self._by_type[event_type] = []
         self._by_type[event_type].append(entry)
 
-    def get_handlers(self, event_type: str) -> List[RegisteredOutboxHandler]:
+    def get_handlers(self, event_type: str) -> list[RegisteredOutboxHandler]:
         """Copy of handlers for event_type (stable registration order)."""
         return list(self._by_type.get(event_type, []))
 
-    def event_types(self) -> List[str]:
+    def event_types(self) -> list[str]:
         """Registered event types (arbitrary order; for diagnostics)."""
         return list(self._by_type.keys())

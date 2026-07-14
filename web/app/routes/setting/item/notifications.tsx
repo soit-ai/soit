@@ -39,25 +39,6 @@ function Page() {
   // 保存通知设置
   const handleSaveNotificationSettings = () => {
     // 这里应该有API调用来保存设置
-    console.log('保存通知设置', {
-      systemNotifications,
-      securityAlerts,
-      accountUpdates,
-      newFeatures,
-      marketingNotifications,
-      chatMessages,
-      chatMentions,
-      chatReactions,
-      taskAssignments,
-      taskDeadlines,
-      taskUpdates,
-      notificationMethod,
-      emailFrequency,
-      quietHours,
-      quietHoursStart,
-      quietHoursEnd
-    })
-    
     toast({
       title: '设置已保存',
       description: '您的通知偏好已更新',
@@ -67,8 +48,6 @@ function Page() {
   // 测试通知
   const handleTestNotification = () => {
     // 这里应该有API调用来发送测试通知
-    console.log('发送测试通知')
-    
     toast({
       title: '测试通知已发送',
       description: '请检查您的设备以确认通知设置正常工作',

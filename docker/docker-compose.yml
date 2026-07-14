@@ -1,4 +1,4 @@
-version: "3.9"
+name: soit
 
 services:
   postgres:
@@ -17,95 +17,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-
-  migrate:
-    build:
-      context: ./server
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DATABASE_HOST: ${DATABASE_HOST:-postgres}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_USER: ${DATABASE_USER:-soit}
-      DATABASE_PASS: ${DATABASE_PASS:-soit}
-      DATABASE_NAME: ${DATABASE_NAME:-soit}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: ["/bin/sh", "-c", "sh /server/scripts/migrate.sh"]
-    restart: "no"
-
-  bootstrap:
-    build:
-      context: ./server
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DATABASE_HOST: ${DATABASE_HOST:-postgres}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_USER: ${DATABASE_USER:-soit}
-      DATABASE_PASS: ${DATABASE_PASS:-soit}
-      DATABASE_NAME: ${DATABASE_NAME:-soit}
-      SECRET_KEY: ${SECRET_KEY:-change-me}
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    command:
-      - /bin/sh
-      - -c
-      - >
-        python scripts/bootstrap_admin.py
-        --email ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
-        --password ${BOOTSTRAP_ADMIN_PASSWORD:-changeme123}
-        --name ${BOOTSTRAP_ADMIN_NAME:-Admin}
-        --tenant-name ${BOOTSTRAP_TENANT_NAME:-default}
-    restart: "no"
-
-  knowledge-ingest-worker:
-    build:
-      context: ./server
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DATABASE_HOST: ${DATABASE_HOST:-postgres}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_USER: ${DATABASE_USER:-soit}
-      DATABASE_PASS: ${DATABASE_PASS:-soit}
-      DATABASE_NAME: ${DATABASE_NAME:-soit}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-soitminio}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-soitminio}
-      MINIO_BUCKET: ${MINIO_BUCKET:-soit-artifacts}
-      MINIO_SECURE: ${MINIO_SECURE:-false}
-      MILVUS_HOST: ${MILVUS_HOST:-milvus}
-      MILVUS_PORT: ${MILVUS_PORT:-19530}
-      VAULT_URL: ${VAULT_URL:-http://vault:8200}
-      VAULT_TOKEN: ${VAULT_TOKEN:-soit-vault-root}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL: ${KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL:-1.0}
-      KNOWLEDGE_INGEST_WORKER_MAX_TASKS: ${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-}
-      KNOWLEDGE_INGEST_WORKER_CONCURRENCY: ${KNOWLEDGE_INGEST_WORKER_CONCURRENCY:-1}
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      milvus:
-        condition: service_healthy
-      vault:
-        condition: service_healthy
-    command: ["python", "scripts/knowledge_ingest_worker.py"]
-    restart: unless-stopped
 
   redis:
     image: redis:7
@@ -133,7 +44,7 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:9000/minio/health/ready > /dev/null 2>&1"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -144,15 +55,18 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      until mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-soitminio} ${MINIO_SECRET_KEY:-soitminio};
-      do sleep 1; done;
-      mc mb -p local/${MINIO_BUCKET:-soit-artifacts};
-      mc anonymous set none local/${MINIO_BUCKET:-soit-artifacts};
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-soitminio} ${MINIO_SECRET_KEY:-soitminio}; do
+          sleep 1
+        done
+        mc mb -p local/${MINIO_BUCKET:-soit-artifacts}
+        mc anonymous set none local/${MINIO_BUCKET:-soit-artifacts}
+    restart: "no"
 
   etcd:
-    image: quay.io/coreos/etcd:v3.5.5
+    image: quay.io/coreos/etcd:v3.5.18
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
@@ -168,18 +82,20 @@ services:
     volumes:
       - etcd_data:/etcd
     healthcheck:
-      test: ["CMD-SHELL", "ETCDCTL_API=3 etcdctl endpoint health --endpoints=localhost:2379"]
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
 
   milvus:
-    image: milvusdb/milvus:v2.5.11
+    image: milvusdb/milvus:v2.5.12
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-soitminio}
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -191,7 +107,7 @@ services:
     volumes:
       - milvus_data:/var/lib/milvus
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:9091/healthz > /dev/null 2>&1"]
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -214,15 +130,14 @@ services:
       retries: 10
       start_period: 10s
 
-  api:
+  migrate:
     build:
-      context: ./server
-    ports:
-      - "9200:9200"
+      context: ../server
     env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
+      - path: ../.env
+        required: false
+    environment: &server_environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       DATABASE_USER: ${DATABASE_USER:-soit}
@@ -231,15 +146,81 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      STORAGE_URL: ${STORAGE_URL:-s3://soit-artifacts}
+      STORAGE_OPTIONS_JSON: ${STORAGE_OPTIONS_JSON:-{"endpoint_url":"http://minio:9000","key":"soitminio","secret":"soitminio"}}
+      STORAGE_AUTO_MKDIR: ${STORAGE_AUTO_MKDIR:-true}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-soitminio}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-soitminio}
       MINIO_BUCKET: ${MINIO_BUCKET:-soit-artifacts}
-      MINIO_SECURE: ${MINIO_SECURE:-false}
       MILVUS_HOST: ${MILVUS_HOST:-milvus}
       MILVUS_PORT: ${MILVUS_PORT:-19530}
+      VAULT_URL: ${VAULT_URL:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-soit-vault-root}
       SECRET_KEY: ${SECRET_KEY:-change-me}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      EVENT_BUS_REDIS_URL: ${EVENT_BUS_REDIS_URL:-redis://redis:6379/0}
+      KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL: ${KNOWLEDGE_INGEST_WORKER_POLL_INTERVAL:-1.0}
+      KNOWLEDGE_INGEST_WORKER_MAX_TASKS: ${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-10}
+      KNOWLEDGE_INGEST_WORKER_CONCURRENCY: ${KNOWLEDGE_INGEST_WORKER_CONCURRENCY:-1}
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      OUTBOX_DISPATCHER_POLL_INTERVAL: ${OUTBOX_DISPATCHER_POLL_INTERVAL:-1.0}
+      OUTBOX_DISPATCHER_BATCH_LIMIT: ${OUTBOX_DISPATCHER_BATCH_LIMIT:-50}
+      OUTBOX_DISPATCHER_MAX_ATTEMPTS: ${OUTBOX_DISPATCHER_MAX_ATTEMPTS:-64}
+      OUTBOX_DISPATCHER_LEASE_SECONDS: ${OUTBOX_DISPATCHER_LEASE_SECONDS:-60}
+      OUTBOX_DISPATCHER_METRICS_PORT: ${OUTBOX_DISPATCHER_METRICS_PORT:-9201}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-soit-api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      OTEL_TRACES_SAMPLE_RATIO: ${OTEL_TRACES_SAMPLE_RATIO:-1.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "scripts/migrate.sh"]
+    restart: "no"
+
+  bootstrap:
+    build:
+      context: ../server
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *server_environment
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-changeme123}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Admin}
+      BOOTSTRAP_TENANT_NAME: ${BOOTSTRAP_TENANT_NAME:-default}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - scripts/bootstrap_admin.py
+      - --email
+      - ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      - --password
+      - ${BOOTSTRAP_ADMIN_PASSWORD:-changeme123}
+      - --name
+      - ${BOOTSTRAP_ADMIN_NAME:-Admin}
+      - --tenant-name
+      - ${BOOTSTRAP_TENANT_NAME:-default}
+    restart: "no"
+
+  api:
+    build:
+      context: ../server
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *server_environment
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
+    ports:
+      - "9200:9200"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -251,12 +232,14 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       milvus:
         condition: service_healthy
       vault:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9200/api/v1/health/ready', timeout=3)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9200/health/ready', timeout=3)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -264,7 +247,7 @@ services:
 
   web:
     build:
-      context: ./web
+      context: ../web
       args:
         VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:9200/api/v1}
     environment:
@@ -275,11 +258,65 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:5000/ > /dev/null 2>&1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5000/ > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  knowledge-ingest-worker:
+    build:
+      context: ../server
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *server_environment
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    command: ["python", "scripts/ingest_worker.py"]
+    restart: unless-stopped
+
+  outbox-dispatcher:
+    build:
+      context: ../server
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *server_environment
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    command: ["python", "scripts/outbox_dispatcher.py"]
+    expose:
+      - "9201"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9201/metrics', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

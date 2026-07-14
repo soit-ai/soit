@@ -29,13 +29,9 @@ dependencies = [
     "pluggy>=1.5.0,<2.0.0",
     "psutil>=7.0.0,<8.0.0",
     "restrictedpython>=8.0,<9.0.0",
-    "pip-audit>=2.8.0,<3.0.0",
-    "mypy>=1.15.0,<2.0.0",
     "requests>=2.32.3,<3.0.0",
-    "aiohttp>=3.11.14,<4.0.0",
     "sse-starlette>=2.2.1,<3.0.0",
     "pymilvus==2.5.11",
-    "langchain==0.3.25",
     "openai==2.20.0",
     "aiofiles>=23.2.1,<24.0.0",
     "python-magic==0.4.27",
@@ -43,9 +39,7 @@ dependencies = [
     "pandas==2.1.4",
     "openpyxl==3.1.2",
     "beautifulsoup4==4.12.2",
-    "markdown==3.5.1",
     "PyYAML==6.0.1",
-    "boto3>=1.34.11,<2.0.0",
     "google-cloud-storage>=2.14.0,<3.0.0",
     "oss2>=2.18.3,<3.0.0",
     "cos-python-sdk-v5>=1.9.25,<2.0.0",
@@ -53,25 +47,38 @@ dependencies = [
     "prometheus-client>=0.21.1,<1.0.0",
     "setuptools>=80.4.0,<81.0.0",
     "python-pptx>=1.0.2,<2.0.0",
-    "langchain-community==0.3.20",
     "sqlmodel==0.0.24",
     "sqlalchemy==2.0.31",
-    "pytest>=7.4.4,<8.0.0",
-    "pytest-asyncio>=0.23.8,<0.24.0",
     "tiktoken>=0.9.0",
-    "flower>=2.0.1",
-    "sentence-transformers>=4.1.0",
-    "langchain-huggingface>=0.0.6",
-    "transformers>=4.52.3",
-    "huggingface-hub>=0.32.2",
     "pytz>=2025.2",
-    "torchvision==0.21.0",
-    "torchaudio==2.6.0",
-    "torch==2.6.0",
     "pypdf==5.6.0",
     "jsonschema>=4.0.0,<5.0.0",
     "hvac>=2.4.0",
     "rich>=13.9.0,<14.0.0",
+    "fsspec>=2025.5.0,<2027.0.0",
+    "s3fs>=2025.5.0,<2027.0.0",
+    "opentelemetry-api>=1.43.0",
+    "opentelemetry-sdk>=1.43.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.43.0",
+    "opentelemetry-instrumentation-fastapi>=0.64b0",
+    "opentelemetry-instrumentation-httpx>=0.64b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.64b0",
+    "opentelemetry-instrumentation-celery>=0.64b0",
+    "opentelemetry-instrumentation-redis>=0.64b0",
+]
+
+[project.optional-dependencies]
+local-embedding = [
+    "sentence-transformers>=4.1.0",
+    "langchain-huggingface>=0.0.6",
+    "transformers>=4.52.3",
+    "huggingface-hub>=0.32.2",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "torch==2.6.0",
+]
+operations = [
+    "flower>=2.0.1",
 ]
 
 [build-system]
@@ -81,11 +88,14 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest<8.0.0,>=7.4.3",
+    "pytest-asyncio>=0.23.8,<0.24.0",
     "mypy<2.0.0,>=1.8.0",
     "ruff<1.0.0,>=0.2.2",
+    "import-linter>=2.0,<3.0",
     "pre-commit<4.0.0,>=3.6.2",
     "types-passlib<2.0.0.0,>=1.7.7.20240106",
     "coverage<8.0.0,>=7.4.3",
+    "pip-audit>=2.8.0,<3.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

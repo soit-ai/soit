@@ -3,14 +3,14 @@
 Unit tests for IdentityService.
 """
 
+from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.rbac import TENANT_ROLE_OWNER, WORKSPACE_ROLE_OWNER
-from app.kernel.commons.errors import ValidationError
 from app.modules.identity.application.schemas import (
-    UserCreate,
-    WorkspaceCreate,
     ApiKeyCreate,
     MembershipCreate,
+    UserCreate,
+    WorkspaceCreate,
 )
 from app.wiring.services import build_identity_service
 
@@ -156,7 +156,7 @@ def test_identity_rejects_legacy_roles(db):
             MembershipCreate(user_id=member.id, role="Member"),
             ctx,
         )
-        assert False, "Expected ValidationError for legacy tenant role"
+        raise AssertionError("Expected ValidationError for legacy tenant role")
     except ValidationError:
         pass
 
@@ -177,6 +177,6 @@ def test_identity_rejects_legacy_roles(db):
             MembershipCreate(user_id=member.id, role="Maintainer"),
             ctx,
         )
-        assert False, "Expected ValidationError for legacy workspace role"
+        raise AssertionError("Expected ValidationError for legacy workspace role")
     except ValidationError:
         pass

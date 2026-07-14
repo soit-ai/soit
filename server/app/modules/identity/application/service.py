@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
 from app.kernel.contracts.context import RequestContext
+from app.kernel.audit.models import AuditEvent
 from app.kernel.identity.auth import JWTManager
 from app.kernel.commons.errors import NotFoundError, ValidationError, UnauthorizedError
 from app.kernel.commons.time import utc_now
@@ -21,7 +22,6 @@ from app.modules.identity.domain.models import (
     WorkspaceMembership,
     ApiKey,
     ResourceGrant,
-    ResourceGrantAudit,
 )
 from app.modules.identity.application.ports import (
     UserRepositoryPort,
@@ -824,15 +824,17 @@ class IdentityService:
         operation: str,
     ) -> None:
         """Record a resource grant audit entry."""
-        audit = ResourceGrantAudit(
+        audit = AuditEvent(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
+            event_type="identity.resource_grant.changed",
             resource_type=resource_type,
             resource_id=resource_id,
-            user_id=user_id,
-            actions=actions,
             operation=operation,
-            created_by=ctx.user_id,
+            actor_user_id=ctx.user_id,
+            subject_user_id=user_id,
+            scope="workspace",
+            payload_json={"actions": actions},
         )
         self.db.add(audit)
         self.db.commit()

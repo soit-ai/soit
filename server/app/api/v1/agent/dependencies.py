@@ -14,7 +14,7 @@ from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.memory.application.service import MemoryService
 from app.wiring import get_container
-from app.kernel.trace.writer import TraceWriter
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring.services import build_memory_service, build_agent_service
 
 

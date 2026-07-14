@@ -32,11 +32,6 @@ def generate_resource_grant_id() -> str:
     return f"rg_{generate_ulid()}"
 
 
-def generate_resource_grant_audit_id() -> str:
-    """Generate resource grant audit ID."""
-    return f"rga_{generate_ulid()}"
-
-
 class User(SQLModel, table=True):
     """User model - global user account."""
     
@@ -243,8 +238,6 @@ class ApiKey(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
-
-
 class ResourceGrant(SQLModel, table=True):
     """Resource-level grant for a user."""
 
@@ -303,56 +296,3 @@ class ResourceGrant(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
-
-
-class ResourceGrantAudit(SQLModel, table=True):
-    """Audit log for resource grant changes."""
-
-    __tablename__ = "resource_grant_audits"
-
-    __table_args__ = (
-        Index(
-            "idx_resource_grant_audit_resource",
-            "tenant_id",
-            "workspace_id",
-            "resource_type",
-            "resource_id",
-        ),
-        Index(
-            "idx_resource_grant_audit_user",
-            "tenant_id",
-            "workspace_id",
-            "user_id",
-        ),
-    )
-
-    id: str = Field(primary_key=True, default_factory=generate_resource_grant_audit_id)
-    """Audit ID."""
-
-    tenant_id: str = Field(index=True)
-    """Tenant ID."""
-
-    workspace_id: str = Field(index=True)
-    """Workspace ID."""
-
-    resource_type: str = Field(index=True)
-    """Resource type."""
-
-    resource_id: str = Field(index=True)
-    """Resource ID."""
-
-    user_id: str = Field(index=True)
-    """User ID granted."""
-
-    actions: list[str] = Field(default_factory=list, sa_column=Column(JSON))
-    """Granted actions."""
-
-    operation: str = Field()
-    """Operation type (grant/update/revoke)."""
-
-    created_by: Optional[str] = Field(default=None)
-    """User ID that performed the operation."""
-
-    created_at: datetime = Field(default_factory=utc_now)
-    """Creation timestamp."""
-

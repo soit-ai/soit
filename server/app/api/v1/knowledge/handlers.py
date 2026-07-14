@@ -27,6 +27,8 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryResponse,
     KnowledgeResponse,
     KnowledgeUpdateRequest,
+    KnowledgeWorkbenchItemsResponse,
+    KnowledgeWorkbenchResponse,
 )
 from app.modules.knowledge.application.service import KnowledgeService
 
@@ -111,6 +113,33 @@ class KnowledgeHandlers:
     async def get_knowledge(self, ctx: RequestContext, knowledge_id: str) -> KnowledgeResponse:
         knowledge = await self.service.get_knowledge(knowledge_id)
         return self._to_response(knowledge)
+
+    async def get_workbench(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+    ) -> KnowledgeWorkbenchResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench(limit=limit, offset=offset)
+
+    async def get_workbench_items(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+        tab: Optional[str],
+        keyword: Optional[str],
+    ) -> KnowledgeWorkbenchItemsResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench_items(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
+        )
 
     async def update_knowledge(
         self,
@@ -205,7 +234,7 @@ class KnowledgeHandlers:
         ctx: RequestContext,
         knowledge_id: str,
         payload: KnowledgeDocumentUpload,
-        file_content: bytes | None,
+        file_content: object | None,
         *,
         async_ingest: bool,
         max_retries: int,

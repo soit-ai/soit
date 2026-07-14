@@ -2,14 +2,13 @@
 
 import pytest
 
+from app.adapters.llm.memory import InMemoryLLMPort
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
     ToolCall,
-    ToolDefinition,
 )
-from app.adapters.llm.memory import InMemoryLLMPort
-from app.modules.agent.runtime.verifier import AgentVerifier, VerifierResult
+from app.modules.agent.runtime.verifier import AgentVerifier
 
 
 class MockVerifierLLM(InMemoryLLMPort):

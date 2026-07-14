@@ -1,10 +1,11 @@
 """Tests for MCP routing in RegistryToolRouterPort."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.adapters.tools.router import RegistryToolRouterPort
+import pytest
+
 from app.adapters.tools.mcp import MCPToolAdapter
+from app.adapters.tools.router import RegistryToolRouterPort
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.tools.interface import ToolResponse
 
@@ -44,7 +45,7 @@ async def test_non_mcp_ref_does_not_route_to_mcp():
     router = RegistryToolRouterPort(mcp_adapter=mock_mcp)
 
     # This will fall through to the HTTP port since there's no registry entry
-    result = await router.invoke(
+    await router.invoke(
         "tool:test:echo",
         {"url": "https://example.com", "method": "GET"},
     )

@@ -6,7 +6,13 @@ Spec validation tests - verify JSON Schema validation and $ref resolution.
 import pytest
 
 from app.kernel.commons.errors import ValidationError
-from app.kernel.specs import list_schemas, load_schema, validate_runtime_spec, validate_spec, validator
+from app.kernel.specs import (
+    list_schemas,
+    load_schema,
+    validate_runtime_spec,
+    validate_spec,
+    validator,
+)
 
 
 def test_list_and_load_schemas():
@@ -76,12 +82,25 @@ def test_agent_spec_validation_with_bindings_only_shape():
             "tool_refs": ["tool:test:echo"],
             "workflow_refs": ["wf:handoff"],
             "skill_refs": ["skill:triage"],
-            "plugin_refs": ["plugin:soit:search:1.0.0"],
         },
         "policies": {"verify": True},
     }
 
     assert validate_spec(agent_doc, "agent_spec") is True
+
+
+def test_agent_spec_validation_rejects_plugin_refs_binding():
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                "runtime": "agent_runtime_v1",
+                "bindings": {
+                    "model_ref": "model:openai:gpt-4",
+                    "plugin_refs": ["plugin:soit:search:1.0.0"],
+                },
+            },
+            "agent_spec",
+        )
 
 
 @pytest.mark.parametrize(
@@ -101,6 +120,38 @@ def test_agent_spec_validation_rejects_legacy_binding_fragments(legacy_fragment)
                 **legacy_fragment,
             },
             "agent_spec",
+        )
+
+
+def test_chat_spec_validation_accepts_current_binding_shape():
+    chat_doc = {
+        "runtime": "chat_runtime_v1",
+        "model_ref": "model:openai:gpt-4",
+        "tool_refs": ["tool:test:echo"],
+        "rag": {"knowledge_refs": ["knowledge:kb_support"]},
+    }
+
+    assert validate_spec(chat_doc, "chat_spec") is True
+
+
+@pytest.mark.parametrize(
+    "legacy_fragment",
+    [
+        {"model": {"ref_key": "model:openai:gpt-4"}},
+        {"tools": {"allowlist": ["tool:test:echo"]}},
+        {"rag": {"knowledge_ids": ["kb_support"]}},
+        {"rag": {"knowledges": ["knowledge:kb_support"]}},
+    ],
+)
+def test_chat_spec_validation_rejects_legacy_binding_fragments(legacy_fragment):
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                "runtime": "chat_runtime_v1",
+                "model_ref": "model:openai:gpt-4",
+                **legacy_fragment,
+            },
+            "chat_spec",
         )
 
 

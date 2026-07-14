@@ -65,3 +65,24 @@ def test_login_success_and_failure(client):
         json={"email": payload["email"], "password": "WrongPassword!"},
     )
     assert login_bad.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_get_workspace_returns_metadata_json(client, db, ctx):
+    """Workspace responses expose metadata_json as metadata."""
+    from app.modules.identity.domain.models import Workspace
+
+    workspace = Workspace(
+        id=ctx.workspace_id,
+        tenant_id=ctx.tenant_id,
+        name="Test Workspace",
+        metadata_json={"control_surface": "phase1"},
+    )
+    db.add(workspace)
+    db.commit()
+
+    response = client.get(f"/api/v1/workspaces/{workspace.id}")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()["data"]
+    assert data["id"] == workspace.id
+    assert data["metadata"] == {"control_surface": "phase1"}

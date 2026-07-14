@@ -2,6 +2,8 @@
 
 from fastapi import status
 
+from app.kernel.runtime.threads.service import ThreadService
+
 
 def test_thread_api_create_get_update_and_delete(client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
@@ -44,19 +46,68 @@ def test_thread_api_create_get_update_and_delete(client):
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_legacy_chat_endpoints_are_offline(client):
+def test_thread_api_searches_titles_and_message_content(client, db, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-
-    completions_response = client.post(
-        "/api/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hello"}]},
-        headers=headers,
+    runtime = ThreadService(db, ctx)
+    billing_thread = runtime.create_thread(agent_id="agent_demo", title="Billing escalation")
+    runtime.append_message(
+        thread_id=billing_thread.id,
+        role="user",
+        content="The enterprise ticket mentions an SSO outage in ACME.",
     )
-    assert completions_response.status_code == status.HTTP_404_NOT_FOUND
+    runtime.create_thread(agent_id="agent_demo", title="Product notes")
 
-    stream_response = client.post(
-        "/api/v1/chat/stream",
-        json={"messages": [{"role": "user", "content": "hello"}], "stream": True},
-        headers=headers,
+    title_response = client.get("/api/v1/threads?search=billing", headers=headers)
+    assert title_response.status_code == status.HTTP_200_OK
+    assert [item["id"] for item in title_response.json()["data"]["items"]] == [billing_thread.id]
+
+    message_response = client.get("/api/v1/threads?search=sso%20outage", headers=headers)
+    assert message_response.status_code == status.HTTP_200_OK
+    assert [item["id"] for item in message_response.json()["data"]["items"]] == [billing_thread.id]
+
+
+def test_thread_api_returns_tool_call_details_for_chat_history(client, db, ctx):
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    runtime = ThreadService(db, ctx)
+    thread = runtime.create_thread(agent_id="agent_demo", title="Tool call history")
+    tool_calls = [
+        {
+            "tool_call_id": "call_ticket_lookup",
+            "tool_name": "tool:test:ticket_lookup",
+            "tool_type": "builtin",
+            "status": "completed",
+            "arguments_json": {"ticket_id": "TCK-DEMO-1"},
+            "result_json": {"result": {"ticket_id": "TCK-DEMO-1", "account": "verified"}},
+            "metadata_json": {"duration_ms": 8},
+        },
+        {
+            "tool_call_id": "call_ticket_workflow",
+            "tool_name": "wf:ticket-flow",
+            "tool_type": "workflow",
+            "status": "completed",
+            "arguments_json": {"ticket_id": "TCK-DEMO-1", "priority": "high"},
+            "result_json": {"result": {"workflow_run_id": "run_ticket_1"}},
+            "metadata_json": {},
+        },
+    ]
+    runtime.append_message(
+        thread_id=thread.id,
+        role="assistant",
+        content="Verified account and opened the ticket workflow.",
+        run_id="run_agent_1",
+        metadata={
+            "tool_calls": tool_calls,
+            "tool_calls_count": len(tool_calls),
+            "cost_total": 0.02,
+        },
+        tool_calls_json=tool_calls,
     )
-    assert stream_response.status_code == status.HTTP_404_NOT_FOUND
+
+    response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    messages = response.json()["data"]["messages"]
+    assistant_message = next(message for message in messages if message["role"] == "assistant")
+    assert assistant_message["tool_calls_json"] == tool_calls
+    assert assistant_message["metadata_json"]["tool_calls"] == tool_calls
+    assert assistant_message["metadata_json"]["tool_calls_count"] == 2
+    assert assistant_message["metadata_json"]["cost_total"] == 0.02

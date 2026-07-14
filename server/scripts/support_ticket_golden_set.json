@@ -1,0 +1,20 @@
+[
+  {
+    "case_id": "refund_policy_answer",
+    "prompt": "What does the refund escalation policy require before approval?",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": false,
+    "expect_workflow_child_run": false,
+    "expect_audit": false,
+    "minimum_answer_terms": ["refund", "account verification"]
+  },
+  {
+    "case_id": "refund_ticket_workflow",
+    "prompt": "Create a review ticket for a refund escalation from customer customer-123.",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": true,
+    "expect_workflow_child_run": true,
+    "expect_audit": true,
+    "minimum_answer_terms": ["review ticket", "refund policy"]
+  }
+]

@@ -1,15 +1,14 @@
 """Domain event envelope for transactional outbox (Phase 1).
 
-Field set aligns with docs/SOIT_Minimal_Outbox_EventDriven_Design_Checklist.md §5.
+Field set aligns with server/docs/architecture/OUTBOX_EVENT_MODEL.md.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 DEFAULT_EVENT_VERSION = "1"
 
@@ -20,16 +19,18 @@ class DomainEventEnvelope(BaseModel):
     event_id: str
     event_type: str
     event_version: str = Field(default=DEFAULT_EVENT_VERSION)
-    tenant_id: Optional[str] = None
-    subject_type: Optional[str] = None
-    subject_id: Optional[str] = None
-    run_id: Optional[str] = None
-    task_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    workflow_run_id: Optional[str] = None
-    correlation_id: Optional[str] = None
-    causation_id: Optional[str] = None
-    producer: Optional[str] = None
+    tenant_id: str | None = None
+    workspace_id: str | None = None
+    idempotency_key: str | None = None
+    subject_type: str | None = None
+    subject_id: str | None = None
+    run_id: str | None = None
+    task_id: str | None = None
+    thread_id: str | None = None
+    workflow_run_id: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    producer: str | None = None
     occurred_at: datetime
     payload: dict[str, Any] = Field(default_factory=dict)
 

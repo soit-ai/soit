@@ -57,7 +57,6 @@ def upgrade() -> None:
             sa.Column("spec_json", sa.JSON(), nullable=False),
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["skill_id"], ["skills.id"]),
             sa.UniqueConstraint("skill_id", "version", name="uq_skill_versions_skill_id_version"),
         )
         op.create_index("ix_skill_versions_skill_id_status", "skill_versions", ["skill_id", "status"])
@@ -75,8 +74,6 @@ def upgrade() -> None:
             sa.Column("created_by", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["skill_id"], ["skills.id"]),
-            sa.ForeignKeyConstraint(["skill_version_id"], ["skill_versions.id"]),
         )
         op.create_index("ix_skill_publishes_skill_id", "skill_publishes", ["skill_id"])
         op.create_index("ix_skill_publishes_version_id", "skill_publishes", ["skill_version_id"])

@@ -4,7 +4,8 @@ Settings model and environment parsing.
 """
 
 from pathlib import Path
-from typing import Optional, List
+from urllib.parse import urlparse
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,7 +14,7 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE_PATH),
         env_file_encoding="utf-8",
@@ -36,27 +37,27 @@ class Settings(BaseSettings):
     """Database host."""
     database_port: int = 5432
     """Database port."""
-    database_user: Optional[str] = None
+    database_user: str | None = None
     """Database username."""
-    database_pass: Optional[str] = None
+    database_pass: str | None = None
     """Database password."""
     database_name: str = ""
     """Database name."""
-    database_url: Optional[str] = None
+    database_url: str | None = None
     """Database URL."""
-    
+
     # Redis
     redis_host: str = "localhost"
     """Redis host."""
     redis_port: int = 6379
     """Redis port."""
-    redis_pass: Optional[str] = None
+    redis_pass: str | None = None
     """Redis pass."""
     redis_db: int = 0
     """Redis data."""
-    redis_url: Optional[str] = None
+    redis_url: str | None = None
     """Redis URL for cache and message queue."""
-    
+
     # JWT
     secret_key: str = "your-secret-key-change-in-production"
     """Secret key for JWT token signing."""
@@ -64,39 +65,50 @@ class Settings(BaseSettings):
     """JWT algorithm."""
     access_token_expire_minutes: int = 30
     """Access token expiration in minutes."""
-    
+
     # Milvus
     milvus_host: str = "localhost"
     """Milvus host."""
     milvus_port: int = 19530
     """Milvus port."""
-    
-    # MinIO / S3
-    minio_endpoint: Optional[str] = None
-    """MinIO endpoint URL."""
-    minio_access_key: Optional[str] = None
-    """MinIO access key."""
-    minio_secret_key: Optional[str] = None
-    """MinIO secret key."""
-    minio_bucket: str = "soit-artifacts"
-    """Default bucket name."""
-    minio_secure: bool = False
-    """Use HTTPS for MinIO."""
-    
+
+    # Storage (fsspec)
+    storage_url: str | None = None
+    """fsspec storage root URL."""
+    storage_options_json: str = "{}"
+    """JSON object with fsspec storage options."""
+    storage_auto_mkdir: bool = True
+    """Create storage parent directories when supported."""
+    storage_operation_timeout_seconds: float = 10.0
+    """Maximum seconds to wait for a single storage filesystem operation."""
+
     # Vault
-    vault_url: Optional[str] = None
+    vault_url: str | None = None
     """HashiCorp Vault URL."""
-    vault_token: Optional[str] = None
+    vault_token: str | None = None
     """Vault token."""
-    
-    # Observability
-    sentry_dsn: Optional[str] = None
+
+    # Observe
+    sentry_dsn: str | None = None
     """Sentry DSN for error tracking."""
     sentry_enabled: bool = False
     """Enable Sentry error tracking."""
     sentry_traces_sample_rate: float = 0.0
     """Sentry traces sample rate."""
-    
+
+    # OpenTelemetry
+    otel_enabled: bool = False
+    """Enable OpenTelemetry SDK instrumentation and OTLP export."""
+
+    otel_service_name: str = "soit-api"
+    """OpenTelemetry service.name for the API process."""
+
+    otel_exporter_otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    """OTLP/HTTP trace export endpoint."""
+
+    otel_traces_sample_ratio: float = 1.0
+    """Parent-based trace sampling ratio from zero to one."""
+
     log_level: str = "INFO"
     """Log level (DEBUG, INFO, WARNING, ERROR)."""
     log_format: str = "rich"
@@ -109,16 +121,25 @@ class Settings(BaseSettings):
     default_llm_provider: str = "openai"
     """Default LLM provider when model ref has no provider prefix."""
 
-    deepseek_api_key: Optional[str] = None
+    openai_api_key: str | None = None
+    """OpenAI API key."""
+
+    deepseek_api_key: str | None = None
     """DeepSeek API key."""
 
     deepseek_base_url: str = "https://api.deepseek.com"
     """DeepSeek API base URL (OpenAI-compatible)."""
 
+    anthropic_api_key: str | None = None
+    """Anthropic API key."""
+
+    anthropic_base_url: str = "https://api.anthropic.com"
+    """Anthropic API base URL."""
+
     memory_embedding_model_ref: str = "model:openai:text-embedding-3-small"
     """Default embedding model for memory module."""
 
-    agent_rate_limit_per_minute: Optional[int] = None
+    agent_rate_limit_per_minute: int | None = None
     """Optional rate limit for agent runs (per minute)."""
 
     # Knowledge ingest worker
@@ -150,6 +171,12 @@ class Settings(BaseSettings):
     outbox_dispatcher_max_attempts: int = 64
     """Max delivery attempts per row before terminal failure / DLQ."""
 
+    outbox_dispatcher_lease_seconds: int = 60
+    """Seconds before an abandoned outbox claim can be reclaimed."""
+
+    outbox_dispatcher_metrics_port: int = 9201
+    """Prometheus and liveness HTTP port for the dedicated dispatcher."""
+
     # Plugins
     plugins_dir: str = "./var/plugins"
     """Filesystem directory for plugin packages and extracted installs."""
@@ -160,13 +187,25 @@ class Settings(BaseSettings):
     platform_version: str = "0.1.0"
     """Platform version for plugin compatibility checks."""
 
-    platform_features: List[str] = []
-    """Platform feature flags for plugin compatibility checks."""
+    platform_features: list[str] = []
+    """Legacy explicit feature keys for plugin compatibility checks."""
+
+    platform_edition: str = "community"
+    """Current product edition: community, enterprise, or cloud."""
+
+    platform_entitlements: list[str] = []
+    """License or control-plane granted feature keys."""
+
+    enterprise_license_path: str | None = None
+    """Optional signed Enterprise license file mounted into this runtime."""
+
+    enterprise_license_public_key_path: str | None = None
+    """Optional Ed25519 public key path used to verify the Enterprise license."""
 
     plugin_signature_required: bool = False
     """Require signature verification for plugin package installs."""
 
-    plugin_signature_public_keys: List[str] = []
+    plugin_signature_public_keys: list[str] = []
     """Base64-encoded public keys for plugin signature verification."""
 
     plugin_integrity_required: bool = False
@@ -176,12 +215,12 @@ class Settings(BaseSettings):
     enable_egress_policy: bool = True
     """Enable egress policy (deny-by-default)."""
 
-    egress_allowlist: List[str] = []
+    egress_allowlist: list[str] = []
     """Global egress allowlist domains (wildcards supported)."""
 
-    egress_blocklist: List[str] = []
+    egress_blocklist: list[str] = []
     """Global egress blocklist domains (wildcards supported)."""
-    
+
     # API
     api_v1_prefix: str = "/api/v1"
     """API v1 prefix."""
@@ -190,7 +229,7 @@ class Settings(BaseSettings):
     event_bus_backend: str = "memory"
     """Event bus backend: memory or redis."""
 
-    event_bus_redis_url: Optional[str] = None
+    event_bus_redis_url: str | None = None
     """Optional Redis URL override for event bus."""
 
     event_bus_channel: str = "soit:events"
@@ -208,7 +247,48 @@ class Settings(BaseSettings):
             self.redis_url = (
                 f"redis://{password}{self.redis_host}:{self.redis_port}/{self.redis_db}"
             )
+
         return self
+
+    def validate_runtime_requirements(self) -> None:
+        """Fail closed when production runtime dependencies are not configured."""
+        if (self.environment or "").strip().lower() != "production":
+            return
+        database = urlparse(self.database_url or "")
+        if not all(
+            [
+                database.scheme,
+                database.hostname,
+                database.username,
+                database.password,
+                database.path.strip("/"),
+            ]
+        ):
+            raise ValueError("Production database URL must include host, database, and credentials")
+        if (self.event_bus_backend or "").strip().lower() != "redis":
+            raise ValueError("Production requires the Redis event bus backend")
+        if self.outbox_dispatcher_enabled:
+            raise ValueError("Production requires the dedicated outbox dispatcher process")
+        if not self.otel_enabled:
+            raise ValueError("Production requires OpenTelemetry tracing")
+        if not (self.otel_exporter_otlp_endpoint or "").strip():
+            raise ValueError("Production requires an OpenTelemetry OTLP endpoint")
+        if not self.vault_url or not self.vault_token:
+            raise ValueError("Production requires Vault URL and token")
+        if not any(
+            [
+                self.openai_api_key,
+                self.deepseek_api_key,
+                self.anthropic_api_key,
+            ]
+        ):
+            raise ValueError("Production requires at least one LLM provider key")
+        secret_key = (self.secret_key or "").strip()
+        if len(secret_key) < 32 or secret_key in {
+            "change-me",
+            "your-secret-key-change-in-production",
+        }:
+            raise ValueError("Production requires a non-placeholder SECRET_KEY of at least 32 characters")
 
 
 # Global settings instance

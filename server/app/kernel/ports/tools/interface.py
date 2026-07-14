@@ -3,22 +3,22 @@
 Tool port interface.
 """
 
-from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class ToolResponse:
     """Tool execution response."""
-    
+
     def __init__(
         self,
         result: Any,
         success: bool = True,
-        error: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        error: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Initialize tool response.
-        
+
         Args:
             result: Tool execution result.
             success: Whether execution succeeded.
@@ -33,21 +33,21 @@ class ToolResponse:
 
 class ToolPort(ABC):
     """Tool port interface."""
-    
+
     @abstractmethod
     async def invoke(
         self,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         **kwargs: Any,
     ) -> ToolResponse:
         """Invoke a tool.
-        
+
         Args:
             tool_ref: Tool reference (e.g., "tool:http:create_ticket").
             parameters: Tool parameters.
             **kwargs: Additional parameters (run_id, etc.).
-            
+
         Returns:
             ToolResponse instance.
         """

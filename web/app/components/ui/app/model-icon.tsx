@@ -1,16 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { cn } from '@/lib/utils'
-// import * as ICONS from '@lobehub/icons/es/icons.js'
-import { type IconToc, default as toc } from '@lobehub/icons/es/toc.js'
-if (typeof window !== 'undefined') {
-  // @ts-ignore
-  window.ICONS = {}
-  import('@lobehub/icons/es/icons.js').then((res) => {
-    // @ts-ignore
-    window.ICONS = res
-  })
-}
-// import * as ICONS from '@lobehub/icons/es/icons.js'
+import type { IconToc } from '@lobehub/icons/es/types/toc'
+
+type IconRegistry = Record<string, any>
 export interface ModelIconProps extends React.HTMLAttributes<HTMLDivElement> {
   name?: string
   icon?: string
@@ -22,7 +13,48 @@ export interface ModelIconProps extends React.HTMLAttributes<HTMLDivElement> {
 // APP application icon generation, can load emoji expressions, can also load pictures
 export const ModelIcon = (props: ModelIconProps): ReactElement => {
   const { name, type, className, size, shape } = props  
+  const [ProviderIcon, setProviderIcon] = useState<any>(null)
   let _name = name
+
+  useEffect(() => {
+    let active = true
+    if (!_name || typeof window === 'undefined') {
+      setProviderIcon(null)
+      return
+    }
+
+    async function loadIcon() {
+      const [iconsModule, tocModule] = await Promise.all([
+        import('@lobehub/icons/es/icons.js'),
+        import('@lobehub/icons/es/toc.js'),
+      ])
+      const icons = iconsModule as IconRegistry
+      const toc = tocModule.toc as IconToc[]
+      let nextIcon: any = null
+      for (const item of toc) {
+        if (item.id.toLowerCase() === _name!.toLowerCase()) {
+          nextIcon = icons[item.id]
+          break
+        }
+      }
+      if (!nextIcon) {
+        nextIcon = icons[_name!]
+      }
+      if (active) {
+        setProviderIcon(nextIcon ?? null)
+      }
+    }
+
+    loadIcon().catch(() => {
+      if (active) {
+        setProviderIcon(null)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [_name])
+
   if (!_name) {
     return <></>
   }
@@ -36,21 +68,6 @@ export const ModelIcon = (props: ModelIconProps): ReactElement => {
   //   default:
   //     break
   // }
-  let ProviderIcon:any = null
-  for (const key in toc) {
-    const _item = toc[key]
-    // console.log(_item.id, toc[key])
-    if (_item.id.toLowerCase() === _name.toLowerCase()) {
-      // @ts-ignore
-      ProviderIcon = window.ICONS[_item.id]
-      // console.log(_item.id, ProviderIcon)
-      break
-    }
-  }
-  if (!ProviderIcon) {
-    // @ts-ignore
-    ProviderIcon = window.ICONS[_name]
-  }
   if (!ProviderIcon) {
     return <></>
   }

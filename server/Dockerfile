@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM python:3.11
 
 ENV PYTHONUNBUFFERED=1
@@ -15,6 +17,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Compile bytecode
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#compiling-bytecode
 ENV UV_COMPILE_BYTECODE=1
+ENV UV_HTTP_TIMEOUT=600
 
 # uv Cache
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#caching
@@ -34,10 +37,11 @@ COPY ./ /app/
 
 # Sync the project
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#intermediate-layers
-RUN /bin/uv sync
+RUN --mount=type=cache,target=/root/.cache/uv \
+    /bin/uv sync --frozen --no-dev
 
 # Expose the port
 EXPOSE 9200
 
-# Use gunicorn for production
-CMD ["gunicorn", "app.main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:9200"]
+# Run one ASGI process per container; scale with container replicas.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]

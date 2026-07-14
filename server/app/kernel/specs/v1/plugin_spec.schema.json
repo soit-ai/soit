@@ -27,6 +27,16 @@
       "minLength": 1,
       "description": "SemVer recommended"
     },
+    "plugin_type": {
+      "type": "string",
+      "enum": [
+        "skill",
+        "mcp",
+        "tool",
+        "workflow_node",
+        "mixed"
+      ]
+    },
     "description": {
       "type": [
         "string",
@@ -51,7 +61,9 @@
           "models",
           "retrievers",
           "parsers",
-          "ui"
+          "ui",
+          "skills",
+          "mcp_servers"
         ]
       }
     },
@@ -75,6 +87,24 @@
           ],
           "items": {
             "$ref": "refs.schema.json#/$defs/NodeRef"
+          }
+        },
+        "skills": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/SkillRef"
+          }
+        },
+        "mcp_servers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "refs.schema.json#/$defs/MCPServerRef"
           }
         },
         "models": {
@@ -280,6 +310,38 @@
             "^node:[A-Za-z0-9_.-]+:[A-Za-z0-9_.:-]+$": {
               "type": "string",
               "description": "Relative path to workflow node spec JSON within the plugin package."
+            }
+          }
+        },
+        "skills": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "propertyNames": {
+            "$ref": "refs.schema.json#/$defs/SkillRef"
+          },
+          "patternProperties": {
+            "^skill:[A-Za-z0-9_.:-]+$": {
+              "type": "string",
+              "description": "Relative path to skill artifact JSON within the plugin package."
+            }
+          }
+        },
+        "mcp_servers": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "propertyNames": {
+            "$ref": "refs.schema.json#/$defs/MCPServerRef"
+          },
+          "patternProperties": {
+            "^mcp_server:[A-Za-z0-9_.:-]+$": {
+              "type": "string",
+              "description": "Relative path to MCP server artifact JSON within the plugin package."
             }
           }
         },

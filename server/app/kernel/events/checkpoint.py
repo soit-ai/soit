@@ -3,13 +3,38 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.kernel.commons.time import utc_now
-from app.kernel.events.outbox_models import EventConsumerCheckpoint
+from app.kernel.runtime.db.models.events import EventConsumerCheckpoint
+
+
+def try_claim_consumer_slot(
+    db: Session,
+    *,
+    consumer_name: str,
+    event_id: str,
+    result: str | None = None,
+    error_message: str | None = None,
+    processed_at: datetime | None = None,
+) -> bool:
+    """Insert a consumer/event idempotency row; return False on duplicate."""
+    row = EventConsumerCheckpoint(
+        consumer_name=consumer_name,
+        event_id=event_id,
+        result=result,
+        error_message=error_message,
+        processed_at=processed_at if processed_at is not None else utc_now(),
+    )
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+        return True
+    except IntegrityError:
+        return False
 
 
 class ConsumerCheckpointRepository:
@@ -31,25 +56,19 @@ class ConsumerCheckpointRepository:
         consumer_name: str,
         event_id: str,
         *,
-        result: Optional[str] = None,
-        error_message: Optional[str] = None,
-        processed_at: Optional[datetime] = None,
+        result: str | None = None,
+        error_message: str | None = None,
+        processed_at: datetime | None = None,
     ) -> bool:
         """Insert checkpoint row; return True if inserted, False if duplicate (idempotent skip).
 
         Uses a savepoint so IntegrityError does not abort the caller's entire transaction.
         """
-        row = EventConsumerCheckpoint(
+        return try_claim_consumer_slot(
+            self.db,
             consumer_name=consumer_name,
             event_id=event_id,
             result=result,
             error_message=error_message,
-            processed_at=processed_at if processed_at is not None else utc_now(),
+            processed_at=processed_at,
         )
-        try:
-            with self.db.begin_nested():
-                self.db.add(row)
-                self.db.flush()
-            return True
-        except IntegrityError:
-            return False

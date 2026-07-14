@@ -35,8 +35,8 @@ export const platformModules: PlatformModuleConfig[] = [
     tone: 'from-rose-500/20 via-red-500/10 to-transparent',
   },
   {
-    key: 'observability',
-    href: '/observability',
+    key: 'observe',
+    href: '/observe',
     icon: Activity,
     tone: 'from-emerald-500/20 via-teal-500/10 to-transparent',
   },

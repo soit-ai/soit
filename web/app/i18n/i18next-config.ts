@@ -2,6 +2,7 @@ import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { LanguagesArr } from '@/i18n/language'
+import { debugLog } from '@/utils/debug'
 import type { Locale, TFunction, UseTranslationResponse } from './types'
 
 type ResourceType = {
@@ -25,6 +26,7 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
         knowledge: (await import(`./${lang}/knowledge.ts`)).default,
         layout: (await import(`./${lang}/layout.ts`)).default,
         login: (await import(`./${lang}/login.ts`)).default,
+        model: (await import(`./${lang}/model.ts`)).default,
         run: (await import(`./${lang}/run.ts`)).default,
         plugin: (await import(`./${lang}/plugin.ts`)).default,
         tools: (await import(`./${lang}/tools.ts`)).default,
@@ -34,6 +36,7 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
         store: (await import(`./${lang}/store.ts`)).default,
         safe: (await import(`./${lang}/safe.ts`)).default,
         notification: (await import(`./${lang}/notification.ts`)).default,
+        task: (await import(`./${lang}/task.ts`)).default,
       },
     }
     return resources
@@ -57,7 +60,7 @@ const initResources = async (): Promise<ResourcesType> => {
     const userResources = await loadLangResources(userLang)
     if (userResources) {
       resources[userLang] = userResources
-      console.log(`Loaded user language resources: ${userLang}`)
+      debugLog(`Loaded user language resources: ${userLang}`)
     }
   }
   
@@ -65,7 +68,7 @@ const initResources = async (): Promise<ResourcesType> => {
   const defaultResources = await loadLangResources(defaultLang)
   if (defaultResources) {
     resources[defaultLang] = defaultResources
-    console.log(`Loaded default language resources: ${defaultLang}`)
+    debugLog(`Loaded default language resources: ${defaultLang}`)
   }
   
   return resources
@@ -95,7 +98,7 @@ i18next
       debug: process.env.NODE_ENV === 'development',
     },
     () => {
-      console.log('i18next initialized')
+      debugLog('i18next initialized')
     }
   )
 

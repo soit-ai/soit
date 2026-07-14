@@ -4,28 +4,27 @@ OpenAI LLM port adapter implementation.
 """
 
 import json as _json
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 import numpy as np
-import openai
 from openai import AsyncOpenAI
 
 from app.kernel.ports.llm.interface import (
-    LLMPort,
     ChatMessage,
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    LLMPort,
     RerankResponse,
-    ToolDefinition,
     ToolCall,
+    ToolDefinition,
 )
 
 
 class OpenAILLMPort(LLMPort):
     """OpenAI LLM port adapter."""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         """Initialize OpenAI gateway.
 
         Args:
@@ -35,11 +34,11 @@ class OpenAILLMPort(LLMPort):
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     @staticmethod
-    def _convert_messages(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
+    def _convert_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         """Convert ChatMessage list to OpenAI message format."""
         openai_messages = []
         for msg in messages:
-            m: Dict[str, Any] = {"role": msg.role, "content": msg.content}
+            m: dict[str, Any] = {"role": msg.role, "content": msg.content}
             if msg.role == "assistant" and msg.tool_calls:
                 m["tool_calls"] = [
                     {
@@ -61,20 +60,20 @@ class OpenAILLMPort(LLMPort):
 
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         *,
-        tools: Optional[List[ToolDefinition]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | None = None,
         **kwargs,
     ) -> ChatResponse:
         """Chat completion via OpenAI."""
         model_name = self._resolve_model_name(model)
         openai_messages = self._convert_messages(messages)
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "model": model_name,
             "messages": openai_messages,
         }
@@ -135,17 +134,17 @@ class OpenAILLMPort(LLMPort):
 
     async def stream_chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ):
         """Stream chat completion via OpenAI."""
         model_name = self._resolve_model_name(model)
         openai_messages = self._convert_messages(messages)
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "model": model_name,
             "messages": openai_messages,
             "stream": True,
@@ -203,48 +202,48 @@ class OpenAILLMPort(LLMPort):
                 model=model_name,
                 finish_reason=choice.finish_reason,
             )
-    
+
     async def embed(
         self,
-        texts: List[str],
+        texts: list[str],
         model: str,
         **kwargs,
     ) -> EmbeddingResponse:
         """Generate embeddings via OpenAI."""
         model_name = self._resolve_model_name(model)
-        
+
         # Call OpenAI API
         response = await self.client.embeddings.create(
             model=model_name,
             input=texts,
         )
-        
+
         embeddings = [item.embedding for item in response.data]
         tokens_used = response.usage.total_tokens if response.usage else 0
-        
+
         return EmbeddingResponse(
             embeddings=embeddings,
             tokens_used=tokens_used,
             model=model_name,
         )
-    
+
     async def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         model: str,
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
         **kwargs,
     ) -> RerankResponse:
         """Rerank documents via OpenAI using embeddings + cosine similarity.
-        
+
         Args:
             query: Query text.
             documents: List of document texts to rerank.
             model: Model reference (embedding model).
             top_n: Number of top results to return.
             **kwargs: Additional parameters.
-            
+
         Returns:
             RerankResponse with reranked results.
         """
@@ -254,54 +253,54 @@ class OpenAILLMPort(LLMPort):
                 tokens_used=0,
                 model=model,
             )
-        
+
         model_name = self._resolve_model_name(model)
-        
+
         # Use embedding model (default to text-embedding-ada-002 if not specified)
         embedding_model = self._resolve_model_name(kwargs.get("embedding_model", "text-embedding-ada-002"))
-        
+
         # Generate embeddings for query and documents
         all_texts = [query] + documents
         response = await self.client.embeddings.create(
             model=embedding_model,
             input=all_texts,
         )
-        
+
         embeddings = [item.embedding for item in response.data]
         tokens_used = response.usage.total_tokens if response.usage else 0
-        
+
         # Extract query embedding and document embeddings
         query_embedding = np.array(embeddings[0])
         doc_embeddings = np.array(embeddings[1:])
-        
+
         # Calculate cosine similarity
         # Cosine similarity = dot product / (norm(query) * norm(doc))
         query_norm = np.linalg.norm(query_embedding)
         doc_norms = np.linalg.norm(doc_embeddings, axis=1)
-        
+
         # Avoid division by zero
         query_norm = max(query_norm, 1e-8)
         doc_norms = np.maximum(doc_norms, 1e-8)
-        
+
         # Calculate cosine similarities
         similarities = np.dot(doc_embeddings, query_embedding) / (query_norm * doc_norms)
-        
+
         # Create results with scores
         results = []
-        for i, (doc, score) in enumerate(zip(documents, similarities)):
+        for i, (doc, score) in enumerate(zip(documents, similarities, strict=False)):
             results.append({
                 "index": i,
                 "document": doc,
                 "score": float(score),
             })
-        
+
         # Sort by score (descending)
         results.sort(key=lambda x: x["score"], reverse=True)
-        
+
         # Apply top_n if specified
         if top_n is not None and top_n > 0:
             results = results[:top_n]
-        
+
         return RerankResponse(
             results=results,
             tokens_used=tokens_used,
@@ -336,8 +335,8 @@ class OpenAILLMPort(LLMPort):
     @staticmethod
     def _resolve_temperature_param(
         model_name: str,
-        temperature: Optional[float],
-    ) -> Optional[float]:
+        temperature: float | None,
+    ) -> float | None:
         """Normalize temperature by model capabilities."""
         if temperature is None:
             return None

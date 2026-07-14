@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.modules.agent.runtime.emitter import EventEmitter, noop_emitter, CollectingEmitter
+from app.modules.agent.runtime.emitter import CollectingEmitter, noop_emitter
 
 
 @pytest.mark.asyncio

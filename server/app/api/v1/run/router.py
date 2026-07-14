@@ -6,6 +6,7 @@ Run API routes (FastAPI).
 from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, Response
+from fastapi.responses import StreamingResponse
 
 from app.kernel.contracts.context import RequestContext
 from app.api.v1.permissions import require_workspace_read_ctx
@@ -26,6 +27,9 @@ from app.kernel.trace.schemas import (
 from app.kernel.trace.service import RunService
 from app.api.v1.run.dependencies import get_run_service
 from app.api.v1.run.handlers import RunHandlers
+from app.api.v1.workflow.dependencies import get_workflow_service
+from app.api.v1.workflow.streaming import SSEHandlers
+from app.modules.workflow.application.service import WorkflowService
 
 
 router = APIRouter()
@@ -35,7 +39,6 @@ router = APIRouter()
 async def summarize_costs(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -51,7 +54,6 @@ async def summarize_costs(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -65,7 +67,6 @@ async def summarize_costs(
 async def summarize_costs_by_day(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -81,7 +82,6 @@ async def summarize_costs_by_day(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -95,7 +95,6 @@ async def summarize_costs_by_day(
 async def summarize_costs_by_subject(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -111,7 +110,6 @@ async def summarize_costs_by_subject(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -124,7 +122,6 @@ async def summarize_costs_by_subject(
 @router.get("/costs/by-mode", response_model=list[RunCostByModeResponse])
 async def summarize_costs_by_mode(
     mode: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -140,7 +137,6 @@ async def summarize_costs_by_mode(
     return await handlers.summarize_costs_by_mode(
         ctx,
         mode=mode,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -155,7 +151,6 @@ async def summarize_costs_by_mode(
 async def summarize_costs_by_provider(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -171,7 +166,6 @@ async def summarize_costs_by_provider(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -185,7 +179,6 @@ async def summarize_costs_by_provider(
 async def summarize_costs_by_model(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -201,7 +194,6 @@ async def summarize_costs_by_model(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -215,7 +207,6 @@ async def summarize_costs_by_model(
 async def list_runs(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -235,7 +226,6 @@ async def list_runs(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -253,7 +243,6 @@ async def list_runs(
 async def export_runs_csv(
     mode: Optional[str] = None,
     kind: Optional[str] = None,
-    workflow_id: Optional[str] = None,
     subject_kind: Optional[str] = None,
     subject_id: Optional[str] = None,
     subject_version_id: Optional[str] = None,
@@ -272,7 +261,6 @@ async def export_runs_csv(
         ctx,
         mode=mode,
         kind=kind,
-        workflow_id=workflow_id,
         subject_kind=subject_kind,
         subject_id=subject_id,
         subject_version_id=subject_version_id,
@@ -390,6 +378,31 @@ async def list_runs_by_trace(
         trace_id=trace_id,
         page_token=page_token,
         page_size=page_size,
+    )
+
+
+@router.get("/{run_id}/stream")
+async def stream_run(
+    run_id: str,
+    last_event_id: Optional[str] = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Stream run events and replay missed steps when possible."""
+    handlers = SSEHandlers(service)
+
+    async def generate():
+        async for chunk in handlers.stream_run(ctx, run_id, last_event_id=last_event_id):
+            yield chunk
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

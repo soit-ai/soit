@@ -44,6 +44,54 @@ from app.modules.modelhub.application.schemas import (
 class ModelHubService:
     """ModelHub domain service."""
 
+    PROVIDER_SUPPORT_MATRIX: tuple[dict[str, Any], ...] = (
+        {
+            "provider_kind": "openai",
+            "display_name": "OpenAI",
+            "support_status": "supported",
+            "chat_supported": True,
+            "embeddings_supported": True,
+            "catalog_supported": True,
+            "notes": None,
+        },
+        {
+            "provider_kind": "deepseek",
+            "display_name": "DeepSeek",
+            "support_status": "supported",
+            "chat_supported": True,
+            "embeddings_supported": False,
+            "catalog_supported": False,
+            "notes": "Runtime uses the OpenAI-compatible chat adapter; catalog and embeddings diagnostics are not implemented yet.",
+        },
+        {
+            "provider_kind": "openai_compat",
+            "display_name": "OpenAI-compatible",
+            "support_status": "supported",
+            "chat_supported": True,
+            "embeddings_supported": True,
+            "catalog_supported": True,
+            "notes": "Requires a provider-specific base_url.",
+        },
+        {
+            "provider_kind": "anthropic",
+            "display_name": "Anthropic",
+            "support_status": "unsupported",
+            "chat_supported": False,
+            "embeddings_supported": False,
+            "catalog_supported": True,
+            "notes": "Catalog discovery is available; runtime chat adapter is not wired into the MVP execution path.",
+        },
+        {
+            "provider_kind": "gemini",
+            "display_name": "Gemini",
+            "support_status": "unsupported",
+            "chat_supported": False,
+            "embeddings_supported": False,
+            "catalog_supported": True,
+            "notes": "Catalog discovery is available; runtime chat adapter is not wired into the MVP execution path.",
+        },
+    )
+
     def __init__(
         self,
         db: Session,
@@ -107,6 +155,38 @@ class ModelHubService:
     async def list_providers(self, limit: int = 200) -> List[Provider]:
         """List providers for workspace."""
         return self.provider_repo.list(limit=limit)
+
+    @workspace_guard("read")
+    async def get_provider_support_matrix(self) -> List[Dict[str, Any]]:
+        """Return explicit provider support and configuration status for this workspace."""
+        providers = await self.list_providers(limit=500)
+        providers_by_kind: Dict[str, List[Provider]] = {}
+        for provider in providers:
+            providers_by_kind.setdefault(provider.kind, []).append(provider)
+
+        matrix: List[Dict[str, Any]] = []
+        for definition in self.PROVIDER_SUPPORT_MATRIX:
+            kind = str(definition["provider_kind"])
+            configured = [
+                provider
+                for provider in providers_by_kind.get(kind, [])
+                if provider.status in {"active", "error", "disabled"}
+            ]
+            support_status = str(definition["support_status"])
+            if support_status == "supported" and not configured:
+                effective_status = "unavailable"
+            else:
+                effective_status = support_status
+            matrix.append(
+                {
+                    **definition,
+                    "support_status": effective_status,
+                    "configured": bool(configured),
+                    "provider_count": len(configured),
+                    "configured_provider_ids": [provider.id for provider in configured],
+                }
+            )
+        return matrix
 
     @workspace_guard("write")
     async def create_provider(self, data: ProviderCreate) -> Provider:

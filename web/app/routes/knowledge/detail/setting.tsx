@@ -61,6 +61,8 @@ const strategyOptions = [
   { value: 'multi_index', labelKey: 'knowledge.query.strategy.multiIndex' },
 ]
 
+const DEFAULT_QUERY_INDEX_VALUE = '__default__'
+
 function Page() {
   const { knowledgeId } = useParams<{ knowledgeId: string }>()
   const { t } = useTranslation()
@@ -292,7 +294,7 @@ function Page() {
         query: queryText.trim(),
         top_k: queryTopK,
         strategy: queryStrategy as 'vector' | 'keyword' | 'hybrid' | 'multi_index',
-        index_id: queryIndexId || undefined,
+        index_id: queryIndexId && queryIndexId !== DEFAULT_QUERY_INDEX_VALUE ? queryIndexId : undefined,
         use_rerank: queryUseRerank,
       })
       setQueryResult(data)
@@ -521,12 +523,12 @@ function Page() {
                 </div>
                 <div className="grid gap-2">
                   <Label>{t('knowledge.query.indexLabel')}</Label>
-                  <Select value={queryIndexId} onValueChange={setQueryIndexId}>
+                  <Select value={queryIndexId || DEFAULT_QUERY_INDEX_VALUE} onValueChange={setQueryIndexId}>
                     <SelectTrigger>
                       <SelectValue placeholder={primaryIndex ? primaryIndex.name : t('knowledge.query.indexPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">{t('knowledge.query.indexDefault')}</SelectItem>
+                      <SelectItem value={DEFAULT_QUERY_INDEX_VALUE}>{t('knowledge.query.indexDefault')}</SelectItem>
                       {indexes.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.name}

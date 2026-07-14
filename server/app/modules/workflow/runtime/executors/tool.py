@@ -47,6 +47,7 @@ class ToolNodeExecutor(NodeExecutor):
             status: str,
             result: Dict[str, Any] | None = None,
             metadata: Dict[str, Any] | None = None,
+            tool_type: str = "builtin",
             error_code: str | None = None,
             error_message: str | None = None,
         ) -> Dict[str, Any]:
@@ -54,7 +55,7 @@ class ToolNodeExecutor(NodeExecutor):
                 "tool_call": {
                     "tool_name": tool_ref,
                     "tool_ref": tool_ref,
-                    "tool_type": "builtin",
+                    "tool_type": tool_type,
                     "status": status,
                     "arguments": parameters,
                     "result": result or {},
@@ -172,12 +173,15 @@ class ToolNodeExecutor(NodeExecutor):
             raise
 
         if not response.success:
+            response_metadata = response.metadata or {}
+            effective_tool_type = str(response_metadata.get("source_kind") or "builtin")
             if context.trace_writer and context.step_id:
                 context.trace_writer.update_step_metrics(
                     context.step_id,
                     build_tool_metrics(
                         status="failed",
-                        metadata={"source": "workflow.tool_node", "node_id": node.get("id"), **(response.metadata or {})},
+                        metadata={"source": "workflow.tool_node", "node_id": node.get("id"), **response_metadata},
+                        tool_type=effective_tool_type,
                         error_code="tool_execution_failed",
                         error_message=response.error or "Tool execution failed",
                     ),
@@ -205,7 +209,7 @@ class ToolNodeExecutor(NodeExecutor):
                         "run_id": linked_response.run_id,
                         "tool_call_id": context.step_id,
                         "tool_name": tool_ref,
-                        "tool_type": "builtin",
+                        "tool_type": effective_tool_type,
                         "step_id": context.step_id,
                         "status": "failed",
                         "error": {"code": "tool_execution_failed", "message": response.error or "Tool execution failed"},
@@ -214,19 +218,22 @@ class ToolNodeExecutor(NodeExecutor):
                 )
             raise ValidationError(f"Tool execution failed: {response.error}")
 
+        response_metadata = response.metadata or {}
+        effective_tool_type = str(response_metadata.get("source_kind") or "builtin")
         if context.trace_writer and context.step_id:
             context.trace_writer.update_step_metrics(
                 context.step_id,
                 build_tool_metrics(
                     status="completed",
                     result={"result": response.result},
-                    metadata={"source": "workflow.tool_node", "node_id": node.get("id"), **(response.metadata or {})},
+                    metadata={"source": "workflow.tool_node", "node_id": node.get("id"), **response_metadata},
+                    tool_type=effective_tool_type,
                 ),
             )
         if linked_response:
             output_payload = {
                 "result": response.result,
-                "metadata": response.metadata,
+                "metadata": response_metadata,
                 "tool_ref": tool_ref,
             }
             linked_response = context.response_service.complete_response(
@@ -253,11 +260,11 @@ class ToolNodeExecutor(NodeExecutor):
                     "run_id": linked_response.run_id,
                     "tool_call_id": context.step_id,
                     "tool_name": tool_ref,
-                    "tool_type": "builtin",
+                    "tool_type": effective_tool_type,
                     "step_id": context.step_id,
                     "status": "completed",
                     "result": {"result": response.result},
-                    "metadata": response.metadata or {},
+                    "metadata": response_metadata,
                 },
                 source="workflow",
             )
@@ -277,7 +284,7 @@ class ToolNodeExecutor(NodeExecutor):
 
         output = {
             "result": response.result,
-            "metadata": response.metadata,
+            "metadata": response_metadata,
         }
         if linked_response:
             output["response_id"] = linked_response.id

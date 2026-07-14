@@ -3,8 +3,8 @@
 import pytest
 
 from app.kernel.ports.common.audit import log_gateway_request
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.trace.models import RunStep
+from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.runtime.runs.writer import TraceWriter
 
 
 @pytest.mark.asyncio

@@ -5,14 +5,14 @@ Build workflow projections from canonical workflow spec.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def build_workflow_components(spec_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_workflow_components(spec_json: dict[str, Any]) -> list[dict[str, Any]]:
     """Build component projections from workflow spec."""
     graph = spec_json.get("graph") or {}
     nodes = graph.get("nodes") or []
-    components: List[Dict[str, Any]] = []
+    components: list[dict[str, Any]] = []
     for node in nodes:
         if not isinstance(node, dict):
             continue
@@ -28,11 +28,11 @@ def build_workflow_components(spec_json: Dict[str, Any]) -> List[Dict[str, Any]]
     return components
 
 
-def build_workflow_edges(spec_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_workflow_edges(spec_json: dict[str, Any]) -> list[dict[str, Any]]:
     """Build edge projections from workflow spec."""
     graph = spec_json.get("graph") or {}
     edges = graph.get("edges") or []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for edge in edges:
         if not isinstance(edge, dict):
             continue
@@ -51,24 +51,24 @@ def build_workflow_edges(spec_json: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
-def build_workflow_refs(spec_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_workflow_refs(spec_json: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract external references from workflow spec."""
     graph = spec_json.get("graph") or {}
     nodes = graph.get("nodes") or []
-    refs: List[Dict[str, Any]] = []
+    refs: list[dict[str, Any]] = []
     for idx, node in enumerate(nodes):
         if not isinstance(node, dict):
             continue
         params = node.get("params") or {}
-        if not isinstance(params, (dict, list)):
+        if not isinstance(params, dict | list):
             continue
         node_path = f"$.graph.nodes[{idx}].params"
         refs.extend(_extract_refs(params, node_path))
     return refs
 
 
-def _extract_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
-    refs: List[Dict[str, Any]] = []
+def _extract_refs(value: Any, base_path: str) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
     if isinstance(value, dict):
         for key, val in value.items():
             path = f"{base_path}.{key}"
@@ -86,10 +86,10 @@ def _extract_refs(value: Any, base_path: str) -> List[Dict[str, Any]]:
     return refs
 
 
-def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> Optional[Dict[str, Any]]:
+def _build_ref_entry(ref_type: str, raw_value: Any, path: str) -> dict[str, Any] | None:
     if raw_value is None:
         return None
-    if isinstance(raw_value, (dict, list)):
+    if isinstance(raw_value, dict | list):
         return None
     ref_key = None
     ref_id = None

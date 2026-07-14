@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,19 +11,25 @@ from sqlmodel import Session, select
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.events.dispatcher import OutboxDispatcher
-from app.kernel.events.outbox_models import EventOutbox
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ChatResponse, EmbeddingResponse, RerankResponse
+from app.kernel.ports.llm.interface import (
+    ChatMessage,
+    ChatResponse,
+    EmbeddingResponse,
+    LLMPort,
+    RerankResponse,
+)
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.domain.models import Workflow, WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
-from app.kernel.trace.writer import TraceWriter
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
 
 class _FakeLLMPort(LLMPort):
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         model: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -31,13 +37,13 @@ class _FakeLLMPort(LLMPort):
     ) -> ChatResponse:
         return ChatResponse(text="ok", model=model, finish_reason="stop")
 
-    async def embed(self, texts: List[str], model: str, **kwargs: Any) -> EmbeddingResponse:
+    async def embed(self, texts: list[str], model: str, **kwargs: Any) -> EmbeddingResponse:
         return EmbeddingResponse(embeddings=[[0.0] * 3 for _ in texts], tokens_used=0, model=model)
 
     async def rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         model: str,
         top_n: int | None = None,
         **kwargs: Any,

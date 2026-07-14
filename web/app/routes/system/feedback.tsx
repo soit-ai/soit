@@ -111,8 +111,6 @@ function IndexPage() {
   // 提交反馈
   const handleSubmitFeedback = () => {
     // 这里应该有API调用来提交反馈
-    console.log('提交反馈', feedbackForm)
-    
     // 模拟提交成功
     toast({
       title: '反馈已提交',

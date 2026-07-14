@@ -9,6 +9,7 @@ from typing import Optional
 
 from app.kernel.contracts.context import RequestContext
 from app.infra.db.pagination import PaginatedResponse
+from app.infra.db.pagination import parse_page_params
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.modelhub.application.schemas import (
     ProviderCreate,
@@ -21,6 +22,11 @@ from app.modules.modelhub.application.schemas import (
     SyncFromPlatformRequest,
     SyncJobResponse,
     HealthcheckResponse,
+    ProviderSupportMatrixResponse,
+    ProviderSupportStatusResponse,
+    ModelWorkbenchOverviewResponse,
+    ModelWorkbenchModelsResponse,
+    ModelWorkbenchProvidersResponse,
     ModelTestChatRequest,
     ModelTestEmbeddingRequest,
     ModelTestResponse,
@@ -43,11 +49,9 @@ class ModelHubHandlers:
                 "capabilities_json": model.capabilities_json,
                 "context_window": model.context_window,
                 "max_output_tokens": model.max_output_tokens,
-                "status": self.service.platform_model_status(model.is_active),
-                "lifecycle_status": model.lifecycle,
-                "lifecycle": model.lifecycle,
+                "status": model.status,
+                "lifecycle_status": model.lifecycle_status,
                 "raw_meta": model.raw_meta,
-                "is_active": model.is_active,
                 "last_seen_at": model.last_seen_at,
                 "created_at": model.created_at,
                 "updated_at": model.updated_at,
@@ -67,11 +71,9 @@ class ModelHubHandlers:
                 "config_json": model.config_json,
                 "context_window": model.context_window,
                 "max_output_tokens": model.max_output_tokens,
-                "status": self.service.provider_model_status(model.enabled),
-                "lifecycle_status": model.lifecycle,
-                "lifecycle": model.lifecycle,
+                "status": model.status,
+                "lifecycle_status": model.lifecycle_status,
                 "raw_meta": model.raw_meta,
-                "enabled": model.enabled,
                 "source": model.source,
                 "platform_model_id": model.platform_model_id,
                 "sync_status": model.sync_status,
@@ -124,6 +126,65 @@ class ModelHubHandlers:
         result = await self.service.healthcheck_provider(provider_id)
         return HealthcheckResponse.model_validate(result)
 
+    async def get_provider_support_matrix(
+        self,
+        ctx: RequestContext,
+    ) -> ProviderSupportMatrixResponse:
+        items = await self.service.get_provider_support_matrix()
+        return ProviderSupportMatrixResponse(
+            providers=[ProviderSupportStatusResponse.model_validate(item) for item in items]
+        )
+
+    async def get_workbench_overview(
+        self,
+        ctx: RequestContext,
+    ) -> ModelWorkbenchOverviewResponse:
+        return await self.service.get_workbench_overview()
+
+    async def get_workbench_models(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+        tab: Optional[str],
+        keyword: Optional[str],
+        provider_id: Optional[str],
+        status: Optional[str],
+        model_type: Optional[str],
+    ) -> ModelWorkbenchModelsResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench_models(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
+            provider_id=provider_id,
+            status=status,
+            model_type=model_type,
+        )
+
+    async def get_workbench_providers(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+        tab: Optional[str],
+        keyword: Optional[str],
+        status: Optional[str],
+        model_type: Optional[str],
+    ) -> ModelWorkbenchProvidersResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench_providers(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
+            status=status,
+            model_type=model_type,
+        )
+
     async def list_platform_models(
         self,
         ctx: RequestContext,
@@ -151,8 +212,9 @@ class ModelHubHandlers:
         ctx: RequestContext,
         provider_id: str,
         page_size: int = 200,
+        status: Optional[str] = None,
     ) -> PaginatedResponse[ProviderModelResponse]:
-        models = await self.service.list_provider_models(provider_id, limit=page_size)
+        models = await self.service.list_provider_models(provider_id, limit=page_size, status=status)
         items = [self._as_provider_model_response(item) for item in models]
         return PaginatedResponse.create(
             items=items,

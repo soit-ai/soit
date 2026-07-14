@@ -3,16 +3,17 @@
 Comprehensive port policy enforcement tests.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.policy import LLMPolicyGateway
-from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
-from app.kernel.ports.tools.policy import ToolPolicyGateway
-from app.kernel.ports.tools.interface import ToolResponse
+import pytest
+
 from app.kernel.commons.errors import ForbiddenError, TimeoutError
-from app.kernel.trace.writer import TraceWriter
+from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
+from app.kernel.ports.llm.policy import LLMPolicyGateway
+from app.kernel.ports.tools.interface import ToolResponse
+from app.kernel.ports.tools.policy import ToolPolicyGateway
+from app.kernel.runtime.runs.writer import TraceWriter
 
 
 @pytest.fixture
@@ -97,7 +98,7 @@ async def test_timeout_enforcement(request_ctx, mock_trace_writer):
     # Create slow mock port
     slow_port = AsyncMock()
 
-    async def slow_chat(*args, **kwargs):
+    async def slow_chat(*_args, **_kwargs):
         import asyncio
         await asyncio.sleep(2)  # 2 seconds delay
         return ChatResponse(text="response", tokens_prompt=10, tokens_completion=20)
@@ -156,7 +157,7 @@ async def test_retry_on_failure(request_ctx, mock_trace_writer):
     retry_port = AsyncMock()
     call_count = 0
 
-    async def failing_chat(*args, **kwargs):
+    async def failing_chat(*_args, **_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count < 3:

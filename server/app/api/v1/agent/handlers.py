@@ -5,23 +5,27 @@ Agent handlers (thin orchestration).
 
 from typing import Optional
 
+from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.modules.agent.application.application_service import AgentApplicationService
-from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.schemas import (
+    AgentBindingResponse,
+    AgentCapabilityResponse,
+    AgentCreate,
+    AgentPublishRequest,
+    AgentReleaseResponse,
+    AgentResponse,
+    AgentRollbackRequest,
     AgentRunRequest,
     AgentRunResponse,
-    AgentCreate,
+    AgentRuntimeRequest,
     AgentUpdate,
-    AgentResponse,
     AgentVersionCreate,
     AgentVersionResponse,
-    AgentReleaseResponse,
-    AgentBindingResponse,
-    AgentPublishRequest,
-    AgentRollbackRequest,
+    AgentWorkbenchItemsResponse,
+    AgentWorkbenchResponse,
 )
-from app.infra.db.pagination import PaginatedResponse, parse_page_params
+from app.modules.agent.application.service import AgentService
 
 
 class AgentHandlers:
@@ -31,7 +35,11 @@ class AgentHandlers:
         self.service = service
 
     async def run(self, ctx: RequestContext, data: AgentRunRequest) -> AgentRunResponse:
-        result = await self.service.run(data)
+        runtime_request = AgentRuntimeRequest.model_validate({
+            **data.model_dump(exclude_none=True),
+            "model_ref": "model:openai:gpt-5.1",
+        })
+        result = await self.service.run(runtime_request)
         return AgentRunResponse(**result)
 
 
@@ -124,6 +132,55 @@ class AgentAppHandlers:
         next_offset = offset + len(agents) if has_next else None
         return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
 
+    async def list_capabilities(
+        self,
+        ctx: RequestContext,
+        *,
+        kind: Optional[str],
+        source_kind: Optional[str],
+        page_token: Optional[str],
+        page_size: int,
+    ) -> PaginatedResponse[AgentCapabilityResponse]:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        capabilities = await self.service.list_capabilities(kind=kind, source_kind=source_kind)
+        window = capabilities[offset: offset + limit]
+        has_next = offset + len(window) < len(capabilities)
+        next_offset = offset + len(window) if has_next else None
+        return PaginatedResponse.create(
+            items=[AgentCapabilityResponse.model_validate(item) for item in window],
+            page_size=len(window),
+            has_next=has_next,
+            next_offset=next_offset,
+        )
+
+    async def get_workbench(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+    ) -> AgentWorkbenchResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench(limit=limit, offset=offset)
+
+    async def get_workbench_items(
+        self,
+        ctx: RequestContext,
+        page_token: Optional[str],
+        page_size: int,
+        tab: Optional[str],
+        keyword: Optional[str],
+    ) -> AgentWorkbenchItemsResponse:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        return await self.service.get_workbench_items(
+            limit=limit,
+            offset=offset,
+            tab=tab,
+            keyword=keyword,
+        )
+
     async def delete_agent(self, ctx: RequestContext, agent_id: str) -> None:
         await self.service.delete_agent(agent_id)
 
@@ -204,7 +261,7 @@ class AgentAppHandlers:
         return [AgentBindingResponse.model_validate(binding) for binding in bindings]
 
     async def execute_agent(self, ctx: RequestContext, agent_id: str, data: AgentRunRequest) -> AgentRunResponse:
-        payload = data.model_dump(exclude_none=True)
+        payload = data.model_dump(exclude_none=True, exclude_unset=True)
         result = await self.service.execute_agent(agent_id, payload)
         return AgentRunResponse(
             run_id=result.get("run_id"),
@@ -223,4 +280,5 @@ class AgentAppHandlers:
             budget_exceeded=result.get("budget_exceeded") or False,
             budget_reason=result.get("budget_reason"),
             cost_total=result.get("cost_total") or 0.0,
+            citations=result.get("citations") or [],
         )
