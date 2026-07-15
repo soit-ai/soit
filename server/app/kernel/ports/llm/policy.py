@@ -6,6 +6,7 @@ LLM port policies: timeout/retry/rate-limit/audit.
 import asyncio
 import inspect
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from opentelemetry import trace
@@ -77,6 +78,39 @@ class _ResolvedPolicyRoute:
     max_retries: int
     retry_backoff: str
     retryable_status_codes: tuple[int, ...]
+    pricing: dict[str, Any]
+
+
+def _chat_charge(
+    pricing: dict[str, Any],
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> tuple[str, Decimal] | None:
+    """Return a monetary charge only for a complete supported pricing contract."""
+    try:
+        currency = str(pricing["currency"]).strip().upper()
+        unit = str(pricing["unit"]).strip().lower()
+        divisor = {
+            "mtok": Decimal("1000000"),
+            "1m_tokens": Decimal("1000000"),
+            "million_tokens": Decimal("1000000"),
+        }.get(unit)
+        if not currency or divisor is None:
+            return None
+        input_rate = Decimal(str(pricing["input"]))
+        output_rate = Decimal(str(pricing["output"]))
+        if input_rate < 0 or output_rate < 0:
+            return None
+        amount = (
+            Decimal(prompt_tokens) * input_rate
+            + Decimal(completion_tokens) * output_rate
+        ) / divisor
+        if amount <= 0:
+            return None
+        return currency, amount
+    except (InvalidOperation, KeyError, TypeError, ValueError):
+        return None
 
 
 class LLMPolicyGateway(LLMPort):
@@ -122,7 +156,11 @@ class LLMPolicyGateway(LLMPort):
         self.retry_backoff = retry_backoff
         self.retryable_status_codes = retryable_status_codes
 
-    async def _resolve_call_route(self, model: str) -> _ResolvedPolicyRoute:
+    async def _resolve_call_route(
+        self,
+        model: str,
+        required_capabilities: tuple[str, ...],
+    ) -> _ResolvedPolicyRoute:
         resolver = getattr(type(self.gateway), "resolve_route", None)
         if resolver is None:
             return _ResolvedPolicyRoute(
@@ -132,8 +170,9 @@ class LLMPolicyGateway(LLMPort):
                 max_retries=self.max_retries,
                 retry_backoff=self.retry_backoff,
                 retryable_status_codes=self.retryable_status_codes,
+                pricing={},
             )
-        route = resolver(self.gateway, model, self.ctx)
+        route = resolver(self.gateway, model, self.ctx, required_capabilities)
         if inspect.isawaitable(route):
             route = await route
         return _ResolvedPolicyRoute(
@@ -143,6 +182,7 @@ class LLMPolicyGateway(LLMPort):
             max_retries=self.max_retries if route.max_retries is None else route.max_retries,
             retry_backoff=route.retry_backoff,
             retryable_status_codes=route.retryable_status_codes,
+            pricing=route.pricing,
         )
 
     @staticmethod
@@ -242,7 +282,8 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(model)
+            required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
+            route = await self._resolve_call_route(model, required_capabilities)
             with self.otel_tracer.start_as_current_span(
                 "soit.llm.chat",
                 attributes={
@@ -313,6 +354,26 @@ class LLMPolicyGateway(LLMPort):
                     completion_tokens=response.tokens_completion,
                     total_tokens=response.tokens_prompt + response.tokens_completion,
                 )
+                charge = _chat_charge(
+                    route.pricing,
+                    prompt_tokens=response.tokens_prompt,
+                    completion_tokens=response.tokens_completion,
+                )
+                if charge is not None:
+                    currency, amount = charge
+                    self.trace_writer.record_cost(
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        step_id=step.id,
+                        entry_type="charge",
+                        unit="tokens",
+                        quantity=response.tokens_prompt + response.tokens_completion,
+                        currency=currency,
+                        amount=amount,
+                        **identity,
+                        prompt_tokens=response.tokens_prompt,
+                        completion_tokens=response.tokens_completion,
+                        total_tokens=response.tokens_prompt + response.tokens_completion,
+                    )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
@@ -374,7 +435,8 @@ class LLMPolicyGateway(LLMPort):
         output_preview = ""
 
         try:
-            route = await self._resolve_call_route(model)
+            required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
+            route = await self._resolve_call_route(model, required_capabilities)
             runtime_target = route.target
             first_chunk: ChatStreamChunk | None = None
             aiter = None
@@ -491,6 +553,26 @@ class LLMPolicyGateway(LLMPort):
                     completion_tokens=tokens_completion,
                     total_tokens=tokens_prompt + tokens_completion,
                 )
+                charge = _chat_charge(
+                    route.pricing,
+                    prompt_tokens=tokens_prompt,
+                    completion_tokens=tokens_completion,
+                )
+                if charge is not None:
+                    currency, amount = charge
+                    self.trace_writer.record_cost(
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        step_id=step.id,
+                        entry_type="charge",
+                        unit="tokens",
+                        quantity=tokens_prompt + tokens_completion,
+                        currency=currency,
+                        amount=amount,
+                        **identity,
+                        prompt_tokens=tokens_prompt,
+                        completion_tokens=tokens_completion,
+                        total_tokens=tokens_prompt + tokens_completion,
+                    )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
@@ -549,7 +631,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(model)
+            route = await self._resolve_call_route(model, ("embeddings",))
             response = await self._run_call(
                 lambda: route.port.embed(texts=texts, model=model, ctx=self.ctx, **kwargs),
                 timeout_factory=lambda: KernelTimeoutError(
@@ -657,7 +739,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(model)
+            route = await self._resolve_call_route(model, ("rerank",))
             response = await self._run_call(
                 lambda: route.port.rerank(
                     query=query,

@@ -47,6 +47,7 @@ class LLMRuntimeTarget:
     adapter_backend: str
     model_ref: str
     model_id: str
+    provider_model_id: str | None = None
 
 
 class ChatMessage:

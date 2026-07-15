@@ -14,7 +14,10 @@ from app.adapters.llm.router import RuntimeProviderConfig
 from app.infra.db.session import get_db_sync
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.runtime_config import resolve_litellm_runtime_config
-from app.modules.modelhub.infra.repository import ProviderRepository
+from app.modules.modelhub.infra.repository import (
+    ProviderModelRepository,
+    ProviderRepository,
+)
 from app.settings.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 class DatabaseProviderResolver:
     """Resolve and briefly cache provider config for the current workspace."""
 
-    CACHE_PREFIX = "soit:llm-provider:v1"
+    CACHE_PREFIX = "soit:llm-provider:v2"
 
     def __init__(
         self,
@@ -43,11 +46,11 @@ class DatabaseProviderResolver:
         )
 
     @classmethod
-    def _cache_key(cls, ctx: RequestContext, slug: str) -> str:
-        return f"{cls.CACHE_PREFIX}:{ctx.tenant_id}:{ctx.workspace_id}:{slug}"
+    def _cache_key(cls, ctx: RequestContext, slug: str, model_id: str) -> str:
+        return f"{cls.CACHE_PREFIX}:{ctx.tenant_id}:{ctx.workspace_id}:{slug}:{model_id}"
 
     @staticmethod
-    def _config_from_provider(provider: Any) -> RuntimeProviderConfig:
+    def _config_from_provider(provider: Any, model: Any) -> RuntimeProviderConfig:
         connection = provider.connection_config_json or {}
         retry_policy = connection.get("retry_policy") or {}
         timeout_ms = connection.get("timeout_ms")
@@ -81,6 +84,16 @@ class DatabaseProviderResolver:
             litellm_provider=litellm_config.provider if litellm_config else None,
             litellm_params=litellm_config.params if litellm_config else {},
             secret_bindings=litellm_config.secret_bindings if litellm_config else {},
+            provider_model_id=model.id,
+            model_id=model.model_id,
+            model_status=model.status,
+            model_sync_status=getattr(model, "sync_status", None),
+            capability_matrix=getattr(model, "capability_matrix_json", None) or {},
+            provider_capabilities=(
+                (getattr(provider, "runtime_config_json", None) or {}).get("runtime_support")
+                or {}
+            ),
+            pricing=getattr(model, "pricing_json", None) or {},
         )
 
     @classmethod
@@ -88,11 +101,18 @@ class DatabaseProviderResolver:
         cls,
         ctx: RequestContext,
         slug: str,
+        model_id: str,
     ) -> RuntimeProviderConfig | None:
         db = get_db_sync()
         try:
             provider = ProviderRepository(db, ctx).get_by_slug(slug)
-            return cls._config_from_provider(provider) if provider is not None else None
+            if provider is None:
+                return None
+            model = ProviderModelRepository(db, ctx).get_by_provider_and_model_id(
+                provider.id,
+                model_id,
+            )
+            return cls._config_from_provider(provider, model) if model is not None else None
         finally:
             db.close()
 
@@ -140,18 +160,38 @@ class DatabaseProviderResolver:
         self,
         ctx: RequestContext,
         slug: str,
+        model_id: str,
     ) -> RuntimeProviderConfig | None:
-        key = self._cache_key(ctx, slug)
+        key = self._cache_key(ctx, slug, model_id)
         cache_hit, cached = await self._read_cache(key)
         if cache_hit:
             return cached
-        config = await anyio.to_thread.run_sync(self._resolve_from_database, ctx, slug)
+        config = await anyio.to_thread.run_sync(
+            self._resolve_from_database,
+            ctx,
+            slug,
+            model_id,
+        )
         await self._write_cache(key, config)
         return config
 
-    async def invalidate(self, ctx: RequestContext, slug: str) -> None:
-        """Invalidate one workspace-scoped provider config entry."""
+    async def invalidate(
+        self,
+        ctx: RequestContext,
+        slug: str,
+        model_id: str | None = None,
+    ) -> None:
+        """Invalidate one model route or all cached routes for a provider."""
         try:
-            await self._redis.delete(self._cache_key(ctx, slug))
+            if model_id is not None:
+                await self._redis.delete(self._cache_key(ctx, slug, model_id))
+                return
+            prefix = f"{self.CACHE_PREFIX}:{ctx.tenant_id}:{ctx.workspace_id}:{slug}:*"
+            scan_iter = getattr(self._redis, "scan_iter", None)
+            if scan_iter is None:
+                return
+            keys = [key async for key in scan_iter(match=prefix)]
+            if keys:
+                await self._redis.delete(*keys)
         except Exception:
             logger.debug("llm.provider_cache.invalidate_failed", exc_info=True)

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi import status
 
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import ConflictError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
     ChatResponse,
@@ -84,6 +84,8 @@ def _modelhub_service(
     litellm_factory=None,
     provider_cache_invalidator=None,
     litellm_runtime_available=None,
+    runtime_llm_port=None,
+    model_reference_usage=None,
 ) -> ModelHubService:
     return ModelHubService(
         db,
@@ -97,6 +99,8 @@ def _modelhub_service(
         litellm_port_factory=litellm_factory,
         provider_cache_invalidator=provider_cache_invalidator,
         litellm_runtime_available=litellm_runtime_available,
+        runtime_llm_port=runtime_llm_port,
+        model_reference_usage=model_reference_usage,
     )
 
 
@@ -126,6 +130,101 @@ class _FlakyLiteLLMPort(_TestLiteLLMPort):
         if self.chat_attempts == 1:
             raise RuntimeError("temporary provider failure")
         return await super().chat(messages, model, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="runtime-route",
+        kind="openai",
+        adapter_backend="native",
+        name="Runtime Route",
+        credential_ref="secret:runtime-route",
+        status="active",
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    runtime_port = _TestLiteLLMPort()
+    service = _modelhub_service(db, ctx, runtime_llm_port=runtime_port)
+
+    result = await service.test_chat(
+        ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
+    )
+
+    assert result["success"] is True
+    assert runtime_port.calls == [("chat", "model:runtime-route:gpt-test")]
+
+
+@pytest.mark.asyncio
+async def test_provider_delete_rejects_orphaning_provider_models(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="provider-with-model",
+        kind="openai",
+        name="Provider With Model",
+        status="active",
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    db.add(
+        ProviderModel(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            provider_id=provider.id,
+            provider_kind=provider.kind,
+            model_id="gpt-test",
+        )
+    )
+    db.commit()
+    service = _modelhub_service(db, ctx)
+
+    with pytest.raises(ConflictError):
+        await service.delete_provider(provider.id)
+
+    assert ProviderRepository(db, ctx).get_by_id(provider.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_provider_model_delete_rejects_active_product_references(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="referenced-provider",
+        kind="openai",
+        name="Referenced Provider",
+        status="active",
+    )
+    model = ProviderModel(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        provider_id=provider.id,
+        provider_kind=provider.kind,
+        model_id="gpt-referenced",
+    )
+    db.add(provider)
+    db.add(model)
+    db.commit()
+    db.refresh(provider)
+    db.refresh(model)
+
+    class _References:
+        def list_references(self, model_ref):
+            assert model_ref == "model:referenced-provider:gpt-referenced"
+            return [{"type": "agent", "id": "agt_live"}]
+
+    service = _modelhub_service(db, ctx, model_reference_usage=_References())
+
+    with pytest.raises(ConflictError) as exc_info:
+        await service.delete_provider_model(provider.id, model.id)
+
+    assert exc_info.value.details["references"] == [
+        {"type": "agent", "id": "agt_live"}
+    ]
 
 
 @pytest.mark.asyncio

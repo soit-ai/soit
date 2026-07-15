@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.adapters.llm.router import LLMRouterPort, RuntimeProviderConfig
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
@@ -102,9 +102,10 @@ async def test_llm_router_adds_litellm_adapter_for_workspace_provider(ctx):
         {"get_secret": lambda self, **kwargs: _secret_value(kwargs)},
     )()
 
-    def resolve_provider(request_ctx, slug):
+    def resolve_provider(request_ctx, slug, model_id):
         assert request_ctx is ctx
         assert slug == "team-gateway"
+        assert model_id == "gpt-4.1-mini"
         return RuntimeProviderConfig(
             slug=slug,
             kind="openai_compatible",
@@ -114,6 +115,10 @@ async def test_llm_router_adds_litellm_adapter_for_workspace_provider(ctx):
             credential_ref="secret:team-gateway",
             timeout=45.0,
             max_retries=4,
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
         )
 
     captured = {}
@@ -144,13 +149,17 @@ async def test_llm_router_adds_litellm_adapter_for_workspace_provider(ctx):
 async def test_llm_router_awaits_async_workspace_provider_resolver(ctx):
     port = DummyPort()
 
-    async def resolve_provider(request_ctx, slug):
+    async def resolve_provider(request_ctx, slug, model_id):
         assert request_ctx is ctx
         return RuntimeProviderConfig(
             slug=slug,
             kind="openai_compatible",
             adapter_backend="litellm",
             status="active",
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
         )
 
     router = LLMRouterPort(
@@ -182,7 +191,7 @@ async def test_llm_router_resolves_multiple_litellm_secret_bindings(ctx):
 
     router = LLMRouterPort(
         providers={},
-        provider_resolver=lambda request_ctx, slug: RuntimeProviderConfig(
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
             slug=slug,
             kind="bedrock",
             adapter_backend="litellm",
@@ -192,6 +201,10 @@ async def test_llm_router_resolves_multiple_litellm_secret_bindings(ctx):
                 "aws_access_key_id": "secret:aws-access",
                 "aws_secret_access_key": "secret:aws-secret",
             },
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
         ),
         secrets_resolver=lambda request_ctx: _Secrets(),
         litellm_factory=lambda config, credentials: (
@@ -218,45 +231,205 @@ async def _secret_value(kwargs):
 
 
 @pytest.mark.asyncio
-async def test_llm_router_keeps_native_ports_for_native_workspace_provider(ctx):
-    native = DummyPort()
-    router = LLMRouterPort(
-        providers={"openai": native},
-        provider_resolver=lambda request_ctx, slug: RuntimeProviderConfig(
+async def test_llm_router_builds_native_port_from_scoped_provider_config(ctx):
+    ports = [DummyPort(), DummyPort()]
+    captured = []
+
+    class _Secrets:
+        async def get_secret(self, *, secret_ref):
+            return {
+                "secret:team-openai-a": "key-a",
+                "secret:team-openai-b": "key-b",
+            }[secret_ref]
+
+    def resolve_provider(_request_ctx, slug, model_id):
+        suffix = slug.rsplit("-", 1)[-1]
+        return RuntimeProviderConfig(
             slug=slug,
             kind="openai",
             adapter_backend="native",
             status="active",
-        ),
+            base_url=f"https://{suffix}.example.com/v1",
+            credential_ref=f"secret:team-openai-{suffix}",
+            provider_model_id=f"model-{suffix}",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
+        )
+
+    def make_native(config, credentials):
+        captured.append((config, credentials))
+        return ports[len(captured) - 1]
+
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=resolve_provider,
+        secrets_resolver=lambda request_ctx: _Secrets(),
+        native_factory=make_native,
     )
 
     await router.chat(
         [ChatMessage(role="user", content="hi")],
-        model="model:team-openai:gpt-4.1-mini",
+        model="model:team-openai-a:gpt-4.1-mini",
+        ctx=ctx,
+    )
+    await router.chat(
+        [ChatMessage(role="user", content="hi")],
+        model="model:team-openai-b:gpt-4.1-mini",
         ctx=ctx,
     )
 
-    assert native.calls == [("chat", "model:team-openai:gpt-4.1-mini")]
+    assert ports[0].calls == [("chat", "model:team-openai-a:gpt-4.1-mini")]
+    assert ports[1].calls == [("chat", "model:team-openai-b:gpt-4.1-mini")]
+    assert captured[0][0].base_url == "https://a.example.com/v1"
+    assert captured[1][0].base_url == "https://b.example.com/v1"
+    assert captured[0][1] == {"api_key": "key-a"}
+    assert captured[1][1] == {"api_key": "key-b"}
 
 
 @pytest.mark.asyncio
 async def test_llm_router_rejects_disabled_workspace_provider(ctx):
     router = LLMRouterPort(
         providers={"openai": DummyPort()},
-        provider_resolver=lambda request_ctx, slug: RuntimeProviderConfig(
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
             slug=slug,
             kind="openai",
             adapter_backend="native",
             status="disabled",
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
         ),
     )
 
-    with pytest.raises(ValidationError, match="disabled"):
+    with pytest.raises(KernelError) as exc_info:
         await router.chat(
             [ChatMessage(role="user", content="hi")],
             model="model:team-openai:gpt-4.1-mini",
             ctx=ctx,
         )
+
+    assert exc_info.value.code == "MODEL_PROVIDER_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_llm_router_rejects_inactive_model_with_stable_code(ctx):
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            slug=slug,
+            kind="openai",
+            adapter_backend="native",
+            status="active",
+            provider_model_id="model-disabled",
+            model_id=model_id,
+            model_status="disabled",
+        ),
+    )
+
+    with pytest.raises(KernelError) as exc_info:
+        await router.chat(
+            [ChatMessage(role="user", content="hi")],
+            model="model:team-openai:gpt-disabled",
+            ctx=ctx,
+        )
+
+    assert exc_info.value.code == "MODEL_RUNTIME_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_llm_router_rejects_explicitly_unsupported_capability(ctx):
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            slug=slug,
+            kind="openai",
+            adapter_backend="native",
+            status="active",
+            provider_model_id="model-chat-only",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"embeddings": {"merged": False}},
+        ),
+    )
+
+    with pytest.raises(KernelError) as exc_info:
+        await router.embed(
+            ["hello"],
+            model="model:team-openai:gpt-chat-only",
+            ctx=ctx,
+        )
+
+    assert exc_info.value.code == "MODEL_CAPABILITY_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_llm_router_uses_provider_preset_only_for_unspecified_capability(ctx):
+    port = DummyPort()
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            slug=slug,
+            kind="openai",
+            adapter_backend="native",
+            status="active",
+            provider_model_id="model-without-matrix",
+            model_id=model_id,
+            model_status="active",
+        ),
+        native_factory=lambda config, credentials: port,
+    )
+
+    await router.embed(
+        ["hello"],
+        model="model:team-openai:text-embedding-3-small",
+        ctx=ctx,
+    )
+
+    assert port.calls == [("embed", "model:team-openai:text-embedding-3-small")]
+
+
+@pytest.mark.asyncio
+async def test_llm_router_defaults_unknown_provider_capability_to_false(ctx):
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            slug=slug,
+            kind="company_gateway",
+            adapter_backend="native",
+            status="active",
+            provider_model_id="model-unknown",
+            model_id=model_id,
+            model_status="active",
+        ),
+    )
+
+    with pytest.raises(KernelError) as exc_info:
+        await router.chat(
+            [ChatMessage(role="user", content="hi")],
+            model="model:company:model-a",
+            ctx=ctx,
+        )
+
+    assert exc_info.value.code == "MODEL_CAPABILITY_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_llm_router_requires_canonical_model_ref_in_production(ctx, monkeypatch):
+    monkeypatch.setattr(settings, "environment", "production")
+    router = LLMRouterPort(
+        providers={"openai": DummyPort()},
+        provider_resolver=lambda request_ctx, slug, model_id: None,
+    )
+
+    with pytest.raises(KernelError) as exc_info:
+        await router.chat(
+            [ChatMessage(role="user", content="hi")],
+            model="gpt-4.1-mini",
+            ctx=ctx,
+        )
+
+    assert exc_info.value.code == "MODEL_REF_INVALID"
 
 
 @pytest.mark.asyncio
@@ -278,12 +451,16 @@ async def test_llm_policy_records_runtime_identity_separately_from_upstream_mode
     port = UpstreamNamedPort()
     router = LLMRouterPort(
         providers={"openai": DummyPort()},
-        provider_resolver=lambda request_ctx, slug: RuntimeProviderConfig(
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
             provider_id="provider-team-gateway",
             slug=slug,
             kind="openai_compatible",
             adapter_backend="litellm",
             status="active",
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
         ),
         litellm_factory=lambda config, api_key: port,
     )
@@ -311,6 +488,54 @@ async def test_llm_policy_records_runtime_identity_separately_from_upstream_mode
 
 
 @pytest.mark.asyncio
+async def test_llm_policy_records_charge_only_for_valid_model_pricing(ctx):
+    from decimal import Decimal
+
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    port = UpstreamNamedPort()
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            provider_id="provider-priced",
+            slug=slug,
+            kind="openai_compatible",
+            adapter_backend="litellm",
+            status="active",
+            provider_model_id="model-priced",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
+            pricing={
+                "currency": "USD",
+                "unit": "mtok",
+                "input": 1,
+                "output": 2,
+            },
+        ),
+        litellm_factory=lambda config, credentials: port,
+    )
+    writer = MagicMock()
+    writer.create_step.return_value.id = "step-priced"
+    gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
+
+    await gateway.chat(
+        [ChatMessage(role="user", content="hi")],
+        model="model:priced:gpt-priced",
+        run_id="run-priced",
+    )
+
+    charges = [
+        call
+        for call in writer.record_cost.call_args_list
+        if call.kwargs.get("entry_type") == "charge"
+    ]
+    assert len(charges) == 1
+    assert charges[0].kwargs["currency"] == "USD"
+    assert charges[0].kwargs["amount"] == Decimal("0.000013")
+
+
+@pytest.mark.asyncio
 async def test_llm_policy_uses_resolved_provider_timeout_and_retry_policy(ctx):
     import asyncio
 
@@ -327,7 +552,7 @@ async def test_llm_policy_uses_resolved_provider_timeout_and_retry_policy(ctx):
             await asyncio.sleep(0.02)
             return ChatResponse(text="late", model="upstream-model")
 
-    def resolve_provider(_request_ctx, slug):
+    def resolve_provider(_request_ctx, slug, model_id):
         nonlocal resolutions
         resolutions += 1
         return RuntimeProviderConfig(
@@ -339,6 +564,10 @@ async def test_llm_policy_uses_resolved_provider_timeout_and_retry_policy(ctx):
             timeout=0.001,
             max_retries=1,
             retry_backoff="none",
+            provider_model_id="model-1",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
         )
 
     router = LLMRouterPort(

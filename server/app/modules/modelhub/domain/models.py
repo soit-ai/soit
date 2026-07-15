@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Text
+from sqlalchemy import Column, Index, Text, UniqueConstraint
 from sqlmodel import JSON, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -19,6 +19,13 @@ class PlatformModel(SQLModel, table=True):
     """Platform-wide model catalog entry."""
 
     __tablename__ = "platform_models"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_kind",
+            "model_id",
+            name="uq_platform_models_provider_kind_model_id",
+        ),
+    )
 
     id: str = Field(primary_key=True, default_factory=lambda: f"plm_{generate_ulid()}")
     """Platform model ID."""
@@ -70,6 +77,21 @@ class Provider(SQLModel, table=True):
     """Workspace-level provider configuration."""
 
     __tablename__ = "providers"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "slug",
+            name="uq_providers_scope_slug",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "name",
+            name="uq_providers_scope_name",
+        ),
+        Index("ix_providers_scope_status", "tenant_id", "workspace_id", "status"),
+    )
 
     id: str = Field(primary_key=True, default_factory=lambda: f"prov_{generate_ulid()}")
     """Provider ID."""
@@ -133,6 +155,21 @@ class ProviderModel(SQLModel, table=True):
     """Workspace-level provider model record."""
 
     __tablename__ = "provider_models"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "provider_id",
+            "model_id",
+            name="uq_provider_models_scope_provider_model_id",
+        ),
+        Index(
+            "ix_provider_models_scope_status",
+            "tenant_id",
+            "workspace_id",
+            "status",
+        ),
+    )
 
     id: str = Field(primary_key=True, default_factory=lambda: f"pmod_{generate_ulid()}")
     """Provider model ID."""

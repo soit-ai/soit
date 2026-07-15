@@ -230,6 +230,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
 
 def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubService:
     from app.adapters.llm.litellm import LiteLLMPort
+    from app.adapters.modelhub.references import DatabaseModelReferenceUsage
     from app.kernel.ports.llm.runtime_config import (
         resolve_litellm_runtime_config,
     )
@@ -282,6 +283,8 @@ def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubServi
         catalog_adapter,
         litellm_port_factory=build_litellm_port,
         provider_cache_invalidator=provider_resolver.invalidate,
+        runtime_llm_port=container.get_llm_port(ctx),
+        model_reference_usage=DatabaseModelReferenceUsage(db, ctx),
     )
 
 

@@ -22,6 +22,30 @@ LITELLM_PROVIDER_PRESETS: dict[str, str] = {
     "dashscope": "dashscope",
 }
 
+PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
+    "openai": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+    "openai_compatible": {
+        "chat": True,
+        "embeddings": True,
+        "rerank": False,
+        "tools": True,
+    },
+    "openai_compat": {
+        "chat": True,
+        "embeddings": True,
+        "rerank": False,
+        "tools": True,
+    },
+    "deepseek": {"chat": True, "embeddings": False, "rerank": False, "tools": True},
+    "anthropic": {"chat": True, "embeddings": False, "rerank": False, "tools": False},
+    "gemini": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+    "azure_openai": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+    "bedrock": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+    "openrouter": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+    "ollama": {"chat": True, "embeddings": True, "rerank": False, "tools": False},
+    "dashscope": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
+}
+
 LITELLM_STATIC_PARAM_ALLOWLIST = {
     "api_version",
     "organization",

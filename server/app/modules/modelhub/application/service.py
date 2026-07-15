@@ -14,7 +14,12 @@ from typing import Any
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
+from app.kernel.commons.errors import (
+    ConflictError,
+    KernelError,
+    NotFoundError,
+    ValidationError,
+)
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
@@ -27,6 +32,7 @@ from app.kernel.ports.llm.runtime_config import (
 )
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
+from app.modules.modelhub.application.ports import ModelReferenceUsagePort
 from app.modules.modelhub.application.schemas import (
     ModelTestChatRequest,
     ModelTestEmbeddingRequest,
@@ -268,11 +274,10 @@ class ModelHubService:
         secrets_port: SecretsPort,
         catalog_adapter: ProviderCatalogAdapter,
         litellm_port_factory: Callable[[Provider, dict[str, str]], LLMPort] | None = None,
-        provider_cache_invalidator: Callable[
-            [RequestContext, str], Awaitable[None]
-        ]
-        | None = None,
+        provider_cache_invalidator: Callable[..., Awaitable[None]] | None = None,
         litellm_runtime_available: bool | None = None,
+        runtime_llm_port: LLMPort | None = None,
+        model_reference_usage: ModelReferenceUsagePort | None = None,
     ):
         self.db = db
         self.ctx = ctx
@@ -289,6 +294,8 @@ class ModelHubService:
             if litellm_runtime_available is None
             else litellm_runtime_available
         )
+        self.runtime_llm_port = runtime_llm_port
+        self.model_reference_usage = model_reference_usage
 
     def _build_litellm_port(
         self,
@@ -330,6 +337,15 @@ class ModelHubService:
             return
         for slug in dict.fromkeys(slug for slug in slugs if slug):
             await self.provider_cache_invalidator(self.ctx, slug)
+
+    async def _invalidate_model_cache(
+        self,
+        provider: Provider,
+        model_id: str,
+    ) -> None:
+        if self.provider_cache_invalidator is None or not provider.slug:
+            return
+        await self.provider_cache_invalidator(self.ctx, provider.slug, model_id)
 
     def _ensure_adapter_backend_available(self, adapter_backend: str) -> None:
         if adapter_backend == "litellm" and not self.litellm_runtime_available:
@@ -1077,6 +1093,15 @@ class ModelHubService:
     async def delete_provider(self, provider_id: str) -> None:
         """Delete provider."""
         provider = self._get_provider(provider_id)
+        if self.provider_model_repo.list_by_provider(
+            provider_id,
+            limit=1,
+            include_removed=True,
+        ):
+            raise ConflictError(
+                "Provider cannot be deleted while provider models still exist",
+                {"provider_id": provider_id},
+            )
         slug = provider.slug
         self.db.delete(provider)
         self.db.commit()
@@ -1268,7 +1293,9 @@ class ModelHubService:
             created_at=now,
             updated_at=now,
         )
-        return self.provider_model_repo.create(model)
+        created = self.provider_model_repo.create(model)
+        await self._invalidate_model_cache(provider, created.model_id)
+        return created
 
     @workspace_guard("write")
     async def update_provider_model(
@@ -1328,6 +1355,7 @@ class ModelHubService:
         model.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(model)
+        await self._invalidate_model_cache(provider, model.model_id)
         return model
 
     @workspace_guard("write")
@@ -1337,15 +1365,29 @@ class ModelHubService:
         model = self.provider_model_repo.get_by_id(provider_model_id)
         if not model or model.provider_id != provider_id:
             raise NotFoundError(f"Provider model not found: {provider_model_id}")
+        model_ref = self._provider_model_ref(self._get_provider(provider_id), model.model_id)
+        references = (
+            self.model_reference_usage.list_references(model_ref)
+            if self.model_reference_usage is not None
+            else []
+        )
+        if references:
+            raise ConflictError(
+                "Provider model cannot be deleted while active configurations reference it",
+                {"model_ref": model_ref, "references": references},
+            )
         if model.source == "platform" and model.platform_model_id:
             model.status = "removed"
             model.sync_status = "user_removed"
             model.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(model)
+            await self._invalidate_model_cache(self._get_provider(provider_id), model.model_id)
             return
+        model_id = model.model_id
         self.db.delete(model)
         self.db.commit()
+        await self._invalidate_model_cache(self._get_provider(provider_id), model_id)
 
     @workspace_guard("write")
     async def sync_from_platform(self, provider_id: str, data: SyncFromPlatformRequest | None = None) -> SyncJob:
@@ -1455,6 +1497,7 @@ class ModelHubService:
             job.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(job)
+            await self._invalidate_provider_cache(provider.slug)
             return job
         except Exception as exc:
             job.status = "failed"
@@ -1478,7 +1521,18 @@ class ModelHubService:
         provider = self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            if provider.adapter_backend == "litellm":
+            if self.runtime_llm_port is not None:
+                response = await self.runtime_llm_port.chat(
+                    [ChatMessage(role="user", content=data.input)],
+                    model=self._provider_model_ref(provider, data.model_id),
+                )
+                result = {
+                    "response": response.text,
+                    "tokens_prompt": response.tokens_prompt,
+                    "tokens_completion": response.tokens_completion,
+                    "request_id": None,
+                }
+            elif provider.adapter_backend == "litellm":
                 credentials = await self._resolve_litellm_credentials(provider)
                 response = await self._build_litellm_diagnostics_port(provider, credentials).chat(
                     [ChatMessage(role="user", content=data.input)],
@@ -1523,7 +1577,18 @@ class ModelHubService:
         provider = self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            if provider.adapter_backend == "litellm":
+            if self.runtime_llm_port is not None:
+                response = await self.runtime_llm_port.embed(
+                    [data.input],
+                    model=self._provider_model_ref(provider, data.model_id),
+                )
+                result = {
+                    "response": str(response.embeddings[0] if response.embeddings else []),
+                    "tokens_prompt": response.tokens_used,
+                    "tokens_completion": 0,
+                    "request_id": None,
+                }
+            elif provider.adapter_backend == "litellm":
                 credentials = await self._resolve_litellm_credentials(provider)
                 response = await self._build_litellm_diagnostics_port(provider, credentials).embed(
                     [data.input],
