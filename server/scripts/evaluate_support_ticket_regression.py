@@ -25,14 +25,13 @@ from app.kernel.ports.llm.interface import (
 )
 from app.kernel.runtime.runs.service import RunService
 from app.modules.agent.application.application_service import AgentApplicationService
-from app.modules.agent.application.schemas import AgentRunRequest, ChatMessageInput
+from app.modules.agent.application.schemas import AgentRunRequest
 from app.modules.knowledge.application import tools as knowledge_tools
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
 from app.modules.knowledge.domain.models import KnowledgeIndex
 from app.wiring.container import reset_container
 from app.wiring.services import build_knowledge_runtime_service, build_response_service
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
-
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "support_ticket_golden_set.json"
 
@@ -183,10 +182,14 @@ def _citation_matches_source(citation: dict[str, Any], expected_source: str) -> 
 
 
 def _cost_summary(detail) -> dict[str, Any]:
-    total_amount = sum(float(item.amount) for item in detail.costs)
-    total_tokens = sum(int(item.total_tokens or 0) for item in detail.costs)
+    usage_entries = [item for item in detail.costs if item.entry_type == "usage"]
+    charge_entries = [item for item in detail.costs if item.entry_type == "charge"]
+    total_amount = sum(float(item.amount or 0) for item in charge_entries)
+    total_tokens = sum(int(item.total_tokens or 0) for item in usage_entries)
     return {
         "entries": len(detail.costs),
+        "usage_entries": len(usage_entries),
+        "charge_entries": len(charge_entries),
         "amount": round(total_amount, 8),
         "tokens": total_tokens,
     }
@@ -294,10 +297,7 @@ async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: S
     result = await service.execute_agent(
         bootstrap.agent_id,
         AgentRunRequest(
-            messages=[ChatMessageInput(role="user", content=case.prompt)],
-            rag_top_k=3,
-            max_iterations=4,
-            verify=False,
+            input=case.prompt,
         ).model_dump(exclude_none=True),
     )
     latency_ms = max(0, int((time.perf_counter() - start) * 1000))

@@ -110,7 +110,7 @@ def upgrade() -> None:
                     NULL,
                     'workspace',
                     CASE
-                        WHEN rs.metrics_json ? 'audit_json'
+                        WHEN rs.metrics_json::jsonb ? 'audit_json'
                             THEN (rs.metrics_json ->> 'audit_json')::jsonb
                         ELSE jsonb_build_object(
                             'gateway_type', rs.step_type,
@@ -124,9 +124,9 @@ def upgrade() -> None:
                 FROM run_steps rs
                 WHERE rs.metrics_json IS NOT NULL
                   AND (
-                    rs.metrics_json ? 'audit_json'
-                    OR rs.metrics_json ? 'audit_preview'
-                    OR rs.metrics_json ? 'audit_artifact'
+                    rs.metrics_json::jsonb ? 'audit_json'
+                    OR rs.metrics_json::jsonb ? 'audit_preview'
+                    OR rs.metrics_json::jsonb ? 'audit_artifact'
                   )
                 ON CONFLICT (id) DO NOTHING
                 """

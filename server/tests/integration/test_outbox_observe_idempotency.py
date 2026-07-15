@@ -109,6 +109,7 @@ async def test_step_status_observe_projection_single_slot_per_event(db: Session,
     tw = TraceWriter(db, ctx, event_bus=None)
     run = tw.create_run("integration_mode", kind="test")
     step = tw.create_step(run_id=run.id, step_type="tool")
+    tw.update_step_status(step.id, "running")
     tw.update_step_status(step.id, "succeeded", output_summary="ok")
 
     row = db.exec(
@@ -120,8 +121,8 @@ async def test_step_status_observe_projection_single_slot_per_event(db: Session,
     assert await dispatcher.run_once(batch_limit=20) >= 1
     db.commit()
 
-    assert _count_projections(db, "observe.step_status.side_effects") == 1
+    assert _count_projections(db, "observe.step_status.side_effects") == 2
 
     handle_step_status_updated_observe(db, row)
     db.commit()
-    assert _count_projections(db, "observe.step_status.side_effects") == 1
+    assert _count_projections(db, "observe.step_status.side_effects") == 2

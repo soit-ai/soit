@@ -811,6 +811,8 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
             {
                 "mcp_server": {
                     "name": "seed-compliance-mcp",
+                    "transport": "streamable_http",
+                    "endpoint": "https://mcp.soit.local/compliance/mcp",
                     "capabilities_json": {
                         "tools": [{"name": "deny_external_post"}, {"name": "redact_secret_preview"}],
                         "resources": [{"name": "egress_audit_log"}],

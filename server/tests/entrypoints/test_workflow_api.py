@@ -638,7 +638,7 @@ class TestWorkflowAPI:
         ).all()
         linked_responses = [item if isinstance(item, Response) else item[0] for item in rows]
         assert len(linked_responses) >= 1
-        assert any(item.status == "completed" for item in linked_responses)
+        assert any(item.status == "succeeded" for item in linked_responses)
 
         with client.stream(
             "GET",

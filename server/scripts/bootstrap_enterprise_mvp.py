@@ -611,6 +611,8 @@ async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow:
             "tool_refs": [DEMO_TICKET_TOOL_REF],
             "workflow_refs": [f"wf:{workflow.id}"],
         },
+        max_iterations=4,
+        rag_top_k=3,
         verify=False,
     )
     target_spec = service._build_spec(version_input)

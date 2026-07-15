@@ -91,6 +91,20 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
             )
         )
     ).first()
+
+    mcp_artifact = _unwrap(
+        db.exec(
+            select(PluginInstalledArtifact).where(
+                and_(
+                    PluginInstalledArtifact.tenant_id == second.tenant_id,
+                    PluginInstalledArtifact.workspace_id == second.workspace_id,
+                    PluginInstalledArtifact.artifact_ref == "mcp_server:seed-compliance-mcp",
+                )
+            )
+        ).first()
+    )
+    assert mcp_artifact.metadata_json["mcp_server"]["transport"] == "streamable_http"
+    assert mcp_artifact.metadata_json["mcp_server"]["endpoint"] == "https://mcp.soit.local/compliance/mcp"
     assert db.exec(
         select(Knowledge).where(
             and_(

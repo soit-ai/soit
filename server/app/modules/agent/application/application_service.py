@@ -283,11 +283,15 @@ class AgentApplicationService:
             "timeout_ms": data.max_runtime_seconds * 1000 if data.max_runtime_seconds else None,
             "max_tokens": data.max_tokens_total,
             "budget": data.max_cost,
+            "rag_top_k": data.rag_top_k,
+            "context_window_messages": data.context_window_messages,
+            "context_window_chars": data.context_window_chars,
         }
         policies = {
             "verify": data.verify,
             "failure_strategy": data.failure_strategy,
             "cost_currency": data.cost_currency,
+            "rag_strategy": data.rag_strategy,
         }
         return {
             "runtime": "agent_runtime_v1",

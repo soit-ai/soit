@@ -145,6 +145,21 @@ class AgentVersionCreate(BaseModel):
     cost_currency: str | None = None
     """Currency for max cost budget."""
 
+    rag_top_k: int | None = Field(default=None, ge=1, le=50)
+    """Number of knowledge chunks retrieved for each turn."""
+
+    rag_strategy: str | None = Field(
+        default=None,
+        pattern="^(system_message|planner_context)$",
+    )
+    """How published knowledge context is injected into the runtime."""
+
+    context_window_messages: int | None = Field(default=None, ge=1, le=200)
+    """Maximum trusted conversation messages rebuilt from the thread ledger."""
+
+    context_window_chars: int | None = Field(default=None, ge=1, le=200000)
+    """Maximum trusted conversation characters rebuilt from the thread ledger."""
+
     bindings: AgentCapabilityBindings
     """Unified capability binding input."""
 
