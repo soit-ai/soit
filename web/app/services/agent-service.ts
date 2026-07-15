@@ -178,21 +178,17 @@ export interface AgentPublishRequest {
   version_id: string
 }
 
-export interface AgentRunMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string
-  metadata?: Record<string, unknown>
+export interface AgentRunRequest {
+  input: string
+  thread_id?: string
+  request_id?: string
 }
 
-export interface AgentRunRequest {
-  messages: AgentRunMessage[]
-  thread_id?: string
-  thread_title?: string
-  rag_top_k?: number
-  rag_strategy?: 'system_message' | 'planner_context'
-  memory_query?: string
-  context_window_messages?: number
-  context_window_chars?: number
+export interface AgentCancelResponse {
+  run_id: string
+  status: string
+  task_ids: string[]
+  response_ids: string[]
 }
 
 export const listAgents = (params?: {
@@ -283,4 +279,11 @@ export const streamAgentExecution = (
   config?: FetchEventSourceInit
 ): AsyncGenerator<SseEvent, void, unknown> => {
   return sse(`${API_BASE_URL}/agents/${agentId}/stream`, data, config)
+}
+
+export const cancelAgentExecution = (
+  agentId: string,
+  runId: string
+): Promise<AgentCancelResponse> => {
+  return post<AgentCancelResponse>(`/agents/${agentId}/runs/${runId}/cancel`, {})
 }

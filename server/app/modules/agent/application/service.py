@@ -7,15 +7,17 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.commons.ids import generate_run_id
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.llm.interface import ChatMessage, LLMPort, ToolDefinition
 from app.kernel.ports.tools.interface import ToolPort
+from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.tools.resolver import ToolResolver
@@ -34,6 +36,23 @@ from app.settings.settings import settings
 
 class AgentService:
     """Agent service for plan-execute-verify."""
+
+    def _ensure_run_active(self, run_id: str) -> None:
+        if not self.trace_writer:
+            return
+        run_status = self.trace_writer.db.execute(
+            select(Run.status).where(
+                Run.id == run_id,
+                Run.tenant_id == self.ctx.tenant_id,
+                Run.workspace_id == self.ctx.workspace_id,
+            )
+        ).scalar_one_or_none()
+        if run_status == "canceled":
+            raise KernelError(
+                "AGENT_RUN_CANCELED",
+                f"Agent run was canceled: {run_id}",
+                {"run_id": run_id},
+            )
 
     def __init__(
         self,
@@ -123,6 +142,7 @@ class AgentService:
             )
         if self.trace_writer:
             if existing_run_id:
+                self._ensure_run_active(run_id)
                 self.trace_writer.update_run_status(run_id, "running")
             else:
                 subject_id, subject_version_id = self._resolve_agent_trace_subject()
@@ -133,6 +153,7 @@ class AgentService:
                     subject_version_id=subject_version_id,
                     input_summary=data.messages[-1].content[:8192],
                     run_id=run_id,
+                    request_id=data.request_id,
                 )
                 run_id = run.id
                 self.trace_writer.update_run_status(run_id, "running")
@@ -287,6 +308,7 @@ class AgentService:
         try:
             await emit("agent.run.started", {"run_id": run_id})
             while iterations < data.max_iterations:
+                self._ensure_run_active(run_id)
                 if check_runtime_budget():
                     break
                 if data.max_llm_calls is not None and llm_calls >= data.max_llm_calls:
@@ -324,10 +346,11 @@ class AgentService:
                         )
                     raise
                 llm_calls += 1
+                self._ensure_run_active(run_id)
                 tokens_prompt += plan.tokens_prompt
                 tokens_completion += plan.tokens_completion
                 finish_reason = plan.finish_reason or finish_reason
-                await emit("agent.plan.completed", {"action": plan.action, "iteration": iterations})
+                await emit("agent.plan.succeeded", {"action": plan.action, "iteration": iterations})
                 if (
                     self.trace_writer
                     and plan_step_id
@@ -389,6 +412,7 @@ class AgentService:
 
                     tool_failed_break = False
                     for tc in plan.tool_calls:
+                        self._ensure_run_active(run_id)
                         allowed_refs = [*resolved_tool_refs, *(data.workflow_refs or [])]
                         if allowed_refs and tc.name not in allowed_refs:
                             raise ValidationError(f"Tool not allowed: {tc.name}")
@@ -534,7 +558,7 @@ class AgentService:
                         response_metadata = tool_response.metadata or {}
                         effective_tool_type = str(response_metadata.get("source_kind") or tool_type)
                         await emit(
-                            "agent.tool.completed",
+                            "agent.tool.succeeded",
                             {
                                 "tool_ref": tc.name,
                                 "tool_type": effective_tool_type,
@@ -625,7 +649,7 @@ class AgentService:
 
                 if plan.action == "respond":
                     final_response = str(plan.response or "")
-                    await emit("agent.response.completed", {"output": final_response})
+                    await emit("agent.response.succeeded", {"output": final_response})
                     break
 
                 failures += 1
@@ -640,6 +664,7 @@ class AgentService:
                 finish_reason = finish_reason or "max_iterations"
 
             if data.verify and not budget_exceeded and not check_runtime_budget():
+                self._ensure_run_active(run_id)
                 if data.max_llm_calls is not None and llm_calls >= data.max_llm_calls:
                     set_budget("llm_budget_exceeded")
                 else:
@@ -719,7 +744,8 @@ class AgentService:
                             final_response = "Agent verification failed."
                         finish_reason = "verification_failed"
 
-            await emit("agent.run.completed", {"run_id": run_id, "status": "succeeded"})
+            self._ensure_run_active(run_id)
+            await emit("agent.run.succeeded", {"run_id": run_id, "status": "succeeded"})
             if self.trace_writer:
                 self.trace_writer.update_run_status(
                     run_id,
@@ -727,7 +753,10 @@ class AgentService:
                     output_summary=final_response[:8192],
                 )
         except Exception as exc:
-            if self.trace_writer:
+            canceled = isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED"
+            if canceled:
+                await emit("agent.run.canceled", {"run_id": run_id, "status": "canceled"})
+            elif self.trace_writer:
                 self.trace_writer.update_run_status(
                     run_id,
                     "failed",
@@ -737,6 +766,7 @@ class AgentService:
 
         return {
             "run_id": run_id,
+            "request_id": data.request_id,
             "output": final_response,
             "model": model,
             "iterations": iterations,
@@ -755,7 +785,7 @@ class AgentService:
 
     def _get_cost_total(self, run_id: str, currency: str) -> float:
         """Get total cost for a run."""
-        from sqlalchemy import and_, func, select
+        from sqlalchemy import and_, func
 
         from app.kernel.runtime.db.models.runs import RunCostEntry
 
@@ -923,17 +953,24 @@ class AgentService:
         max_messages: int | None,
         max_chars: int | None,
     ) -> list[ChatMessage]:
-        """Trim messages to the configured context window."""
-        trimmed = list(messages)
+        """Trim trusted history while preserving published instructions and input."""
+        system_messages = [message for message in messages if message.role == "system"]
+        conversation = [message for message in messages if message.role != "system"]
         if max_messages is not None:
-            trimmed = trimmed[-max_messages:]
+            conversation = conversation[-max_messages:]
         if max_chars is None:
-            return trimmed
+            return [*system_messages, *conversation]
 
-        remaining = max_chars
-        kept = []
-        for msg in reversed(trimmed):
+        remaining = max(max_chars - sum(len(message.content or "") for message in system_messages), 0)
+        kept: list[ChatMessage] = []
+        for msg in reversed(conversation):
             content = msg.content or ""
+            if not kept:
+                # The current user turn must never disappear because older context
+                # or a long published system prompt consumed the configured budget.
+                kept.append(ChatMessage(role=msg.role, content=content))
+                remaining = max(remaining - len(content), 0)
+                continue
             if len(content) <= remaining:
                 kept.append(ChatMessage(role=msg.role, content=content))
                 remaining -= len(content)
@@ -944,4 +981,4 @@ class AgentService:
             kept.append(ChatMessage(role=msg.role, content=sliced))
             remaining = 0
             break
-        return list(reversed(kept))
+        return [*system_messages, *reversed(kept)]

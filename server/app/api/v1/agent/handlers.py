@@ -9,6 +9,7 @@ from app.kernel.contracts.context import RequestContext
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
     AgentBindingResponse,
+    AgentCancelResponse,
     AgentCapabilityResponse,
     AgentCreate,
     AgentPublishRequest,
@@ -35,7 +36,9 @@ class AgentHandlers:
 
     async def run(self, ctx: RequestContext, data: AgentRunRequest) -> AgentRunResponse:
         runtime_request = AgentRuntimeRequest.model_validate({
-            **data.model_dump(exclude_none=True),
+            "messages": [{"role": "user", "content": data.input}],
+            "thread_id": data.thread_id,
+            "request_id": data.request_id,
             "model_ref": "model:openai:gpt-5.1",
         })
         result = await self.service.run(runtime_request)
@@ -267,6 +270,7 @@ class AgentAppHandlers:
             response_id=result.get("response_id"),
             thread_id=result.get("thread_id"),
             task_id=result.get("task_id"),
+            request_id=result.get("request_id"),
             output=result.get("output") or "",
             model=result.get("model") or "",
             iterations=result.get("iterations") or 0,
@@ -280,4 +284,15 @@ class AgentAppHandlers:
             budget_reason=result.get("budget_reason"),
             cost_total=result.get("cost_total") or 0.0,
             citations=result.get("citations") or [],
+        )
+
+    async def cancel_agent_execution(
+        self,
+        ctx: RequestContext,
+        agent_id: str,
+        run_id: str,
+    ) -> AgentCancelResponse:
+        _ = ctx
+        return AgentCancelResponse(
+            **(await self.service.cancel_agent_execution(agent_id, run_id))
         )

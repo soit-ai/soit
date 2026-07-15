@@ -10,8 +10,10 @@ from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.agent.dependencies import (
+    AgentStreamExecutor,
     get_agent_application_service,
     get_agent_service,
+    get_agent_stream_executor,
 )
 from app.api.v1.agent.handlers import AgentAppHandlers, AgentHandlers
 from app.api.v1.permissions import (
@@ -19,10 +21,12 @@ from app.api.v1.permissions import (
     require_workspace_write_ctx,
 )
 from app.infra.db.pagination import PaginatedResponse
+from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
     AgentBindingResponse,
+    AgentCancelResponse,
     AgentCapabilityResponse,
     AgentCreate,
     AgentPublishRequest,
@@ -40,6 +44,7 @@ from app.modules.agent.application.schemas import (
 from app.modules.agent.application.service import AgentService
 
 router = APIRouter()
+_background_agent_tasks: set[asyncio.Task[None]] = set()
 
 
 @router.post("/run", response_model=AgentRunResponse)
@@ -237,7 +242,7 @@ async def stream_agent(
     agent_id: str,
     data: AgentRunRequest = Body(...),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: AgentApplicationService = Depends(get_agent_application_service),
+    execute_stream: AgentStreamExecutor = Depends(get_agent_stream_executor),
 ):
     """Stream agent execution events via SSE."""
     from app.modules.agent.runtime.emitter import QueueEmitter
@@ -247,25 +252,28 @@ async def stream_agent(
 
     async def run_agent():
         try:
-            result = await service.execute_agent_streaming(agent_id, data.model_dump(exclude_none=True, exclude_unset=True), emitter)
+            result = await execute_stream(
+                agent_id,
+                data.model_dump(exclude_none=True, exclude_unset=True),
+                emitter,
+            )
             await emitter.queue.put(("agent.result", result))
         except Exception as exc:
-            await emitter.queue.put(("agent.error", {"error": str(exc)}))
+            if not isinstance(exc, KernelError) or exc.code != "AGENT_RUN_CANCELED":
+                await emitter.queue.put(("agent.error", {"error": str(exc)}))
         finally:
             await emitter.done()
 
     async def generate():
         task = asyncio.create_task(run_agent())
-        try:
-            while True:
-                item = await emitter.queue.get()
-                if item is None:
-                    break
-                event_name, event_data = item
-                yield f"event: {event_name}\ndata: {json.dumps(event_data)}\n\n"
-        finally:
-            if not task.done():
-                task.cancel()
+        _background_agent_tasks.add(task)
+        task.add_done_callback(_background_agent_tasks.discard)
+        while True:
+            item = await emitter.queue.get()
+            if item is None:
+                break
+            event_name, event_data = item
+            yield f"event: {event_name}\ndata: {json.dumps(event_data)}\n\n"
 
     return StreamingResponse(
         generate(),
@@ -276,3 +284,19 @@ async def stream_agent(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post(
+    "/{agent_id}/runs/{run_id}/cancel",
+    response_model=AgentCancelResponse,
+)
+async def cancel_agent_execution(
+    agent_id: str,
+    run_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Explicitly cancel an active Agent execution."""
+
+    handlers = AgentAppHandlers(service)
+    return await handlers.cancel_agent_execution(ctx, agent_id, run_id)

@@ -9,11 +9,10 @@ from collections import defaultdict
 from datetime import UTC
 from typing import Any
 
-from pydantic import BaseModel
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import NotFoundError, ValidationError
+from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
@@ -24,6 +23,7 @@ from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
@@ -54,6 +54,7 @@ from app.modules.agent.application.schemas import (
     AgentWorkbenchRow,
     AgentWorkbenchSummary,
     AgentWorkbenchTabs,
+    ChatMessageInput,
 )
 from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.versioning_adapter import AgentVersioningAdapter
@@ -366,11 +367,6 @@ class AgentApplicationService:
         limits = spec.get("limits") or {}
         policies = spec.get("policies") or {}
         public_request = AgentRunRequest.model_validate(inputs)
-        raw_inputs = (
-            inputs.model_dump(exclude_unset=True)
-            if isinstance(inputs, BaseModel)
-            else dict(inputs)
-        )
         model_ref = binding_spec.get("model_ref")
         if not model_ref:
             raise ValidationError(f"Agent version {version.id} has no model binding")
@@ -381,19 +377,11 @@ class AgentApplicationService:
                     return value
             return default
 
-        raw_memory_strategy = raw_inputs.get("memory_strategy")
-        raw_memory_top_k = raw_inputs.get("memory_top_k")
         memory_enabled = bool(memory_spec.get("enabled")) if isinstance(memory_spec, dict) else False
-        memory_strategy = None
-        memory_top_k = None
-        if raw_memory_strategy is not None or raw_memory_top_k is not None or raw_inputs.get("memory_query") is not None:
-            memory_strategy = raw_memory_strategy or "planner_only"
-            memory_top_k = raw_memory_top_k or 5
-        elif memory_enabled:
-            memory_strategy = memory_spec.get("type") or "planner_only"
-            memory_top_k = memory_policy.get("top_k") or 5
+        memory_strategy = (memory_spec.get("type") or "planner_only") if memory_enabled else None
+        memory_top_k = (memory_policy.get("top_k") or 5) if memory_enabled else None
 
-        messages = [message.model_dump(exclude_none=True) for message in public_request.messages]
+        messages = [{"role": "user", "content": public_request.input}]
         system_prompt = spec.get("system_prompt")
         if system_prompt and not any(message.get("role") == "system" for message in messages):
             messages = [{"role": "system", "content": system_prompt}] + messages
@@ -406,28 +394,28 @@ class AgentApplicationService:
 
         payload = {
             "messages": messages,
-            "max_iterations": first_defined(raw_inputs.get("max_iterations"), limits.get("max_iterations"), default=8),
-            "max_tool_calls": first_defined(raw_inputs.get("max_tool_calls"), limits.get("max_tool_calls"), default=8),
-            "max_llm_calls": first_defined(raw_inputs.get("max_llm_calls"), limits.get("max_llm_calls"), default=16),
-            "max_failures": first_defined(raw_inputs.get("max_failures"), limits.get("max_failures"), default=2),
-            "max_runtime_seconds": raw_inputs.get(
-                "max_runtime_seconds",
-                int(limits["timeout_ms"] / 1000) if limits.get("timeout_ms") else None,
+            "max_iterations": first_defined(limits.get("max_iterations"), default=8),
+            "max_tool_calls": first_defined(limits.get("max_tool_calls"), default=8),
+            "max_llm_calls": first_defined(limits.get("max_llm_calls"), default=16),
+            "max_failures": first_defined(limits.get("max_failures"), default=2),
+            "max_runtime_seconds": (
+                int(limits["timeout_ms"] / 1000) if limits.get("timeout_ms") else None
             ),
-            "max_tokens_total": raw_inputs.get("max_tokens_total", limits.get("max_tokens")),
-            "max_cost": raw_inputs.get("max_cost", limits.get("budget")),
-            "cost_currency": raw_inputs.get("cost_currency", policies.get("cost_currency") or "USD"),
-            "rag_top_k": raw_inputs.get("rag_top_k", 5),
-            "rag_strategy": raw_inputs.get("rag_strategy", "system_message"),
-            "memory_query": raw_inputs.get("memory_query"),
+            "max_tokens_total": limits.get("max_tokens"),
+            "max_cost": limits.get("budget"),
+            "cost_currency": policies.get("cost_currency") or "USD",
+            "rag_top_k": limits.get("rag_top_k") or 5,
+            "rag_strategy": policies.get("rag_strategy") or "system_message",
+            "memory_query": None,
             "memory_strategy": memory_strategy,
             "memory_top_k": memory_top_k,
-            "context_window_messages": raw_inputs.get("context_window_messages"),
-            "context_window_chars": raw_inputs.get("context_window_chars"),
-            "verify": raw_inputs.get("verify", policies.get("verify") if policies.get("verify") is not None else True),
-            "failure_strategy": raw_inputs.get("failure_strategy", policies.get("failure_strategy") or "respond"),
-            "thread_id": raw_inputs.get("thread_id"),
-            "thread_title": raw_inputs.get("thread_title"),
+            "context_window_messages": limits.get("context_window_messages"),
+            "context_window_chars": limits.get("context_window_chars"),
+            "verify": policies.get("verify") if policies.get("verify") is not None else True,
+            "failure_strategy": policies.get("failure_strategy") or "respond",
+            "thread_id": public_request.thread_id,
+            "thread_title": public_request.input[:512],
+            "request_id": public_request.request_id,
             "model_ref": model_ref,
             "temperature": spec.get("temperature"),
             "knowledge_refs": binding_spec.get("knowledge_refs") or [],
@@ -479,14 +467,61 @@ class AgentApplicationService:
                 return message.content[:120]
         return None
 
+    @staticmethod
+    def _current_user_message(request: AgentRuntimeRequest) -> ChatMessageInput:
+        for message in reversed(request.messages):
+            if message.role == "user":
+                return message
+        raise ValidationError("Agent turn requires one current user input")
+
+    def _with_thread_history(
+        self,
+        request: AgentRuntimeRequest,
+        thread: Any,
+        current_message: ChatMessageInput,
+    ) -> AgentRuntimeRequest:
+        """Rebuild trusted runtime history from the scoped thread ledger."""
+
+        system_messages = [message for message in request.messages if message.role == "system"]
+        history: list[ChatMessageInput] = []
+        for message in self.thread_service.thread_repo.list_messages(thread.id):
+            if message.status != "completed" or message.role not in {
+                "user",
+                "assistant",
+                "tool",
+            }:
+                continue
+            if not message.content:
+                continue
+            history.append(
+                ChatMessageInput(
+                    role=message.role,
+                    content=message.content,
+                    metadata=message.metadata_json or None,
+                )
+            )
+        return request.model_copy(
+            update={
+                "messages": [*system_messages, *history, current_message],
+                "context_window_messages": (
+                    request.context_window_messages or thread.max_history_messages
+                ),
+                "context_window_chars": (
+                    request.context_window_chars or thread.max_history_chars
+                ),
+            }
+        )
+
     def _response_input_payload(self, request: AgentRuntimeRequest, *, agent_version_id: str) -> dict[str, Any]:
+        current_message = self._current_user_message(request)
         return {
-            "messages": [message.model_dump(exclude_none=True) for message in request.messages],
+            "input": current_message.content,
             "model": request.model_ref,
             "temperature": request.temperature,
             "thread_id": request.thread_id,
             "thread_title": request.thread_title,
             "agent_version_id": agent_version_id,
+            "request_id": request.request_id,
             "source": "agent.execute",
         }
 
@@ -1032,16 +1067,24 @@ class AgentApplicationService:
 
     def _agent_inputs_from_regression_case(self, case: Any) -> dict[str, Any]:
         snapshot = dict(case.input_snapshot_json or {})
-        if snapshot.get("messages"):
-            return snapshot
+        messages = snapshot.get("messages")
+        if isinstance(messages, list):
+            candidates = [message for message in messages if isinstance(message, dict)]
+            user_messages = [message for message in candidates if message.get("role") == "user"]
+            selected = user_messages[-1] if user_messages else (candidates[-1] if candidates else None)
+            if selected is not None:
+                content = selected.get("content", "")
+                if not isinstance(content, str):
+                    content = json.dumps(content, ensure_ascii=False)
+                return {"input": content}
         if snapshot.get("input_summary"):
-            return {"messages": [{"role": "user", "content": str(snapshot["input_summary"])}]}
+            return {"input": str(snapshot["input_summary"])}
         if snapshot.get("input") is not None:
             content = snapshot["input"]
             if not isinstance(content, str):
                 content = json.dumps(content, ensure_ascii=False)
-            return {"messages": [{"role": "user", "content": content}]}
-        return {"messages": [{"role": "user", "content": json.dumps(snapshot, ensure_ascii=False)}]}
+            return {"input": content}
+        return {"input": json.dumps(snapshot, ensure_ascii=False)}
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def publish_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
@@ -1064,6 +1107,7 @@ class AgentApplicationService:
         else:
             version = self._resolve_execution_version(agent)
         request = self._request_from_version(version, inputs)
+        current_message = self._current_user_message(request)
         linked_response = None
 
         thread = self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
@@ -1083,14 +1127,17 @@ class AgentApplicationService:
                 metadata={"source": "agent.execute", "agent_version_id": version.id},
             )
 
-        for message in request.messages:
-            self.thread_service.append_message(
-                thread_id=thread.id,
-                role=message.role,
-                content=message.content,
-                status="completed",
-                metadata=message.metadata,
-            )
+        request = self._with_thread_history(request, thread, current_message)
+        self.thread_service.append_message(
+            thread_id=thread.id,
+            role="user",
+            content=current_message.content,
+            status="completed",
+            metadata={
+                **(current_message.metadata or {}),
+                "request_id": request.request_id,
+            },
+        )
 
         run = self.trace_writer.create_run(
             mode="agent",
@@ -1098,7 +1145,8 @@ class AgentApplicationService:
             subject_kind="agent",
             subject_id=agent.id,
             subject_version_id=version.id,
-            input_summary=request.messages[-1].content[:8192] if request.messages else None,
+            input_summary=current_message.content[:8192],
+            request_id=request.request_id,
         )
         task = self.task_service.create_task(
             task_type="agent.execute",
@@ -1109,7 +1157,8 @@ class AgentApplicationService:
             input_payload={
                 "agent_id": agent.id,
                 "agent_version_id": version.id,
-                "message_count": len(request.messages),
+                "message_count": 1,
+                "request_id": request.request_id,
             },
         )
         self.task_service.transition_task(
@@ -1125,6 +1174,7 @@ class AgentApplicationService:
                 task_id=task.id,
                 agent_id=agent.id,
                 model=request.model_ref,
+                request_id=request.request_id,
                 input_json=self._response_input_payload(request, agent_version_id=version.id),
                 metadata_json={
                     "source": "agent.execute",
@@ -1136,10 +1186,19 @@ class AgentApplicationService:
             )
             linked_response = self.response_service.mark_running(linked_response)
 
+        # Publish the execution linkage before the first remote call so an explicit
+        # cancellation request can resolve and close the active lifecycle.
+        self.db.commit()
+
         runner = self._build_runner()
         try:
             result = await runner.run(request, existing_run_id=run.id, response_id=linked_response.id if linked_response else None)
         except Exception as exc:
+            if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
+                if linked_response:
+                    self.response_service.cancel_response(linked_response.id)
+                self.task_service.cancel_task(task_id=task.id)
+                raise
             error_message = str(exc)
             if linked_response:
                 linked_response = self.response_service.fail_response(
@@ -1214,6 +1273,57 @@ class AgentApplicationService:
             "thread_id": thread.id,
             "task_id": task.id,
             "response_id": response_id,
+            "request_id": request.request_id,
+        }
+
+    @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
+    async def cancel_agent_execution(self, agent_id: str, run_id: str) -> dict[str, Any]:
+        """Explicitly close the Run, Task, and Response lifecycle for one execution."""
+
+        self._get_agent(agent_id)
+        run = self.db.get(Run, run_id)
+        if (
+            run is None
+            or run.tenant_id != self.ctx.tenant_id
+            or run.workspace_id != self.ctx.workspace_id
+            or run.subject_kind != "agent"
+            or run.subject_id != agent_id
+        ):
+            raise NotFoundError(f"Agent run not found: {run_id}")
+
+        responses = (
+            self.response_service.response_repo.list_for_run(run_id)
+            if self.response_service is not None
+            else []
+        )
+        for response in responses:
+            self.response_service.cancel_response(response.id)
+        if run.status not in {"succeeded", "failed", "canceled", "expired"}:
+            self.trace_writer.update_run_status(
+                run.id,
+                "canceled",
+                output_summary="Agent execution canceled",
+                error_code="agent_run_canceled",
+                error_message="Agent execution was explicitly canceled",
+            )
+
+        tasks = list(
+            self.db.execute(
+                select(Task).where(
+                    Task.tenant_id == self.ctx.tenant_id,
+                    Task.workspace_id == self.ctx.workspace_id,
+                    Task.run_id == run_id,
+                )
+            ).scalars()
+        )
+        for task in tasks:
+            self.task_service.cancel_task(task_id=task.id)
+        self.db.refresh(run)
+        return {
+            "run_id": run.id,
+            "status": run.status,
+            "task_ids": [task.id for task in tasks],
+            "response_ids": [response.id for response in responses],
         }
 
     @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
@@ -1231,6 +1341,7 @@ class AgentApplicationService:
         agent = self._get_agent(agent_id)
         version = self._resolve_execution_version(agent)
         request = self._request_from_version(version, inputs)
+        current_message = self._current_user_message(request)
         linked_response = None
 
         thread = self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
@@ -1250,14 +1361,17 @@ class AgentApplicationService:
                 metadata={"source": "agent.stream", "agent_version_id": version.id},
             )
 
-        for message in request.messages:
-            self.thread_service.append_message(
-                thread_id=thread.id,
-                role=message.role,
-                content=message.content,
-                status="completed",
-                metadata=message.metadata,
-            )
+        request = self._with_thread_history(request, thread, current_message)
+        self.thread_service.append_message(
+            thread_id=thread.id,
+            role="user",
+            content=current_message.content,
+            status="completed",
+            metadata={
+                **(current_message.metadata or {}),
+                "request_id": request.request_id,
+            },
+        )
 
         run = self.trace_writer.create_run(
             mode="agent",
@@ -1265,7 +1379,8 @@ class AgentApplicationService:
             subject_kind="agent",
             subject_id=agent.id,
             subject_version_id=version.id,
-            input_summary=request.messages[-1].content[:8192] if request.messages else None,
+            input_summary=current_message.content[:8192],
+            request_id=request.request_id,
         )
         task = self.task_service.create_task(
             task_type="agent.stream",
@@ -1276,7 +1391,8 @@ class AgentApplicationService:
             input_payload={
                 "agent_id": agent.id,
                 "agent_version_id": version.id,
-                "message_count": len(request.messages),
+                "message_count": 1,
+                "request_id": request.request_id,
             },
         )
         self.task_service.transition_task(
@@ -1292,6 +1408,7 @@ class AgentApplicationService:
                 task_id=task.id,
                 agent_id=agent.id,
                 model=request.model_ref,
+                request_id=request.request_id,
                 input_json=self._response_input_payload(request, agent_version_id=version.id),
                 metadata_json={
                     "source": "agent.stream",
@@ -1303,6 +1420,10 @@ class AgentApplicationService:
             )
             linked_response = self.response_service.mark_running(linked_response)
 
+        # The detached stream uses a worker session. Commit its execution linkage
+        # before remote calls so the cancel endpoint can observe it immediately.
+        self.db.commit()
+
         runner = self._build_runner()
         try:
             result = await runner.run(
@@ -1312,6 +1433,11 @@ class AgentApplicationService:
                 event_emitter=event_emitter,
             )
         except Exception as exc:
+            if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
+                if linked_response:
+                    self.response_service.cancel_response(linked_response.id)
+                self.task_service.cancel_task(task_id=task.id)
+                raise
             error_message = str(exc)
             if linked_response:
                 linked_response = self.response_service.fail_response(
@@ -1397,4 +1523,5 @@ class AgentApplicationService:
             "thread_id": thread.id,
             "task_id": task.id,
             "response_id": response_id,
+            "request_id": request.request_id,
         }

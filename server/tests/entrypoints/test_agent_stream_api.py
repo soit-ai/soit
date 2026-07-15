@@ -1,14 +1,20 @@
 """Entry-point tests for the Agent streaming SSE endpoint."""
 
+import asyncio
 import json
 
+import pytest
 from fastapi import status
 
-from app.api.v1.agent.dependencies import get_agent_application_service
+from app.api.v1.agent.dependencies import (
+    get_agent_application_service,
+    get_agent_stream_executor,
+)
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.threads.repository import ThreadRepository
 from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.agent.application.schemas import AgentRunRequest
 
 
 class QueueLLMPort(LLMPort):
@@ -82,7 +88,12 @@ def test_agent_stream_endpoint_emits_sse_events(client, db, ctx):
             memory_service=None,
         )
 
+    async def _stream_executor(agent_id, inputs, emitter):
+        service = await _override()
+        return await service.execute_agent_streaming(agent_id, inputs, emitter)
+
     app.dependency_overrides[get_agent_application_service] = _override
+    app.dependency_overrides[get_agent_stream_executor] = lambda: _stream_executor
     try:
         # Create and publish agent
         create_resp = client.post(
@@ -115,7 +126,7 @@ def test_agent_stream_endpoint_emits_sse_events(client, db, ctx):
         # Call stream endpoint
         stream_resp = client.post(
             f"/api/v1/agents/{agent_id}/stream",
-            json={"messages": [{"role": "user", "content": "Stream now"}]},
+            json={"input": "Stream now"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert stream_resp.status_code == status.HTTP_200_OK
@@ -127,8 +138,8 @@ def test_agent_stream_endpoint_emits_sse_events(client, db, ctx):
         event_names = [e[0] for e in events]
         assert "agent.run.started" in event_names
         assert "agent.tool.started" in event_names
-        assert "agent.tool.completed" in event_names
-        assert "agent.run.completed" in event_names
+        assert "agent.tool.succeeded" in event_names
+        assert "agent.run.succeeded" in event_names
         assert "agent.result" in event_names
 
         # Check the result event contains the output
@@ -161,7 +172,7 @@ def test_agent_stream_endpoint_emits_sse_events(client, db, ctx):
         started_tool = next(data for name, data in events if name == "agent.tool.started")
         assert started_tool["tool_ref"] == "tool:test:echo"
         assert started_tool["tool_call_id"] == "call_1"
-        completed_tool = next(data for name, data in events if name == "agent.tool.completed")
+        completed_tool = next(data for name, data in events if name == "agent.tool.succeeded")
         assert completed_tool["tool_ref"] == "tool:test:echo"
         assert completed_tool["tool_type"] == "builtin"
         assert completed_tool["tool_call_id"] == "call_1"
@@ -170,6 +181,51 @@ def test_agent_stream_endpoint_emits_sse_events(client, db, ctx):
         assert completed_tool["result"]["result"]["parameters"] == {"value": "stream hi"}
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
+        app.dependency_overrides.pop(get_agent_stream_executor, None)
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_disconnect_does_not_cancel_execution(ctx):
+    from app.api.v1.agent.router import stream_agent
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+    canceled = False
+
+    class _DetachedService:
+        async def execute_agent_streaming(self, agent_id, inputs, emitter):
+            nonlocal canceled
+            await emitter("agent.run.started", {"run_id": "run_detached"})
+            started.set()
+            try:
+                await release.wait()
+                completed.set()
+                return {
+                    "run_id": "run_detached",
+                    "output": "done",
+                    "model": "model:test:primary",
+                    "iterations": 1,
+                }
+            except asyncio.CancelledError:
+                canceled = True
+                raise
+
+    response = await stream_agent(
+        "agt_detached",
+        AgentRunRequest(input="keep running"),
+        ctx,
+        _DetachedService().execute_agent_streaming,
+    )
+    iterator = response.body_iterator
+    first_event = await anext(iterator)
+    assert "agent.run.started" in first_event
+    await iterator.aclose()
+    await started.wait()
+    release.set()
+    await asyncio.wait_for(completed.wait(), timeout=1)
+
+    assert canceled is False
 
 
 def test_agent_stream_persists_failed_assistant_message_for_chat_history(client, db, ctx):
@@ -184,8 +240,13 @@ def test_agent_stream_persists_failed_assistant_message_for_chat_history(client,
             memory_service=None,
         )
 
+    async def _stream_executor(agent_id, inputs, emitter):
+        service = await _override()
+        return await service.execute_agent_streaming(agent_id, inputs, emitter)
+
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     app.dependency_overrides[get_agent_application_service] = _override
+    app.dependency_overrides[get_agent_stream_executor] = lambda: _stream_executor
     try:
         create_resp = client.post(
             "/api/v1/agents",
@@ -216,7 +277,7 @@ def test_agent_stream_persists_failed_assistant_message_for_chat_history(client,
 
         stream_resp = client.post(
             f"/api/v1/agents/{agent_id}/stream",
-            json={"messages": [{"role": "user", "content": "Stream and fail"}]},
+            json={"input": "Stream and fail"},
             headers=headers,
         )
         assert stream_resp.status_code == status.HTTP_200_OK
@@ -266,3 +327,4 @@ def test_agent_stream_persists_failed_assistant_message_for_chat_history(client,
         assert api_assistant_message["metadata_json"]["error_message"] == "stream llm unavailable"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
+        app.dependency_overrides.pop(get_agent_stream_executor, None)

@@ -5,7 +5,15 @@ from fastapi import status
 from app.api.v1.agent.dependencies import get_agent_application_service
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.db.models.tasks import Task
+from app.kernel.runtime.responses.repository import (
+    ResponseEventRepository,
+    ResponseRepository,
+)
+from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.tasks.service import TaskService
 from app.kernel.runtime.threads.repository import ThreadRepository
 from app.modules.agent.application.application_service import AgentApplicationService
 
@@ -51,29 +59,44 @@ class FailingLLMPort(LLMPort):
 def test_agent_api_create_publish_and_execute(client, db, ctx):
     from app.main import app
 
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(text="api done", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="call_v1",
+                        name="verify_response",
+                        arguments={"ok": True, "reason": "ok"},
+                    )
+                ],
+            ),
+            ChatResponse(text="continued", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="call_v2",
+                        name="verify_response",
+                        arguments={"ok": True, "reason": "ok"},
+                    )
+                ],
+            ),
+        ]
+    )
+
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
             db=db,
             ctx=ctx,
-            llm_port=QueueLLMPort(
-                [
-                    # Plan: respond
-                    ChatResponse(
-                        text="api done",
-                        tokens_prompt=1,
-                        tokens_completion=1,
-                        finish_reason="stop",
-                    ),
-                    # Verify: ok
-                    ChatResponse(
-                        text=None,
-                        tokens_prompt=1,
-                        tokens_completion=1,
-                        finish_reason="tool_calls",
-                        tool_calls=[ToolCall(id="call_v", name="verify_response", arguments={"ok": True, "reason": "ok"})],
-                    ),
-                ]
-            ),
+            llm_port=llm_port,
             tool_port=StubToolPort(),
             memory_service=None,
         )
@@ -147,7 +170,8 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
-                "messages": [{"role": "user", "content": "Execute now"}],
+                "input": "Execute now",
+                "request_id": "req_execute_now",
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -160,6 +184,9 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         task = db.get(Task, payload["task_id"])
         assert task is not None
         assert task.run_id == payload["run_id"]
+        run = db.get(Run, payload["run_id"])
+        assert run is not None
+        assert run.request_id == "req_execute_now"
         assert "run_id" not in (task.output_json or {})
         assert "thread_id" not in (task.output_json or {})
 
@@ -169,6 +196,33 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         )
         assert linked_response.status_code == status.HTTP_200_OK
         assert linked_response.json()["data"]["run_id"] == payload["run_id"]
+        assert linked_response.json()["data"]["request_id"] == "req_execute_now"
+
+        continued_response = client.post(
+            f"/api/v1/agents/{agent_id}/execute",
+            json={
+                "input": "Continue from the prior result",
+                "thread_id": payload["thread_id"],
+                "request_id": "req_execute_continue",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert continued_response.status_code == status.HTTP_200_OK
+        continued = continued_response.json()["data"]
+        assert continued["output"] == "continued"
+        assert continued["thread_id"] == payload["thread_id"]
+        second_turn_messages = llm_port.messages[2]
+        assert [message.role for message in second_turn_messages] == [
+            "system",
+            "user",
+            "assistant",
+            "user",
+        ]
+        assert [message.content for message in second_turn_messages[1:]] == [
+            "Execute now",
+            "api done",
+            "Continue from the prior result",
+        ]
 
         list_response = client.get(
             "/api/v1/agents",
@@ -259,7 +313,7 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
-                "messages": [{"role": "user", "content": "Use a tool"}],
+                "input": "Use a tool",
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -287,6 +341,64 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert "tool.call.completed" in event_types
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_explicit_cancel_closes_run_task_and_response(client, db, ctx):
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    create_response = client.post(
+        "/api/v1/agents",
+        json={"name": "cancelable-agent", "visibility": "private"},
+        headers=headers,
+    )
+    assert create_response.status_code == status.HTTP_201_CREATED
+    agent_id = create_response.json()["data"]["id"]
+
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(
+        mode="agent",
+        kind="agent",
+        subject_kind="agent",
+        subject_id=agent_id,
+        subject_version_id="agtv_cancel",
+        request_id="req_cancel_agent",
+    )
+    trace_writer.update_run_status(run.id, "running")
+    task_service = TaskService(db, ctx)
+    task = task_service.create_task(
+        task_type="agent.stream",
+        agent_id=agent_id,
+        run_id=run.id,
+    )
+    task_service.transition_task(task_id=task.id, status="running")
+    response_service = ResponseService(
+        db=db,
+        ctx=ctx,
+        response_repo=ResponseRepository(db, ctx),
+        event_repo=ResponseEventRepository(db, ctx),
+        trace_writer=trace_writer,
+    )
+    response = response_service.create_linked_response(
+        run_id=run.id,
+        task_id=task.id,
+        agent_id=agent_id,
+        request_id="req_cancel_agent",
+    )
+    response_service.mark_running(response)
+
+    cancel_response = client.post(
+        f"/api/v1/agents/{agent_id}/runs/{run.id}/cancel",
+        headers=headers,
+    )
+
+    assert cancel_response.status_code == status.HTTP_200_OK
+    payload = cancel_response.json()["data"]
+    assert payload["status"] == "canceled"
+    assert payload["task_ids"] == [task.id]
+    assert payload["response_ids"] == [response.id]
+    db.expire_all()
+    assert db.get(Run, run.id).status == "canceled"
+    assert db.get(Task, task.id).status == "canceled"
+    assert ResponseRepository(db, ctx).get(response.id).status == "canceled"
 
 
 def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, ctx):
@@ -540,7 +652,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
 
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
-            json={"messages": [{"role": "user", "content": "Process ticket TCK-3001"}]},
+            json={"input": "Process ticket TCK-3001"},
             headers=headers,
         )
         assert execute_response.status_code == status.HTTP_200_OK
@@ -742,7 +854,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
 
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
-            json={"messages": [{"role": "user", "content": "Handle refund ticket TCK-DEMO-1"}]},
+            json={"input": "Handle refund ticket TCK-DEMO-1"},
             headers=headers,
         )
         assert execute_response.status_code == status.HTTP_200_OK
@@ -809,7 +921,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_includes_attachment_context_in_runtime_messages(client, db, ctx):
+def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
     from app.main import app
 
     llm_port = QueueLLMPort(
@@ -859,31 +971,13 @@ def test_agent_api_includes_attachment_context_in_runtime_messages(client, db, c
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Summarize the attached support notes",
-                        "metadata": {
-                            "attachments": [
-                                {
-                                    "id": "att_support",
-                                    "name": "support-notes.txt",
-                                    "type": "document",
-                                    "content": [{"type": "text", "text": "Refund tickets require account verification."}],
-                                }
-                            ]
-                        },
-                    }
-                ],
+                "input": "Summarize the attached support notes",
+                "attachments": [{"id": "att_support"}],
             },
             headers=headers,
         )
-        assert execute_response.status_code == status.HTTP_200_OK
-        runtime_user_message = next(message for message in llm_port.messages[0] if message.role == "user")
-        assert "Summarize the attached support notes" in runtime_user_message.content
-        assert "Attached context:" in runtime_user_message.content
-        assert "[support-notes.txt]" in runtime_user_message.content
-        assert "Refund tickets require account verification." in runtime_user_message.content
+        assert execute_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert llm_port.messages == []
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 
@@ -949,7 +1043,7 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
 
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
-            json={"messages": [{"role": "user", "content": "Use a tool"}]},
+            json={"input": "Use a tool"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert execute_response.status_code == status.HTTP_200_OK
@@ -1014,7 +1108,7 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
 
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
-            json={"messages": [{"role": "user", "content": "Trigger a failure"}]},
+            json={"input": "Trigger a failure"},
             headers=headers,
         )
         assert execute_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1244,7 +1338,7 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
         execute_response = client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
-                "messages": [{"role": "user", "content": "Execute now"}],
+                "input": "Execute now",
                 "model": "model:test:override",
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},

@@ -290,6 +290,7 @@ class ResponseService:
         agent_id: str | None = None,
         model: str | None = None,
         provider: str | None = None,
+        request_id: str | None = None,
         input_json: dict[str, Any] | None = None,
         metadata_json: dict[str, Any] | None = None,
     ) -> Response:
@@ -307,7 +308,7 @@ class ResponseService:
                 task_id=task_id,
                 agent_id=agent_id,
                 run_id=run_id,
-                request_id=getattr(self.ctx, "request_id", None),
+                request_id=request_id or getattr(self.ctx, "request_id", None),
                 model=model,
                 provider=resolved_provider,
                 status="queued",

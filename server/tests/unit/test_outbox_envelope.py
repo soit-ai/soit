@@ -67,6 +67,6 @@ def test_registered_kernel_events_have_payload_versions() -> None:
     assert get_event_payload_version("task.status") == "1"
     assert get_event_payload_version("run.created") == "1"
     assert get_event_payload_version("run.status.updated") == "1"
-    assert get_event_payload_version("response.completed") == "1"
+    assert get_event_payload_version("response.succeeded") == "1"
     assert get_event_payload_version("approval.approved") == "1"
     assert is_registered_event_type("unknown.compat.event") is False

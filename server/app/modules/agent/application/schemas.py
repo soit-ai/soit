@@ -336,7 +336,22 @@ class ChatMessageInput(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    """Run agent request."""
+    """Public request for one stateful Agent turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: str = Field(..., min_length=1, max_length=200000)
+    """Current user input only; conversation history is rebuilt by SOIT."""
+
+    thread_id: str | None = None
+    """Existing thread to continue, or omitted to create one."""
+
+    request_id: str | None = Field(default=None, max_length=256)
+    """Caller-provided correlation identifier."""
+
+
+class _AgentRuntimeOptions(BaseModel):
+    """Internal execution options resolved from an immutable Agent version."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -345,6 +360,9 @@ class AgentRunRequest(BaseModel):
 
     thread_id: str | None = None
     """Existing thread ID to append messages into."""
+
+    request_id: str | None = Field(default=None, max_length=256)
+    """Correlation identifier propagated to Run and Response."""
 
     thread_title: str | None = Field(default=None, max_length=512)
     """Optional title used when a new thread is created."""
@@ -410,7 +428,7 @@ class AgentRunRequest(BaseModel):
     """Failure handling strategy when max_failures is exceeded."""
 
 
-class AgentRuntimeRequest(AgentRunRequest):
+class AgentRuntimeRequest(_AgentRuntimeOptions):
     """Internal runtime request resolved from a published agent version."""
 
     model_ref: str
@@ -442,6 +460,7 @@ class AgentRunResponse(BaseModel):
     response_id: str | None = None
     thread_id: str | None = None
     task_id: str | None = None
+    request_id: str | None = None
     output: str
     model: str
     iterations: int
@@ -455,3 +474,12 @@ class AgentRunResponse(BaseModel):
     budget_reason: str | None = None
     cost_total: float = 0.0
     citations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentCancelResponse(BaseModel):
+    """Result of explicitly canceling one Agent execution."""
+
+    run_id: str
+    status: str
+    task_ids: list[str] = Field(default_factory=list)
+    response_ids: list[str] = Field(default_factory=list)

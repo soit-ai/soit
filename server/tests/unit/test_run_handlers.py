@@ -154,9 +154,9 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
             response_id=response.id,
             run_id=run.id,
             sequence=1,
-            type="response.completed",
+            type="response.succeeded",
             source="agent",
-            payload_json={"status": "completed"},
+            payload_json={"status": "succeeded"},
         )
     )
     db.commit()
@@ -388,9 +388,9 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
             response_id=response.id,
             run_id=run.id,
             sequence=1,
-            type="response.completed",
+            type="response.succeeded",
             source="agent",
-            payload_json={"response_id": response.id, "status": "completed"},
+            payload_json={"response_id": response.id, "status": "succeeded"},
         )
     )
     db.commit()
@@ -403,7 +403,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         assert isinstance(payload[key], list)
     assert "governance_evidence" in payload
     assert payload["costs"][0]["unit"] == "tokens"
-    assert payload["response_events"][0]["type"] == "response.completed"
+    assert payload["response_events"][0]["type"] == "response.succeeded"
     assert payload["tool_calls"][0]["tool_name"] == "wf:wf_ticket_triage"
     assert payload["citations"][0]["chunk_id"] == "chunk_1"
     assert payload["audits"][0]["gateway_type"] == "tool"
@@ -507,7 +507,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
             response_id=response.id,
             run_id=run.id,
             sequence=1,
-            type="response.completed",
+            type="response.succeeded",
             source="agent",
             payload_json={"response_id": response.id},
         )

@@ -22,7 +22,6 @@ from app.modules.agent.application.schemas import (
     AgentCreate,
     AgentRunRequest,
     AgentVersionCreate,
-    ChatMessageInput,
 )
 from app.modules.agent.infra.repository import AgentBindingRepository
 from app.modules.evaluation.application.service import RegressionEvaluationService
@@ -287,7 +286,7 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     result = await service.execute_agent(
         agent.id,
         AgentRunRequest(
-            messages=[ChatMessageInput(role="user", content="Run the task")],
+            input="Run the task",
         ).model_dump(exclude_none=True),
     )
 
@@ -331,16 +330,15 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     assert result["response_id"].startswith("resp_")
     assert result["thread_id"].startswith("thr_")
     assert result["task_id"].startswith("task_")
-    assert len(messages) == 3
-    assert messages[0].role == "system"
-    assert messages[1].role == "user"
-    assert messages[2].role == "assistant"
-    assert (messages[2].metadata_json or {})["response_id"] == result["response_id"]
-    assert messages[2].model_ref == result["model"]
-    assert messages[2].tokens_prompt == result["tokens_prompt"]
-    assert messages[2].tokens_completion == result["tokens_completion"]
-    assert messages[2].finish_reason == result["finish_reason"]
-    assert (messages[2].metadata_json or {})["budget_exceeded"] is False
+    assert len(messages) == 2
+    assert messages[0].role == "user"
+    assert messages[1].role == "assistant"
+    assert (messages[1].metadata_json or {})["response_id"] == result["response_id"]
+    assert messages[1].model_ref == result["model"]
+    assert messages[1].tokens_prompt == result["tokens_prompt"]
+    assert messages[1].tokens_completion == result["tokens_completion"]
+    assert messages[1].finish_reason == result["finish_reason"]
+    assert (messages[1].metadata_json or {})["budget_exceeded"] is False
     assert task is not None
     assert task.run_id == result["run_id"]
     assert task.status == "succeeded"
@@ -352,12 +350,12 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
     assert "tokens_completion" not in task.output_json
     assert response is not None
     assert response.run_id == result["run_id"]
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert [event.type for event in response_events] == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
     assert [event.event_type for event in events] == ["task.created", "task.status", "task.status"]
 
@@ -424,7 +422,7 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
     result = await service.execute_agent(
         agent.id,
         AgentRunRequest(
-            messages=[ChatMessageInput(role="user", content="Run the tool task")],
+            input="Run the tool task",
         ).model_dump(exclude_none=True),
     )
 
@@ -437,7 +435,7 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
     assert result["output"] == "agent tool done"
     assert result["tool_calls"] == 1
     assert response is not None
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert response.usage_json["budget_exceeded"] is False
     assert response.usage_json["budget_reason"] is None
     assert len(tool_calls) == 1
@@ -450,8 +448,8 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
         "tool.call.requested",
         "tool.call.started",
         "tool.call.completed",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
 
 
@@ -538,7 +536,7 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
     result = await service.execute_agent(
         agent.id,
         AgentRunRequest(
-            messages=[ChatMessageInput(role="user", content="How should we handle refund tickets?")],
+            input="How should we handle refund tickets?",
         ).model_dump(exclude_none=True),
     )
 
@@ -561,8 +559,8 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
     messages = ThreadRepository(db, tenant1_ctx).list_messages(result["thread_id"])
     assistant_message = next(message for message in messages if message.role == "assistant")
     assert assistant_message.citations_json == result["citations"]
-    assert assistant_message.tokens_prompt == 5
-    assert assistant_message.tokens_completion == 7
+    assert assistant_message.tokens_prompt == 4
+    assert assistant_message.tokens_completion == 6
     assert assistant_message.metadata_json["citations"] == result["citations"]
 
 
@@ -729,7 +727,7 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
     result = await service.execute_agent(
         agent.id,
         AgentRunRequest(
-            messages=[ChatMessageInput(role="user", content="Run the task")],
+            input="Run the task",
         ).model_dump(exclude_none=True),
     )
 
@@ -782,6 +780,6 @@ async def test_execute_agent_requires_published_version(db, tenant1_ctx: Request
         await service.execute_agent(
             agent.id,
             AgentRunRequest(
-                messages=[ChatMessageInput(role="user", content="Run the task")],
+                input="Run the task",
             ).model_dump(exclude_none=True),
         )

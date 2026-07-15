@@ -204,6 +204,7 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
     parent.started_at = now
     child.started_at = now
     step = trace_writer.create_step(run_id=parent.id, step_type="tool", step_id="call_ticket_workflow")
+    trace_writer.update_step_status(step.id, "running")
     trace_writer.update_step_status(
         step.id,
         "succeeded",
@@ -234,7 +235,7 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
         workspace_id="test-workspace",
         run_id=parent.id,
         model="model:test",
-        status="completed",
+            status="succeeded",
         input_json={},
         output_json={"text": "done", "citations": [{"chunk_id": "chunk_1"}]},
         usage_json={},
@@ -250,9 +251,9 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
             response_id=response.id,
             run_id=parent.id,
             sequence=1,
-            type="response.completed",
+            type="response.succeeded",
             source="agent",
-            payload_json={"status": "completed"},
+            payload_json={"status": "succeeded"},
         )
     )
     db.commit()
@@ -269,6 +270,7 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
         )
     )
     trace_writer.update_run_status(parent.id, "failed", error_message="demo failure")
+    trace_writer.update_run_status(child.id, "running")
     trace_writer.update_run_status(child.id, "succeeded")
 
     resp = client.get("/api/v1/observe/dashboard", headers=_headers())

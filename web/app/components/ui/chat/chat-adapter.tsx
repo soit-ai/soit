@@ -5,7 +5,7 @@ import { globalMitt } from '@/hooks/use-mitt'
 import { type ChatModelAdapter } from '@assistant-ui/react'
 import { createThread, getThread } from '@/services/thread-service'
 import { cancelResponse, createResponse, createStreamResponse, type ResponseRead } from '@/services/responses-service'
-import { streamAgentExecution } from '@/services/agent-service'
+import { cancelAgentExecution, streamAgentExecution } from '@/services/agent-service'
 import { toast } from 'sonner'
 import { DEFAULT_CHAT_PROVIDER, resolveRuntimeChatModel, resolveStoredChatProvider } from './defaults'
 
@@ -30,11 +30,12 @@ type ResponseStreamEvent =
 
 type AgentStreamEvent =
   | { type: 'agent.run.started'; runId?: string }
-  | { type: 'agent.response.completed'; output: string }
-  | { type: 'agent.run.completed'; runId?: string; status?: string }
+  | { type: 'agent.response.succeeded'; output: string }
+  | { type: 'agent.run.succeeded'; runId?: string; status?: string }
   | { type: 'agent.run.failed'; runId?: string; threadId?: string; taskId?: string; responseId?: string; errorCode?: string; errorMessage?: string }
+  | { type: 'agent.run.canceled'; runId?: string; threadId?: string; taskId?: string; responseId?: string }
   | { type: 'agent.tool.started'; toolCallId: string; toolName: string }
-  | { type: 'agent.tool.completed'; toolCallId: string; toolName: string; resultText: string }
+  | { type: 'agent.tool.succeeded'; toolCallId: string; toolName: string; resultText: string }
   | { type: 'agent.result'; output: string; runId?: string; threadId?: string; responseId?: string; model?: string; finishReason?: string; tokensPrompt?: number; tokensCompletion?: number; toolCalls?: number; budgetExceeded?: boolean; budgetReason?: string; costTotal?: number; citations?: Array<Record<string, unknown>> }
   | { type: 'agent.error'; error: string }
 
@@ -124,13 +125,13 @@ async function* parseAgentSSEStream(stream: AsyncGenerator<{ event: string; data
       yield { type: 'agent.run.started', runId: typeof payload.run_id === 'string' ? payload.run_id : undefined }
       continue
     }
-    if (part.event === 'agent.response.completed') {
-      yield { type: 'agent.response.completed', output: typeof payload.output === 'string' ? payload.output : '' }
+    if (part.event === 'agent.response.succeeded') {
+      yield { type: 'agent.response.succeeded', output: typeof payload.output === 'string' ? payload.output : '' }
       continue
     }
-    if (part.event === 'agent.run.completed') {
+    if (part.event === 'agent.run.succeeded') {
       yield {
-        type: 'agent.run.completed',
+        type: 'agent.run.succeeded',
         runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
         status: typeof payload.status === 'string' ? payload.status : undefined,
       }
@@ -156,9 +157,9 @@ async function* parseAgentSSEStream(stream: AsyncGenerator<{ event: string; data
       }
       continue
     }
-    if (part.event === 'agent.tool.completed') {
+    if (part.event === 'agent.tool.succeeded') {
       yield {
-        type: 'agent.tool.completed',
+        type: 'agent.tool.succeeded',
         toolCallId: (typeof payload.tool_call_id === 'string' && payload.tool_call_id) || (typeof payload.tool_ref === 'string' ? payload.tool_ref : `tool-${Date.now()}`),
         toolName: typeof payload.tool_ref === 'string' ? payload.tool_ref : 'tool',
         resultText: toJsonText(payload),
@@ -186,6 +187,17 @@ async function* parseAgentSSEStream(stream: AsyncGenerator<{ event: string; data
     }
     if (part.event === 'agent.error') {
       yield { type: 'agent.error', error: typeof payload.error === 'string' ? payload.error : 'Agent execution failed' }
+      continue
+    }
+    if (part.event === 'agent.run.canceled') {
+      yield {
+        type: 'agent.run.canceled',
+        runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
+        threadId: typeof payload.thread_id === 'string' ? payload.thread_id : undefined,
+        taskId: typeof payload.task_id === 'string' ? payload.task_id : undefined,
+        responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
+      }
+      continue
     }
   }
 }
@@ -388,6 +400,7 @@ export const ChatAdapter: ChatModelAdapter = {
         let finalMeta: Record<string, unknown> | null = null
         const startTime = Date.now()
         const toolCalls: Array<{ toolCallId: string; toolName: string; args: unknown; argsText: string; result?: unknown }> = []
+        let cancelSent = false
 
         const upsertAgentToolCall = (toolCallId: string, toolName: string, resultText?: string) => {
           const existing = toolCalls.find((item) => item.toolCallId === toolCallId)
@@ -408,9 +421,9 @@ export const ChatAdapter: ChatModelAdapter = {
         for (let attempt = 0; attempt < CHAT_RETRY_ATTEMPTS; attempt += 1) {
           try {
             const streamResult = streamAgentExecution(agentId, {
-              messages: agentMessages,
+              input: agentMessages[agentMessages.length - 1]?.content || '',
               thread_id: activeThreadId || undefined,
-              thread_title: agentMessages[agentMessages.length - 1]?.content?.slice(0, 120),
+              request_id: crypto.randomUUID(),
             }, {
               signal: abortSignal,
               headers: { 'Content-Type': ContentType.json, authorization, ...(workspaceId ? { 'X-Workspace-Id': workspaceId } : {}) },
@@ -427,12 +440,12 @@ export const ChatAdapter: ChatModelAdapter = {
                 yield { content: buildAssistantContent('', output, 0, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId, response_id: activeResponseId, thread_id: activeThreadId || null } } }
                 continue
               }
-              if (ev.type === 'agent.tool.completed') {
+              if (ev.type === 'agent.tool.succeeded') {
                 upsertAgentToolCall(ev.toolCallId, ev.toolName, ev.resultText)
                 yield { content: buildAssistantContent('', output, 0, duration, toolCalls) as any, metadata: { custom: { run_id: activeRunId, response_id: activeResponseId, thread_id: activeThreadId || null } } }
                 continue
               }
-              if (ev.type === 'agent.response.completed') {
+              if (ev.type === 'agent.response.succeeded') {
                 output = ev.output || output
                 continue
               }
@@ -454,6 +467,19 @@ export const ChatAdapter: ChatModelAdapter = {
                 }
                 globalMitt.emit('refresh_chat_sidebar')
                 globalMitt.emit('chat_completion_finished', { agentId, threadId: activeThreadId || null, ...(finalMeta as Record<string, unknown>) })
+                continue
+              }
+              if (ev.type === 'agent.run.canceled') {
+                if (ev.runId) activeRunId = ev.runId
+                if (ev.responseId) activeResponseId = ev.responseId
+                if (ev.threadId) activeThreadId = ev.threadId
+                finalMeta = {
+                  run_id: activeRunId,
+                  response_id: activeResponseId,
+                  thread_id: activeThreadId || null,
+                  task_id: ev.taskId,
+                  finish_reason: 'canceled',
+                }
                 continue
               }
               if (ev.type === 'agent.result') {
@@ -488,6 +514,14 @@ export const ChatAdapter: ChatModelAdapter = {
             }
             break
           } catch (streamError) {
+            if (abortSignal?.aborted && activeRunId && !cancelSent) {
+              cancelSent = true
+              try {
+                await cancelAgentExecution(agentId, activeRunId)
+              } catch (cancelError) {
+                console.error('Failed to cancel agent execution:', cancelError)
+              }
+            }
             const hasStartedResponse = Boolean(activeRunId || activeResponseId || output || toolCalls.length)
             const shouldRetry = !abortSignal?.aborted && !hasStartedResponse && attempt < CHAT_RETRY_ATTEMPTS - 1
             if (!shouldRetry) {

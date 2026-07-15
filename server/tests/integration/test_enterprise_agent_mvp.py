@@ -25,7 +25,6 @@ from app.modules.agent.application.schemas import (
     AgentCreate,
     AgentRunRequest,
     AgentVersionCreate,
-    ChatMessageInput,
 )
 from app.modules.knowledge.application.runtime_schemas import (
     DocumentUpload,
@@ -267,10 +266,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
         result = await agent_service.execute_agent(
             agent.id,
             AgentRunRequest(
-                messages=[ChatMessageInput(role="user", content="Create a review ticket for this refund escalation.")],
-                rag_top_k=3,
-                max_iterations=4,
-                verify=False,
+                input="Create a review ticket for this refund escalation.",
             ).model_dump(exclude_none=True),
         )
 

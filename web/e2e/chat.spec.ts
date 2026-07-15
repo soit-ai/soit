@@ -519,7 +519,7 @@ test('agent chat stream renders citation title and snippet', async ({ page }) =>
         'event: agent.run.started',
         'data: {"run_id":"run-citation"}',
         '',
-        'event: agent.response.completed',
+        'event: agent.response.succeeded',
         'data: {"output":"Refund tickets require account verification."}',
         '',
         'event: agent.result',

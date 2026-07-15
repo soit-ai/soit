@@ -9,7 +9,9 @@ import pytest
 from sqlalchemy import select
 
 from app.adapters.tools.router import RegistryToolRouterPort
+from app.kernel.commons.errors import KernelError
 from app.kernel.ports.llm.interface import (
+    ChatMessage,
     ChatResponse,
     LLMPort,
     ToolCall,
@@ -95,11 +97,81 @@ async def test_agent_service_rejects_public_run_request(db, ctx):
     )
 
     request = AgentRunRequest(
-        messages=[ChatMessageInput(role="user", content="Hello")],
+        input="Hello",
     )
 
     with pytest.raises(TypeError, match="AgentRuntimeRequest"):
         await service.run(request)  # type: ignore[arg-type]
+
+
+def test_agent_context_window_preserves_system_prompt_and_current_input(db, ctx):
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=StubToolPort(ToolResponse(result="done")),
+    )
+    messages = [
+        ChatMessage(role="system", content="Published instructions"),
+        ChatMessage(role="user", content="old question"),
+        ChatMessage(role="assistant", content="old answer"),
+        ChatMessage(role="user", content="current user input"),
+    ]
+
+    trimmed = service._apply_context_window(
+        messages,
+        max_messages=2,
+        max_chars=3,
+    )
+
+    assert [(message.role, message.content) for message in trimmed] == [
+        ("system", "Published instructions"),
+        ("user", "current user input"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_run_cooperatively_stops_after_explicit_cancellation(db, ctx):
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(
+        mode="agent",
+        subject_kind="agent",
+        subject_id="agt_cancel",
+        subject_version_id="agtv_cancel",
+    )
+    trace_writer.update_run_status(run.id, "running")
+
+    class CancelingLLMPort(QueueLLMPort):
+        async def chat(self, *args, **kwargs):
+            trace_writer.update_run_status(run.id, "canceled")
+            return ChatResponse(
+                text="must not be returned",
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="stop",
+            )
+
+    emitter = CollectingEmitter()
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=CancelingLLMPort([]),
+        tool_port=StubToolPort(ToolResponse(result="done")),
+        trace_writer=trace_writer,
+    )
+
+    with pytest.raises(KernelError) as exc_info:
+        await service.run(
+            _runtime_request(verify=False),
+            existing_run_id=run.id,
+            event_emitter=emitter,
+        )
+
+    db.refresh(run)
+    assert exc_info.value.code == "AGENT_RUN_CANCELED"
+    assert run.status == "canceled"
+    assert [event for event, _ in emitter.events].count("agent.run.canceled") == 1
+    assert "agent.run.succeeded" not in [event for event, _ in emitter.events]
 
 
 @pytest.mark.asyncio
@@ -252,9 +324,9 @@ async def test_agent_emits_events(db, ctx):
     event_names = [e[0] for e in emitter.events]
     assert "agent.run.started" in event_names
     assert "agent.plan.started" in event_names
-    assert "agent.plan.completed" in event_names
-    assert "agent.response.completed" in event_names
-    assert "agent.run.completed" in event_names
+    assert "agent.plan.succeeded" in event_names
+    assert "agent.response.succeeded" in event_names
+    assert "agent.run.succeeded" in event_names
 
 
 @pytest.mark.asyncio
