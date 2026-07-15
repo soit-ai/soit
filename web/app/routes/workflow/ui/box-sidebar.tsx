@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { useCallback, useEffect, useState } from 'react'
 import {
   SquareTerminal,
   History,
@@ -20,19 +19,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
-import { listRuns } from '@/services/run-service'
-import { listWorkflows } from '@/services/workflow-service'
-
-// Workflow status model.
-interface WorkflowStatus {
-  totalWorkflows: number;
-  activeWorkflows: number;
-  recentRuns: number;
-  runningRuns: number;
-  failedRuns: number;
-  lastUpdated: string;
-  healthStatus: 'normal' | 'warning' | 'critical';
-}
+import { useQuery } from '@/hooks/use-query'
+import { getWorkflowWorkbench } from '@/services/workflow-service'
 
 interface PrimaryNavItem {
   id: string
@@ -57,7 +45,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   {
     id: 'run-history',
     labelKey: 'workflow.sidebar.menu.runHistory',
-    url: '/observability/runs?mode=workflow',
+    url: '/observe/runs?mode=workflow',
     icon: History,
   },
   {
@@ -69,62 +57,24 @@ const primaryNavItems: PrimaryNavItem[] = [
 ]
 
 export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { activeTab?: string, onTabChange?: (tabId: string) => void } & React.ComponentProps<typeof Sidebar>) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const locale = i18n?.language || undefined
   const resolvedActiveTab = searchParams.get('view') || activeTab
-  const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>({
-    totalWorkflows: 0,
-    activeWorkflows: 0,
-    recentRuns: 0,
-    runningRuns: 0,
-    failedRuns: 0,
-    lastUpdated: '2025-06-01 21:45',
-    healthStatus: 'normal',
+  const {
+    data: workbench,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ['workflows', 'workbench', 'sidebar'],
+    queryFn: () => getWorkflowWorkbench({ page_size: 1 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
   })
-  
-  const [isRefreshing, setIsRefreshing] = useState(false)
-
-  const formatTimestamp = useCallback(() => {
-    return new Date().toLocaleString(locale, { hour12: false }).replace(/\//g, '-')
-  }, [locale])
-
-  const refreshWorkflowStatus = useCallback(async () => {
-    setIsRefreshing(true)
-    try {
-      const [workflowPage, runPage] = await Promise.all([
-        listWorkflows({ page_size: 200 }),
-        listRuns({ mode: 'workflow', page_size: 200 }),
-      ])
-      const workflows = workflowPage.items || []
-      const runs = runPage.items || []
-      const runningRuns = runs.filter((run) => run.status === 'running').length
-      const failedRuns = runs.filter((run) => run.status === 'failed').length
-      const healthStatus: WorkflowStatus['healthStatus'] = failedRuns > 0 ? 'warning' : 'normal'
-      setWorkflowStatus({
-        totalWorkflows: workflows.length,
-        activeWorkflows: workflows.filter((workflow) => workflow.status === 'active').length,
-        recentRuns: runs.length,
-        runningRuns,
-        failedRuns,
-        lastUpdated: formatTimestamp(),
-        healthStatus,
-      })
-    } catch (error) {
-      setWorkflowStatus((current) => ({
-        ...current,
-        healthStatus: 'warning',
-        lastUpdated: formatTimestamp(),
-      }))
-      console.error('Failed to refresh workflow status:', error)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }, [formatTimestamp])
-
-  useEffect(() => {
-    refreshWorkflowStatus()
-  }, [refreshWorkflowStatus])
+  const summary = workbench?.summary
+  const runningRuns = workbench?.items.filter((item) => item.status === 'running').length ?? 0
+  const healthStatus = (summary?.recent_exceptions ?? 0) > 0 ? 'warning' : 'normal'
 
   const handleMenuItemClick = (itemId: string) => {
     const item = primaryNavItems.find(item => item.id === itemId)
@@ -133,7 +83,6 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
     }
     if (item?.url) {
       navigate(item.url)
-      setOpen(false)
     }
   }
 
@@ -199,12 +148,12 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={refreshWorkflowStatus}
-                  disabled={isRefreshing}
+                  onClick={() => refetch()}
+                  disabled={isFetching}
                 >
                   <RefreshCw className={cn(
                     "h-4 w-4",
-                    isRefreshing && "animate-spin"
+                    isFetching && "animate-spin"
                   )} />
                 </Button>
               </div>
@@ -212,24 +161,23 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
                   <span className="text-muted-foreground text-xs">{t('workflow.sidebar.stats.totalWorkflows')}</span>
-                  <span className="font-semibold">{workflowStatus.totalWorkflows}</span>
+                  <span className="font-semibold">{summary?.total_workflows ?? 0}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-muted-foreground text-xs">{t('workflow.sidebar.stats.activeWorkflows')}</span>
-                  <span className="font-semibold">{workflowStatus.activeWorkflows}</span>
+                  <span className="font-semibold">{summary?.published_workflows ?? 0}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t('workflow.sidebar.stats.recentRuns')}</span>
-                  <span>{workflowStatus.recentRuns}</span>
+                  <span>{summary?.today_runs ?? 0}</span>
                 </div>
                 <Progress
-                  value={Math.min(workflowStatus.recentRuns, 100)}
+                  value={Math.min(summary?.today_runs ?? 0, 100)}
                   className={cn(
-                    workflowStatus.healthStatus === 'critical' ? "bg-red-200" :
-                    workflowStatus.healthStatus === 'warning' ? "bg-amber-200" : "bg-blue-200"
+                    healthStatus === 'warning' ? "bg-amber-200" : "bg-blue-200"
                   )}
                 />
               </div>
@@ -237,12 +185,12 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t('workflow.sidebar.stats.runningRuns')}</span>
-                  <span>{workflowStatus.runningRuns}</span>
+                  <span>{runningRuns}</span>
                 </div>
                 <Progress
-                  value={Math.min(workflowStatus.runningRuns * 10, 100)}
+                  value={Math.min(runningRuns * 10, 100)}
                   className={cn(
-                    workflowStatus.runningRuns > 0 ? "bg-blue-200" : "bg-muted"
+                    runningRuns > 0 ? "bg-blue-200" : "bg-muted"
                   )}
                 />
               </div>
@@ -250,16 +198,16 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t('workflow.sidebar.stats.failedRuns')}</span>
-                  <span>{workflowStatus.failedRuns}</span>
+                  <span>{summary?.recent_exceptions ?? 0}</span>
                 </div>
                 <Progress
-                  value={Math.min(workflowStatus.failedRuns * 10, 100)}
-                  className={workflowStatus.failedRuns > 0 ? "bg-amber-200" : "bg-muted"}
+                  value={Math.min((summary?.recent_exceptions ?? 0) * 10, 100)}
+                  className={(summary?.recent_exceptions ?? 0) > 0 ? "bg-amber-200" : "bg-muted"}
                 />
               </div>
 
               <div className="text-xs text-muted-foreground">
-                {t('workflow.sidebar.stats.updatedAt', { timestamp: workflowStatus.lastUpdated })}
+                {t('workflow.sidebar.stats.updatedAt', { timestamp: summary?.updated_at ? new Date(summary.updated_at).toLocaleString() : '-' })}
               </div>
               
               <div className="flex justify-between mt-2 pt-2 border-t text-xs">

@@ -37,8 +37,7 @@ interface NavItem {
   badge?: number | null;
 }
 
-export function NavSidebar({ ...props }: NavSidebarProps) {
-  const { knowledgeId = '' } = props
+export function NavSidebar({ knowledgeId = '', ...props }: NavSidebarProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()

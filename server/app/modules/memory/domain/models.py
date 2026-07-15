@@ -3,12 +3,13 @@
 Memory domain DB models.
 """
 
-from typing import Optional, Dict, Any, List
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Column, JSON
+from typing import Any
 
-from app.kernel.commons.time import utc_now
+from sqlmodel import JSON, Column, Field, SQLModel
+
 from app.kernel.commons.ids import generate_ulid
+from app.kernel.commons.time import utc_now
 
 
 def generate_memory_id() -> str:
@@ -30,25 +31,25 @@ class MemoryItem(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
 
-    user_id: Optional[str] = Field(default=None, nullable=True, index=True)
+    user_id: str | None = Field(default=None, nullable=True, index=True)
     """User ID who owns this memory."""
 
     memory_type: str = Field(default="long", index=True)
     """Memory type: short, long."""
 
-    content: Dict[str, Any] = Field(sa_column=Column(JSON))
+    content: dict[str, Any] = Field(sa_column=Column(JSON))
     """Raw memory content."""
 
-    content_summary: Optional[str] = Field(default=None, nullable=True)
+    content_summary: str | None = Field(default=None, nullable=True)
     """Short summary for quick display."""
 
-    vector_ref: Optional[str] = Field(default=None, nullable=True)
+    vector_ref: str | None = Field(default=None, nullable=True)
     """Vector reference ID in vector store."""
 
-    metadata_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    metadata_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Metadata for memory."""
 
-    tags: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
+    tags: list[str] | None = Field(default=None, sa_column=Column(JSON))
     """Tags."""
 
     created_at: datetime = Field(default_factory=utc_now)
@@ -57,5 +58,5 @@ class MemoryItem(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
 
-    deleted_at: Optional[datetime] = Field(default=None, nullable=True)
+    deleted_at: datetime | None = Field(default=None, nullable=True)
     """Soft delete timestamp."""

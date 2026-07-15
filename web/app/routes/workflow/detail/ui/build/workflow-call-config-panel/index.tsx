@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { createHighlighter, type Highlighter } from "shiki";
 import { useClipboard } from 'use-clipboard-copy';
 import { useTheme } from '@/components/theme-provider';
 import { CodeOutlined, ApiOutlined, FunctionOutlined, CopyOutlined, ExperimentOutlined } from '@ant-design/icons';
@@ -19,6 +18,8 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { message } from 'antd';
+import { API_BASE_URL } from '@/utils/request';
+import { highlightCodeToHtml, plainCodeToHtml } from '@/lib/shiki';
 
 // Add global styles.
 const codeLineNumbersStyle = `
@@ -71,8 +72,11 @@ const WorkflowCallConfigPanel: React.FC<WorkflowCallConfigPanelProps> = ({
   const [activeTab, setActiveTab] = useState('http');
   const clipboard = useClipboard();
   const { theme } = useTheme();
-  const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
   const [highlightedCode, setHighlightedCode] = useState<string>("");
+  const executeEndpointPath = `${API_BASE_URL}/workflows/${workflowId}/execute`;
+  const executeEndpointUrl = executeEndpointPath.startsWith('http')
+    ? executeEndpointPath
+    : `${window.location.origin}${executeEndpointPath}`;
 
   // Form schemas
   const httpFormSchema = z.object({
@@ -111,50 +115,34 @@ const WorkflowCallConfigPanel: React.FC<WorkflowCallConfigPanelProps> = ({
     },
   });
 
-  // Initialize shiki highlighter.
-  useEffect(() => {
-    const loadHighlighter = async () => {
-      try {
-        const highlighter = await createHighlighter({
-          themes: ["github-dark", "github-light"],
-          langs: ["javascript"],
-        });
-        setHighlighter(highlighter);
-      } catch (error) {
-        console.error("Failed to load highlighter:", error);
-      }
-    };
-    
-    loadHighlighter();
-  }, []);
-
   // Update code highlighting.
   useEffect(() => {
-    if (highlighter) {
+    let active = true;
+    const loadHighlightedCode = async () => {
+      const code = getCurrentSampleCode();
       try {
-        const _theme = theme === "dark" ? "github-dark" : "github-light";
-        const code = getCurrentSampleCode();
-        const html = highlighter.codeToHtml(code, { 
-          lang: "javascript", 
-          theme: _theme,
-          transformers: [
-            {
-              line(element, index) {
-                element.properties["class"] = "line";
-                element.properties["line-number"] = String(index + 1);
-                return element;
-              }
-            }
-          ]
+        const html = await highlightCodeToHtml({
+          code,
+          language: "javascript",
+          showLineNumbers: true,
+          theme: theme === "dark" ? "github-dark" : "github-light",
         });
-        const htmlWithStyle = `<style>${codeLineNumbersStyle}</style>${html}`;
-        setHighlightedCode(htmlWithStyle);
+        if (active) {
+          setHighlightedCode(`<style>${codeLineNumbersStyle}</style>${html}`);
+        }
       } catch (error) {
         console.error("Failed to highlight code:", error);
-        setHighlightedCode(`<pre><code>${getCurrentSampleCode()}</code></pre>`);
+        if (active) {
+          setHighlightedCode(plainCodeToHtml(code));
+        }
       }
-    }
-  }, [highlighter, activeTab, httpForm, functionForm, mcpForm, theme]);
+    };
+
+    void loadHighlightedCode();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, httpForm, functionForm, mcpForm, theme]);
 
   // HTTP sample code.
   const getHttpSampleCode = () => {
@@ -169,25 +157,18 @@ const WorkflowCallConfigPanel: React.FC<WorkflowCallConfigPanelProps> = ({
     }
     
     return `// Call workflow using fetch API
-const response = await fetch('${window.location.origin}/api/workflow/execute/${workflowId}', {
+const response = await fetch('${executeEndpointUrl}', {
   method: 'POST',
   headers: ${headers},
   body: JSON.stringify({
-    inputs: {
-      // Add workflow input parameters here
-      "param1": "value1",
-      "param2": "value2"
-    },
-    options: {
-      // Optional execution options
-      "timeout": 30,
-      "cache": false
-    }
+    // Add workflow input parameters here
+    "param1": "value1",
+    "param2": "value2"
   })
 });
 
 const result = await response.json();
-console.log(result);`;
+console.info(result);`;
   };
 
   // Function call sample code.
@@ -217,7 +198,7 @@ const result = await workflowService.execute({
   }
 });
 
-console.log(result);`;
+console.info(result);`;
     } else {
       return `// Import using CommonJS
 const { WorkflowService } = require('@your-org/soit-sdk');
@@ -240,7 +221,7 @@ workflowService.execute({
   }
 })
   .then(result => {
-    console.log(result);
+    console.info(result);
   })
   .catch(error => {
     console.error(error);
@@ -273,7 +254,7 @@ const mcpRequest = {
 
 // Send MCP request
 const response = await sendMcpRequest(mcpRequest);
-console.log(response);`;
+console.info(response);`;
   };
 
   // Get sample code for active tab.
@@ -371,13 +352,13 @@ console.log(response);`;
                       <h3 className="text-sm font-medium">API Endpoint</h3>
                       <div className="flex items-center gap-2">
                         <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
-                          {`${window.location.origin}/api/workflow/execute/${workflowId}`}
+                          {executeEndpointUrl}
                         </code>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            clipboard.copy(`${window.location.origin}/api/workflow/execute/${workflowId}`);
+                            clipboard.copy(executeEndpointUrl);
                             message.success('Endpoint copied to clipboard');
                           }}
                         >

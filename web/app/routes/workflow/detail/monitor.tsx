@@ -240,7 +240,7 @@ function Page() {
               {t('workflow.detail.monitor.actions.refresh')}
             </Button>
             {runId && (
-              <Button variant="ghost" onClick={() => navigate(`/observability/runs/${runId}`)}>
+              <Button variant="ghost" onClick={() => navigate(`/observe/runs/${runId}`)}>
                 {t('workflow.detail.monitor.actions.viewRun')}
               </Button>
             )}

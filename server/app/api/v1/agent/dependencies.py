@@ -4,18 +4,19 @@ Agent entry dependencies.
 """
 
 from typing import Annotated
+
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
+from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.auth import get_current_context
-from app.modules.agent.application.service import AgentService
 from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.agent.application.service import AgentService
 from app.modules.memory.application.service import MemoryService
 from app.wiring import get_container
-from app.kernel.runtime.runs.writer import TraceWriter
-from app.wiring.services import build_memory_service, build_agent_service
+from app.wiring.services import build_agent_service, build_memory_service
 
 
 def get_agent_service(

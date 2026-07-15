@@ -190,7 +190,11 @@ class RunCostEntryResponse(BaseModel):
     unit: str
     quantity: Decimal
     provider: str | None
+    provider_id: str | None
+    provider_slug: str | None
+    provider_kind: str | None
     model_ref: str | None
+    upstream_model: str | None
     tool_ref: str | None
     prompt_tokens: int | None
     completion_tokens: int | None

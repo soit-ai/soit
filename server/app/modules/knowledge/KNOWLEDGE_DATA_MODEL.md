@@ -97,7 +97,7 @@
   - `version`：从 1 递增（NOT NULL）
   - `is_latest`：最新版本标记（NOT NULL default true）
 - 来源
-  - `source_type`：`upload | crawler | api | manual` (NOT NULL)
+  - `source_kind`：`upload | crawler | api | manual` (NOT NULL)
   - `source_uri`：URL/外部引用（可空）
   - `external_id`：业务系统的 id（可空）
   - `file_id`：上传文件 id（可空，指向 files 模块）

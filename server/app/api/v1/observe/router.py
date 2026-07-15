@@ -1,14 +1,17 @@
 """Observe governance routes."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, status
 
 from app.api.v1.observe.dependencies import get_observe_service
 from app.api.v1.observe.handlers import ObserveHandlers
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
+from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
     ApprovalResolve,
@@ -17,9 +20,7 @@ from app.modules.observe.application.schemas import (
     FeedbackResponse,
     RunReplayResponse,
 )
-from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.service import ObserveService
-
 
 router = APIRouter()
 
@@ -29,9 +30,9 @@ async def get_dashboard(
     tab: str = "agent_health",
     range: str = "24h",
     bucket: str = "10m",
-    q: Optional[str] = None,
+    q: str | None = None,
     workspace_scope: str = "all",
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 10,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ObserveService = Depends(get_observe_service),
@@ -59,10 +60,10 @@ async def create_approval(
 
 @router.get("/approvals", response_model=PaginatedResponse[ApprovalResponse])
 async def list_approvals(
-    status: Optional[str] = None,
-    run_id: Optional[str] = None,
-    task_id: Optional[str] = None,
-    page_token: Optional[str] = None,
+    status: str | None = None,
+    run_id: str | None = None,
+    task_id: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ObserveService = Depends(get_observe_service),
@@ -107,10 +108,10 @@ async def create_feedback(
 
 @router.get("/feedback", response_model=PaginatedResponse[FeedbackResponse])
 async def list_feedback(
-    run_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    thread_id: Optional[str] = None,
-    page_token: Optional[str] = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    thread_id: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ObserveService = Depends(get_observe_service),

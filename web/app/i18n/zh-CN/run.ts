@@ -119,6 +119,25 @@ const translation = {
       totalMs: '总耗时',
       storageBytes: '存储字节',
     },
+    governance: {
+      title: '治理证据矩阵',
+      description: '用于复盘、审计、范围与策略决策的机器可读证据矩阵',
+      empty: '暂无治理证据矩阵',
+      counts: {
+        pass: '通过 {{count}}',
+        warning: '警告 {{count}}',
+        fail: '失败 {{count}}',
+        not_applicable: '不适用 {{count}}',
+      },
+      status: {
+        pass: '通过',
+        warning: '警告',
+        fail: '失败',
+        not_applicable: '不适用',
+      },
+      refs: '引用：{{refs}}',
+      missing: '缺失：{{missing}}',
+    },
     failure: {
       title: '失败与重试状态',
       description: '当前结果与失败步骤证据',

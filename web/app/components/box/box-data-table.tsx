@@ -25,6 +25,8 @@ interface BoxDataTableProps<T extends { id: string }> {
   rows: T[]
   emptyMessage?: ReactNode
   className?: string
+  onRowClick?: (row: T) => void
+  getRowClassName?: (row: T) => string | undefined
 }
 
 export function BoxDataTable<T extends { id: string }>({
@@ -32,6 +34,8 @@ export function BoxDataTable<T extends { id: string }>({
   rows,
   emptyMessage,
   className,
+  onRowClick,
+  getRowClassName,
 }: BoxDataTableProps<T>) {
   const tableColumns = useMemo<ColumnDef<T>[]>(
     () =>
@@ -75,7 +79,15 @@ export function BoxDataTable<T extends { id: string }>({
         </TableHeader>
         <TableBody>
           {table.getRowModel().rows.length ? table.getRowModel().rows.map((row) => (
-            <TableRow key={row.id} className="h-[62px] border-border/70 hover:bg-primary/5">
+            <TableRow
+              key={row.id}
+              className={cn(
+                'h-[62px] border-border/70 hover:bg-primary/5',
+                onRowClick && 'cursor-pointer',
+                getRowClassName?.(row.original),
+              )}
+              onClick={() => onRowClick?.(row.original)}
+            >
               {row.getVisibleCells().map((cell) => {
                 const config = columnConfig.get(cell.column.id)
 

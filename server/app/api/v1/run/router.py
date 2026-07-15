@@ -3,48 +3,47 @@
 Run API routes (FastAPI).
 """
 
-from typing import Optional
 from datetime import datetime
+
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
-from app.kernel.contracts.context import RequestContext
 from app.api.v1.permissions import require_workspace_read_ctx
-from app.infra.db.pagination import PaginatedResponse
-from app.kernel.trace.schemas import (
-    RunResponse,
-    RunDetailResponse,
-    RunCostSummaryResponse,
-    RunCostDailyResponse,
-    RunCostBySubjectResponse,
-    RunCostByModeResponse,
-    RunCostByProviderResponse,
-    RunCostByModelResponse,
-    RunStepResponse,
-    RunStepMetricsSummaryResponse,
-    RunAuditLogResponse,
-)
-from app.kernel.trace.service import RunService
 from app.api.v1.run.dependencies import get_run_service
 from app.api.v1.run.handlers import RunHandlers
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.streaming import SSEHandlers
+from app.infra.db.pagination import PaginatedResponse
+from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.runs.schemas import (
+    RunAuditLogResponse,
+    RunCostByModelResponse,
+    RunCostByModeResponse,
+    RunCostByProviderResponse,
+    RunCostBySubjectResponse,
+    RunCostDailyResponse,
+    RunCostSummaryResponse,
+    RunDetailResponse,
+    RunResponse,
+    RunStepMetricsSummaryResponse,
+    RunStepResponse,
+)
+from app.kernel.runtime.runs.service import RunService
 from app.modules.workflow.application.service import WorkflowService
-
 
 router = APIRouter()
 
 
 @router.get("/costs/summary", response_model=RunCostSummaryResponse)
 async def summarize_costs(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -65,14 +64,14 @@ async def summarize_costs(
 
 @router.get("/costs/by-day", response_model=list[RunCostDailyResponse])
 async def summarize_costs_by_day(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -93,14 +92,14 @@ async def summarize_costs_by_day(
 
 @router.get("/costs/by-subject", response_model=list[RunCostBySubjectResponse])
 async def summarize_costs_by_subject(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -121,14 +120,14 @@ async def summarize_costs_by_subject(
 
 @router.get("/costs/by-mode", response_model=list[RunCostByModeResponse])
 async def summarize_costs_by_mode(
-    mode: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
-    kind: Optional[str] = None,
+    mode: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
+    kind: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -149,14 +148,14 @@ async def summarize_costs_by_mode(
 
 @router.get("/costs/by-provider", response_model=list[RunCostByProviderResponse])
 async def summarize_costs_by_provider(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -177,14 +176,14 @@ async def summarize_costs_by_provider(
 
 @router.get("/costs/by-model", response_model=list[RunCostByModelResponse])
 async def summarize_costs_by_model(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -205,17 +204,21 @@ async def summarize_costs_by_model(
 
 @router.get("", response_model=PaginatedResponse[RunResponse])
 async def list_runs(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    trace_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
-    page_token: Optional[str] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    trace_id: str | None = None,
+    user_id: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
+    include_observe_summary: bool = False,
+    has_tool_call: bool | None = None,
+    has_citation: bool | None = None,
+    has_audit: bool | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
@@ -234,6 +237,10 @@ async def list_runs(
         user_id=user_id,
         started_after=started_after,
         started_before=started_before,
+        include_observe_summary=include_observe_summary,
+        has_tool_call=has_tool_call,
+        has_citation=has_citation,
+        has_audit=has_audit,
         page_token=page_token,
         page_size=page_size,
     )
@@ -241,16 +248,16 @@ async def list_runs(
 
 @router.get("/export", response_class=Response)
 async def export_runs_csv(
-    mode: Optional[str] = None,
-    kind: Optional[str] = None,
-    subject_kind: Optional[str] = None,
-    subject_id: Optional[str] = None,
-    subject_version_id: Optional[str] = None,
-    status: Optional[str] = None,
-    trace_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
+    mode: str | None = None,
+    kind: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    subject_version_id: str | None = None,
+    status: str | None = None,
+    trace_id: str | None = None,
+    user_id: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     limit: int = 1000,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
@@ -277,16 +284,16 @@ async def export_runs_csv(
 
 @router.get("/steps/metrics", response_model=list[RunStepMetricsSummaryResponse])
 async def summarize_step_metrics(
-    run_id: Optional[str] = None,
-    trace_id: Optional[str] = None,
-    step_id: Optional[str] = None,
-    step_type: Optional[str] = None,
-    status: Optional[str] = None,
-    node_id: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
-    ended_after: Optional[datetime] = None,
-    ended_before: Optional[datetime] = None,
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    step_id: str | None = None,
+    step_type: str | None = None,
+    status: str | None = None,
+    node_id: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
+    ended_after: datetime | None = None,
+    ended_before: datetime | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -309,17 +316,17 @@ async def summarize_step_metrics(
 
 @router.get("/steps", response_model=PaginatedResponse[RunStepResponse])
 async def list_steps(
-    run_id: Optional[str] = None,
-    trace_id: Optional[str] = None,
-    step_id: Optional[str] = None,
-    step_type: Optional[str] = None,
-    status: Optional[str] = None,
-    node_id: Optional[str] = None,
-    started_after: Optional[datetime] = None,
-    started_before: Optional[datetime] = None,
-    ended_after: Optional[datetime] = None,
-    ended_before: Optional[datetime] = None,
-    page_token: Optional[str] = None,
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    step_id: str | None = None,
+    step_type: str | None = None,
+    status: str | None = None,
+    node_id: str | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
+    ended_after: datetime | None = None,
+    ended_before: datetime | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
@@ -345,9 +352,11 @@ async def list_steps(
 
 @router.get("/audits", response_model=PaginatedResponse[RunAuditLogResponse])
 async def list_audits(
-    run_id: str,
-    step_id: Optional[str] = None,
-    page_token: Optional[str] = None,
+    run_id: str | None = None,
+    step_id: str | None = None,
+    step_type: str | None = None,
+    gateway_type: str | None = None,
+    page_token: str | None = None,
     page_size: int = 50,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
@@ -358,6 +367,8 @@ async def list_audits(
         ctx,
         run_id=run_id,
         step_id=step_id,
+        step_type=step_type,
+        gateway_type=gateway_type,
         page_token=page_token,
         page_size=page_size,
     )
@@ -366,7 +377,7 @@ async def list_audits(
 @router.get("/trace/{trace_id}", response_model=PaginatedResponse[RunResponse])
 async def list_runs_by_trace(
     trace_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
@@ -384,7 +395,7 @@ async def list_runs_by_trace(
 @router.get("/{run_id}/stream")
 async def stream_run(
     run_id: str,
-    last_event_id: Optional[str] = None,
+    last_event_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):

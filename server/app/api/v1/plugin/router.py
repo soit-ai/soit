@@ -1,10 +1,12 @@
 """Plugin API routes."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.api.v1.plugin.dependencies import get_plugin_service
 from app.api.v1.plugin.handlers import PluginHandlers
 from app.infra.db.pagination import PaginatedResponse
@@ -31,7 +33,6 @@ from app.modules.plugin.application.schemas import (
 )
 from app.modules.plugin.application.service import PluginService
 
-
 router = APIRouter()
 
 
@@ -48,8 +49,8 @@ async def create_plugin(
 @router.get("", response_model=PaginatedResponse[PluginResponse])
 async def list_plugins(
     published_only: bool = False,
-    plugin_type: Optional[str] = None,
-    page_token: Optional[str] = None,
+    plugin_type: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -60,9 +61,9 @@ async def list_plugins(
 
 @router.get("/artifacts", response_model=PaginatedResponse[PluginArtifactResponse])
 async def list_plugin_artifacts(
-    artifact_kind: Optional[str] = None,
-    enabled: Optional[bool] = None,
-    page_token: Optional[str] = None,
+    artifact_kind: str | None = None,
+    enabled: bool | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -79,8 +80,8 @@ async def list_plugin_artifacts(
 
 @router.get("/capabilities", response_model=PaginatedResponse[PluginCapabilityResponse])
 async def list_plugin_capabilities(
-    kind: Optional[str] = None,
-    page_token: Optional[str] = None,
+    kind: str | None = None,
+    page_token: str | None = None,
     page_size: int = 100,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -97,7 +98,7 @@ async def list_plugin_capabilities(
 async def upload_plugin_package(
     package: UploadFile = File(...),
     mode: str = "auto",
-    expected_sha256: Optional[str] = None,
+    expected_sha256: str | None = None,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
@@ -145,7 +146,7 @@ async def create_plugin_version(
 @router.get("/{plugin_id}/versions", response_model=PaginatedResponse[PluginVersionResponse])
 async def list_plugin_versions(
     plugin_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -156,7 +157,7 @@ async def list_plugin_versions(
 @router.get("/{plugin_id}/releases", response_model=PaginatedResponse[PluginReleaseResponse])
 async def list_plugin_releases(
     plugin_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -187,7 +188,7 @@ async def rollback_plugin_version(
 @router.get("/{plugin_id}/installations", response_model=PaginatedResponse[PluginInstallationResponse])
 async def list_plugin_installations(
     plugin_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -198,9 +199,9 @@ async def list_plugin_installations(
 @router.get("/{plugin_id}/artifacts", response_model=PaginatedResponse[PluginArtifactResponse])
 async def list_plugin_artifacts_for_plugin(
     plugin_id: str,
-    artifact_kind: Optional[str] = None,
-    enabled: Optional[bool] = None,
-    page_token: Optional[str] = None,
+    artifact_kind: str | None = None,
+    enabled: bool | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: PluginService = Depends(get_plugin_service),
@@ -240,7 +241,7 @@ async def delete_plugin(
 async def install_plugin_package(
     plugin_id: str,
     package: UploadFile = File(...),
-    expected_sha256: Optional[str] = None,
+    expected_sha256: str | None = None,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
@@ -253,7 +254,7 @@ async def install_plugin_package(
 async def upgrade_plugin_package(
     plugin_id: str,
     package: UploadFile = File(...),
-    expected_sha256: Optional[str] = None,
+    expected_sha256: str | None = None,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):

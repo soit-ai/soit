@@ -189,7 +189,7 @@ function KnowledgeDetailPage() {
                       <span>Ended: {formatTimestamp(run.ended_at)}</span>
                     </div>
                     <div className="mt-3 flex justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/observability/runs/${run.id}`)}>
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/observe/runs/${run.id}`)}>
                         Open Run
                         <BarChart3 className="ml-2 h-4 w-4" />
                       </Button>

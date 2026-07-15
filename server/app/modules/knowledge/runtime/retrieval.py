@@ -3,23 +3,28 @@
 Retrieval service for querying vector database.
 """
 
-from typing import List, Dict, Any, Optional
 import re
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.storage.interface import StoragePort
-from app.modules.knowledge.domain.models import KnowledgeIndex, KnowledgeChunk
-from app.modules.knowledge.infra.repository import IndexRepository, ChunkRepository, DocumentRepository
-from app.modules.knowledge.runtime.embedding import EmbeddingService
+from app.kernel.ports.vector.interface import VectorPort
 from app.modules.knowledge.application.runtime_schemas import QueryResult
+from app.modules.knowledge.domain.models import KnowledgeChunk
+from app.modules.knowledge.infra.repository import (
+    ChunkRepository,
+    DocumentRepository,
+    IndexRepository,
+)
+from app.modules.knowledge.runtime.embedding import EmbeddingService
 
 
 class RetrievalService:
     """Service for retrieving documents from vector database."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -27,10 +32,10 @@ class RetrievalService:
         vector_port: VectorPort,
         llm_port: LLMPort,
         embedding_service: EmbeddingService,
-        storage_port: Optional[StoragePort] = None,
+        storage_port: StoragePort | None = None,
     ):
         """Initialize retrieval service.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
@@ -49,14 +54,14 @@ class RetrievalService:
         self.chunk_repo = ChunkRepository(db, ctx)
         self.document_repo = DocumentRepository(db, ctx)
 
-    def _tokenize_query(self, query_text: str) -> List[str]:
+    def _tokenize_query(self, query_text: str) -> list[str]:
         """Split query text into tokens for keyword scoring."""
         tokens = [token.strip() for token in re.split(r"\s+", query_text or "") if token.strip()]
         if not tokens and query_text:
             return [query_text.strip()]
         return tokens
 
-    def _keyword_score(self, text: str, tokens: List[str]) -> int:
+    def _keyword_score(self, text: str, tokens: list[str]) -> int:
         """Compute a simple keyword score for text."""
         if not text or not tokens:
             return 0
@@ -69,7 +74,7 @@ class RetrievalService:
     async def _load_chunk_text(
         self,
         chunk: KnowledgeChunk,
-        run_id: Optional[str],
+        run_id: str | None,
         prefer_full_text: bool = True,
     ) -> str:
         """Load chunk text with optional full text preference."""
@@ -108,7 +113,7 @@ class RetrievalService:
         knowledge_id: str,
         chunk: KnowledgeChunk,
         document,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Build metadata payload for query results."""
         return {
             "chunk_no": chunk.chunk_no,
@@ -124,20 +129,20 @@ class RetrievalService:
             "end_offset": chunk.end_offset,
             "source_meta": chunk.source_meta_json or {},
         }
-    
+
     async def query(
         self,
         knowledge_id: str,
         query_text: str,
         top_k: int = 10,
-        index_id: Optional[str] = None,
-        filter: Optional[Dict[str, Any]] = None,
+        index_id: str | None = None,
+        filter: dict[str, Any] | None = None,
         use_rerank: bool = False,
-        reranker_ref: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ) -> List[QueryResult]:
+        reranker_ref: str | None = None,
+        run_id: str | None = None,
+    ) -> list[QueryResult]:
         """Query a knowledge base for relevant documents.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             query_text: Query text.
@@ -146,7 +151,7 @@ class RetrievalService:
             filter: Optional metadata filter.
             use_rerank: Whether to use reranking.
             reranker_ref: Optional reranker reference.
-            
+
         Returns:
             List of QueryResult instances.
         """
@@ -155,20 +160,20 @@ class RetrievalService:
             index = self.index_repo.get_by_id(index_id)
         else:
             index = self.index_repo.get_primary(knowledge_id)
-        
+
         if not index:
             raise ValueError(f"No index found for knowledge {knowledge_id}")
-        
+
         if index.status != "ready":
             raise ValueError(f"Index {index.id} is not ready (status: {index.status})")
-        
+
         # Generate query embedding
         query_embedding = await self.embedding_service.embed_text(
             text=query_text,
             model_ref=index.embedding_model_ref,
             run_id=run_id,
         )
-        
+
         # Query vector database
         collection_name = index.collection_name or f"idx_{index.id}"
         results = await self.vector_port.query(
@@ -179,10 +184,10 @@ class RetrievalService:
             include_metadata=True,
             run_id=run_id,
         )
-        
+
         # Convert to QueryResult
         query_results = []
-        for chunk_id, score in zip(results.ids, results.scores):
+        for chunk_id, score in zip(results.ids, results.scores, strict=False):
             chunk = self.chunk_repo.get_by_id(chunk_id)
             if not chunk or chunk.index_status != "indexed":
                 continue
@@ -191,7 +196,7 @@ class RetrievalService:
                 continue
 
             text = await self._load_chunk_text(chunk, run_id, prefer_full_text=True)
-            
+
             metadata = self._build_metadata(knowledge_id, chunk, document)
             metadata["vector_score"] = score
             query_results.append(
@@ -203,7 +208,7 @@ class RetrievalService:
                     metadata=metadata,
                 )
             )
-        
+
         # Rerank if requested
         if use_rerank and query_results:
             reranker_model = reranker_ref or index.reranker_ref
@@ -216,7 +221,7 @@ class RetrievalService:
                     top_n=top_k,
                     run_id=run_id,
                 )
-                
+
                 # Reorder results based on reranking
                 reranked_map = {doc["document"]: doc for doc in reranked.results}
                 reranked_results = []
@@ -226,11 +231,11 @@ class RetrievalService:
                         result.score = reranked_item.get("score", result.score)
                         result.metadata["rerank_score"] = result.score
                         reranked_results.append(result)
-                
+
                 # Sort by score descending
                 reranked_results.sort(key=lambda x: x.score, reverse=True)
                 query_results = reranked_results[:top_k]
-        
+
         return query_results
 
     async def query_keyword(
@@ -238,11 +243,11 @@ class RetrievalService:
         knowledge_id: str,
         query_text: str,
         top_k: int = 10,
-        filter: Optional[Dict[str, Any]] = None,
-        run_id: Optional[str] = None,
+        filter: dict[str, Any] | None = None,
+        run_id: str | None = None,
         candidate_limit: int = 500,
         min_score: int = 1,
-    ) -> List[QueryResult]:
+    ) -> list[QueryResult]:
         """Keyword-based retrieval over chunk text previews."""
         tokens = self._tokenize_query(query_text)
         if not tokens:
@@ -257,8 +262,8 @@ class RetrievalService:
         if not chunks:
             return []
 
-        results: List[QueryResult] = []
-        document_cache: Dict[str, Any] = {}
+        results: list[QueryResult] = []
+        document_cache: dict[str, Any] = {}
         for chunk in chunks:
             document = document_cache.get(chunk.document_id)
             if document is None:
@@ -300,16 +305,16 @@ class RetrievalService:
         knowledge_id: str,
         query_text: str,
         top_k: int = 10,
-        index_id: Optional[str] = None,
-        filter: Optional[Dict[str, Any]] = None,
+        index_id: str | None = None,
+        filter: dict[str, Any] | None = None,
         use_rerank: bool = False,
-        reranker_ref: Optional[str] = None,
-        run_id: Optional[str] = None,
+        reranker_ref: str | None = None,
+        run_id: str | None = None,
         candidate_limit: int = 500,
         min_score: int = 1,
         alpha: float = 0.7,
-        keyword_top_k: Optional[int] = None,
-    ) -> List[QueryResult]:
+        keyword_top_k: int | None = None,
+    ) -> list[QueryResult]:
         """Hybrid retrieval combining vector and keyword scores."""
         vector_results = await self.query(
             knowledge_id=knowledge_id,
@@ -331,9 +336,9 @@ class RetrievalService:
             min_score=min_score,
         )
 
-        merged: Dict[str, QueryResult] = {}
-        vector_scores: Dict[str, float] = {}
-        keyword_scores: Dict[str, float] = {}
+        merged: dict[str, QueryResult] = {}
+        vector_scores: dict[str, float] = {}
+        keyword_scores: dict[str, float] = {}
 
         for result in vector_results:
             vector_scores[result.chunk_id] = result.score
@@ -354,7 +359,7 @@ class RetrievalService:
         max_vec = max(vector_scores.values(), default=0.0)
         max_key = max(keyword_scores.values(), default=0.0)
 
-        combined_results: List[QueryResult] = []
+        combined_results: list[QueryResult] = []
         for chunk_id, result in merged.items():
             vec_norm = (vector_scores.get(chunk_id, 0.0) / max_vec) if max_vec else 0.0
             key_norm = (keyword_scores.get(chunk_id, 0.0) / max_key) if max_key else 0.0
@@ -395,8 +400,8 @@ class RetrievalService:
 
     def _passes_filter(
         self,
-        metadata: Dict[str, Any],
-        filter_value: Dict[str, Any],
+        metadata: dict[str, Any],
+        filter_value: dict[str, Any],
     ) -> bool:
         """Apply a simple equality filter against metadata."""
         if not filter_value:
@@ -410,32 +415,32 @@ class RetrievalService:
                 if actual != expected:
                     return False
         return True
-    
+
     async def query_multiple_indexes(
         self,
         knowledge_id: str,
         query_text: str,
-        index_ids: List[str],
+        index_ids: list[str],
         top_k: int = 10,
-        filter: Optional[Dict[str, Any]] = None,
+        filter: dict[str, Any] | None = None,
         use_rerank: bool = False,
-        reranker_ref: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ) -> List[QueryResult]:
+        reranker_ref: str | None = None,
+        run_id: str | None = None,
+    ) -> list[QueryResult]:
         """Query multiple indexes and merge results.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             query_text: Query text.
             index_ids: List of index IDs.
             top_k: Number of results per index.
             filter: Optional metadata filter.
-            
+
         Returns:
             Merged list of QueryResult instances.
         """
         all_results = []
-        
+
         for index_id in index_ids:
             results = await self.query(
                 knowledge_id=knowledge_id,
@@ -447,7 +452,7 @@ class RetrievalService:
                 run_id=run_id,
             )
             all_results.extend(results)
-        
+
         # Deduplicate by chunk_id and sort by score
         seen = set()
         unique_results = []
@@ -455,10 +460,10 @@ class RetrievalService:
             if result.chunk_id not in seen:
                 seen.add(result.chunk_id)
                 unique_results.append(result)
-        
+
         # Sort by score descending
         unique_results.sort(key=lambda x: x.score, reverse=True)
-        
+
         merged = unique_results[:top_k]
 
         if use_rerank and merged:

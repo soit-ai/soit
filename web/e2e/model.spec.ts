@@ -419,6 +419,40 @@ async function mockModelApi(page: Page) {
               notes: 'Claude catalog, healthcheck, and chat diagnostics are supported; embeddings are not supported by Anthropic.',
             },
           ],
+          adapter_backends: [
+            {
+              adapter_backend: 'native',
+              display_name: 'Native',
+              available: true,
+              install_hint: null,
+            },
+            {
+              adapter_backend: 'litellm',
+              display_name: 'LiteLLM SDK',
+              available: true,
+              install_hint: null,
+            },
+          ],
+          provider_presets: [
+            {
+              provider_kind: 'openai',
+              display_name: 'OpenAI',
+              default_adapter_backend: 'native',
+              supported_adapter_backends: ['native', 'litellm'],
+              litellm_provider: 'openai',
+              requires_base_url: false,
+              credential_optional: false,
+            },
+            {
+              provider_kind: 'anthropic',
+              display_name: 'Claude / Anthropic',
+              default_adapter_backend: 'litellm',
+              supported_adapter_backends: ['litellm'],
+              litellm_provider: 'anthropic',
+              requires_base_url: false,
+              credential_optional: false,
+            },
+          ],
         },
       }),
     })
@@ -490,6 +524,10 @@ async function mockModelApi(page: Page) {
 
   await page.route('**/api/v1/modelhub/providers**', async (route) => {
     const url = route.request().url()
+    if (url.includes('/api/v1/modelhub/providers/support-matrix')) {
+      await route.fallback()
+      return
+    }
     if (/\/api\/v1\/modelhub\/providers\/[^/]+\/models/.test(url)) {
       await route.fallback()
       return
@@ -726,7 +764,7 @@ test('model settings exposes five tabs and saves split model configuration group
   await page.getByLabel('Architecture modality').fill('text+image+file->text')
   await page.getByRole('tab', { name: 'Capabilities' }).click()
   await expect(page.getByText('Capability display uses catalog, diagnostics, and runtime results.')).toBeVisible()
-  await page.getByLabel('image_output merged').click()
+  await expect(page.getByLabel('image_output merged')).toBeDisabled()
   await page.getByLabel('reasoning override').selectOption('force_on')
   await page.getByRole('tab', { name: 'Limits Params' }).click()
   await page.getByLabel('Context window').fill('256000')
@@ -748,9 +786,9 @@ test('model settings exposes five tabs and saves split model configuration group
   expect(payload.last_synced_at).toBe('2026-06-08T09:30:00.000Z')
   expect(payload.lifecycle_status).toBe('preview')
   expect(payload.architecture_json.modality).toBe('text+image+file->text')
-  expect(payload.capabilities_json.image_output).toBe(true)
+  expect(payload.capabilities_json.image_output).toBe(false)
   expect(payload.capability_matrix_json.reasoning.user_override).toBe('force_on')
-  expect(payload.capability_matrix_json.image_output.merged).toBe(true)
+  expect(payload.capability_matrix_json.image_output.merged).toBe(false)
   expect(payload.context_window).toBe(256000)
   expect(payload.parameter_config_json.default_parameters.max_tokens).toBe(8192)
   expect(payload.pricing_json.completion.amount).toBe(0.9)

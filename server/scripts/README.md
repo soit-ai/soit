@@ -19,5 +19,6 @@ Available:
 - `verify_phase1_user_feedback.py`: validate 1 to 3 non-developer Chain A feedback records before signing the SOIT 1.0 release gate; pass `--repo-root` for final evidence so participant feedback, release decision, and known limitations refs must exist locally.
 - `verify_governance_release.py`: validate the SOIT 1.1 governance release evidence before publishing the `v1.1.0` tag and release notes.
 - `migrate.sh`: apply database migrations (alembic upgrade head).
+- `migrate_mcp_artifacts.py`: dry-run by default; pass `--apply` to move legacy MCP credentials to Vault and rewrite artifacts for the official SDK.
 - `verify_release_migration_paths.py`: validate the SOIT 1.0 empty-database and development-database migration evidence JSON before signing the release gate.
 - `smoke/run_all.py`: run release smoke tests (workflow/knowledge/responses/secrets).

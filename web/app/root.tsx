@@ -1,17 +1,8 @@
 import type { ReactNode } from 'react'
 import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 import { ThemeProvider } from '@/components/theme-provider'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-// import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-// import { createWebStoragePersistor } from '@tanstack/react-query-persist-client'
 import type { Route } from './+types/root'
 import stylesheet from './app.css?url'
-import { Toaster } from 'sonner'
-import { DrawerProvider } from '@/hooks/use-drawer'
-const queryClient = new QueryClient()
-// const persistor = createWebStoragePersistor({
-//   storage: window.localStorage,
-// })
 
 export const links: Route.LinksFunction = () => [
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -57,14 +48,7 @@ export default function App() {
 
   return (
     <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-      {/* <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: persistor }}> */}
-      <QueryClientProvider client={queryClient}>
-        <DrawerProvider>
-          <Outlet />
-          <Toaster position="top-right" expand={true} closeButton={true} />
-        </DrawerProvider>
-      </QueryClientProvider>
-      {/* </PersistQueryClientProvider> */}
+      <Outlet />
     </ThemeProvider>
   )
 }

@@ -5,32 +5,31 @@ ModelHub request handlers.
 
 from __future__ import annotations
 
-from typing import Optional
-
+from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
-from app.infra.db.pagination import PaginatedResponse
-from app.infra.db.pagination import parse_page_params
-from app.modules.modelhub.application.service import ModelHubService
 from app.modules.modelhub.application.schemas import (
-    ProviderCreate,
-    ProviderUpdate,
-    ProviderResponse,
-    PlatformModelResponse,
-    ProviderModelCreate,
-    ProviderModelUpdate,
-    ProviderModelResponse,
-    SyncFromPlatformRequest,
-    SyncJobResponse,
+    AdapterBackendSupportResponse,
     HealthcheckResponse,
-    ProviderSupportMatrixResponse,
-    ProviderSupportStatusResponse,
-    ModelWorkbenchOverviewResponse,
-    ModelWorkbenchModelsResponse,
-    ModelWorkbenchProvidersResponse,
     ModelTestChatRequest,
     ModelTestEmbeddingRequest,
     ModelTestResponse,
+    ModelWorkbenchModelsResponse,
+    ModelWorkbenchOverviewResponse,
+    ModelWorkbenchProvidersResponse,
+    PlatformModelResponse,
+    ProviderCreate,
+    ProviderModelCreate,
+    ProviderModelResponse,
+    ProviderModelUpdate,
+    ProviderPresetResponse,
+    ProviderResponse,
+    ProviderSupportMatrixResponse,
+    ProviderSupportStatusResponse,
+    ProviderUpdate,
+    SyncFromPlatformRequest,
+    SyncJobResponse,
 )
+from app.modules.modelhub.application.service import ModelHubService
 
 
 class ModelHubHandlers:
@@ -59,16 +58,25 @@ class ModelHubHandlers:
         )
 
     def _as_provider_model_response(self, model) -> ProviderModelResponse:
+        provider_repo = getattr(self.service, "provider_repo", None)
+        provider = provider_repo.get_by_id(model.provider_id) if provider_repo is not None else None
+        provider_slug = provider.slug if provider and provider.slug else model.provider_kind
         return ProviderModelResponse.model_validate(
             {
                 "id": model.id,
                 "provider_id": model.provider_id,
                 "provider_kind": model.provider_kind,
                 "model_id": model.model_id,
+                "model_ref": f"model:{provider_slug}:{model.model_id}",
                 "display_name": model.display_name,
                 "description": model.description,
                 "capabilities_json": model.capabilities_json,
                 "config_json": model.config_json,
+                "architecture_json": getattr(model, "architecture_json", None),
+                "capability_matrix_json": getattr(model, "capability_matrix_json", None),
+                "parameter_config_json": getattr(model, "parameter_config_json", None),
+                "pricing_json": getattr(model, "pricing_json", None),
+                "diagnostics_json": getattr(model, "diagnostics_json", None),
                 "context_window": model.context_window,
                 "max_output_tokens": model.max_output_tokens,
                 "status": model.status,
@@ -90,7 +98,11 @@ class ModelHubHandlers:
         page_size: int = 200,
     ) -> PaginatedResponse[ProviderResponse]:
         providers = await self.service.list_providers(limit=page_size)
-        items = [ProviderResponse.model_validate(item) for item in providers]
+        items = []
+        for provider in providers:
+            provider_data = ProviderResponse.model_validate(provider).model_dump()
+            provider_data["last_synced_at"] = await self.service.get_provider_last_synced_at(provider.id)
+            items.append(ProviderResponse.model_validate(provider_data))
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
@@ -131,8 +143,18 @@ class ModelHubHandlers:
         ctx: RequestContext,
     ) -> ProviderSupportMatrixResponse:
         items = await self.service.get_provider_support_matrix()
+        adapter_backends = await self.service.get_adapter_backend_support()
+        provider_presets = await self.service.get_provider_presets()
         return ProviderSupportMatrixResponse(
-            providers=[ProviderSupportStatusResponse.model_validate(item) for item in items]
+            providers=[ProviderSupportStatusResponse.model_validate(item) for item in items],
+            adapter_backends=[
+                AdapterBackendSupportResponse.model_validate(item)
+                for item in adapter_backends
+            ],
+            provider_presets=[
+                ProviderPresetResponse.model_validate(item)
+                for item in provider_presets
+            ],
         )
 
     async def get_workbench_overview(
@@ -144,13 +166,13 @@ class ModelHubHandlers:
     async def get_workbench_models(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
-        tab: Optional[str],
-        keyword: Optional[str],
-        provider_id: Optional[str],
-        status: Optional[str],
-        model_type: Optional[str],
+        tab: str | None,
+        keyword: str | None,
+        provider_id: str | None,
+        status: str | None,
+        model_type: str | None,
     ) -> ModelWorkbenchModelsResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
@@ -167,12 +189,12 @@ class ModelHubHandlers:
     async def get_workbench_providers(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
-        tab: Optional[str],
-        keyword: Optional[str],
-        status: Optional[str],
-        model_type: Optional[str],
+        tab: str | None,
+        keyword: str | None,
+        status: str | None,
+        model_type: str | None,
     ) -> ModelWorkbenchProvidersResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
@@ -212,7 +234,7 @@ class ModelHubHandlers:
         ctx: RequestContext,
         provider_id: str,
         page_size: int = 200,
-        status: Optional[str] = None,
+        status: str | None = None,
     ) -> PaginatedResponse[ProviderModelResponse]:
         models = await self.service.list_provider_models(provider_id, limit=page_size, status=status)
         items = [self._as_provider_model_response(item) for item in models]
@@ -254,7 +276,7 @@ class ModelHubHandlers:
         self,
         ctx: RequestContext,
         provider_id: str,
-        data: Optional[SyncFromPlatformRequest],
+        data: SyncFromPlatformRequest | None,
     ) -> SyncJobResponse:
         job = await self.service.sync_from_platform(provider_id, data)
         return SyncJobResponse.model_validate(job)

@@ -1,378 +1,323 @@
-import { useTranslation } from '@/i18n'
-import { useState } from 'react'
-import { Label } from '@/components/ui/label'
+import { useCallback, useEffect, useState } from 'react'
+import { Bell, CheckCircle2, Loader2, Plus, Send, Trash2 } from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { toast } from '@/hooks/use-toast'
-import { Bell, Mail, MessageSquare, Calendar, Clock, Smartphone, Globe, Settings, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { useTranslation } from '@/i18n'
+import {
+  createNotificationEndpoint,
+  deleteNotificationEndpoint,
+  getNotificationPreferences,
+  listNotificationDeliveries,
+  listNotificationEndpoints,
+  testNotificationEndpoint,
+  updateNotificationEndpoint,
+  updateNotificationPreferences,
+  type NotificationDeliveryMode,
+  type NotificationEndpoint,
+  type NotificationEndpointKind,
+  type NotificationPreference,
+} from '@/services/notification-service'
+
+const CATEGORY_KEYS = ['system', 'security', 'account', 'agent', 'workflow', 'task'] as const
+const ENDPOINT_KINDS: NotificationEndpointKind[] = [
+  'email',
+  'webhook',
+  'slack',
+  'teams',
+  'discord',
+  'telegram',
+  'other',
+]
+
 function Page() {
-  const { t } = useTranslation()
-  
-  // 通知设置状态
-  const [systemNotifications, setSystemNotifications] = useState(true)
-  const [securityAlerts, setSecurityAlerts] = useState(true)
-  const [accountUpdates, setAccountUpdates] = useState(true)
-  const [newFeatures, setNewFeatures] = useState(true)
-  const [marketingNotifications, setMarketingNotifications] = useState(false)
-  
-  // 聊天通知设置
-  const [chatMessages, setChatMessages] = useState(true)
-  const [chatMentions, setChatMentions] = useState(true)
-  const [chatReactions, setChatReactions] = useState(true)
-  
-  // 任务通知设置
-  const [taskAssignments, setTaskAssignments] = useState(true)
-  const [taskDeadlines, setTaskDeadlines] = useState(true)
-  const [taskUpdates, setTaskUpdates] = useState(true)
-  
-  // 通知偏好设置
-  const [notificationMethod, setNotificationMethod] = useState("all")
-  const [emailFrequency, setEmailFrequency] = useState("instant")
-  const [quietHours, setQuietHours] = useState(false)
-  const [quietHoursStart, setQuietHoursStart] = useState("22:00")
-  const [quietHoursEnd, setQuietHoursEnd] = useState("07:00")
-  
-  // 保存通知设置
-  const handleSaveNotificationSettings = () => {
-    // 这里应该有API调用来保存设置
-    toast({
-      title: '设置已保存',
-      description: '您的通知偏好已更新',
-    })
+  const { t: translate } = useTranslation()
+  const t = useCallback(
+    (key: string) => translate(key.replace(':', '.') as Parameters<typeof translate>[0]),
+    [translate],
+  )
+  const [preferences, setPreferences] = useState<NotificationPreference | null>(null)
+  const [endpoints, setEndpoints] = useState<NotificationEndpoint[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [testingId, setTestingId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState<NotificationEndpointKind>('email')
+  const [url, setUrl] = useState('')
+
+  const loadSettings = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [nextPreferences, nextEndpoints] = await Promise.all([
+        getNotificationPreferences(),
+        listNotificationEndpoints(),
+      ])
+      setPreferences(nextPreferences)
+      setEndpoints(nextEndpoints)
+    } catch {
+      toast({
+        title: t('notification:settings.messages.loadFailed'),
+        type: 'error',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    void loadSettings()
+  }, [loadSettings])
+
+  const savePreferences = async () => {
+    if (!preferences) return
+    setSaving(true)
+    try {
+      const updated = await updateNotificationPreferences({
+        delivery_mode: preferences.delivery_mode,
+        categories: { ...preferences.categories, security: true },
+        quiet_hours_enabled: preferences.quiet_hours_enabled,
+        quiet_hours_start: preferences.quiet_hours_start,
+        quiet_hours_end: preferences.quiet_hours_end,
+        timezone: preferences.timezone,
+      })
+      setPreferences(updated)
+      toast({ title: t('notification:settings.messages.saved') })
+    } catch {
+      toast({ title: t('notification:settings.messages.saveFailed'), type: 'error' })
+    } finally {
+      setSaving(false)
+    }
   }
-  
-  // 测试通知
-  const handleTestNotification = () => {
-    // 这里应该有API调用来发送测试通知
-    toast({
-      title: '测试通知已发送',
-      description: '请检查您的设备以确认通知设置正常工作',
-    })
+
+  const addEndpoint = async () => {
+    if (!name.trim() || !url.trim()) return
+    setCreating(true)
+    try {
+      const endpoint = await createNotificationEndpoint({ name: name.trim(), kind, url: url.trim() })
+      setEndpoints((current) => [...current, endpoint])
+      setName('')
+      setUrl('')
+      toast({ title: t('notification:settings.messages.endpointAdded') })
+    } catch {
+      toast({ title: t('notification:settings.messages.endpointFailed'), type: 'error' })
+    } finally {
+      setCreating(false)
+    }
   }
-  
+
+  const toggleEndpoint = async (endpoint: NotificationEndpoint) => {
+    const updated = await updateNotificationEndpoint(endpoint.id, {
+      status: endpoint.status === 'active' ? 'disabled' : 'active',
+    })
+    setEndpoints((current) => current.map((item) => item.id === updated.id ? updated : item))
+  }
+
+  const removeEndpoint = async (endpointId: string) => {
+    await deleteNotificationEndpoint(endpointId)
+    setEndpoints((current) => current.filter((item) => item.id !== endpointId))
+  }
+
+  const testEndpoint = async (endpointId: string) => {
+    setTestingId(endpointId)
+    try {
+      const queued = await testNotificationEndpoint(endpointId)
+      let status = queued.status
+      for (let attempt = 0; attempt < 10 && !['sent', 'failed'].includes(status); attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000))
+        const deliveries = await listNotificationDeliveries(queued.notification_id)
+        status = deliveries.find((item) => item.id === queued.id)?.status ?? status
+      }
+      toast({
+        title: status === 'sent'
+          ? t('notification:settings.messages.testSent')
+          : status === 'failed'
+            ? t('notification:settings.messages.testFailed')
+            : t('notification:settings.messages.testQueued'),
+        type: status === 'failed' ? 'error' : 'default',
+      })
+    } catch {
+      toast({ title: t('notification:settings.messages.testFailed'), type: 'error' })
+    } finally {
+      setTestingId(null)
+    }
+  }
+
+  if (loading || !preferences) {
+    return (
+      <div className="flex min-h-64 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-lg font-bold tracking-tight">通知设置</h3>
-          <p className="text-sm text-muted-foreground mt-1">管理您接收的通知类型和方式</p>
+          <h3 className="flex items-center gap-2 text-lg font-bold tracking-tight">
+            <Bell className="h-5 w-5" />
+            {t('notification:settings.title')}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">{t('notification:settings.description')}</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleTestNotification}>
-            <Bell className="mr-2 h-4 w-4" />
-            测试通知
-          </Button>
-          <Button onClick={handleSaveNotificationSettings}>保存设置</Button>
-        </div>
+        <Button onClick={savePreferences} disabled={saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+          {t('notification:settings.save')}
+        </Button>
       </div>
 
-      <Tabs defaultValue="system" className="w-full">
-        <TabsList className="mb-4 grid w-full max-w-md grid-cols-4">
-          <TabsTrigger value="system">系统通知</TabsTrigger>
-          <TabsTrigger value="chat">聊天通知</TabsTrigger>
-          <TabsTrigger value="task">任务通知</TabsTrigger>
-          <TabsTrigger value="preferences">通知偏好</TabsTrigger>
-        </TabsList>
-        
-        {/* 系统通知标签页 */}
-        <TabsContent value="system">
-          <Card>
-            <CardHeader>
-              <CardTitle>系统通知</CardTitle>
-              <CardDescription>控制您接收的系统相关通知</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">系统状态</Label>
-                  <p className="text-sm text-muted-foreground">
-                    有关系统维护、更新和状态变化的通知
-                  </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('notification:settings.delivery.title')}</CardTitle>
+          <CardDescription>{t('notification:settings.delivery.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RadioGroup
+            value={preferences.delivery_mode}
+            onValueChange={(value) => setPreferences({ ...preferences, delivery_mode: value as NotificationDeliveryMode })}
+            className="grid gap-3 md:grid-cols-3"
+          >
+            {(['in_app', 'in_app_email', 'in_app_all'] as NotificationDeliveryMode[]).map((mode) => (
+              <Label key={mode} htmlFor={mode} className="flex cursor-pointer items-start gap-3 rounded-lg border p-4">
+                <RadioGroupItem value={mode} id={mode} className="mt-0.5" />
+                <span>
+                  <span className="block font-medium">{t(`notification:settings.delivery.${mode}.title`)}</span>
+                  <span className="mt-1 block text-sm font-normal text-muted-foreground">
+                    {t(`notification:settings.delivery.${mode}.description`)}
+                  </span>
+                </span>
+              </Label>
+            ))}
+          </RadioGroup>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('notification:settings.categories.title')}</CardTitle>
+          <CardDescription>{t('notification:settings.categories.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          {CATEGORY_KEYS.map((category) => {
+            const locked = category === 'security'
+            return (
+              <div key={category} className="flex items-center justify-between gap-4 rounded-lg border p-4">
+                <div className="min-w-0">
+                  <Label>{t(`notification:settings.categories.${category}`)}</Label>
+                  {locked && <p className="mt-1 text-xs text-muted-foreground">{t('notification:settings.categories.required')}</p>}
                 </div>
                 <Switch
-                  checked={systemNotifications}
-                  onCheckedChange={setSystemNotifications}
+                  checked={locked || Boolean(preferences.categories[category])}
+                  disabled={locked}
+                  onCheckedChange={(checked) => setPreferences({
+                    ...preferences,
+                    categories: { ...preferences.categories, [category]: checked },
+                  })}
                 />
               </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">安全提醒</Label>
-                  <p className="text-sm text-muted-foreground">
-                    有关账户安全、可疑登录和重要安全更新的通知
-                  </p>
-                </div>
-                <Switch
-                  checked={securityAlerts}
-                  onCheckedChange={setSecurityAlerts}
-                  disabled={true} // 安全提醒不可禁用
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">账户更新</Label>
-                  <p className="text-sm text-muted-foreground">
-                    有关您账户状态、订阅和付款的通知
-                  </p>
-                </div>
-                <Switch
-                  checked={accountUpdates}
-                  onCheckedChange={setAccountUpdates}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">新功能公告</Label>
-                  <p className="text-sm text-muted-foreground">
-                    有关新功能、改进和产品更新的通知
-                  </p>
-                </div>
-                <Switch
-                  checked={newFeatures}
-                  onCheckedChange={setNewFeatures}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">营销通知</Label>
-                  <p className="text-sm text-muted-foreground">
-                    有关促销、优惠和活动的通知
-                  </p>
-                </div>
-                <Switch
-                  checked={marketingNotifications}
-                  onCheckedChange={setMarketingNotifications}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* 聊天通知标签页 */}
-        <TabsContent value="chat">
-          <Card>
-            <CardHeader>
-              <CardTitle>聊天通知</CardTitle>
-              <CardDescription>控制您接收的聊天相关通知</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">新消息</Label>
-                  <p className="text-sm text-muted-foreground">
-                    当您收到新消息时通知您
-                  </p>
-                </div>
-                <Switch
-                  checked={chatMessages}
-                  onCheckedChange={setChatMessages}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">提及和回复</Label>
-                  <p className="text-sm text-muted-foreground">
-                    当有人提及或回复您时通知您
-                  </p>
-                </div>
-                <Switch
-                  checked={chatMentions}
-                  onCheckedChange={setChatMentions}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">表情反应</Label>
-                  <p className="text-sm text-muted-foreground">
-                    当有人对您的消息添加表情反应时通知您
-                  </p>
-                </div>
-                <Switch
-                  checked={chatReactions}
-                  onCheckedChange={setChatReactions}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* 任务通知标签页 */}
-        <TabsContent value="task">
-          <Card>
-            <CardHeader>
-              <CardTitle>任务通知</CardTitle>
-              <CardDescription>控制您接收的任务相关通知</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">任务分配</Label>
-                  <p className="text-sm text-muted-foreground">
-                    当任务分配给您时通知您
-                  </p>
-                </div>
-                <Switch
-                  checked={taskAssignments}
-                  onCheckedChange={setTaskAssignments}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">截止日期提醒</Label>
-                  <p className="text-sm text-muted-foreground">
-                    在任务截止日期前提醒您
-                  </p>
-                </div>
-                <Switch
-                  checked={taskDeadlines}
-                  onCheckedChange={setTaskDeadlines}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-base">任务更新</Label>
-                  <p className="text-sm text-muted-foreground">
-                    当您的任务有更新或评论时通知您
-                  </p>
-                </div>
-                <Switch
-                  checked={taskUpdates}
-                  onCheckedChange={setTaskUpdates}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* 通知偏好标签页 */}
-        <TabsContent value="preferences">
-          <Card>
-            <CardHeader>
-              <CardTitle>通知偏好</CardTitle>
-              <CardDescription>设置您接收通知的方式和时间</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('notification:settings.quietHours.title')}</CardTitle>
+          <CardDescription>{t('notification:settings.quietHours.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <Label htmlFor="quiet-hours">{t('notification:settings.quietHours.enabled')}</Label>
+            <Switch
+              id="quiet-hours"
+              checked={preferences.quiet_hours_enabled}
+              onCheckedChange={(checked) => setPreferences({ ...preferences, quiet_hours_enabled: checked })}
+            />
+          </div>
+          {preferences.quiet_hours_enabled && (
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label className="text-base">通知方式</Label>
-                <RadioGroup value={notificationMethod} onValueChange={setNotificationMethod} className="mt-2">
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="all" id="all" />
-                    <Label htmlFor="all" className="cursor-pointer">
-                      所有渠道（应用内、邮件和推送）
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="app" id="app" />
-                    <Label htmlFor="app" className="cursor-pointer">
-                      仅应用内通知
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="email" id="email" />
-                    <Label htmlFor="email" className="cursor-pointer">
-                      仅电子邮件
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="push" id="push" />
-                    <Label htmlFor="push" className="cursor-pointer">
-                      仅推送通知
-                    </Label>
-                  </div>
-                </RadioGroup>
+                <Label htmlFor="quiet-start">{t('notification:settings.quietHours.start')}</Label>
+                <Input id="quiet-start" type="time" value={preferences.quiet_hours_start} onChange={(event) => setPreferences({ ...preferences, quiet_hours_start: event.target.value })} />
               </div>
-              
               <div className="space-y-2">
-                <Label className="text-base">电子邮件摘要频率</Label>
-                <Select value={emailFrequency} onValueChange={setEmailFrequency}>
-                  <SelectTrigger className="w-full md:w-[250px]">
-                    <SelectValue placeholder="选择频率" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="instant">即时发送</SelectItem>
-                    <SelectItem value="daily">每日摘要</SelectItem>
-                    <SelectItem value="weekly">每周摘要</SelectItem>
-                    <SelectItem value="none">不发送邮件</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="quiet-end">{t('notification:settings.quietHours.end')}</Label>
+                <Input id="quiet-end" type="time" value={preferences.quiet_hours_end} onChange={(event) => setPreferences({ ...preferences, quiet_hours_end: event.target.value })} />
               </div>
-              
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-base">免打扰时间</Label>
-                  <Switch
-                    checked={quietHours}
-                    onCheckedChange={setQuietHours}
-                  />
+                <Label htmlFor="timezone">{t('notification:settings.quietHours.timezone')}</Label>
+                <Input id="timezone" value={preferences.timezone} onChange={(event) => setPreferences({ ...preferences, timezone: event.target.value })} placeholder="Asia/Shanghai" />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('notification:settings.endpoints.title')}</CardTitle>
+          <CardDescription>{t('notification:settings.endpoints.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-3 rounded-lg border p-4 md:grid-cols-[1fr_160px_2fr_auto] md:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="endpoint-name">{t('notification:settings.endpoints.name')}</Label>
+              <Input id="endpoint-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('notification:settings.endpoints.kind')}</Label>
+              <Select value={kind} onValueChange={(value) => setKind(value as NotificationEndpointKind)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ENDPOINT_KINDS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="endpoint-url">{t('notification:settings.endpoints.url')}</Label>
+              <Input id="endpoint-url" type="password" autoComplete="off" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="mailto://..." />
+            </div>
+            <Button onClick={addEndpoint} disabled={creating || !name.trim() || !url.trim()}>
+              {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              {t('notification:settings.endpoints.add')}
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {endpoints.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">{t('notification:settings.endpoints.empty')}</p>}
+            {endpoints.map((endpoint) => (
+              <div key={endpoint.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{endpoint.name}</span>
+                    <Badge variant="outline">{endpoint.kind}</Badge>
+                    <Badge variant={endpoint.status === 'active' ? 'default' : 'secondary'}>{endpoint.status}</Badge>
+                  </div>
+                  <p className="mt-1 truncate text-sm text-muted-foreground">{endpoint.display_target}</p>
                 </div>
-                
-                {quietHours && (
-                  <div className="flex items-center gap-4 mt-2">
-                    <div className="space-y-1">
-                      <Label>开始时间</Label>
-                      <Select value={quietHoursStart} onValueChange={setQuietHoursStart}>
-                        <SelectTrigger className="w-[120px]">
-                          <SelectValue placeholder="开始时间" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 24 }).map((_, i) => (
-                            <SelectItem key={i} value={`${i.toString().padStart(2, '0')}:00`}>
-                              {`${i.toString().padStart(2, '0')}:00`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <Label>结束时间</Label>
-                      <Select value={quietHoursEnd} onValueChange={setQuietHoursEnd}>
-                        <SelectTrigger className="w-[120px]">
-                          <SelectValue placeholder="结束时间" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 24 }).map((_, i) => (
-                            <SelectItem key={i} value={`${i.toString().padStart(2, '0')}:00`}>
-                              {`${i.toString().padStart(2, '0')}:00`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-                
-                {quietHours && (
-                  <p className="text-sm text-muted-foreground mt-2">
-                    在免打扰时间内，您将不会收到任何通知，但它们会在免打扰时间结束后显示。
-                  </p>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  <Switch checked={endpoint.status === 'active'} onCheckedChange={() => void toggleEndpoint(endpoint)} />
+                  <Button variant="outline" size="sm" disabled={testingId === endpoint.id || endpoint.status !== 'active'} onClick={() => void testEndpoint(endpoint.id)}>
+                    {testingId === endpoint.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    {t('notification:settings.endpoints.test')}
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label={t('notification:settings.endpoints.delete')} onClick={() => void removeEndpoint(endpoint.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline">
-                <Settings className="mr-2 h-4 w-4" />
-                重置为默认设置
-              </Button>
-              <Button onClick={handleSaveNotificationSettings}>
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                保存偏好
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

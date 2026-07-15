@@ -3,60 +3,61 @@
 Identity domain Pydantic schemas for API.
 """
 
-from typing import Optional, Any
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # Request schemas
 class UserCreate(BaseModel):
     """Schema for creating a user."""
-    
+
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., min_length=8, description="User password")
-    name: Optional[str] = Field(None, description="User display name")
+    name: str | None = Field(None, description="User display name")
 
 
 class UserLogin(BaseModel):
     """Schema for user login."""
-    
+
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., description="User password")
 
 
 class TenantCreate(BaseModel):
     """Schema for creating a tenant."""
-    
+
     name: str = Field(..., min_length=1, max_length=255, description="Tenant name")
     plan: str = Field(default="free", description="Tenant plan")
 
 
 class WorkspaceCreate(BaseModel):
     """Schema for creating a workspace."""
-    
+
     name: str = Field(..., min_length=1, max_length=255, description="Workspace name")
-    description: Optional[str] = Field(None, description="Workspace description")
+    description: str | None = Field(None, description="Workspace description")
 
 
 class MembershipCreate(BaseModel):
     """Schema for creating a membership."""
-    
+
     user_id: str = Field(..., description="User ID")
     role: str = Field(..., description="Role")
 
 
 class MembershipUpdate(BaseModel):
     """Schema for updating a membership."""
-    
+
     role: str = Field(..., description="Role")
 
 
 class UserProfileUpdate(BaseModel):
     """Schema for updating current user profile."""
 
-    email: Optional[EmailStr] = Field(None, description="User email")
-    name: Optional[str] = Field(None, description="User display name")
-    profile: Optional[dict[str, Any]] = Field(default=None, description="User profile metadata")
+    email: EmailStr | None = Field(None, description="User email")
+    name: str | None = Field(None, description="User display name")
+    profile: dict[str, Any] | None = Field(default=None, description="User profile metadata")
 
 
 class PasswordChange(BaseModel):
@@ -69,62 +70,62 @@ class PasswordChange(BaseModel):
 class WorkspaceUpdate(BaseModel):
     """Schema for updating a workspace."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Workspace name")
-    description: Optional[str] = Field(None, description="Workspace description")
-    metadata: Optional[dict[str, Any]] = Field(default=None, description="Workspace metadata")
+    name: str | None = Field(None, min_length=1, max_length=255, description="Workspace name")
+    description: str | None = Field(None, description="Workspace description")
+    metadata: dict[str, Any] | None = Field(default=None, description="Workspace metadata")
 
 
 # Response schemas
 class UserResponse(BaseModel):
     """Schema for user response."""
-    
+
     id: str
     email: str
-    name: Optional[str]
+    name: str | None
     is_active: bool
     created_at: datetime
-    tenant_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    tenant_role: Optional[str] = None
-    workspace_role: Optional[str] = None
-    profile: Optional[dict[str, Any]] = None
-    
+    tenant_id: str | None = None
+    workspace_id: str | None = None
+    tenant_role: str | None = None
+    workspace_role: str | None = None
+    profile: dict[str, Any] | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class TenantResponse(BaseModel):
     """Schema for tenant response."""
-    
+
     id: str
     name: str
     plan: str
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class WorkspaceResponse(BaseModel):
     """Schema for workspace response."""
-    
+
     id: str
     tenant_id: str
     name: str
-    description: Optional[str]
-    metadata: Optional[dict[str, Any]] = None
+    description: str | None
+    metadata: dict[str, Any] | None = None
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class MembershipResponse(BaseModel):
     """Schema for membership response."""
-    
-    tenant_id: Optional[str] = None
-    workspace_id: Optional[str] = None
+
+    tenant_id: str | None = None
+    workspace_id: str | None = None
     user_id: str
     role: str
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -133,7 +134,7 @@ class WorkspaceMemberResponse(BaseModel):
 
     user_id: str
     email: str
-    name: Optional[str]
+    name: str | None
     role: str
     status: str
     created_at: datetime
@@ -141,11 +142,11 @@ class WorkspaceMemberResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     """Schema for token response."""
-    
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    workspace_id: Optional[str] = None
+    workspace_id: str | None = None
 
 
 class ApiKeyCreate(BaseModel):
@@ -164,8 +165,8 @@ class ApiKeyResponse(BaseModel):
     name: str
     key_prefix: str
     status: str
-    last_used_at: Optional[datetime]
-    revoked_at: Optional[datetime]
+    last_used_at: datetime | None
+    revoked_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -205,7 +206,7 @@ class ResourceGrantResponse(BaseModel):
     resource_id: str
     user_id: str
     actions: list[str]
-    created_by: Optional[str]
+    created_by: str | None
     created_at: datetime
     updated_at: datetime
 

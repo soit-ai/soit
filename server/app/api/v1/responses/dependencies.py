@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db
 from app.kernel.contracts.context import RequestContext
-from app.kernel.responses.orchestrator import ResponseProjectionCoordinator
-from app.kernel.responses.service import ResponseService
+from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
+from app.kernel.runtime.responses.service import ResponseService
 from app.middleware.auth import get_current_context
-from app.wiring.services import build_response_projection_coordinator, build_response_service
+from app.wiring.services import (
+    build_response_projection_coordinator,
+    build_response_service,
+)
 
 
 def get_response_service(

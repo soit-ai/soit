@@ -6,7 +6,8 @@ Application code depends on these protocols, not infra implementations.
 
 from __future__ import annotations
 
-from typing import Protocol, Any, Optional, Sequence
+from typing import Any, Protocol
+
 
 class UserRepositoryPort(Protocol):
     def get_by_id(self, *args: Any, **kwargs: Any) -> Any: ...

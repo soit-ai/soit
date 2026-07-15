@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { downloadKnowledgeDocument, getKnowledgeDocumentContent } from '@/services/knowledge-service'
 import { toast } from 'sonner'
 import { useTranslation } from '@/i18n'
@@ -122,6 +122,9 @@ export function DocumentPreviewDialog({
       <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>{document?.name}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Preview the selected knowledge document content.
+          </DialogDescription>
         </DialogHeader>
         <div className="mt-4">
           {document && renderPreviewContent()}

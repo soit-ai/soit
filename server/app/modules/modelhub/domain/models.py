@@ -6,10 +6,10 @@ ModelHub domain models.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
 
 from sqlalchemy import Column, Text
-from sqlmodel import SQLModel, Field, JSON
+from sqlmodel import JSON, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -35,28 +35,28 @@ class PlatformModel(SQLModel, table=True):
     model_id: str = Field(index=True)
     """Provider-native model identifier."""
 
-    display_name: Optional[str] = Field(default=None, nullable=True)
+    display_name: str | None = Field(default=None, nullable=True)
     """Display name for UI."""
 
-    capabilities_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    capabilities_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Capabilities metadata."""
 
-    context_window: Optional[int] = Field(default=None, nullable=True)
+    context_window: int | None = Field(default=None, nullable=True)
     """Context window size."""
 
-    max_output_tokens: Optional[int] = Field(default=None, nullable=True)
+    max_output_tokens: int | None = Field(default=None, nullable=True)
     """Max output tokens."""
 
-    lifecycle_status: Optional[str] = Field(default=None, nullable=True)
+    lifecycle_status: str | None = Field(default=None, nullable=True)
     """Lifecycle tag (beta/ga/deprecated)."""
 
-    raw_meta: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    raw_meta: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Raw metadata from provider."""
 
     status: str = Field(default="active", index=True)
-    """Model status (active/disabled)."""
+    """Model status (active/disabled/removed)."""
 
-    last_seen_at: Optional[datetime] = Field(default=None, nullable=True)
+    last_seen_at: datetime | None = Field(default=None, nullable=True)
     """Last time the model was seen upstream."""
 
     created_at: datetime = Field(default_factory=utc_now)
@@ -81,27 +81,45 @@ class Provider(SQLModel, table=True):
     """Workspace ID."""
 
     kind: str = Field(index=True)
-    """Provider kind (openai, anthropic, gemini, openai_compat, etc.)."""
+    """Provider kind (openai, anthropic, gemini, openai_compatible, etc.)."""
+
+    adapter_backend: str = Field(default="native", index=True)
+    """Runtime adapter backend (native or litellm)."""
+
+    slug: str | None = Field(default=None, index=True, nullable=True)
+    """Workspace-readable provider slug."""
 
     name: str = Field(index=True)
     """Provider display name."""
 
-    base_url: Optional[str] = Field(default=None, nullable=True)
-    """Override base URL (required for openai_compat)."""
+    base_url: str | None = Field(default=None, nullable=True)
+    """Override base URL (required for OpenAI-compatible providers)."""
 
-    credential_ref: Optional[str] = Field(default=None, nullable=True)
+    credential_ref: str | None = Field(default=None, nullable=True)
     """Secret reference for credentials."""
 
     status: str = Field(default="active")
     """Provider status (active/disabled/error)."""
 
-    sync_policy_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    sync_policy_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Sync policy (auto_sync/interval/recreate_deleted/default_enabled)."""
 
-    last_healthcheck_at: Optional[datetime] = Field(default=None, nullable=True)
+    connection_config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Connection config (version/timeout/retry/rate limits)."""
+
+    auth_config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Authentication config."""
+
+    runtime_config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Runtime and diagnostics support config."""
+
+    governance_config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Governance, cost, and observability config."""
+
+    last_healthcheck_at: datetime | None = Field(default=None, nullable=True)
     """Last healthcheck time."""
 
-    last_healthcheck_error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    last_healthcheck_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     """Last healthcheck error detail."""
 
     created_at: datetime = Field(default_factory=utc_now)
@@ -134,28 +152,43 @@ class ProviderModel(SQLModel, table=True):
     model_id: str = Field(index=True)
     """Provider-native model identifier."""
 
-    display_name: Optional[str] = Field(default=None, nullable=True)
+    display_name: str | None = Field(default=None, nullable=True)
     """Display name for UI."""
 
-    description: Optional[str] = Field(default=None, nullable=True)
+    description: str | None = Field(default=None, nullable=True)
     """Description."""
 
-    capabilities_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    capabilities_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Capabilities metadata."""
 
-    config_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Per-model configuration overrides (timeouts, etc.)."""
 
-    context_window: Optional[int] = Field(default=None, nullable=True)
+    architecture_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Model architecture and modality configuration."""
+
+    capability_matrix_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Merged catalog, diagnostics, runtime, and user override capability matrix."""
+
+    parameter_config_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Supported parameters, default parameters, and model-specific input limits."""
+
+    pricing_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Model pricing and billing-unit configuration."""
+
+    diagnostics_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    """Model diagnostics, trust status, and runtime statistics configuration."""
+
+    context_window: int | None = Field(default=None, nullable=True)
     """Context window size."""
 
-    max_output_tokens: Optional[int] = Field(default=None, nullable=True)
+    max_output_tokens: int | None = Field(default=None, nullable=True)
     """Max output tokens."""
 
-    lifecycle_status: Optional[str] = Field(default=None, nullable=True)
+    lifecycle_status: str | None = Field(default=None, nullable=True)
     """Lifecycle tag."""
 
-    raw_meta: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    raw_meta: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Raw metadata from platform/provider."""
 
     status: str = Field(default="active", index=True)
@@ -164,16 +197,16 @@ class ProviderModel(SQLModel, table=True):
     source: str = Field(default="platform")
     """Source of the model (platform/local)."""
 
-    platform_model_id: Optional[str] = Field(default=None, nullable=True, index=True)
+    platform_model_id: str | None = Field(default=None, nullable=True, index=True)
     """Associated platform model ID when source=platform."""
 
     sync_status: str = Field(default="never_synced")
-    """Sync status (in_sync/diverged/platform_removed/never_synced)."""
+    """Sync status (in_sync/diverged/platform_removed/user_removed/never_synced)."""
 
-    user_overrides_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    user_overrides_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """User overrides applied to platform fields."""
 
-    last_synced_at: Optional[datetime] = Field(default=None, nullable=True)
+    last_synced_at: datetime | None = Field(default=None, nullable=True)
     """Last sync time from platform."""
 
     created_at: datetime = Field(default_factory=utc_now)
@@ -181,30 +214,6 @@ class ProviderModel(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
-
-
-class ProviderModelTombstone(SQLModel, table=True):
-    """Tombstone for deleted platform models."""
-
-    __tablename__ = "provider_model_tombstones"
-
-    id: str = Field(primary_key=True, default_factory=lambda: f"tomb_{generate_ulid()}")
-    """Tombstone ID."""
-
-    tenant_id: str = Field(index=True)
-    """Tenant ID."""
-
-    workspace_id: str = Field(index=True)
-    """Workspace ID."""
-
-    provider_id: str = Field(index=True)
-    """Provider ID."""
-
-    platform_model_id: str = Field(index=True)
-    """Platform model ID."""
-
-    deleted_at: datetime = Field(default_factory=utc_now)
-    """Deletion timestamp."""
 
 
 class SyncJob(SQLModel, table=True):
@@ -227,16 +236,16 @@ class SyncJob(SQLModel, table=True):
     status: str = Field(default="running")
     """Job status (running/succeeded/failed)."""
 
-    diff_json: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    diff_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     """Sync diff details."""
 
-    error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     """Error message."""
 
     started_at: datetime = Field(default_factory=utc_now)
     """Job start time."""
 
-    ended_at: Optional[datetime] = Field(default=None, nullable=True)
+    ended_at: datetime | None = Field(default=None, nullable=True)
     """Job end time."""
 
     created_at: datetime = Field(default_factory=utc_now)

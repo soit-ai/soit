@@ -3,36 +3,36 @@
 Workflow API routes (FastAPI).
 """
 
-from typing import Optional
-from fastapi import APIRouter, Depends, status, Body
+
+from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.kernel.contracts.context import RequestContext
-from app.infra.db.pagination import PaginatedResponse
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
-from app.modules.workflow.application.service import WorkflowService
-from app.modules.workflow.application.schemas import (
-    WorkflowCreate,
-    WorkflowUpdate,
-    WorkflowResponse,
-    WorkflowReleaseResponse,
-    WorkflowVersionCreate,
-    WorkflowVersionResponse,
-    WorkflowDSLImport,
-    WorkflowDSLExport,
-    WorkflowPublishRequest,
-    WorkflowRollbackRequest,
-    WorkflowWorkbenchItemsResponse,
-    WorkflowWorkbenchResponse,
-)
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.handlers import WorkflowHandlers
 from app.api.v1.workflow.streaming import SSEHandlers
-
+from app.infra.db.pagination import PaginatedResponse
+from app.kernel.contracts.context import RequestContext
+from app.modules.workflow.application.schemas import (
+    WorkflowCreate,
+    WorkflowDSLExport,
+    WorkflowDSLImport,
+    WorkflowPublishRequest,
+    WorkflowReleaseResponse,
+    WorkflowResponse,
+    WorkflowRollbackRequest,
+    WorkflowTemplateCreate,
+    WorkflowUpdate,
+    WorkflowVersionCreate,
+    WorkflowVersionResponse,
+    WorkflowWorkbenchItemsResponse,
+    WorkflowWorkbenchResponse,
+)
+from app.modules.workflow.application.service import WorkflowService
 
 router = APIRouter()
 
@@ -50,12 +50,12 @@ async def create_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Create a new workflow.
-    
+
     Args:
         workflow_in: Workflow creation data.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Created workflow.
     """
@@ -63,21 +63,32 @@ async def create_workflow(
     return await handlers.create_workflow(ctx, workflow_in)
 
 
+@router.post("/templates/ticket-triage", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
+async def create_ticket_triage_template(
+    template_in: WorkflowTemplateCreate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Create a ticket triage workflow draft from the built-in template."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.create_ticket_triage_template(ctx, template_in)
+
+
 @router.get("", response_model=PaginatedResponse[WorkflowResponse])
 async def list_workflows(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """List workflows.
-    
+
     Args:
         page_token: Optional page token.
         page_size: Page size.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Paginated workflows.
     """
@@ -87,7 +98,7 @@ async def list_workflows(
 
 @router.get("/workbench", response_model=WorkflowWorkbenchResponse)
 async def get_workflow_workbench(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
@@ -99,9 +110,9 @@ async def get_workflow_workbench(
 
 @router.get("/workbench/items", response_model=WorkflowWorkbenchItemsResponse)
 async def list_workflow_workbench_items(
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    page_token: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
@@ -124,12 +135,12 @@ async def get_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Get workflow by ID.
-    
+
     Args:
         workflow_id: Workflow ID.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Workflow details.
     """
@@ -140,7 +151,7 @@ async def get_workflow(
 @router.get("/{workflow_id}/versions", response_model=PaginatedResponse[WorkflowVersionResponse])
 async def list_versions(
     workflow_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
@@ -153,7 +164,7 @@ async def list_versions(
 @router.get("/{workflow_id}/releases", response_model=PaginatedResponse[WorkflowReleaseResponse])
 async def list_releases(
     workflow_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),
@@ -182,13 +193,13 @@ async def update_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Update workflow.
-    
+
     Args:
         workflow_id: Workflow ID.
         workflow_in: Workflow update data.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Updated workflow.
     """
@@ -203,7 +214,7 @@ async def delete_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Delete workflow.
-    
+
     Args:
         workflow_id: Workflow ID.
         ctx: Request context.
@@ -221,13 +232,13 @@ async def create_version(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Create a new workflow version.
-    
+
     Args:
         workflow_id: Workflow ID.
         version_in: Version creation data.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Created version.
     """
@@ -243,13 +254,13 @@ async def publish_version(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Publish workflow version.
-    
+
     Args:
         workflow_id: Workflow ID.
         payload: Publish request payload.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Updated workflow.
     """
@@ -277,13 +288,13 @@ async def execute_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Execute workflow.
-    
+
     Args:
         workflow_id: Workflow ID.
         inputs: Workflow inputs.
         ctx: Request context.
         service: WorkflowService instance.
-        
+
     Returns:
         Execution result.
     """
@@ -344,7 +355,7 @@ async def resume_run(
 async def cancel_run(
     workflow_id: str,
     run_id: str,
-    payload: Optional[dict] = Body(default=None),
+    payload: dict | None = Body(default=None),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):
@@ -357,7 +368,7 @@ async def cancel_run(
 async def fail_run(
     workflow_id: str,
     run_id: str,
-    payload: Optional[dict] = Body(default=None),
+    payload: dict | None = Body(default=None),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):
@@ -370,7 +381,7 @@ async def fail_run(
 async def retry_run(
     workflow_id: str,
     run_id: str,
-    inputs: Optional[dict] = Body(default=None),
+    inputs: dict | None = Body(default=None),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):
@@ -383,7 +394,7 @@ async def retry_run(
 async def replay_run(
     workflow_id: str,
     run_id: str,
-    inputs: Optional[dict] = Body(default=None),
+    inputs: dict | None = Body(default=None),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: WorkflowService = Depends(get_workflow_service),
 ):
@@ -395,7 +406,7 @@ async def replay_run(
 @router.get("/{workflow_id}/dsl", response_model=WorkflowDSLExport)
 async def export_dsl(
     workflow_id: str,
-    version_id: Optional[str] = None,
+    version_id: str | None = None,
     format: str = "json",
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: WorkflowService = Depends(get_workflow_service),

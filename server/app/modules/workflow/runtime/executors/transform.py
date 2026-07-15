@@ -3,32 +3,33 @@
 Transform node executor.
 """
 
-from typing import Dict, Any, List
-from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
+from typing import Any
+
+from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
 class TransformNodeExecutor(NodeExecutor):
     """Executor for transform nodes."""
-    
+
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute transform node.
-        
+
         Args:
             node: Node definition.
             context: Execution context.
             inputs: Resolved inputs.
-            
+
         Returns:
             Transformed output dictionary.
         """
         # Extract transformation rules
         mapping = inputs.get("mapping") or inputs.get("transform")
-        
+
         if mapping:
             # Apply mapping transformation
             output = {}
@@ -40,23 +41,23 @@ class TransformNodeExecutor(NodeExecutor):
                 else:
                     output[key] = value
             return output
-        
+
         # Default: pass through inputs
         return inputs
-    
-    def _get_nested_value(self, obj: Dict[str, Any], path: str) -> Any:
+
+    def _get_nested_value(self, obj: dict[str, Any], path: str) -> Any:
         """Get nested value using dot notation.
-        
+
         Args:
             obj: Object to get value from.
             path: Dot-separated path.
-            
+
         Returns:
             Value at path.
         """
         parts = path.split(".")
         current = obj
-        
+
         for part in parts:
             if isinstance(current, dict):
                 current = current.get(part)
@@ -64,9 +65,9 @@ class TransformNodeExecutor(NodeExecutor):
                 current = current[int(part)]
             else:
                 return None
-            
+
             if current is None:
                 return None
-        
+
         return current
 

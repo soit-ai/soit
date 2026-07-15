@@ -1,0 +1,37 @@
+{
+  "featureKey": "phase1.non_developer_feedback",
+  "feedbackId": "phase1-user-feedback-20260611",
+  "release": "v1.0.0-rc",
+  "environment": "local-docker",
+  "operator": "release-owner",
+  "startedAt": "2026-06-11T08:00:00Z",
+  "finishedAt": "2026-06-11T08:45:00Z",
+  "participants": [
+    {
+      "userRef": "user:operations-reviewer",
+      "role": "operations reviewer",
+      "completedChain": "chain_a",
+      "completedAt": "2026-06-11T08:25:00Z",
+      "status": "passed",
+      "rating": 4,
+      "blockingIssues": [],
+      "feedbackRef": "evidence/phase1/user-feedback-operations-reviewer.md"
+    },
+    {
+      "userRef": "user:business-reviewer",
+      "role": "business workflow owner",
+      "completedChain": "chain_a",
+      "completedAt": "2026-06-11T08:40:00Z",
+      "status": "passed",
+      "rating": 5,
+      "blockingIssues": [],
+      "feedbackRef": "evidence/phase1/user-feedback-business-reviewer.md"
+    }
+  ],
+  "releaseDecision": {
+    "decision": "go_with_known_limitations",
+    "reviewer": "release-owner",
+    "decisionRef": "evidence/phase1/non-developer-feedback-release-decision.md",
+    "knownLimitationsRef": "docs/SOIT_1.0_Known_Limitations.md"
+  }
+}

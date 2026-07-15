@@ -1,16 +1,17 @@
 """Plugin application schemas."""
 
-from typing import Optional, Dict, Any, Literal
 from datetime import datetime
+from typing import Any, Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
 class PluginCreate(BaseModel):
     """Plugin creation schema."""
-    
+
     name: str
     """Plugin name."""
-    
+
     version: str
     """Plugin version."""
 
@@ -19,17 +20,17 @@ class PluginCreate(BaseModel):
 
     plugin_type: Literal["skill", "mcp", "tool", "workflow_node", "mixed"] = "tool"
     """Plugin type used by the unified plugin query API."""
-    
-    description: Optional[str] = None
+
+    description: str | None = None
     """Plugin description."""
-    
-    spec_json: Dict[str, Any]
+
+    spec_json: dict[str, Any]
     """Plugin specification (JSON Schema)."""
-    
-    manifest_json: Optional[Dict[str, Any]] = None
+
+    manifest_json: dict[str, Any] | None = None
     """Plugin manifest."""
-    
-    metadata_json: Optional[Dict[str, Any]] = None
+
+    metadata_json: dict[str, Any] | None = None
     """Plugin metadata."""
 
 
@@ -37,61 +38,61 @@ class PluginUpdate(BaseModel):
     """Plugin update schema."""
 
     model_config = ConfigDict(extra="forbid")
-    
-    description: Optional[str] = None
+
+    description: str | None = None
     """Plugin description."""
 
-    plugin_type: Optional[Literal["skill", "mcp", "tool", "workflow_node", "mixed"]] = None
+    plugin_type: Literal["skill", "mcp", "tool", "workflow_node", "mixed"] | None = None
     """Plugin type."""
 
-    status: Optional[Literal["active", "disabled", "archived"]] = None
+    status: Literal["active", "disabled", "archived"] | None = None
     """Plugin lifecycle status."""
-    
-    spec_json: Optional[Dict[str, Any]] = None
+
+    spec_json: dict[str, Any] | None = None
     """Plugin specification."""
-    
-    manifest_json: Optional[Dict[str, Any]] = None
+
+    manifest_json: dict[str, Any] | None = None
     """Plugin manifest."""
-    
-    metadata_json: Optional[Dict[str, Any]] = None
+
+    metadata_json: dict[str, Any] | None = None
     """Plugin metadata."""
 
-    publish_status: Optional[str] = None
+    publish_status: str | None = None
     """Publish lifecycle status (draft/published/archived)."""
 
 
 class PluginInstallRequest(BaseModel):
     """Plugin installation request schema."""
-    
-    config_json: Optional[Dict[str, Any]] = None
+
+    config_json: dict[str, Any] | None = None
     """Installation configuration."""
 
 
 class PluginResponse(BaseModel):
     """Plugin response schema."""
-    
+
     id: str
     name: str
     version: str
     publisher: str = "soit"
     plugin_type: str = "tool"
     status: str = "active"
-    description: Optional[str] = None
-    spec_json: Dict[str, Any]
-    manifest_json: Optional[Dict[str, Any]] = None
-    metadata_json: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    spec_json: dict[str, Any]
+    manifest_json: dict[str, Any] | None = None
+    metadata_json: dict[str, Any] | None = None
     publish_status: str
     installed_count: int
-    current_version_id: Optional[str] = None
-    published_version_id: Optional[str] = None
+    current_version_id: str | None = None
+    published_version_id: str | None = None
     installed: bool = False
-    enabled: Optional[bool] = None
-    installation_id: Optional[str] = None
-    installed_at: Optional[datetime] = None
-    created_by: Optional[str] = None
+    enabled: bool | None = None
+    installation_id: str | None = None
+    installed_at: datetime | None = None
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -106,14 +107,14 @@ class PluginInstallationResponse(BaseModel):
 
     id: str
     plugin_id: str
-    plugin_version_id: Optional[str] = None
+    plugin_version_id: str | None = None
     tenant_id: str
     workspace_id: str
     enabled: bool = True
     state: str = "installed"
-    config_json: Optional[Dict[str, Any]] = None
+    config_json: dict[str, Any] | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -121,20 +122,20 @@ class PluginInstallationResponse(BaseModel):
 class PluginVersionCreate(BaseModel):
     """Create an immutable plugin version from JSON payloads."""
 
-    version: Optional[str] = None
-    spec_json: Dict[str, Any]
-    manifest_json: Dict[str, Any]
-    metadata_json: Optional[Dict[str, Any]] = None
+    version: str | None = None
+    spec_json: dict[str, Any]
+    manifest_json: dict[str, Any]
+    metadata_json: dict[str, Any] | None = None
 
 
 class PluginPublishRequest(BaseModel):
     version_id: str
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class PluginRollbackRequest(BaseModel):
     version_id: str
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class PluginVersionResponse(BaseModel):
@@ -146,12 +147,12 @@ class PluginVersionResponse(BaseModel):
     package_version: str
     status: str
     spec_schema: str
-    spec_json: Dict[str, Any]
-    manifest_json: Dict[str, Any]
-    package_sha256: Optional[str] = None
-    artifact_summary_json: Dict[str, Any] = {}
-    metadata_json: Dict[str, Any] = {}
-    created_by: Optional[str] = None
+    spec_json: dict[str, Any]
+    manifest_json: dict[str, Any]
+    package_sha256: str | None = None
+    artifact_summary_json: dict[str, Any] = {}
+    metadata_json: dict[str, Any] = {}
+    created_by: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -164,11 +165,11 @@ class PluginReleaseResponse(BaseModel):
     action: str
     scope: str
     status: str
-    from_version_id: Optional[str] = None
-    to_version_id: Optional[str] = None
-    notes: Optional[str] = None
-    rollback_of_publish_id: Optional[str] = None
-    created_by: Optional[str] = None
+    from_version_id: str | None = None
+    to_version_id: str | None = None
+    notes: str | None = None
+    rollback_of_publish_id: str | None = None
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -178,15 +179,15 @@ class PluginReleaseResponse(BaseModel):
 class PluginArtifactResponse(BaseModel):
     id: str
     plugin_id: str
-    plugin_version_id: Optional[str] = None
-    installation_id: Optional[str] = None
+    plugin_version_id: str | None = None
+    installation_id: str | None = None
     artifact_kind: str
     artifact_ref: str
-    artifact_id: Optional[str] = None
-    artifact_version_id: Optional[str] = None
+    artifact_id: str | None = None
+    artifact_version_id: str | None = None
     state: str
     enabled: bool
-    metadata_json: Dict[str, Any]
+    metadata_json: dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
@@ -198,13 +199,13 @@ class PluginCapabilityResponse(BaseModel):
     kind: str
     name: str
     source_kind: str = "plugin"
-    source_id: Optional[str] = None
-    source_version: Optional[str] = None
-    artifact_kind: Optional[str] = None
-    plugin_id: Optional[str] = None
-    plugin_version_id: Optional[str] = None
-    installation_id: Optional[str] = None
-    metadata_json: Dict[str, Any] = {}
+    source_id: str | None = None
+    source_version: str | None = None
+    artifact_kind: str | None = None
+    plugin_id: str | None = None
+    plugin_version_id: str | None = None
+    installation_id: str | None = None
+    metadata_json: dict[str, Any] = {}
 
 
 class PluginPackageInstallResponse(BaseModel):
@@ -214,6 +215,14 @@ class PluginPackageInstallResponse(BaseModel):
     package_path: str
     manifest_path: str
     spec_path: str
+
+
+class PluginPackageUploadResponse(BaseModel):
+    """Response after one-click plugin package upload."""
+
+    action: Literal["created", "upgraded", "reinstalled"]
+    plugin: PluginResponse
+    install: PluginPackageInstallResponse
 
 
 class PluginUpgradeResponse(BaseModel):

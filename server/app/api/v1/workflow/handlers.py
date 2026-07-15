@@ -3,34 +3,35 @@
 Workflow request handlers (thin orchestration).
 """
 
-from typing import List, Optional
+
 from fastapi import HTTPException, status
 
+from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
-from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.application.schemas import (
     WorkflowCreate,
-    WorkflowUpdate,
-    WorkflowResponse,
-    WorkflowReleaseResponse,
-    WorkflowVersionResponse,
-    WorkflowVersionCreate,
-    WorkflowDSLImport,
     WorkflowDSLExport,
+    WorkflowDSLImport,
     WorkflowPublishRequest,
+    WorkflowReleaseResponse,
+    WorkflowResponse,
     WorkflowRollbackRequest,
+    WorkflowTemplateCreate,
+    WorkflowUpdate,
+    WorkflowVersionCreate,
+    WorkflowVersionResponse,
     WorkflowWorkbenchItemsResponse,
     WorkflowWorkbenchResponse,
 )
-from app.infra.db.pagination import PaginatedResponse, parse_page_params, PageToken
+from app.modules.workflow.application.service import WorkflowService
 
 
 class WorkflowHandlers:
     """Handlers for workflow API endpoints."""
-    
+
     def __init__(self, service: WorkflowService):
         """Initialize workflow handlers.
-        
+
         Args:
             service: WorkflowService instance.
         """
@@ -65,55 +66,64 @@ class WorkflowHandlers:
             created_at=release.created_at,
             updated_at=release.updated_at,
         )
-    
+
     async def create_workflow(
         self,
         ctx: RequestContext,
         workflow_in: WorkflowCreate,
     ) -> WorkflowResponse:
         """Create a new workflow.
-        
+
         Args:
             ctx: Request context.
             workflow_in: Workflow creation schema.
-            
+
         Returns:
             Created workflow.
         """
         workflow = await self.service.create_workflow(workflow_in)
         return WorkflowResponse.model_validate(workflow)
-    
+
+    async def create_ticket_triage_template(
+        self,
+        ctx: RequestContext,
+        template_in: WorkflowTemplateCreate,
+    ) -> WorkflowResponse:
+        """Create a ticket triage workflow draft from the built-in template."""
+        workflow = await self.service.create_ticket_triage_template(name=template_in.name)
+        return WorkflowResponse.model_validate(workflow)
+
     async def list_workflows(
         self,
         ctx: RequestContext,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[WorkflowResponse]:
         """List workflows.
-        
+
         Args:
             ctx: Request context.
             page_token: Optional page token.
             page_size: Page size.
-            
+
         Returns:
             Paginated workflows.
         """
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        
+
         workflows = await self.service.list_workflows(limit=limit + 1, offset=offset)  # Fetch one extra to check has_next
-        
+
         # Check if there are more workflows
         has_next = len(workflows) > limit
         if has_next:
             workflows = workflows[:limit]  # Remove the extra item
-        
+
         # Convert items to WorkflowResponse
         items = [WorkflowResponse.model_validate(wf) for wf in workflows]
-        
+
         next_offset = offset + len(items) if has_next else None
-        
+
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
@@ -124,7 +134,7 @@ class WorkflowHandlers:
     async def get_workbench(
         self,
         ctx: RequestContext,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> WorkflowWorkbenchResponse:
         """Get workflow workbench aggregate data."""
@@ -135,10 +145,10 @@ class WorkflowHandlers:
     async def get_workbench_items(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
-        tab: Optional[str],
-        keyword: Optional[str],
+        tab: str | None,
+        keyword: str | None,
     ) -> WorkflowWorkbenchItemsResponse:
         """Get workflow workbench table rows."""
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -149,18 +159,18 @@ class WorkflowHandlers:
             tab=tab,
             keyword=keyword,
         )
-    
+
     async def get_workflow(
         self,
         ctx: RequestContext,
         workflow_id: str,
     ) -> WorkflowResponse:
         """Get workflow by ID.
-        
+
         Args:
             ctx: Request context.
             workflow_id: Workflow ID.
-            
+
         Returns:
             Workflow details.
         """
@@ -171,7 +181,7 @@ class WorkflowHandlers:
         self,
         ctx: RequestContext,
         workflow_id: str,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[WorkflowVersionResponse]:
         """List workflow versions.
@@ -207,7 +217,7 @@ class WorkflowHandlers:
         self,
         ctx: RequestContext,
         workflow_id: str,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[WorkflowReleaseResponse]:
         """List workflow release ledger entries."""
@@ -239,7 +249,7 @@ class WorkflowHandlers:
         if not version:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Current version not found")
         return self._as_version_response(version)
-    
+
     async def update_workflow(
         self,
         ctx: RequestContext,
@@ -247,31 +257,31 @@ class WorkflowHandlers:
         workflow_in: WorkflowUpdate,
     ) -> WorkflowResponse:
         """Update workflow.
-        
+
         Args:
             ctx: Request context.
             workflow_id: Workflow ID.
             workflow_in: Workflow update schema.
-            
+
         Returns:
             Updated workflow.
         """
         workflow = await self.service.update_workflow(workflow_id, workflow_in)
         return WorkflowResponse.model_validate(workflow)
-    
+
     async def delete_workflow(
         self,
         ctx: RequestContext,
         workflow_id: str,
     ) -> None:
         """Delete workflow.
-        
+
         Args:
             ctx: Request context.
             workflow_id: Workflow ID.
         """
         await self.service.delete_workflow(workflow_id)
-    
+
     async def publish_version(
         self,
         ctx: RequestContext,
@@ -301,7 +311,7 @@ class WorkflowHandlers:
             notes=payload.notes,
         )
         return WorkflowResponse.model_validate(workflow)
-    
+
     async def execute_workflow(
         self,
         ctx: RequestContext,
@@ -309,12 +319,12 @@ class WorkflowHandlers:
         inputs: dict,
     ) -> dict:
         """Execute workflow.
-        
+
         Args:
             ctx: Request context.
             workflow_id: Workflow ID.
             inputs: Workflow inputs.
-            
+
         Returns:
             Execution result.
         """
@@ -344,7 +354,7 @@ class WorkflowHandlers:
         ctx: RequestContext,
         workflow_id: str,
         run_id: str,
-        payload: Optional[dict] = None,
+        payload: dict | None = None,
     ) -> dict:
         """Cancel workflow run."""
         return await self.service.cancel_run(workflow_id, run_id, reason=(payload or {}).get("reason"))
@@ -354,7 +364,7 @@ class WorkflowHandlers:
         ctx: RequestContext,
         workflow_id: str,
         run_id: str,
-        payload: Optional[dict] = None,
+        payload: dict | None = None,
     ) -> dict:
         """Mark workflow run failed."""
         data = payload or {}
@@ -370,7 +380,7 @@ class WorkflowHandlers:
         ctx: RequestContext,
         workflow_id: str,
         run_id: str,
-        inputs: Optional[dict] = None,
+        inputs: dict | None = None,
     ) -> dict:
         """Retry workflow run."""
         return await self.service.retry_run(workflow_id, run_id, inputs)
@@ -380,7 +390,7 @@ class WorkflowHandlers:
         ctx: RequestContext,
         workflow_id: str,
         run_id: str,
-        inputs: Optional[dict] = None,
+        inputs: dict | None = None,
     ) -> dict:
         """Replay workflow run."""
         return await self.service.replay_run(workflow_id, run_id, inputs)
@@ -389,7 +399,7 @@ class WorkflowHandlers:
         self,
         ctx: RequestContext,
         workflow_id: str,
-        version_id: Optional[str] = None,
+        version_id: str | None = None,
         format: str = "json",
     ) -> WorkflowDSLExport:
         """Export workflow DSL."""

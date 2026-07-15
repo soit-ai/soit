@@ -5,9 +5,9 @@ from __future__ import annotations
 from sqlmodel import Session
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.events.outbox_models import EventOutbox
-from app.kernel.runtime.contracts.status import TaskStatus
-from app.kernel.runtime.core.service import RuntimeCoreService
+from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.tasks.service import TaskService
+from app.kernel.runtime.tasks.status import TaskStatus
 from app.modules.observe.domain.models import ApprovalRequest
 
 
@@ -31,7 +31,7 @@ def handle_approval_approved_outbox(db: Session, row: EventOutbox) -> None:
         tenant_role="Owner",
         workspace_role="Owner",
     )
-    core = RuntimeCoreService(db, ctx)
+    core = TaskService(db, ctx)
     task = core.task_repo.get_task(approval.task_id)
     if task is None or task.status != TaskStatus.WAITING_APPROVAL.value:
         return
@@ -53,7 +53,7 @@ def handle_approval_rejected_outbox(db: Session, row: EventOutbox) -> None:
         tenant_role="Owner",
         workspace_role="Owner",
     )
-    core = RuntimeCoreService(db, ctx)
+    core = TaskService(db, ctx)
     task = core.task_repo.get_task(approval.task_id)
     if task is None or task.status != TaskStatus.WAITING_APPROVAL.value:
         return

@@ -8,8 +8,8 @@ from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.events.envelope import DomainEventEnvelope
 from app.kernel.events.outbox_repo import OutboxRepository
-from app.kernel.events.outbox_models import EventOutbox
 from app.kernel.events.publisher import OutboxPublisher
+from app.kernel.runtime.db.models.events import EventOutbox
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.domain.workflow_events import WorkflowEventType
 
@@ -40,6 +40,7 @@ def handle_workflow_node_completed_outbox(db: Session, row: EventOutbox) -> None
         event_id=f"evt_wf_node_completed_{wfr_id}_{next_node_id}_{generate_ulid()}",
         event_type=WorkflowEventType.NODE_COMPLETED,
         tenant_id=wfr.tenant_id,
+        workspace_id=wfr.workspace_id,
         subject_type="workflow_run",
         subject_id=wfr_id,
         run_id=wfr.run_id,

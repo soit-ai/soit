@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
-from app.kernel.responses.schemas import (
+from app.kernel.runtime.responses.schemas import (
     ResponseCancelResult,
     ResponseCreateRequest,
     ResponseDetailRead,
@@ -16,7 +14,7 @@ from app.kernel.responses.schemas import (
     RunResponseTimelineRead,
     ToolCallRead,
 )
-from app.kernel.responses.service import ResponseService
+from app.kernel.runtime.responses.service import ResponseService
 
 
 class ResponseHandlers:
@@ -62,7 +60,7 @@ class ResponseHandlers:
         ctx: RequestContext,
         response_id: str,
         *,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[ResponseEventRead]:
         del ctx

@@ -3,47 +3,47 @@
 Identity entrypoint handlers.
 """
 
-from typing import List, Optional
-from sqlalchemy.orm import Session
+
 from fastapi import Depends, HTTPException, status
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.commons.errors import ValidationError, NotFoundError, UnauthorizedError
-from app.middleware.auth import get_current_context
 from app.api.v1.identity.dependencies import get_identity_service
-from app.modules.identity.application.service import IdentityService
-from app.modules.identity.application.schemas import (
-    UserCreate,
-    UserLogin,
-    UserResponse,
-    TenantCreate,
-    TenantResponse,
-    WorkspaceCreate,
-    WorkspaceResponse,
-    MembershipCreate,
-    MembershipUpdate,
-    MembershipResponse,
-    TokenResponse,
-    ApiKeyCreate,
-    ApiKeyResponse,
-    ApiKeyCreateResponse,
-    ApiKeyRotateResponse,
-    ResourceGrantCreate,
-    ResourceGrantResponse,
-    UserProfileUpdate,
-    PasswordChange,
-    WorkspaceUpdate,
-    WorkspaceMemberResponse,
-)
 from app.api.v1.permissions import (
+    require_tenant_admin_ctx,
     require_workspace_read_ctx,
     require_workspace_write_ctx,
-    require_tenant_admin_ctx,
 )
+from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
+from app.kernel.contracts.context import RequestContext
+from app.middleware.auth import get_current_context
+from app.modules.identity.application.schemas import (
+    ApiKeyCreate,
+    ApiKeyCreateResponse,
+    ApiKeyResponse,
+    ApiKeyRotateResponse,
+    MembershipCreate,
+    MembershipResponse,
+    MembershipUpdate,
+    PasswordChange,
+    ResourceGrantCreate,
+    ResourceGrantResponse,
+    TenantCreate,
+    TenantResponse,
+    TokenResponse,
+    UserCreate,
+    UserLogin,
+    UserProfileUpdate,
+    UserResponse,
+    WorkspaceCreate,
+    WorkspaceMemberResponse,
+    WorkspaceResponse,
+    WorkspaceUpdate,
+)
+from app.modules.identity.application.service import IdentityService
+
 
 async def register(
     user_data: UserCreate,
-    tenant_name: Optional[str] = None,
+    tenant_name: str | None = None,
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
     """Register a new user and create a tenant."""
@@ -69,11 +69,11 @@ async def login(
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
     """Login user.
-    
+
     Args:
         login_data: Login credentials.
         service: Identity service.
-        
+
     Returns:
         Token response.
     """
@@ -150,18 +150,30 @@ async def change_password(
     except ValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+
+def _workspace_response(workspace) -> WorkspaceResponse:
+    return WorkspaceResponse(
+        id=workspace.id,
+        tenant_id=workspace.tenant_id,
+        name=workspace.name,
+        description=workspace.description,
+        metadata=getattr(workspace, "metadata_json", {}) or {},
+        created_at=workspace.created_at,
+    )
+
+
 async def create_tenant(
     tenant_data: TenantCreate,
     ctx: RequestContext = Depends(get_current_context),
     service: IdentityService = Depends(get_identity_service),
 ) -> TenantResponse:
     """Create a new tenant.
-    
+
     Args:
         tenant_data: Tenant creation data.
         ctx: Request context.
         service: Identity service.
-        
+
     Returns:
         Tenant response.
     """
@@ -181,6 +193,7 @@ async def get_tenant(
     service: IdentityService = Depends(get_identity_service),
 ) -> TenantResponse:
     """Get tenant by ID."""
+    _ = ctx
     try:
         tenant = service.get_tenant(tenant_id)
         return TenantResponse.model_validate(tenant)
@@ -193,20 +206,18 @@ async def create_workspace(
     service: IdentityService = Depends(get_identity_service),
 ) -> WorkspaceResponse:
     """Create a new workspace.
-    
+
     Args:
         workspace_data: Workspace creation data.
         ctx: Request context.
         service: Identity service.
-        
+
     Returns:
         Workspace response.
     """
     try:
         workspace = service.create_workspace(workspace_data, ctx)
-        payload = WorkspaceResponse.model_validate(workspace).model_dump()
-        payload.update(metadata=getattr(workspace, "metadata_json", {}) or {})
-        return WorkspaceResponse(**payload)
+        return _workspace_response(workspace)
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -218,16 +229,11 @@ async def list_workspaces(
     tenant_id: str,
     ctx: RequestContext = Depends(require_tenant_admin_ctx),
     service: IdentityService = Depends(get_identity_service),
-) -> List[WorkspaceResponse]:
+) -> list[WorkspaceResponse]:
     """List workspaces in tenant."""
     try:
         workspaces = service.list_workspaces(tenant_id=tenant_id, ctx=ctx)
-        payloads = []
-        for workspace in workspaces:
-            payload = WorkspaceResponse.model_validate(workspace).model_dump()
-            payload.update(metadata=getattr(workspace, "metadata_json", {}) or {})
-            payloads.append(WorkspaceResponse(**payload))
-        return payloads
+        return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -239,9 +245,7 @@ async def get_workspace(
     """Get workspace by ID."""
     try:
         workspace = service.get_workspace(workspace_id=workspace_id, ctx=ctx)
-        payload = WorkspaceResponse.model_validate(workspace).model_dump()
-        payload.update(metadata=getattr(workspace, "metadata_json", {}) or {})
-        return WorkspaceResponse(**payload)
+        return _workspace_response(workspace)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -254,9 +258,7 @@ async def update_workspace(
     """Update workspace."""
     try:
         workspace = service.update_workspace(workspace_id, ctx, data)
-        payload = WorkspaceResponse.model_validate(workspace).model_dump()
-        payload.update(metadata=getattr(workspace, "metadata_json", {}) or {})
-        return WorkspaceResponse(**payload)
+        return _workspace_response(workspace)
     except (ValidationError, NotFoundError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -264,7 +266,7 @@ async def list_workspace_members(
     workspace_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: IdentityService = Depends(get_identity_service),
-) -> List[WorkspaceMemberResponse]:
+) -> list[WorkspaceMemberResponse]:
     """List workspace members."""
     try:
         memberships = service.list_workspace_members(workspace_id, ctx)
@@ -323,13 +325,13 @@ async def add_tenant_member(
     service: IdentityService = Depends(get_identity_service),
 ) -> MembershipResponse:
     """Add a member to a tenant.
-    
+
     Args:
         tenant_id: Tenant ID.
         membership_data: Membership creation data.
         ctx: Request context.
         service: Identity service.
-        
+
     Returns:
         Membership response.
     """
@@ -350,13 +352,13 @@ async def add_workspace_member(
     service: IdentityService = Depends(get_identity_service),
 ) -> MembershipResponse:
     """Add a member to a workspace.
-    
+
     Args:
         workspace_id: Workspace ID.
         membership_data: Membership creation data.
         ctx: Request context.
         service: Identity service.
-        
+
     Returns:
         Membership response.
     """
@@ -390,13 +392,13 @@ async def create_api_key(
 
 
 async def list_api_keys(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: IdentityService = Depends(get_identity_service),
 ):
     """List API keys for the workspace."""
-    from app.infra.db.pagination import parse_page_params, PaginatedResponse
+    from app.infra.db.pagination import PaginatedResponse, parse_page_params
 
     limit, token_obj = parse_page_params(page_token, page_size)
     offset = token_obj.offset if token_obj else 0
@@ -481,7 +483,7 @@ async def list_resource_grants(
     resource_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: IdentityService = Depends(get_identity_service),
-) -> List[ResourceGrantResponse]:
+) -> list[ResourceGrantResponse]:
     """List resource grants for a resource."""
     try:
         grants = service.list_resource_grants(resource_type, resource_id, ctx)

@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useTranslation } from '@/i18n'
 
@@ -30,6 +30,9 @@ export function VersionHistoryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('knowledge.document.version.title')}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Review previous document versions and choose a version to roll back.
+          </DialogDescription>
         </DialogHeader>
         <ScrollArea className="h-[300px]">
           {loading && (

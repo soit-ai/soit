@@ -11,7 +11,6 @@ import {
   SearchCheck,
   Trash2,
 } from 'lucide-react'
-import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { Button } from '@/components/ui/button'
@@ -29,9 +28,11 @@ import {
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNavigate } from '@/hooks/use-navigate'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
+import { getKnowledgeWorkbench } from '@/services/knowledge-service'
 
 interface KnowledgeMenuItem {
   id: string
@@ -93,17 +94,24 @@ export function BoxSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { setOpen } = useSidebar()
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const activeView = searchParams.get('view') || 'overview'
-
-  const refreshStats = useCallback(() => {
-    setIsRefreshing(true)
-    window.setTimeout(() => setIsRefreshing(false), 450)
-  }, [])
+  const {
+    data: workbench,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ['knowledge', 'workbench', 'sidebar'],
+    queryFn: () => getKnowledgeWorkbench({ page_size: 1 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+  const summary = workbench?.summary
+  const recallRate = summary?.hit_rate ?? 0
 
   const navigateTo = (url: string) => {
     navigate(url)
-    setOpen(false)
   }
 
   const renderMenuItem = (item: KnowledgeMenuItem) => {
@@ -172,42 +180,42 @@ export function BoxSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={refreshStats}
-                  disabled={isRefreshing}
+                  onClick={() => refetch()}
+                  disabled={isFetching}
                 >
-                  <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+                  <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
                 </Button>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('knowledge.workspaceSidebar.stats.total')}</span>
-                  <span className="font-semibold">32</span>
+                  <span className="font-semibold">{summary?.total_knowledge_bases ?? 0}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('knowledge.workspaceSidebar.stats.ready')}</span>
-                  <span className="font-semibold">27</span>
+                  <span className="font-semibold">{summary?.ready_knowledge_bases ?? 0}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('knowledge.workspaceSidebar.stats.documents')}</span>
-                  <span className="font-semibold">12,840</span>
+                  <span className="font-semibold">{(summary?.total_documents ?? 0).toLocaleString()}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('knowledge.workspaceSidebar.stats.chunks')}</span>
-                  <span className="font-semibold">486k</span>
+                  <span className="font-semibold">{(summary?.total_chunks ?? 0).toLocaleString()}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t('knowledge.workspaceSidebar.stats.recallRate')}</span>
-                  <span>97.4%</span>
+                  <span>{recallRate ? `${recallRate.toFixed(recallRate % 1 === 0 ? 0 : 1)}%` : '-'}</span>
                 </div>
-                <Progress value={97.4} className="h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
+                <Progress value={recallRate} className="h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
               </div>
 
               <div className="text-xs text-muted-foreground">
-                {t('knowledge.workspaceSidebar.stats.updatedAt', { timestamp: '2026-05-30 10:18' })}
+                {t('knowledge.workspaceSidebar.stats.updatedAt', { timestamp: summary?.updated_at ? new Date(summary.updated_at).toLocaleString() : '-' })}
               </div>
 
               <div className="mt-2 flex justify-between border-t border-border pt-2 text-xs">

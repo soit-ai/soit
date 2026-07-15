@@ -1,21 +1,26 @@
-# SOIT-Pro Roadmap
+# SOIT Roadmap
 
-For the detailed Phase 0 and Phase 1 execution plan, see [Phase 0/1 Delivery Plan](./phase-0-1-delivery-plan.md).
+SOIT is an open-source governed agent runtime for teams that need self-hosted,
+model-neutral execution with observable and auditable agent behavior.
 
-## P0: Contract Repair And Quality Gate
+## Current Focus
 
-- Fix Agent execution drift by separating public execute payloads from internal runtime requests.
-- Keep published Agent version bindings as the only source for model, tool, and knowledge execution configuration.
-- Restore backend tests, unblock the frontend TypeScript 6 deprecation gate, fix Docker worker startup, and add CI quality gates.
+- Stabilize the Community runtime main path: agent creation, versioning, publish, execute, stream, response, thread, task, run trace, and tool call detail.
+- Keep Knowledge ingestion and retrieval reliable across upload, ingest, chunk, index, query, and citation flows.
+- Connect Observe surfaces to real run, task, response, tool, cost, and approval data.
+- Maintain documented quality gates for backend, frontend, release, and local deployment checks.
 
-## MVP: Stable Enterprise Agent Loop
+## Next Milestones
 
-- Deliver a complete Agent path: create, version, publish, execute, stream, response, thread, task, run trace, and tool call detail.
-- Deliver a complete Knowledge path: upload, ingest, chunk, index, query, and citation.
-- Connect observability dashboards to real run, task, response, tool, cost, and approval data.
-
-## Beta: Governed Multi-Capability Platform
-
+- Harden Plugin and MCP execution with capability allowlists, audit records, approval policy hooks, and secret boundaries.
 - Add evaluation and regression checks for Agent, Knowledge, and Workflow behavior.
-- Harden Plugin and MCP execution with allowlists, audit, approval, and secret boundaries.
-- Package production deployment profiles, health checks, backup/restore guidance, and model provider diagnostics.
+- Improve production deployment profiles, health checks, backup/restore guidance, and model provider diagnostics.
+- Expand governance reports for workspace cost, privileged operations, external tool access, approval outcomes, and policy failures.
+
+## Contributing
+
+Track concrete implementation work through the public issue tracker once it is
+enabled. Until then, use the repository [contributing guide](../CONTRIBUTING.md)
+for local setup, quality checks, and pull request expectations.
+Public roadmap items should describe product direction and contributor-facing
+work, not private planning notes or local release evidence.

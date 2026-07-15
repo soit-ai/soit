@@ -5,39 +5,36 @@ ModelHub API routes.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, status
 
-from app.kernel.contracts.context import RequestContext
+from app.api.v1.modelhub.dependencies import get_modelhub_service
+from app.api.v1.modelhub.handlers import ModelHubHandlers
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
-from app.api.v1.modelhub.dependencies import get_modelhub_service
-from app.api.v1.modelhub.handlers import ModelHubHandlers
 from app.infra.db.pagination import PaginatedResponse
+from app.kernel.contracts.context import RequestContext
 from app.modules.modelhub.application.schemas import (
-    ProviderCreate,
-    ProviderUpdate,
-    ProviderResponse,
-    PlatformModelResponse,
-    ProviderModelCreate,
-    ProviderModelUpdate,
-    ProviderModelResponse,
-    SyncFromPlatformRequest,
-    SyncJobResponse,
     HealthcheckResponse,
-    ProviderSupportMatrixResponse,
-    ModelWorkbenchOverviewResponse,
-    ModelWorkbenchModelsResponse,
-    ModelWorkbenchProvidersResponse,
     ModelTestChatRequest,
     ModelTestEmbeddingRequest,
     ModelTestResponse,
+    ModelWorkbenchModelsResponse,
+    ModelWorkbenchOverviewResponse,
+    ModelWorkbenchProvidersResponse,
+    PlatformModelResponse,
+    ProviderCreate,
+    ProviderModelCreate,
+    ProviderModelResponse,
+    ProviderModelUpdate,
+    ProviderResponse,
+    ProviderSupportMatrixResponse,
+    ProviderUpdate,
+    SyncFromPlatformRequest,
+    SyncJobResponse,
 )
 from app.modules.modelhub.application.service import ModelHubService
-
 
 router = APIRouter()
 
@@ -113,13 +110,13 @@ async def get_workbench_overview(
 
 @router.get("/workbench/models", response_model=ModelWorkbenchModelsResponse)
 async def get_workbench_models(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    provider_id: Optional[str] = None,
-    status: Optional[str] = None,
-    model_type: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    provider_id: str | None = None,
+    status: str | None = None,
+    model_type: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ModelHubService = Depends(get_modelhub_service),
 ):
@@ -138,12 +135,12 @@ async def get_workbench_models(
 
 @router.get("/workbench/providers", response_model=ModelWorkbenchProvidersResponse)
 async def get_workbench_providers(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    status: Optional[str] = None,
-    model_type: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    status: str | None = None,
+    model_type: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ModelHubService = Depends(get_modelhub_service),
 ):
@@ -162,7 +159,7 @@ async def get_workbench_providers(
 @router.post("/providers/{provider_id}/sync-from-platform", response_model=SyncJobResponse)
 async def sync_from_platform(
     provider_id: str,
-    data: Optional[SyncFromPlatformRequest] = None,
+    data: SyncFromPlatformRequest | None = None,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: ModelHubService = Depends(get_modelhub_service),
 ):
@@ -185,7 +182,7 @@ async def list_sync_jobs(
 async def list_provider_models(
     provider_id: str,
     page_size: int = 200,
-    status: Optional[str] = None,
+    status: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ModelHubService = Depends(get_modelhub_service),
 ):

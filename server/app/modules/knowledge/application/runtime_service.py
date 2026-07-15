@@ -3,63 +3,70 @@
 Internal knowledge runtime service.
 """
 
-from typing import List, Optional, Dict, Any
-import re
 import hashlib
+import re
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc, func
-from urllib.parse import urlparse, unquote
-import httpx
+from typing import Any
+from urllib.parse import unquote, urlparse
 
-from app.kernel.contracts.context import RequestContext
+from sqlalchemy import and_, desc, select
+from sqlalchemy.orm import Session
+
 from app.kernel.commons.errors import KernelError
 from app.kernel.commons.ids import generate_ulid
-from app.modules.knowledge.domain.models import Knowledge, KnowledgeDocument, KnowledgeIndex, KnowledgeIngestTask
+from app.kernel.commons.time import utc_now
+from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.guard import rbac_guard, workspace_guard
+from app.kernel.identity.permissions import RESOURCE_KNOWLEDGE
+from app.kernel.ports.http.interface import HttpFetchPort
+from app.kernel.ports.storage.interface import StoragePort
+from app.kernel.ports.vector.interface import VectorPort
+from app.kernel.runtime.db.models.runs import Run, RunCostEntry
+from app.kernel.runtime.runs.schemas import (
+    RunCostByModelResponse,
+    RunCostByModeResponse,
+    RunCostByProviderResponse,
+    RunCostSummaryResponse,
+    RunResponse,
+)
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.knowledge.application.chunker import TextChunker
 from app.modules.knowledge.application.ports import (
-    KnowledgeRepositoryPort,
-    DocumentRepositoryPort,
     ChunkRepositoryPort,
+    DocumentRepositoryPort,
     IndexRepositoryPort,
     IngestTaskRepositoryPort,
+    KnowledgeRepositoryPort,
 )
 from app.modules.knowledge.application.runtime_schemas import (
-    KnowledgeCreate,
-    KnowledgeUpdate,
     DocumentUpload,
-    QueryRequest,
-    QueryResponse,
-    QueryCitation,
     IndexCreate,
     IndexUpdate,
     KnowledgeConsumerUsageResponse,
+    KnowledgeCreate,
+    KnowledgeUpdate,
+    QueryCitation,
+    QueryRequest,
+    QueryResponse,
+    QueryResult,
 )
-from app.modules.knowledge.runtime.pipeline import DocumentPipeline
-from app.modules.knowledge.application.chunker import TextChunker
-from app.modules.knowledge.runtime.retrieval import RetrievalService
+from app.modules.knowledge.domain.models import (
+    Knowledge,
+    KnowledgeDocument,
+    KnowledgeIndex,
+    KnowledgeIngestTask,
+)
 from app.modules.knowledge.domain.versioning import DocumentVersioning
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
-from app.kernel.commons.time import utc_now
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.trace.models import Run, RunCostEntry
-from app.kernel.trace.schemas import (
-    RunResponse,
-    RunCostSummaryResponse,
-    RunCostByModeResponse,
-    RunCostByProviderResponse,
-    RunCostByModelResponse,
-)
-from app.kernel.ports.storage.interface import StoragePort
-from app.kernel.ports.vector.interface import VectorPort
-from app.kernel.identity.guard import rbac_guard, workspace_guard
-from app.kernel.identity.permissions import RESOURCE_KNOWLEDGE
+from app.modules.knowledge.runtime.pipeline import DocumentPipeline
+from app.modules.knowledge.runtime.retrieval import RetrievalService
 
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 class KnowledgeRuntimeService:
     """Service for managing knowledge data."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -68,16 +75,17 @@ class KnowledgeRuntimeService:
         document_repo: DocumentRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
         index_repo: IndexRepositoryPort,
-        ingest_task_repo: Optional[IngestTaskRepositoryPort] = None,
-        pipeline: Optional[DocumentPipeline] = None,
-        retrieval_service: Optional[RetrievalService] = None,
-        index_builder: Optional[IndexBuilder] = None,
-        storage_port: Optional[StoragePort] = None,
-        vector_port: Optional[VectorPort] = None,
-        trace_writer: Optional[TraceWriter] = None,
+        ingest_task_repo: IngestTaskRepositoryPort | None = None,
+        pipeline: DocumentPipeline | None = None,
+        retrieval_service: RetrievalService | None = None,
+        index_builder: IndexBuilder | None = None,
+        storage_port: StoragePort | None = None,
+        vector_port: VectorPort | None = None,
+        trace_writer: TraceWriter | None = None,
+        http_fetch_port: HttpFetchPort | None = None,
     ):
         """Initialize knowledge runtime service.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
@@ -101,14 +109,15 @@ class KnowledgeRuntimeService:
         self.storage_port = storage_port
         self.vector_port = vector_port
         self.trace_writer = trace_writer
+        self.http_fetch_port = http_fetch_port
         self.versioning = DocumentVersioning(db, ctx)
 
     def _resolve_knowledge_trace_subject(
         self,
-        knowledge_id: Optional[str],
+        knowledge_id: str | None,
         *,
-        version_id: Optional[str] = None,
-    ) -> tuple[str, str, Optional[str]]:
+        version_id: str | None = None,
+    ) -> tuple[str, str, str | None]:
         return "knowledge", knowledge_id or self.ctx.workspace_id, version_id
 
     def _resolve_knowledge_create_id(self, knowledge_in: KnowledgeCreate, **kwargs) -> str:
@@ -131,7 +140,7 @@ class KnowledgeRuntimeService:
         return f"{base}; {summary}"
 
     @staticmethod
-    def _extract_summary_field(input_summary: Optional[str], field: str) -> Optional[str]:
+    def _extract_summary_field(input_summary: str | None, field: str) -> str | None:
         if not input_summary:
             return None
         pattern = rf"(?:^|[;,\s]){re.escape(field)}=([^;,\s]+)"
@@ -166,13 +175,13 @@ class KnowledgeRuntimeService:
         self,
         *,
         knowledge_id: str,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
-    ) -> List[Run]:
-        clauses: List[Any] = [
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
+    ) -> list[Run]:
+        clauses: list[Any] = [
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
             Run.subject_kind == "knowledge",
@@ -190,7 +199,7 @@ class KnowledgeRuntimeService:
 
         query = select(Run).where(and_(*clauses)).order_by(desc(Run.created_at)).limit(5000)
         raw_rows = list(self.db.exec(query).all())
-        runs: List[Run] = []
+        runs: list[Run] = []
         for row in raw_rows:
             if hasattr(row, "id"):
                 runs.append(row)
@@ -207,7 +216,7 @@ class KnowledgeRuntimeService:
         query_text: str,
         max_snippets: int,
         snippet_length: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Extract query-centered snippets from text."""
         if not text or max_snippets <= 0:
             return []
@@ -220,7 +229,7 @@ class KnowledgeRuntimeService:
             tokens = [query_text]
 
         lower_text = text.lower()
-        positions: List[int] = []
+        positions: list[int] = []
         for token in tokens:
             idx = lower_text.find(token.lower())
             if idx != -1:
@@ -229,7 +238,7 @@ class KnowledgeRuntimeService:
         if not positions:
             return [text[:snippet_length]]
 
-        snippets: List[str] = []
+        snippets: list[str] = []
         half = max(10, snippet_length // 2)
         for idx in positions[:max_snippets]:
             start = max(idx - half, 0)
@@ -238,14 +247,67 @@ class KnowledgeRuntimeService:
             if snippet and snippet not in snippets:
                 snippets.append(snippet)
         return snippets[:max_snippets]
-    
+
+    def _query_indexed_chunks_fallback(
+        self,
+        *,
+        knowledge_id: str,
+        query: str,
+        top_k: int,
+    ) -> list[QueryResult]:
+        chunks = self.chunk_repo.list_by_knowledge(
+            knowledge_id,
+            index_status="indexed",
+            limit=max(top_k * 10, top_k),
+            offset=0,
+        )
+        if not chunks:
+            return []
+        query_terms = {
+            token.lower()
+            for token in re.split(r"\W+", query or "")
+            if len(token) > 1
+        }
+        ranked = []
+        for chunk in chunks:
+            text = chunk.text_preview or ""
+            text_lower = text.lower()
+            overlap = sum(1 for term in query_terms if term in text_lower)
+            score = float(overlap / max(len(query_terms), 1)) if query_terms else 0.0
+            ranked.append((score, chunk))
+        ranked.sort(key=lambda item: (item[0], item[1].chunk_no), reverse=True)
+
+        results: list[QueryResult] = []
+        for score, chunk in ranked[:top_k]:
+            document = self.document_repo.get_by_id(chunk.document_id)
+            metadata = {
+                "knowledge_id": chunk.knowledge_id,
+                "doc_key": document.doc_key if document else None,
+                "title": document.title if document else None,
+                "source_uri": document.source_uri if document else None,
+                "chunk_no": chunk.chunk_no,
+                "page_no": chunk.page_no,
+                "section_path": chunk.section_path or [],
+                "fallback": "indexed_chunks",
+            }
+            results.append(
+                QueryResult(
+                    chunk_id=chunk.id,
+                    document_id=chunk.document_id,
+                    score=score,
+                    text=text,
+                    metadata=metadata,
+                )
+            )
+        return results
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "create", resource_id_resolver=_resolve_knowledge_create_id)
     async def create_knowledge(self, knowledge_in: KnowledgeCreate) -> Knowledge:
         """Create a new knowledge base.
-        
+
         Args:
             knowledge_in: Knowledge creation schema.
-            
+
         Returns:
             Created Knowledge instance.
         """
@@ -253,7 +315,7 @@ class KnowledgeRuntimeService:
         existing = self.knowledge_repo.get_by_name(knowledge_in.name)
         if existing:
             raise KernelError("DUPLICATE_NAME", f"Knowledge '{knowledge_in.name}' already exists")
-        
+
         # Create knowledge
         knowledge = Knowledge(
             tenant_id=self.ctx.tenant_id,
@@ -271,7 +333,7 @@ class KnowledgeRuntimeService:
             created_by=self.ctx.user_id,
             updated_by=self.ctx.user_id,
         )
-        
+
         knowledge = self.knowledge_repo.create(knowledge)
 
         if knowledge_in.default_embedding_model_ref:
@@ -302,14 +364,14 @@ class KnowledgeRuntimeService:
                 self.db.refresh(knowledge)
 
         return knowledge
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
     async def get_knowledge(self, knowledge_id: str) -> Knowledge:
         """Get a knowledge base by ID.
-        
+
         Args:
             knowledge_id: Knowledge ID.
-            
+
         Returns:
             Knowledge instance.
         """
@@ -317,20 +379,20 @@ class KnowledgeRuntimeService:
         if not knowledge:
             raise KernelError("NOT_FOUND", f"Knowledge {knowledge_id} not found")
         return knowledge
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def update_knowledge(self, knowledge_id: str, knowledge_in: KnowledgeUpdate) -> Knowledge:
         """Update a knowledge base.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             knowledge_in: Knowledge update schema.
-            
+
         Returns:
             Updated Knowledge instance.
         """
         knowledge = await self.get_knowledge(knowledge_id)
-        
+
         # Update fields
         if knowledge_in.name is not None:
             # Check if new name conflicts
@@ -338,47 +400,47 @@ class KnowledgeRuntimeService:
             if existing and existing.id != knowledge_id:
                 raise KernelError("DUPLICATE_NAME", f"Knowledge '{knowledge_in.name}' already exists")
             knowledge.name = knowledge_in.name
-        
+
         if knowledge_in.description is not None:
             knowledge.description = knowledge_in.description
-        
+
         if knowledge_in.status is not None:
             knowledge.status = knowledge_in.status
-        
+
         if knowledge_in.visibility is not None:
             knowledge.visibility = knowledge_in.visibility
-        
+
         if knowledge_in.settings_json is not None:
             knowledge.settings_json = knowledge_in.settings_json
-        
+
         if knowledge_in.chunking_json is not None:
             knowledge.chunking_json = knowledge_in.chunking_json
-        
+
         if knowledge_in.retrieval_json is not None:
             knowledge.retrieval_json = knowledge_in.retrieval_json
-        
+
         if knowledge_in.default_embedding_model_ref is not None:
             knowledge.default_embedding_model_ref = knowledge_in.default_embedding_model_ref
-        
+
         if knowledge_in.default_reranker_ref is not None:
             knowledge.default_reranker_ref = knowledge_in.default_reranker_ref
-        
+
         if knowledge_in.tags is not None:
             knowledge.tags = knowledge_in.tags
-        
+
         knowledge.updated_by = self.ctx.user_id
         knowledge.updated_at = utc_now()
-        
+
         self.db.commit()
         self.db.refresh(knowledge)
-        
+
         return knowledge
 
     def _resolve_index(
         self,
         knowledge: Knowledge,
-        index_id: Optional[str] = None,
-    ) -> Optional[KnowledgeIndex]:
+        index_id: str | None = None,
+    ) -> KnowledgeIndex | None:
         """Resolve index for knowledge.
 
         Args:
@@ -429,7 +491,7 @@ class KnowledgeRuntimeService:
         self,
         knowledge: Knowledge,
         document: KnowledgeDocument,
-    ) -> Optional[KnowledgeIndex]:
+    ) -> KnowledgeIndex | None:
         """Resolve index for a document.
 
         Args:
@@ -456,15 +518,15 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         document: KnowledgeDocument,
         document_in: DocumentUpload,
-        file_content: Optional[Any],
-        run_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        file_content: Any | None,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
         """Persist upload file to storage and normalize payload."""
         payload = document_in.model_dump(exclude_none=True)
 
         if (
             file_content is None
-            and document_in.source_type == "crawler"
+            and document_in.source_kind == "crawler"
             and document_in.source_uri
             and not payload.get("file_id")
         ):
@@ -544,27 +606,31 @@ class KnowledgeRuntimeService:
         storage_key: str,
         file_content: Any,
         *,
-        content_type: Optional[str],
-        run_id: Optional[str],
+        content_type: str | None,
+        run_id: str | None,
     ) -> tuple[int, str]:
         hasher = hashlib.sha256()
         size_bytes = 0
 
         open_writer = getattr(self.storage_port, "open_writer", None)
         if open_writer:
-            async with await open_writer(
-                key=storage_key,
-                content_type=content_type,
-                run_id=run_id,
-            ) as writer:
-                while True:
-                    chunk = await self._read_upload_chunk(file_content)
-                    if not chunk:
-                        break
-                    size_bytes += len(chunk)
-                    hasher.update(chunk)
-                    await writer.write(chunk)
-            return size_bytes, hasher.hexdigest()
+            try:
+                async with await open_writer(
+                    key=storage_key,
+                    content_type=content_type,
+                    run_id=run_id,
+                ) as writer:
+                    while True:
+                        chunk = await self._read_upload_chunk(file_content)
+                        if not chunk:
+                            break
+                        size_bytes += len(chunk)
+                        hasher.update(chunk)
+                        await writer.write(chunk)
+                return size_bytes, hasher.hexdigest()
+            except KernelError as exc:
+                if exc.code != "STORAGE_STREAMING_NOT_SUPPORTED":
+                    raise
 
         chunks: list[bytes] = []
         while True:
@@ -602,38 +668,41 @@ class KnowledgeRuntimeService:
         return f"{host}.html"
 
     async def _fetch_source_content(self, source_uri: str) -> tuple[bytes, str, str]:
-        parsed = urlparse(source_uri)
-        if parsed.scheme not in ("http", "https"):
-            raise KernelError("INVALID_SOURCE_URI", "Crawler source_uri must be http or https")
+        if self.http_fetch_port is None:
+            raise KernelError(
+                "CRAWLER_FETCH_NOT_CONFIGURED",
+                "Governed HTTP fetch port is not configured",
+            )
 
-        timeout = httpx.Timeout(20.0)
+        max_bytes = 5 * 1024 * 1024
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                response = await client.get(source_uri)
+            resource = await self.http_fetch_port.fetch(
+                self.ctx,
+                source_uri,
+                max_bytes=max_bytes,
+            )
+        except KernelError:
+            raise
         except Exception as exc:
             raise KernelError("CRAWLER_FETCH_FAILED", f"Failed to fetch source_uri: {exc}") from exc
 
-        if response.status_code >= 400:
-            raise KernelError("CRAWLER_FETCH_FAILED", f"Fetch source_uri failed with status {response.status_code}")
-
-        content = response.content or b""
+        content = resource.content or b""
         if not content:
             raise KernelError("CRAWLER_EMPTY_CONTENT", "Fetched content is empty")
 
-        max_bytes = 5 * 1024 * 1024
         if len(content) > max_bytes:
             raise KernelError("CRAWLER_CONTENT_TOO_LARGE", "Fetched content exceeds 5MB limit")
 
-        content_type = response.headers.get("content-type", "text/html").split(";")[0].strip() or "text/html"
-        filename = self._guess_filename_from_uri(source_uri)
+        content_type = resource.content_type or "text/html"
+        filename = self._guess_filename_from_uri(resource.final_url)
         return content, content_type, filename
 
     async def _process_document_ingest(
         self,
         knowledge: Knowledge,
         document: KnowledgeDocument,
-        file_content: Optional[bytes],
-        run_id: Optional[str],
+        file_content: bytes | None,
+        run_id: str | None,
     ) -> KnowledgeDocument:
         """Process document ingestion pipeline and update knowledge stats."""
         if not self.pipeline:
@@ -657,7 +726,7 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         document_in: DocumentUpload,
-        file_content: Optional[Any] = None,
+        file_content: Any | None = None,
         max_retries: int = 1,
     ) -> tuple[KnowledgeDocument, KnowledgeIngestTask]:
         """Enqueue a knowledge ingestion task and return the document."""
@@ -685,7 +754,7 @@ class KnowledgeRuntimeService:
             knowledge_id=knowledge_id,
             doc_key=document_in.doc_key,
             status="queued",
-            source_type=document_in.source_type,
+            source_kind=document_in.source_kind,
             source_uri=document_in.source_uri,
             file_id=document_in.file_id,
             title=document_in.title,
@@ -807,10 +876,10 @@ class KnowledgeRuntimeService:
     async def list_ingest_tasks(
         self,
         knowledge_id: str,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeIngestTask]:
+    ) -> list[KnowledgeIngestTask]:
         """List ingest tasks for a knowledge."""
         if not self.ingest_task_repo:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
@@ -891,7 +960,7 @@ class KnowledgeRuntimeService:
 
         payload = {
             "doc_key": document.doc_key,
-            "source_type": document.source_type,
+            "source_kind": document.source_kind,
             "source_uri": document.source_uri,
             "file_id": document.file_id,
             "title": document.title,
@@ -930,8 +999,8 @@ class KnowledgeRuntimeService:
         self,
         knowledge: Knowledge,
         document: KnowledgeDocument,
-        chunks: List[Any],
-        run_id: Optional[str] = None,
+        chunks: list[Any],
+        run_id: str | None = None,
     ) -> None:
         """Cleanup document artifacts from storage and vector index.
 
@@ -1037,7 +1106,7 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeIndex]:
+    ) -> list[KnowledgeIndex]:
         """List indexes for knowledge.
 
         Args:
@@ -1199,7 +1268,7 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         doc_key: str,
-    ) -> List[KnowledgeDocument]:
+    ) -> list[KnowledgeDocument]:
         """List all versions for a document key.
 
         Args:
@@ -1240,34 +1309,34 @@ class KnowledgeRuntimeService:
         self.db.commit()
         self.db.refresh(document)
         return document
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def upload_document(
         self,
         knowledge_id: str,
         document_in: DocumentUpload,
-        file_content: Optional[Any] = None,
+        file_content: Any | None = None,
         async_ingest: bool = False,
         max_retries: int = 1,
     ) -> KnowledgeDocument:
         """Upload and process a document.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             document_in: Document upload schema.
             file_content: Optional file content.
             async_ingest: Whether to enqueue ingestion instead of processing inline.
             max_retries: Max retries for async ingest.
-            
+
         Returns:
             Created KnowledgeDocument instance.
-            
+
         Raises:
             KernelError: If pipeline is not available.
         """
-        if document_in.source_type == "upload" and not file_content and not document_in.file_id:
+        if document_in.source_kind == "upload" and not file_content and not document_in.file_id:
             raise KernelError("NO_FILE", "File content or file_id is required for upload source")
-        if document_in.source_type == "crawler" and not document_in.source_uri:
+        if document_in.source_kind == "crawler" and not document_in.source_uri:
             raise KernelError("INVALID_SOURCE_URI", "source_uri is required for crawler source")
 
         if async_ingest:
@@ -1297,13 +1366,13 @@ class KnowledgeRuntimeService:
             )
             run_id = run.id
             self.trace_writer.update_run_status(run_id, "running")
-        
+
         try:
             # Create new document version
             document = self.versioning.create_version(
                 knowledge_id=knowledge_id,
                 doc_key=document_in.doc_key,
-                source_type=document_in.source_type,
+                source_kind=document_in.source_kind,
                 source_uri=document_in.source_uri,
                 file_id=document_in.file_id,
                 title=document_in.title,
@@ -1341,7 +1410,7 @@ class KnowledgeRuntimeService:
             if run_id:
                 self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
     async def list_documents(
         self,
@@ -1349,15 +1418,15 @@ class KnowledgeRuntimeService:
         is_latest_only: bool = True,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeDocument]:
+    ) -> list[KnowledgeDocument]:
         """List documents in knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             is_latest_only: Only return latest versions.
             limit: Maximum number of documents.
             offset: Offset for pagination.
-            
+
         Returns:
             List of KnowledgeDocument instances.
         """
@@ -1375,7 +1444,7 @@ class KnowledgeRuntimeService:
         document_id: str,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """List chunks for a document."""
         await self._get_document_for_knowledge(knowledge_id, document_id)
         return self.chunk_repo.list_by_document(
@@ -1390,8 +1459,8 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         document_id: str,
         chunk_id: str,
-        content: Optional[str] = None,
-        index_status: Optional[str] = None,
+        content: str | None = None,
+        index_status: str | None = None,
     ) -> Any:
         """Update chunk content or status."""
         document = await self._get_document_for_knowledge(knowledge_id, document_id)
@@ -1424,14 +1493,14 @@ class KnowledgeRuntimeService:
         self.db.commit()
         self.db.refresh(chunk)
         return chunk
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_resolver=_resolve_knowledge_id_from_document)
     async def get_document(self, document_id: str) -> KnowledgeDocument:
         """Get document by ID.
-        
+
         Args:
             document_id: Document ID.
-            
+
         Returns:
             KnowledgeDocument instance.
         """
@@ -1493,7 +1562,7 @@ class KnowledgeRuntimeService:
             media_type = "text/plain"
             filename = document.filename or document.title or f"{document.doc_key}.txt"
         return data, media_type, filename
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_resolver=_resolve_knowledge_id_from_document)
     async def delete_document(self, document_id: str) -> None:
         """Delete document (soft delete).
@@ -1556,15 +1625,15 @@ class KnowledgeRuntimeService:
             if run_id:
                 self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id")
-    async def rebuild_index(self, knowledge_id: str, index_id: Optional[str] = None) -> KnowledgeIndex:
+    async def rebuild_index(self, knowledge_id: str, index_id: str | None = None) -> KnowledgeIndex:
         """Rebuild index.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             index_id: Optional index ID (use primary if not specified).
-            
+
         Returns:
             Updated KnowledgeIndex instance.
         """
@@ -1599,9 +1668,16 @@ class KnowledgeRuntimeService:
             )
             step_id = step.id
             self.trace_writer.update_step_status(step_id, "running")
+            index.last_run_id = run_id
+            index.updated_at = utc_now()
+            self.db.commit()
 
         try:
             await self.index_builder.rebuild_index(index, run_id=run_id)
+            if run_id:
+                index.last_run_id = run_id
+            index.last_error_code = None
+            index.last_error_message = None
             index.updated_at = utc_now()
             index.updated_by = self.ctx.user_id
             self.db.commit()
@@ -1621,6 +1697,14 @@ class KnowledgeRuntimeService:
             if run_id:
                 self.trace_writer.update_run_status(run_id, "succeeded")
         except Exception as exc:
+            if run_id:
+                index.last_run_id = run_id
+            if not index.last_error_code:
+                index.last_error_code = "REBUILD_ERROR"
+            index.last_error_message = str(exc)
+            index.updated_at = utc_now()
+            index.updated_by = self.ctx.user_id
+            self.db.commit()
             if step_id:
                 self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
             if run_id:
@@ -1634,14 +1718,14 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         *,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[RunResponse]:
+    ) -> list[RunResponse]:
         """List trace runs scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
         runs = self._list_knowledge_runs_raw(
@@ -1655,7 +1739,7 @@ class KnowledgeRuntimeService:
         sliced = runs[offset: offset + limit]
         return [RunResponse.model_validate(item) for item in sliced]
 
-    def _list_knowledge_cost_entries(self, run_ids: List[str]) -> List[RunCostEntry]:
+    def _list_knowledge_cost_entries(self, run_ids: list[str]) -> list[RunCostEntry]:
         if not run_ids:
             return []
         query = select(RunCostEntry).where(
@@ -1666,7 +1750,7 @@ class KnowledgeRuntimeService:
             )
         )
         raw_rows = list(self.db.exec(query).all())
-        entries: List[RunCostEntry] = []
+        entries: list[RunCostEntry] = []
         for row in raw_rows:
             if hasattr(row, "id"):
                 entries.append(row)
@@ -1682,11 +1766,11 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         *,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
     ) -> RunCostSummaryResponse:
         """Summarize run cost metrics scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
@@ -1736,12 +1820,12 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         *,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
-    ) -> List[RunCostByModeResponse]:
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
+    ) -> list[RunCostByModeResponse]:
         """Summarize run cost metrics by mode scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
         runs = self._list_knowledge_runs_raw(
@@ -1755,7 +1839,7 @@ class KnowledgeRuntimeService:
         run_map = {run.id: run for run in runs}
         entries = self._list_knowledge_cost_entries(list(run_map.keys()))
 
-        buckets: Dict[str, Dict[str, int]] = {}
+        buckets: dict[str, dict[str, int]] = {}
         for entry in entries:
             run = run_map.get(entry.run_id)
             if not run:
@@ -1794,12 +1878,12 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         *,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
-    ) -> List[RunCostByProviderResponse]:
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
+    ) -> list[RunCostByProviderResponse]:
         """Summarize run cost metrics by provider scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
         runs = self._list_knowledge_runs_raw(
@@ -1812,7 +1896,7 @@ class KnowledgeRuntimeService:
         )
         entries = self._list_knowledge_cost_entries([run.id for run in runs])
 
-        buckets: Dict[Optional[str], Dict[str, int]] = {}
+        buckets: dict[str | None, dict[str, int]] = {}
         for entry in entries:
             provider = entry.provider
             bucket = buckets.setdefault(
@@ -1849,12 +1933,12 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         *,
-        mode: Optional[str] = None,
-        status: Optional[str] = None,
-        started_after: Optional[datetime] = None,
-        started_before: Optional[datetime] = None,
-        kind: Optional[str] = None,
-    ) -> List[RunCostByModelResponse]:
+        mode: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        kind: str | None = None,
+    ) -> list[RunCostByModelResponse]:
         """Summarize run cost metrics by model scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
         runs = self._list_knowledge_runs_raw(
@@ -1867,7 +1951,7 @@ class KnowledgeRuntimeService:
         )
         entries = self._list_knowledge_cost_entries([run.id for run in runs])
 
-        buckets: Dict[Optional[str], Dict[str, int]] = {}
+        buckets: dict[str | None, dict[str, int]] = {}
         for entry in entries:
             model_ref = entry.model_ref
             bucket = buckets.setdefault(
@@ -1905,7 +1989,7 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         *,
         limit: int = 100,
-    ) -> List[KnowledgeConsumerUsageResponse]:
+    ) -> list[KnowledgeConsumerUsageResponse]:
         """List active agent/workflow usages for this knowledge base."""
         await self.get_knowledge(knowledge_id)
         del knowledge_id, limit
@@ -1918,14 +2002,14 @@ class KnowledgeRuntimeService:
         query_request: QueryRequest,
     ) -> QueryResponse:
         """Query knowledge for relevant documents.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             query_request: Query request schema.
-            
+
         Returns:
             QueryResponse instance.
-            
+
         Raises:
             KernelError: If retrieval service is not available.
         """
@@ -1968,61 +2052,81 @@ class KnowledgeRuntimeService:
             self.trace_writer.update_step_status(step_id, "running")
 
         try:
-            if strategy == "multi_index":
-                index_ids = query_request.index_ids or retrieval_config.get("index_ids")
-                if not index_ids:
-                    indexes = self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
-                    index_ids = [item.id for item in indexes if item.status == "ready"]
-                if not index_ids:
-                    raise KernelError("NOT_FOUND", "No ready indexes available for multi-index retrieval")
-                results = await self.retrieval_service.query_multiple_indexes(
+            try:
+                if strategy == "multi_index":
+                    index_ids = query_request.index_ids or retrieval_config.get("index_ids")
+                    if not index_ids:
+                        indexes = self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
+                        index_ids = [item.id for item in indexes if item.status == "ready"]
+                    if not index_ids:
+                        raise KernelError("NOT_FOUND", "No ready indexes available for multi-index retrieval")
+                    results = await self.retrieval_service.query_multiple_indexes(
+                        knowledge_id=knowledge_id,
+                        query_text=query_request.query,
+                        index_ids=index_ids,
+                        top_k=query_request.top_k,
+                        filter=filter_value,
+                        use_rerank=use_rerank,
+                        reranker_ref=reranker_ref,
+                        run_id=run_id,
+                    )
+                elif strategy == "keyword":
+                    results = await self.retrieval_service.query_keyword(
+                        knowledge_id=knowledge_id,
+                        query_text=query_request.query,
+                        top_k=keyword_top_k,
+                        filter=filter_value,
+                        run_id=run_id,
+                        candidate_limit=candidate_limit,
+                        min_score=keyword_min_score,
+                    )
+                elif strategy == "hybrid":
+                    index_id = query_request.index_id or knowledge.default_index_id
+                    results = await self.retrieval_service.query_hybrid(
+                        knowledge_id=knowledge_id,
+                        query_text=query_request.query,
+                        top_k=query_request.top_k,
+                        index_id=index_id,
+                        filter=filter_value,
+                        use_rerank=use_rerank,
+                        reranker_ref=reranker_ref,
+                        run_id=run_id,
+                        candidate_limit=candidate_limit,
+                        min_score=keyword_min_score,
+                        alpha=hybrid_alpha,
+                        keyword_top_k=keyword_top_k,
+                    )
+                else:
+                    index_id = query_request.index_id or knowledge.default_index_id
+                    results = await self.retrieval_service.query(
+                        knowledge_id=knowledge_id,
+                        query_text=query_request.query,
+                        top_k=query_request.top_k,
+                        index_id=index_id,
+                        filter=filter_value,
+                        use_rerank=use_rerank,
+                        reranker_ref=reranker_ref,
+                        run_id=run_id,
+                    )
+            except Exception:
+                results = self._query_indexed_chunks_fallback(
                     knowledge_id=knowledge_id,
-                    query_text=query_request.query,
-                    index_ids=index_ids,
+                    query=query_request.query,
                     top_k=query_request.top_k,
-                    filter=filter_value,
-                    use_rerank=use_rerank,
-                    reranker_ref=reranker_ref,
-                    run_id=run_id,
                 )
-            elif strategy == "keyword":
-                results = await self.retrieval_service.query_keyword(
+                if not results:
+                    raise
+                strategy = f"{strategy}_chunk_fallback"
+
+            if not results:
+                fallback_results = self._query_indexed_chunks_fallback(
                     knowledge_id=knowledge_id,
-                    query_text=query_request.query,
-                    top_k=keyword_top_k,
-                    filter=filter_value,
-                    run_id=run_id,
-                    candidate_limit=candidate_limit,
-                    min_score=keyword_min_score,
-                )
-            elif strategy == "hybrid":
-                index_id = query_request.index_id or knowledge.default_index_id
-                results = await self.retrieval_service.query_hybrid(
-                    knowledge_id=knowledge_id,
-                    query_text=query_request.query,
+                    query=query_request.query,
                     top_k=query_request.top_k,
-                    index_id=index_id,
-                    filter=filter_value,
-                    use_rerank=use_rerank,
-                    reranker_ref=reranker_ref,
-                    run_id=run_id,
-                    candidate_limit=candidate_limit,
-                    min_score=keyword_min_score,
-                    alpha=hybrid_alpha,
-                    keyword_top_k=keyword_top_k,
                 )
-            else:
-                index_id = query_request.index_id or knowledge.default_index_id
-                results = await self.retrieval_service.query(
-                    knowledge_id=knowledge_id,
-                    query_text=query_request.query,
-                    top_k=query_request.top_k,
-                    index_id=index_id,
-                    filter=filter_value,
-                    use_rerank=use_rerank,
-                    reranker_ref=reranker_ref,
-                    run_id=run_id,
-                )
+                if fallback_results:
+                    results = fallback_results
+                    strategy = f"{strategy}_chunk_fallback"
 
             if query_request.include_snippets:
                 for result in results:
@@ -2033,7 +2137,7 @@ class KnowledgeRuntimeService:
                         query_request.snippet_length,
                     )
 
-            citations: List[QueryCitation] = []
+            citations: list[QueryCitation] = []
             for idx, result in enumerate(results):
                 metadata = result.metadata or {}
                 snippet = result.snippets[0] if result.snippets else None
@@ -2097,24 +2201,24 @@ class KnowledgeRuntimeService:
             if run_id:
                 self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
-    
+
     @workspace_guard("read")
     async def list_knowledge(
         self,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[Knowledge]:
+    ) -> list[Knowledge]:
         """List knowledge bases.
-        
+
         Args:
             limit: Maximum number of knowledge bases.
             offset: Offset for pagination.
-            
+
         Returns:
             List of Knowledge instances.
         """
         return self.knowledge_repo.list(limit=limit, offset=offset)
-    
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id")
     async def delete_knowledge(self, knowledge_id: str) -> None:
         """Delete a knowledge base (soft delete).

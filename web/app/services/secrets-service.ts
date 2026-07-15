@@ -13,11 +13,11 @@ export interface Secret {
 }
 
 export const listSecrets = (params?: { limit?: number; offset?: number }): Promise<Secret[]> => {
-  return get<Secret[]>('/secrets', params).then(response => response.data)
+  return get<Secret[]>('/secrets', params)
 }
 
 export const getSecret = (secretId: string): Promise<Secret> => {
-  return get<Secret>(`/secrets/${secretId}`).then(response => response.data)
+  return get<Secret>(`/secrets/${secretId}`)
 }
 
 export const createSecret = (data: {
@@ -25,7 +25,7 @@ export const createSecret = (data: {
   description?: string
   value: string
 }): Promise<Secret> => {
-  return post<Secret>('/secrets', data).then(response => response.data)
+  return post<Secret>('/secrets', data)
 }
 
 export const updateSecret = (
@@ -36,13 +36,13 @@ export const updateSecret = (
     value?: string
   }
 ): Promise<Secret> => {
-  return patch<Secret>(`/secrets/${secretId}`, data).then(response => response.data)
+  return patch<Secret>(`/secrets/${secretId}`, data)
 }
 
 export const deleteSecret = (secretId: string): Promise<void> => {
-  return del(`/secrets/${secretId}`).then(response => response.data)
+  return del(`/secrets/${secretId}`)
 }
 
 export const testSecret = (secretId: string): Promise<{ ok: boolean; message?: string | null }> => {
-  return post(`/secrets/${secretId}/test`).then(response => response.data as { ok: boolean; message?: string | null })
+  return post<{ ok: boolean; message?: string | null }>(`/secrets/${secretId}/test`)
 }

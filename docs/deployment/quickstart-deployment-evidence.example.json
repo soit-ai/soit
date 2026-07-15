@@ -1,0 +1,53 @@
+{
+  "featureKey": "phase1.quickstart_deployment",
+  "deploymentId": "quickstart-local-docker-20260611",
+  "release": "v1.0.0-rc",
+  "environment": "fresh-local-docker",
+  "operator": "release-owner",
+  "startedAt": "2026-06-11T09:00:00Z",
+  "finishedAt": "2026-06-11T09:09:00Z",
+  "docker": {
+    "composeCommand": "docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker",
+    "elapsedSeconds": 540,
+    "composePsEvidenceRef": "evidence/quickstart/docker-compose-ps.log",
+    "services": [
+      {"name": "postgres", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/postgres.log"},
+      {"name": "redis", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/redis.log"},
+      {"name": "minio", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/minio.log"},
+      {"name": "etcd", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/etcd.log"},
+      {"name": "milvus", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/milvus.log"},
+      {"name": "vault", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/vault.log"},
+      {"name": "migrate", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/migrate.log"},
+      {"name": "bootstrap", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/bootstrap.log"},
+      {"name": "api", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/api.log"},
+      {"name": "web", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/web.log"},
+      {"name": "knowledge-ingest-worker", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/knowledge-ingest-worker.log"}
+    ]
+  },
+  "checks": {
+    "apiHealth": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/api-health.log"
+    },
+    "webHealth": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/web-health.log"
+    },
+    "knowledgeWorker": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/knowledge-worker-ps.log"
+    },
+    "demoSeed": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/bootstrap-enterprise-mvp.log"
+    },
+    "chainA": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/enterprise-agent-mvp-test.log"
+    },
+    "regression": {
+      "status": "passed",
+      "evidenceRef": "evidence/quickstart/support-ticket-regression.json"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "release": "v1.0.0",
+  "release_tag": "v1.0.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "release_notes": "docs/releases/v1.0.0.md",
+  "operator": "release-owner",
+  "publishedAt": "2026-06-11T11:00:00Z",
+  "clean_worktree_at_tag": true,
+  "evidence": [
+    {
+      "name": "quickstart_deployment",
+      "status": "passed",
+      "evidenceRef": "docs/deployment/quickstart-deployment-evidence.json"
+    },
+    {
+      "name": "manual_acceptance",
+      "status": "passed",
+      "evidenceRef": "docs/deployment/phase1-manual-acceptance-evidence.json"
+    },
+    {
+      "name": "model_provider_spotcheck",
+      "status": "passed",
+      "evidenceRef": "docs/deployment/model-provider-spotcheck-evidence.json"
+    },
+    {
+      "name": "migration_paths",
+      "status": "passed",
+      "evidenceRef": "docs/deployment/release-migration-evidence.json"
+    },
+    {
+      "name": "non_developer_feedback",
+      "status": "passed",
+      "evidenceRef": "docs/deployment/phase1-user-feedback-evidence.json"
+    },
+    {
+      "name": "quality_gate",
+      "status": "passed",
+      "evidenceRef": "evidence/phase1/quality-gate.log"
+    },
+    {
+      "name": "release_notes_published",
+      "status": "passed",
+      "evidenceRef": "evidence/phase1/release-notes-published.log"
+    }
+  ]
+}

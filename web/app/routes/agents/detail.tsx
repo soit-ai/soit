@@ -15,6 +15,7 @@ import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
+import { cn } from '@/lib/utils'
 import {
   createAgentVersion,
   getAgent,
@@ -27,7 +28,13 @@ import {
   type AgentRelease,
   type AgentVersion,
 } from '@/services/agent-service'
-import { listCapabilityRegistry, type CapabilityRegistryItem } from '@/services/capability-service'
+import {
+  getCapabilityPluginSourceLabel,
+  getCapabilitySourceLabel,
+  listAgentCapabilities,
+  type AgentCapabilityItem,
+} from '@/services/capability-service'
+import { getLatestRegressionReport } from '@/services/evaluation-service'
 import { listKnowledgeBases } from '@/services/knowledge-service'
 import { listModels, type ModelLibraryItem } from '@/services/provider-service'
 import { listRuns, type RunResponse } from '@/services/run-service'
@@ -39,6 +46,14 @@ const formatTimestamp = (value?: string | null) => {
   }
   return formatDateTime(isoToZonedDate(value))
 }
+
+const getCapabilityButtonClassName = (selected: boolean) =>
+  cn(
+    'h-auto min-h-[72px] w-full min-w-0 justify-start whitespace-normal px-3 py-2 text-left',
+    selected ? 'shadow-none' : 'shadow-sm',
+  )
+
+const EMPTY_MODEL_CONFIGS: ModelLibraryItem[] = []
 
 function AgentDetailPage() {
   const navigate = useNavigate()
@@ -62,7 +77,6 @@ function AgentDetailPage() {
     toolRefs: [] as string[],
     workflowRefs: [] as string[],
     skillRefs: [] as string[],
-    pluginRefs: [] as string[],
   })
 
   const {
@@ -135,7 +149,7 @@ function AgentDetailPage() {
     },
   })
 
-  const { data: modelConfigs = [] } = useQuery<ModelLibraryItem[]>({
+  const { data: modelConfigs = EMPTY_MODEL_CONFIGS } = useQuery<ModelLibraryItem[]>({
     queryKey: ['agent', 'models'],
     queryFn: () => listModels(),
     options: {
@@ -156,7 +170,7 @@ function AgentDetailPage() {
 
   const { data: capabilityPage, isLoading: capabilityCatalogLoading } = useQuery({
     queryKey: ['capabilities', 'agent-assembly'],
-    queryFn: () => listCapabilityRegistry({ page_size: 200 }),
+    queryFn: () => listAgentCapabilities({ page_size: 200 }),
     options: {
       retry: false,
       refetchOnWindowFocus: false,
@@ -168,6 +182,20 @@ function AgentDetailPage() {
     [versionPage?.items],
   )
   const latestVersion = versions[0]
+  const regressionVersionId = latestVersion?.id || agent?.current_version_id || agent?.published_version_id || undefined
+  const { data: regressionReport, isLoading: regressionReportLoading } = useQuery({
+    queryKey: ['evaluations', 'latest-regression-report', 'agent', agentId, regressionVersionId],
+    queryFn: () => getLatestRegressionReport({
+      subject_kind: 'agent',
+      subject_id: agentId,
+      subject_version_id: regressionVersionId,
+    }),
+    options: {
+      enabled: Boolean(agentId && regressionVersionId),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
   const releases = releasePage?.items || []
   const knowledgeOptions = knowledgePage?.items || []
   const capabilityCatalog = capabilityPage?.items || []
@@ -182,42 +210,35 @@ function AgentDetailPage() {
       knowledge: bindings.filter((item) => item.binding_type === 'knowledge'),
       workflow: bindings.filter((item) => item.binding_type === 'workflow'),
       skill: bindings.filter((item) => item.binding_type === 'skill'),
-      plugin: bindings.filter((item) => item.binding_type === 'plugin'),
       tool: bindings.filter((item) => item.binding_type === 'tool'),
     }),
     [bindings],
   )
   const capabilityCatalogGroups = useMemo(
     () => ({
-      model: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'model'),
-      knowledge: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'knowledge'),
-      workflow: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'workflow'),
-      plugin: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'plugin'),
-      skill: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'skill'),
-      tool: capabilityCatalog.filter((item: CapabilityRegistryItem) => item.kind === 'tool'),
+      model: capabilityCatalog.filter((item: AgentCapabilityItem) => item.kind === 'model'),
+      knowledge: capabilityCatalog.filter((item: AgentCapabilityItem) => item.kind === 'knowledge'),
+      workflow: capabilityCatalog.filter((item: AgentCapabilityItem) => item.kind === 'workflow'),
+      skill: capabilityCatalog.filter((item: AgentCapabilityItem) => item.kind === 'skill'),
+      tool: capabilityCatalog.filter((item: AgentCapabilityItem) => item.kind === 'tool'),
     }),
+    [capabilityCatalog],
+  )
+  const capabilityByRef = useMemo(
+    () => new Map(capabilityCatalog.map((item: AgentCapabilityItem) => [item.ref, item])),
     [capabilityCatalog],
   )
 
   const parseVersionSpecBindings = (spec: Record<string, unknown>) => {
     const bindingsSpec = (spec.bindings as Record<string, unknown> | undefined) || {}
-    const legacyModelSpec = (spec.model as Record<string, unknown> | undefined) || {}
-    const legacyRagSpec = (spec.rag as Record<string, unknown> | undefined) || {}
     const readRefs = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [])
-    const bindingKnowledgeRefs = readRefs(bindingsSpec.knowledge_refs)
 
     return {
-      modelRef:
-        typeof bindingsSpec.model_ref === 'string'
-          ? bindingsSpec.model_ref
-          : typeof legacyModelSpec.ref_key === 'string'
-            ? legacyModelSpec.ref_key
-            : '',
-      knowledgeRefs: bindingKnowledgeRefs.length > 0 ? bindingKnowledgeRefs : readRefs(legacyRagSpec.knowledges),
+      modelRef: typeof bindingsSpec.model_ref === 'string' ? bindingsSpec.model_ref : '',
+      knowledgeRefs: readRefs(bindingsSpec.knowledge_refs),
       toolRefs: readRefs(bindingsSpec.tool_refs),
       workflowRefs: readRefs(bindingsSpec.workflow_refs),
       skillRefs: readRefs(bindingsSpec.skill_refs),
-      pluginRefs: readRefs(bindingsSpec.plugin_refs),
     }
   }
 
@@ -235,35 +256,39 @@ function AgentDetailPage() {
   }, [agent])
 
   useEffect(() => {
-    if (latestVersion) {
-      const spec = latestVersion.spec_json || {}
-      const specBindings = parseVersionSpecBindings(spec)
-      const params = (spec.params as Record<string, unknown> | undefined) || {}
-      const limits = (spec.limits as Record<string, unknown> | undefined) || {}
-
-      setDraftForm({
-        systemPrompt: typeof spec.system_prompt === 'string' ? spec.system_prompt : '',
-        modelRef: specBindings.modelRef || modelOptions[0]?.modelName || '',
-        temperature:
-          typeof params.temperature === 'number' ? String(params.temperature) : '0.2',
-        maxIterations:
-          typeof limits.max_iterations === 'number' ? String(limits.max_iterations) : '8',
-        knowledgeRefs: specBindings.knowledgeRefs,
-        toolRefs: specBindings.toolRefs,
-        workflowRefs: specBindings.workflowRefs,
-        skillRefs: specBindings.skillRefs,
-        pluginRefs: specBindings.pluginRefs,
-      })
+    if (!latestVersion) {
       return
     }
 
-    if (modelOptions.length > 0) {
-      setDraftForm((current) => ({
-        ...current,
-        modelRef: current.modelRef || modelOptions[0].modelName,
-      }))
+    const spec = latestVersion.spec_json || {}
+    const specBindings = parseVersionSpecBindings(spec)
+    const params = (spec.params as Record<string, unknown> | undefined) || {}
+    const limits = (spec.limits as Record<string, unknown> | undefined) || {}
+
+    setDraftForm({
+      systemPrompt: typeof spec.system_prompt === 'string' ? spec.system_prompt : '',
+      modelRef: specBindings.modelRef,
+      temperature:
+        typeof params.temperature === 'number' ? String(params.temperature) : '0.2',
+      maxIterations:
+        typeof limits.max_iterations === 'number' ? String(limits.max_iterations) : '8',
+      knowledgeRefs: specBindings.knowledgeRefs,
+      toolRefs: specBindings.toolRefs,
+      workflowRefs: specBindings.workflowRefs,
+      skillRefs: specBindings.skillRefs,
+    })
+  }, [latestVersion])
+
+  useEffect(() => {
+    if (modelOptions.length === 0) {
+      return
     }
-  }, [latestVersion, modelOptions])
+
+    setDraftForm((current) => ({
+      ...current,
+      modelRef: current.modelRef || modelOptions[0].modelName,
+    }))
+  }, [modelOptions])
 
   const handleSaveProfile = async () => {
     if (!agentId) {
@@ -311,7 +336,6 @@ function AgentDetailPage() {
           tool_refs: draftForm.toolRefs,
           workflow_refs: draftForm.workflowRefs,
           skill_refs: draftForm.skillRefs,
-          plugin_refs: draftForm.pluginRefs,
         },
         temperature: draftForm.temperature ? Number(draftForm.temperature) : undefined,
         max_iterations: draftForm.maxIterations ? Number(draftForm.maxIterations) : undefined,
@@ -353,7 +377,7 @@ function AgentDetailPage() {
     }))
   }
 
-  const toggleCapabilityRef = (field: 'toolRefs' | 'workflowRefs' | 'skillRefs' | 'pluginRefs', ref: string) => {
+  const toggleCapabilityRef = (field: 'toolRefs' | 'workflowRefs' | 'skillRefs', ref: string) => {
     setDraftForm((current) => ({
       ...current,
       [field]: current[field].includes(ref)
@@ -394,17 +418,11 @@ function AgentDetailPage() {
       emptyKey: 'agent.detail.assembly.emptySkillBindings',
       items: capabilityCatalogGroups.skill,
     },
-    {
-      field: 'pluginRefs',
-      labelKey: 'agent.detail.assembly.pluginBindings',
-      emptyKey: 'agent.detail.assembly.emptyPluginBindings',
-      items: capabilityCatalogGroups.plugin,
-    },
   ] satisfies {
-    field: 'toolRefs' | 'workflowRefs' | 'skillRefs' | 'pluginRefs'
+    field: 'toolRefs' | 'workflowRefs' | 'skillRefs'
     labelKey: TranslationKey
     emptyKey: TranslationKey
-    items: CapabilityRegistryItem[]
+    items: AgentCapabilityItem[]
   }[]
 
   const capabilityGroupLabelKeys = {
@@ -412,10 +430,19 @@ function AgentDetailPage() {
     knowledge: 'agent.detail.capabilityGroups.knowledge',
     workflow: 'agent.detail.capabilityGroups.workflow',
     skill: 'agent.detail.capabilityGroups.skill',
-    plugin: 'agent.detail.capabilityGroups.plugin',
     tool: 'agent.detail.capabilityGroups.tool',
   } satisfies Record<string, TranslationKey>
   type CapabilityGroupName = keyof typeof capabilityGroupLabelKeys
+  const regressionSummary = regressionReport?.summary_json || {}
+  const regressionMetrics = regressionReport?.metrics_json || {}
+  const regressionTotal = Number(regressionSummary.total || 0)
+  const regressionPassed = Number(regressionSummary.passed || 0)
+  const regressionLatency = typeof regressionMetrics.avg_latency_ms === 'number'
+    ? `${Math.round(regressionMetrics.avg_latency_ms)} ms avg`
+    : '-'
+  const regressionCost = typeof regressionMetrics.avg_cost_amount === 'number'
+    ? `$${regressionMetrics.avg_cost_amount.toFixed(2)} avg`
+    : '-'
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
@@ -456,7 +483,7 @@ function AgentDetailPage() {
               <Settings2 className="mr-2 h-4 w-4" />
               {t('agent.detail.hero.models')}
             </Button>
-            <Button variant="secondary" onClick={() => navigate(`/observability/runs?subject_id=${agentId}`)}>
+            <Button variant="secondary" onClick={() => navigate(`/observe/runs?subject_id=${agentId}`)}>
               <Clock3 className="mr-2 h-4 w-4" />
               {t('agent.detail.hero.viewRuns')}
             </Button>
@@ -663,21 +690,40 @@ function AgentDetailPage() {
             {capabilityFields.map(({ field, labelKey, emptyKey, items }) => (
               <div key={field} className="grid gap-2">
                 <Label>{t(labelKey)}</Label>
-                <div className="flex flex-wrap gap-2 rounded-xl border p-3">
+                <div className="grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
                   {items.length === 0 && (
-                    <div className="text-sm text-muted-foreground">{t(emptyKey)}</div>
+                    <div className="text-sm text-muted-foreground sm:col-span-2">{t(emptyKey)}</div>
                   )}
                   {items.map((item) => {
                     const selected = draftForm[field].includes(item.ref)
+                    const sourceLabel = getCapabilitySourceLabel(item)
+                    const pluginSourceLabel = getCapabilityPluginSourceLabel(item)
                     return (
                       <Button
                         key={item.ref}
                         type="button"
                         variant={selected ? 'default' : 'outline'}
                         size="sm"
+                        aria-pressed={selected}
+                        className={getCapabilityButtonClassName(selected)}
                         onClick={() => toggleCapabilityRef(field, item.ref)}
                       >
-                        {item.name}
+                        <span className="flex min-w-0 flex-1 flex-col gap-1">
+                          <span className="flex min-w-0 items-center justify-between gap-2">
+                            <span className="min-w-0 truncate font-medium">{item.name}</span>
+                            <Badge variant={selected ? 'secondary' : 'outline'} className="shrink-0">
+                              {sourceLabel}
+                            </Badge>
+                          </span>
+                          <span className={cn('min-w-0 break-all text-xs', selected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                            {item.ref}
+                          </span>
+                          {pluginSourceLabel && (
+                            <span className={cn('text-xs font-medium', selected ? 'text-primary-foreground/85' : 'text-foreground/70')}>
+                              {pluginSourceLabel}
+                            </span>
+                          )}
+                        </span>
                       </Button>
                     )
                   })}
@@ -699,6 +745,45 @@ function AgentDetailPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <div className="grid gap-4">
+          {regressionReport || regressionReportLoading ? (
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>Regression Gate</CardTitle>
+                    <CardDescription>Latest replay report for the current release candidate.</CardDescription>
+                  </div>
+                  {regressionReport ? (
+                    <Badge variant={regressionReport.passed ? 'default' : 'destructive'}>
+                      {regressionReport.passed ? 'Passed' : 'Failed'}
+                    </Badge>
+                  ) : null}
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-3">
+                {regressionReportLoading && !regressionReport ? (
+                  <div className="text-sm text-muted-foreground sm:col-span-3">Loading regression report...</div>
+                ) : (
+                  <>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">Cases</div>
+                      <div className="mt-1 text-lg font-semibold">{regressionPassed} / {regressionTotal} cases</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">Latency</div>
+                      <div className="mt-1 text-lg font-semibold">{regressionLatency}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">Cost</div>
+                      <div className="mt-1 text-lg font-semibold">{regressionCost}</div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
         <Card>
           <CardHeader>
             <CardTitle>{t('agent.detail.versions.title')}</CardTitle>
@@ -738,10 +823,18 @@ function AgentDetailPage() {
                             </Badge>
                           )
                         })}
-                        {versionBindings.toolRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                        {versionBindings.toolRefs.map((ref) => {
+                          const capability = capabilityByRef.get(ref)
+                          const pluginSourceLabel = capability ? getCapabilityPluginSourceLabel(capability) : null
+                          return (
+                            <Badge key={ref} variant="outline" className="max-w-full gap-1 whitespace-normal break-all text-left">
+                              <span>{ref}</span>
+                              {pluginSourceLabel && <span className="text-muted-foreground">Plugin {pluginSourceLabel}</span>}
+                            </Badge>
+                          )
+                        })}
                         {versionBindings.workflowRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
                         {versionBindings.skillRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
-                        {versionBindings.pluginRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
                       </div>
                       {typeof spec.system_prompt === 'string' && spec.system_prompt && (
                         <div className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
@@ -770,6 +863,7 @@ function AgentDetailPage() {
               })}
           </CardContent>
         </Card>
+        </div>
 
         <div className="grid gap-4">
           <Card>
@@ -780,7 +874,7 @@ function AgentDetailPage() {
             <CardContent className="space-y-3">
               {capabilityCatalogLoading && <div className="text-sm text-muted-foreground">{t('agent.detail.catalog.loading')}</div>}
               {!capabilityCatalogLoading &&
-                (Object.entries(capabilityCatalogGroups) as [CapabilityGroupName, CapabilityRegistryItem[]][]).map(([groupName, items]) => (
+                (Object.entries(capabilityCatalogGroups) as [CapabilityGroupName, AgentCapabilityItem[]][]).map(([groupName, items]) => (
                   <div key={groupName} className="rounded-lg border p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-medium">{t(capabilityGroupLabelKeys[groupName])}</div>
@@ -887,7 +981,7 @@ function AgentDetailPage() {
                   <button
                     key={run.id}
                     type="button"
-                    onClick={() => navigate(`/observability/runs/${run.id}`)}
+                    onClick={() => navigate(`/observe/runs/${run.id}`)}
                     className="w-full rounded-lg border p-3 text-left transition-colors hover:border-primary/40"
                   >
                     <div className="flex items-center justify-between gap-3">

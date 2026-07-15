@@ -1,4 +1,7 @@
 import { get, post } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
+
+export type { PaginatedResponse } from '@/types/api'
 
 export interface ApiKeyItem {
   id: string
@@ -24,27 +27,21 @@ export interface ApiKeyRotateResponse {
   item: ApiKeyItem
 }
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
-
 export const listApiKeys = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<ApiKeyItem>> => {
-  return get<PaginatedResponse<ApiKeyItem>>('/api-keys', params).then(response => response.data)
+  return get<PaginatedResponse<ApiKeyItem>>('/api-keys', params)
 }
 
 export const createApiKey = (data: { name: string }): Promise<ApiKeyCreateResponse> => {
-  return post<ApiKeyCreateResponse>('/api-keys', data).then(response => response.data)
+  return post<ApiKeyCreateResponse>('/api-keys', data)
 }
 
 export const revokeApiKey = (keyId: string): Promise<ApiKeyItem> => {
-  return post<ApiKeyItem>(`/api-keys/${keyId}/revoke`, {}).then(response => response.data)
+  return post<ApiKeyItem>(`/api-keys/${keyId}/revoke`, {})
 }
 
 export const rotateApiKey = (keyId: string): Promise<ApiKeyRotateResponse> => {
-  return post<ApiKeyRotateResponse>(`/api-keys/${keyId}/rotate`, {}).then(response => response.data)
+  return post<ApiKeyRotateResponse>(`/api-keys/${keyId}/rotate`, {})
 }

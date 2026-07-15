@@ -1,6 +1,5 @@
 """Plugin request handlers."""
 
-from typing import Optional
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
@@ -77,8 +76,8 @@ class PluginHandlers:
         self,
         ctx: RequestContext,
         published_only: bool = False,
-        plugin_type: Optional[str] = None,
-        page_token: Optional[str] = None,
+        plugin_type: str | None = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[PluginResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -127,7 +126,7 @@ class PluginHandlers:
         ctx: RequestContext,
         plugin_id: str,
         *,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[PluginVersionResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -143,7 +142,7 @@ class PluginHandlers:
         ctx: RequestContext,
         plugin_id: str,
         *,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[PluginReleaseResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -196,7 +195,7 @@ class PluginHandlers:
         ctx: RequestContext,
         plugin_id: str,
         *,
-        page_token: Optional[str] = None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[PluginInstallationResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -223,7 +222,7 @@ class PluginHandlers:
         ctx: RequestContext,
         plugin_id: str,
         package_bytes: bytes,
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> PluginPackageInstallResponse:
         result = await self.service.install_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
         return PluginPackageInstallResponse(**result)
@@ -234,7 +233,7 @@ class PluginHandlers:
         package_bytes: bytes,
         *,
         mode: str = "auto",
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> PluginPackageUploadResponse:
         result = await self.service.upload_plugin_package(
             package_bytes,
@@ -256,7 +255,7 @@ class PluginHandlers:
         ctx: RequestContext,
         plugin_id: str,
         package_bytes: bytes,
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> PluginUpgradeResponse:
         result = await self.service.upgrade_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
         plugin = await self.service.get_plugin(plugin_id)
@@ -289,10 +288,10 @@ class PluginHandlers:
         self,
         ctx: RequestContext,
         *,
-        plugin_id: Optional[str],
-        artifact_kind: Optional[str],
-        enabled: Optional[bool],
-        page_token: Optional[str] = None,
+        plugin_id: str | None,
+        artifact_kind: str | None,
+        enabled: bool | None,
+        page_token: str | None = None,
         page_size: int = 20,
     ) -> PaginatedResponse[PluginArtifactResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -313,8 +312,8 @@ class PluginHandlers:
         self,
         ctx: RequestContext,
         *,
-        kind: Optional[str],
-        page_token: Optional[str] = None,
+        kind: str | None,
+        page_token: str | None = None,
         page_size: int = 100,
     ) -> PaginatedResponse[PluginCapabilityResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)

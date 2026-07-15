@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -44,6 +44,9 @@ export function SegmentSettingsDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('knowledge.document.segment.title')}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure parent and child segment rules for document ingestion.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-6">
           <div>

@@ -308,6 +308,10 @@ function Page() {
 
   const primaryIndex = useMemo(() => indexes.find((item) => item.is_primary), [indexes])
   const citations = queryResult?.citations || []
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '-'
+    return new Date(value).toLocaleString()
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
@@ -425,7 +429,10 @@ function Page() {
                       <TableHead>{t('knowledge.setting.indexes.columns.name')}</TableHead>
                       <TableHead>{t('knowledge.setting.indexes.columns.model')}</TableHead>
                       <TableHead>{t('knowledge.setting.indexes.columns.status')}</TableHead>
+                      <TableHead>{t('knowledge.setting.indexes.columns.build')}</TableHead>
                       <TableHead>{t('knowledge.setting.indexes.columns.vectorCount')}</TableHead>
+                      <TableHead>{t('knowledge.setting.indexes.columns.lastError')}</TableHead>
+                      <TableHead>{t('knowledge.setting.indexes.columns.lastRun')}</TableHead>
                       <TableHead>{t('knowledge.setting.indexes.columns.primary')}</TableHead>
                       <TableHead>{t('knowledge.setting.indexes.columns.actions')}</TableHead>
                     </TableRow>
@@ -438,7 +445,42 @@ function Page() {
                         <TableCell>
                           <Badge variant="outline">{item.status}</Badge>
                         </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            v{item.build_version}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatDateTime(item.last_build_at)}
+                          </div>
+                        </TableCell>
                         <TableCell>{item.vector_count}</TableCell>
+                        <TableCell className="max-w-[220px]">
+                          {item.last_error_message || item.last_error_code ? (
+                            <div className="space-y-1">
+                              {item.last_error_code && <Badge variant="destructive">{item.last_error_code}</Badge>}
+                              {item.last_error_message && (
+                                <div className="text-xs text-muted-foreground line-clamp-2">
+                                  {item.last_error_message}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {item.last_run_id ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => navigate(`/observe/runs/${item.last_run_id}`)}
+                            >
+                              {t('knowledge.setting.indexes.actions.viewRun')}
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell>{item.is_primary ? t('knowledge.setting.indexes.primaryYes') : t('knowledge.setting.indexes.primaryNo')}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">

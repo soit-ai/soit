@@ -3,21 +3,25 @@
 Memory domain service.
 """
 
-from typing import Optional, List, Dict, Any
+
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.ports.llm.interface import LLMPort
-from app.kernel.ports.vector.interface import VectorPort
-from app.modules.memory.domain.models import MemoryItem
-from app.modules.memory.application.schemas import MemoryCreate, MemoryQuery, MemorySearchResult
-from app.modules.memory.infra.repository import MemoryRepository
-from app.settings.settings import settings
+from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import rbac_guard
 from app.kernel.identity.permissions import RESOURCE_MEMORY
+from app.kernel.ports.llm.interface import LLMPort
+from app.kernel.ports.vector.interface import VectorPort
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.memory.application.schemas import (
+    MemoryCreate,
+    MemoryQuery,
+    MemorySearchResult,
+)
+from app.modules.memory.domain.models import MemoryItem
+from app.modules.memory.infra.repository import MemoryRepository
+from app.settings.settings import settings
 
 
 class MemoryService:
@@ -28,9 +32,9 @@ class MemoryService:
         db: Session,
         ctx: RequestContext,
         memory_repo: MemoryRepository,
-        llm_port: Optional[LLMPort] = None,
-        vector_port: Optional[VectorPort] = None,
-        trace_writer: Optional[TraceWriter] = None,
+        llm_port: LLMPort | None = None,
+        vector_port: VectorPort | None = None,
+        trace_writer: TraceWriter | None = None,
     ):
         self.db = db
         self.ctx = ctx
@@ -39,7 +43,7 @@ class MemoryService:
         self.vector_port = vector_port
         self.trace_writer = trace_writer
 
-    def _resolve_memory_trace_subject(self, user_id: Optional[str] = None) -> tuple[str, str]:
+    def _resolve_memory_trace_subject(self, user_id: str | None = None) -> tuple[str, str]:
         owner_id = user_id or self.ctx.user_id or self.ctx.workspace_id
         return owner_id, "memory:v1"
 
@@ -50,14 +54,14 @@ class MemoryService:
             data = args[1]
         user_id = None
         if data is not None and hasattr(data, "user_id"):
-            user_id = getattr(data, "user_id")
+            user_id = data.user_id
         return user_id or self.ctx.user_id
 
     def _collection_name(self) -> str:
         return f"mem_{self.ctx.tenant_id}_{self.ctx.workspace_id}"
 
     @rbac_guard(RESOURCE_MEMORY, "create", resource_id_resolver=_resolve_memory_owner_id)
-    async def create_memory(self, data: MemoryCreate, run_id: Optional[str] = None) -> MemoryItem:
+    async def create_memory(self, data: MemoryCreate, run_id: str | None = None) -> MemoryItem:
         """Create a memory item and optionally index it."""
         from app.kernel.specs.validator import validator
 
@@ -153,8 +157,8 @@ class MemoryService:
     async def query_memory(
         self,
         data: MemoryQuery,
-        run_id: Optional[str] = None,
-    ) -> List[MemorySearchResult]:
+        run_id: str | None = None,
+    ) -> list[MemorySearchResult]:
         """Query memory items using vector similarity."""
         if not self.llm_port or not self.vector_port:
             raise ValidationError("Memory query requires LLM and vector ports")
@@ -201,12 +205,10 @@ class MemoryService:
                 run_id=run_id,
             )
 
-            scores_map: Dict[str, float] = {
-                memory_id: score for memory_id, score in zip(results.ids, results.scores)
-            }
+            scores_map: dict[str, float] = dict(zip(results.ids, results.scores, strict=False))
             items = self.memory_repo.list_by_ids(list(scores_map.keys()))
 
-            filtered: List[MemoryItem] = []
+            filtered: list[MemoryItem] = []
             for item in items:
                 if item.deleted_at is not None:
                     continue
@@ -251,7 +253,7 @@ class MemoryService:
             raise
 
     @rbac_guard(RESOURCE_MEMORY, "read", resource_id_resolver=_resolve_memory_owner_id)
-    async def list_memories(self, limit: int = 20, offset: int = 0) -> List[MemoryItem]:
+    async def list_memories(self, limit: int = 20, offset: int = 0) -> list[MemoryItem]:
         """List memories."""
         return self.memory_repo.list(limit=limit, offset=offset)
 
@@ -264,7 +266,7 @@ class MemoryService:
         return memory
 
     @rbac_guard(RESOURCE_MEMORY, "delete", resource_id_arg="memory_id")
-    async def delete_memory(self, memory_id: str, run_id: Optional[str] = None) -> None:
+    async def delete_memory(self, memory_id: str, run_id: str | None = None) -> None:
         """Soft delete memory and remove vector."""
         memory = self.get_memory(memory_id)
         memory.deleted_at = utc_now()

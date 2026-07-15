@@ -3,29 +3,28 @@
 Secrets API routes.
 """
 
-from typing import List
+
 from fastapi import APIRouter, Depends, status
 
-from app.kernel.contracts.context import RequestContext
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
-from app.modules.secrets.application.schemas import (
-    SecretCreate,
-    SecretUpdate,
-    SecretResponse,
-    SecretTestResponse,
-)
-from app.modules.secrets.application.service import SecretsService
 from app.api.v1.secrets.dependencies import get_secrets_service
 from app.api.v1.secrets.handlers import SecretHandlers
-
+from app.kernel.contracts.context import RequestContext
+from app.modules.secrets.application.schemas import (
+    SecretCreate,
+    SecretResponse,
+    SecretTestResponse,
+    SecretUpdate,
+)
+from app.modules.secrets.application.service import SecretsService
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[SecretResponse])
+@router.get("", response_model=list[SecretResponse])
 async def list_secrets(
     limit: int = 50,
     offset: int = 0,

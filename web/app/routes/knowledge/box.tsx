@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  BarChart3,
   Check,
   Clock3,
   ExternalLink,
@@ -9,7 +10,7 @@ import {
   Plus,
   SquareStack,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,174 +25,19 @@ import {
   BoxToolbar,
   type BoxToolbarTab,
 } from '@/components/box'
+import { useNavigate } from '@/hooks/use-navigate'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
+import { getKnowledgeWorkbench, getKnowledgeWorkbenchItems, type KnowledgeWorkbenchRow } from '@/services/knowledge-service'
 
-type KnowledgeStatus = 'ready' | 'indexing' | 'error' | 'unconfigured'
+type KnowledgeStatus = KnowledgeWorkbenchRow['status']
 
-interface KnowledgeBoxRow {
-  id: string
-  name: string
-  description: string
-  marker: string
-  markerClassName: string
-  status: KnowledgeStatus
-  contentSource: string
-  documents: string
-  chunks: string
-  todayCalls?: string
-  hitRate?: string
-  lastSync: string
-  owner: string
+type MetricDefinition = Omit<React.ComponentProps<typeof MetricStrip>['items'][number], 'label' | 'value'> & {
+  labelKey: TranslationKey
+  value: string
 }
-
-const metricDefinitions = [
-  {
-    id: 'total',
-    labelKey: 'knowledge.workspaceDashboard.metrics.total',
-    value: '32',
-    delta: '+2',
-    trend: [8, 9, 10, 9, 11, 12, 12, 13, 14, 13],
-    icon: SquareStack,
-    tone: 'blue',
-  },
-  {
-    id: 'ready',
-    labelKey: 'knowledge.workspaceDashboard.metrics.ready',
-    value: '27',
-    delta: '84.4%',
-    trend: [7, 8, 8, 9, 10, 9, 11, 10, 12, 12],
-    icon: Check,
-    tone: 'green',
-  },
-  {
-    id: 'ingested',
-    labelKey: 'knowledge.workspaceDashboard.metrics.ingested',
-    value: '1,284',
-    delta: '+18.6%',
-    trend: [5, 7, 8, 7, 10, 12, 9, 14, 13, 16],
-    icon: FileText,
-    tone: 'cyan',
-  },
-  {
-    id: 'latency',
-    labelKey: 'knowledge.workspaceDashboard.metrics.latency',
-    value: '2m 18s',
-    delta: '-24s',
-    trend: [14, 12, 13, 10, 9, 11, 8, 7, 8, 6],
-    icon: Clock3,
-    tone: 'amber',
-  },
-  {
-    id: 'exceptions',
-    labelKey: 'knowledge.workspaceDashboard.metrics.exceptions',
-    value: '4',
-    delta: '+1',
-    trend: [3, 4, 3, 6, 4, 5, 7, 5, 4, 4],
-    icon: AlertTriangle,
-    tone: 'red',
-  },
-] satisfies Array<Omit<React.ComponentProps<typeof MetricStrip>['items'][number], 'label'> & { labelKey: TranslationKey }>
-
-const tabDefinitions = [
-  { id: 'all', labelKey: 'knowledge.workspaceDashboard.tabs.all', count: 32 },
-  { id: 'high', labelKey: 'knowledge.workspaceDashboard.tabs.highVolume', count: 8 },
-  { id: 'low-hit', labelKey: 'knowledge.workspaceDashboard.tabs.lowHit', count: 3 },
-  { id: 'slow', labelKey: 'knowledge.workspaceDashboard.tabs.slow', count: 4 },
-  { id: 'unconfigured', labelKey: 'knowledge.workspaceDashboard.tabs.unconfigured', count: 2 },
-] satisfies Array<Omit<BoxToolbarTab, 'label'> & { labelKey: TranslationKey }>
-
-const knowledgeRows: KnowledgeBoxRow[] = [
-  {
-    id: 'support-policy',
-    name: 'Support Policy Knowledge Base',
-    description: 'After-sales, returns, exchanges, and benefits guidance',
-    marker: 'S',
-    markerClassName: 'bg-blue-600',
-    status: 'ready',
-    contentSource: 'Notion / PDF',
-    documents: '1,248',
-    chunks: '48k',
-    todayCalls: '2,548',
-    hitRate: '98.6%',
-    lastSync: 'Just now',
-    owner: 'Jude',
-  },
-  {
-    id: 'bi-metric',
-    name: 'BI Metric Definition Library',
-    description: 'Business metrics, report definitions, and SQL examples',
-    marker: 'B',
-    markerClassName: 'bg-emerald-500',
-    status: 'ready',
-    contentSource: 'Dataset / API',
-    documents: '860',
-    chunks: '31k',
-    todayCalls: '1,987',
-    hitRate: '97.9%',
-    lastSync: '1 min ago',
-    owner: 'Alice',
-  },
-  {
-    id: 'delivery-docs',
-    name: 'Delivery Project Documents',
-    description: 'Project plans, meeting notes, and risk items',
-    marker: 'D',
-    markerClassName: 'bg-violet-500',
-    status: 'indexing',
-    contentSource: 'Doc / Link',
-    documents: '426',
-    chunks: '18k',
-    todayCalls: '942',
-    hitRate: '93.1%',
-    lastSync: '3 min ago',
-    owner: 'Bob',
-  },
-  {
-    id: 'finance-policy',
-    name: 'Finance Policy Library',
-    description: 'Approval rules, reimbursement policy, and contract templates',
-    marker: 'F',
-    markerClassName: 'bg-red-500',
-    status: 'error',
-    contentSource: 'PDF / OCR',
-    documents: '321',
-    chunks: '12k',
-    todayCalls: '321',
-    hitRate: '81.2%',
-    lastSync: 'Just now',
-    owner: 'David',
-  },
-  {
-    id: 'hr-manual',
-    name: 'HR Employee Handbook',
-    description: 'Onboarding, compensation, benefits, and attendance policy',
-    marker: 'H',
-    markerClassName: 'bg-cyan-500',
-    status: 'ready',
-    contentSource: 'Wiki / Doc',
-    documents: '785',
-    chunks: '22k',
-    todayCalls: '785',
-    hitRate: '99.1%',
-    lastSync: '5 min ago',
-    owner: 'Eve',
-  },
-  {
-    id: 'content-rules',
-    name: 'Content Review Rules',
-    description: 'Text, image, and content compliance rules',
-    marker: 'C',
-    markerClassName: 'bg-orange-500',
-    status: 'unconfigured',
-    contentSource: 'Manual',
-    documents: '-',
-    chunks: '-',
-    lastSync: '-',
-    owner: 'Frank',
-  },
-]
 
 const statusConfig = {
   ready: {
@@ -212,15 +58,93 @@ const statusConfig = {
   },
 } satisfies Record<KnowledgeStatus, { labelKey: TranslationKey; className: string }>
 
-function KnowledgeNameCell({ row, name, description }: { row: KnowledgeBoxRow; name: string; description: string }) {
+function formatNumber(value?: number | null) {
+  return typeof value === 'number' ? value.toLocaleString() : '-'
+}
+
+function formatCompactNumber(value?: number | null) {
+  if (typeof value !== 'number') return '-'
+  if (value >= 1000000) return `${Number((value / 1000000).toFixed(1))}m`
+  if (value >= 1000) return `${Number((value / 1000).toFixed(1))}k`
+  return value.toLocaleString()
+}
+
+function formatLatency(value?: number | null) {
+  if (typeof value !== 'number') return '-'
+  return value >= 1000 ? `${Number((value / 1000).toFixed(1))}s` : `${value.toLocaleString()}ms`
+}
+
+function formatRate(value?: number | null) {
+  return typeof value === 'number' ? `${value.toFixed(value % 1 === 0 ? 0 : 1)}%` : '-'
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString()
+}
+
+function getMarkerClassName(row: KnowledgeWorkbenchRow) {
+  if (row.status === 'error') return 'bg-red-500'
+  if (row.status === 'indexing') return 'bg-amber-500'
+  if (row.status === 'unconfigured') return 'bg-slate-500'
+  return row.knowledge_type === 'qa' ? 'bg-emerald-500' : row.knowledge_type === 'code' ? 'bg-violet-500' : 'bg-blue-600'
+}
+
+function buildMetricItems(workbench?: Awaited<ReturnType<typeof getKnowledgeWorkbench>>): MetricDefinition[] {
+  const summary = workbench?.summary
+  return [
+    {
+      id: 'total',
+      labelKey: 'knowledge.workspaceDashboard.metrics.total',
+      value: formatNumber(summary?.total_knowledge_bases),
+      trend: [8, 9, 10, 9, 11, 12, 12, 13, 14, 13],
+      icon: SquareStack,
+      tone: 'blue',
+    },
+    {
+      id: 'ready',
+      labelKey: 'knowledge.workspaceDashboard.metrics.ready',
+      value: formatNumber(summary?.ready_knowledge_bases),
+      trend: [7, 8, 8, 9, 10, 9, 11, 10, 12, 12],
+      icon: Check,
+      tone: 'green',
+    },
+    {
+      id: 'ingested',
+      labelKey: 'knowledge.workspaceDashboard.metrics.ingested',
+      value: formatCompactNumber(summary?.total_documents),
+      trend: [5, 7, 8, 7, 10, 12, 9, 14, 13, 16],
+      icon: FileText,
+      tone: 'cyan',
+    },
+    {
+      id: 'latency',
+      labelKey: 'knowledge.workspaceDashboard.metrics.latency',
+      value: formatLatency(summary?.avg_latency_ms),
+      trend: [14, 12, 13, 10, 9, 11, 8, 7, 8, 6],
+      icon: Clock3,
+      tone: 'amber',
+    },
+    {
+      id: 'exceptions',
+      labelKey: 'knowledge.workspaceDashboard.metrics.exceptions',
+      value: formatNumber(summary?.recent_exceptions),
+      trend: [3, 4, 3, 6, 4, 5, 7, 5, 4, 4],
+      icon: AlertTriangle,
+      tone: 'red',
+    },
+  ]
+}
+
+function KnowledgeNameCell({ row }: { row: KnowledgeWorkbenchRow }) {
   return (
     <div className="flex min-w-[270px] items-center gap-3">
-      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold text-white', row.markerClassName)}>
-        {row.marker}
+      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold text-white', getMarkerClassName(row))}>
+        {row.name.trim().slice(0, 1).toUpperCase() || 'K'}
       </div>
       <div className="min-w-0">
-        <div className="truncate font-semibold text-foreground">{name}</div>
-        <div className="mt-0.5 max-w-[310px] truncate text-xs text-muted-foreground">{description}</div>
+        <div className="truncate font-semibold text-foreground">{row.name}</div>
+        <div className="mt-0.5 max-w-[310px] truncate text-xs text-muted-foreground">{row.description || '-'}</div>
       </div>
     </div>
   )
@@ -231,25 +155,46 @@ function StatusBadge({ status, label }: { status: KnowledgeStatus; label: string
   return <Badge className={cn('rounded-md border px-2 py-1', config.className)}>{label}</Badge>
 }
 
-function HitRate({ row }: { row: KnowledgeBoxRow }) {
-  if (!row.hitRate) return <span className="text-muted-foreground">-</span>
-  const value = Number(row.hitRate.replace('%', ''))
+function HitRate({ row }: { row: KnowledgeWorkbenchRow }) {
+  if (typeof row.hit_rate !== 'number') return <span className="text-muted-foreground">-</span>
+  const value = row.hit_rate
   const className = value < 90
     ? 'text-red-600 dark:text-red-300'
     : value < 95
       ? 'text-orange-600 dark:text-orange-300'
       : 'text-emerald-600 dark:text-emerald-300'
 
-  return <span className={cn('font-semibold', className)}>{row.hitRate}</span>
+  return <span className={cn('font-semibold', className)}>{formatRate(row.hit_rate)}</span>
 }
 
-function OperationButtons() {
+function OperationButtons({ row }: { row: KnowledgeWorkbenchRow }) {
+  const navigate = useNavigate()
+
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="icon-xs" className="border-border bg-panel text-foreground shadow-none">
+      <Button
+        variant="outline"
+        size="icon-xs"
+        className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/knowledge/${row.id}/usages`)}
+      >
+        <BarChart3 className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="outline"
+        size="icon-xs"
+        disabled={!row.action_enabled}
+        className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/knowledge/${row.id}/document`)}
+      >
         <ListChecks className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="outline" size="icon-xs" className="border-border bg-panel text-foreground shadow-none">
+      <Button
+        variant="outline"
+        size="icon-xs"
+        className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/knowledge/${row.id}`)}
+      >
         <ExternalLink className="h-3.5 w-3.5" />
       </Button>
       <Button variant="outline" size="icon-xs" className="border-border bg-panel text-foreground shadow-none">
@@ -263,43 +208,103 @@ function KnowledgeBoxPage() {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState('all')
   const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageTokens, setPageTokens] = useState<Array<string | undefined>>([undefined])
+  const tableKeyword = search.trim()
+  const pageToken = pageTokens[currentPage - 1]
 
-  const metrics = useMemo(() => metricDefinitions.map((item) => ({
+  const {
+    data: workbench,
+    isError: isWorkbenchError,
+    error: workbenchError,
+    refetch: refetchWorkbench,
+  } = useQuery({
+    queryKey: ['knowledge', 'workbench'],
+    queryFn: () => getKnowledgeWorkbench({ page_size: 1 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const {
+    data: tableData,
+    isLoading: isTableLoading,
+    isError: isTableError,
+    error: tableError,
+    refetch: refetchTable,
+  } = useQuery({
+    queryKey: ['knowledge', 'workbench', 'items', activeTab, tableKeyword, pageToken],
+    queryFn: () => getKnowledgeWorkbenchItems({
+      page_size: 50,
+      page_token: pageToken,
+      tab: activeTab,
+      keyword: tableKeyword || undefined,
+    }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  useEffect(() => {
+    setCurrentPage(1)
+    setPageTokens([undefined])
+  }, [activeTab, tableKeyword])
+
+  const metrics = useMemo(() => buildMetricItems(workbench).map((item) => ({
     ...item,
     label: t(item.labelKey),
-  })), [t])
+  })), [t, workbench])
 
-  const tabs = useMemo(() => tabDefinitions.map((item) => ({
-    id: item.id,
-    label: t(item.labelKey),
-    count: item.count,
-  })), [t])
+  const tabs = useMemo<BoxToolbarTab[]>(() => {
+    const counts = workbench?.tabs
+    return [
+      { id: 'all', label: t('knowledge.workspaceDashboard.tabs.all'), count: counts?.all ?? 0 },
+      { id: 'high', label: t('knowledge.workspaceDashboard.tabs.highVolume'), count: counts?.high_volume ?? 0 },
+      { id: 'low-hit', label: t('knowledge.workspaceDashboard.tabs.lowHit'), count: counts?.low_hit ?? 0 },
+      { id: 'slow', label: t('knowledge.workspaceDashboard.tabs.slow'), count: counts?.slow ?? 0 },
+      { id: 'unconfigured', label: t('knowledge.workspaceDashboard.tabs.unconfigured'), count: counts?.unconfigured ?? 0 },
+    ]
+  }, [t, workbench?.tabs])
 
-  const rows = useMemo(() => {
-    const keyword = search.trim().toLowerCase()
-    const byTab = knowledgeRows.filter((row) => {
-      if (activeTab === 'all') return true
-      if (activeTab === 'high') return Number((row.todayCalls || '0').replace(',', '')) > 1500
-      if (activeTab === 'low-hit') return row.hitRate ? Number(row.hitRate.replace('%', '')) < 95 : false
-      if (activeTab === 'slow') return row.status === 'indexing' || row.status === 'error'
-      return row.status === activeTab
+  const rows = tableData?.items || []
+  const activeTabTotal = tabs.find((tab) => tab.id === activeTab)?.count
+  const totalRows = tableKeyword ? rows.length : typeof activeTabTotal === 'number' ? activeTabTotal : rows.length
+  const pages = useMemo(() => {
+    const values = currentPage > 1 ? [currentPage - 1, currentPage] : [currentPage]
+    if (tableData?.next_page_token) values.push(currentPage + 1)
+    return values
+  }, [currentPage, tableData?.next_page_token])
+  const goToNextPage = () => {
+    if (!tableData?.next_page_token) return
+    setPageTokens((tokens) => {
+      const nextTokens = tokens.slice(0, currentPage)
+      nextTokens[currentPage] = tableData.next_page_token || undefined
+      return nextTokens
     })
+    setCurrentPage((page) => page + 1)
+  }
+  const goToPreviousPage = () => {
+    if (currentPage <= 1) return
+    setCurrentPage((page) => page - 1)
+  }
+  const goToPage = (page: number) => {
+    if (page === currentPage) return
+    if (page === currentPage + 1) {
+      goToNextPage()
+      return
+    }
+    if (page === currentPage - 1) {
+      goToPreviousPage()
+    }
+  }
 
-    if (!keyword) return byTab
-    return byTab.filter((row) => [row.name, row.description, row.contentSource, row.owner].join(' ').toLowerCase().includes(keyword))
-  }, [activeTab, search])
-
-  const columns = useMemo<BoxDataTableColumn<KnowledgeBoxRow>[]>(() => [
+  const columns = useMemo<BoxDataTableColumn<KnowledgeWorkbenchRow>[]>(() => [
     {
       id: 'name',
       header: t('knowledge.workspaceDashboard.columns.knowledge'),
-      render: (row) => (
-        <KnowledgeNameCell
-          row={row}
-          name={row.name}
-          description={row.description}
-        />
-      ),
+      render: (row) => <KnowledgeNameCell row={row} />,
     },
     {
       id: 'status',
@@ -309,19 +314,19 @@ function KnowledgeBoxPage() {
     {
       id: 'source',
       header: t('knowledge.workspaceDashboard.columns.source'),
-      render: (row) => row.contentSource,
+      render: (row) => row.content_source,
     },
     {
       id: 'documents',
       header: t('knowledge.workspaceDashboard.columns.documentsChunks'),
       cellClassName: 'font-medium text-foreground',
-      render: (row) => `${row.documents} / ${row.chunks}`,
+      render: (row) => `${formatNumber(row.document_count)} / ${formatCompactNumber(row.chunk_count)}`,
     },
     {
       id: 'todayCalls',
       header: t('knowledge.workspaceDashboard.columns.callsToday'),
       cellClassName: 'font-medium text-foreground',
-      render: (row) => row.todayCalls || '-',
+      render: (row) => formatNumber(row.today_calls),
     },
     {
       id: 'hitRate',
@@ -332,18 +337,18 @@ function KnowledgeBoxPage() {
       id: 'lastSync',
       header: t('knowledge.workspaceDashboard.columns.lastSync'),
       render: (row) => {
-        return <span className={row.lastSync === '-' ? 'text-muted-foreground' : 'text-foreground/80'}>{row.lastSync}</span>
+        return <span className={row.last_sync_at ? 'text-foreground/80' : 'text-muted-foreground'}>{formatTimestamp(row.last_sync_at)}</span>
       },
     },
     {
       id: 'owner',
       header: t('knowledge.workspaceDashboard.columns.owner'),
-      render: (row) => row.owner,
+      render: (row) => row.owner || '-',
     },
     {
       id: 'actions',
       header: t('knowledge.workspaceDashboard.columns.actions'),
-      render: () => <OperationButtons />,
+      render: (row) => <OperationButtons row={row} />,
     },
   ], [t])
 
@@ -360,6 +365,15 @@ function KnowledgeBoxPage() {
         )}
       />
 
+      {isWorkbenchError || isTableError ? (
+        <BoxAlert
+          severity="warning"
+          title={t('knowledge.workspaceDashboard.table.empty')}
+          description={tableError instanceof Error ? tableError.message : workbenchError instanceof Error ? workbenchError.message : undefined}
+          action={<Button variant="outline" size="sm" onClick={() => { void refetchWorkbench(); void refetchTable() }}>{t('knowledge.workspaceDashboard.toolbar.refresh')}</Button>}
+        />
+      ) : null}
+
       <MetricStrip items={metrics} deltaLabel={t('knowledge.workspaceDashboard.metrics.deltaLabel')} />
 
       <BoxToolbar
@@ -372,15 +386,25 @@ function KnowledgeBoxPage() {
         filterLabel={t('knowledge.workspaceDashboard.toolbar.filter')}
         timeLabel={t('knowledge.workspaceDashboard.toolbar.allTime')}
         refreshLabel={t('knowledge.workspaceDashboard.toolbar.refresh')}
+        onRefresh={() => { void refetchWorkbench(); void refetchTable() }}
       />
 
-      <BoxDataTable columns={columns} rows={rows} emptyMessage={t('knowledge.workspaceDashboard.table.empty')} />
+      <BoxDataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage={isTableLoading ? 'Loading knowledge bases...' : t('knowledge.workspaceDashboard.table.empty')}
+      />
 
       <BoxPagination
-        total={32}
-        pageSize={10}
-        currentPage={1}
-        pages={[1, 2, 3]}
+        total={totalRows}
+        pageSize={tableData?.page_size || 50}
+        currentPage={currentPage}
+        pages={pages}
+        hasPrevious={currentPage > 1}
+        hasNext={Boolean(tableData?.next_page_token)}
+        onPrevious={goToPreviousPage}
+        onNext={goToNextPage}
+        onPageChange={goToPage}
         labels={{
           totalSuffix: t('knowledge.workspaceDashboard.pagination.totalSuffix'),
           pageSizeSuffix: t('knowledge.workspaceDashboard.pagination.pageSizeSuffix'),

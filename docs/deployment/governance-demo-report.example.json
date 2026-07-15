@@ -1,0 +1,15 @@
+{
+  "scenario": "governance_demo_20_min",
+  "passed": true,
+  "summary": {
+    "demo_minutes": 20
+  },
+  "sections": {
+    "permissions": {"passed": true},
+    "secrets": {"passed": true},
+    "call_audit": {"passed": true},
+    "cost_attribution": {"passed": true},
+    "replay": {"passed": true},
+    "regression": {"passed": true}
+  }
+}

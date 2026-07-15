@@ -12,3 +12,7 @@ Rules:
 - Treat `modules/knowledge` as the northbound product boundary.
 - Do not reintroduce any legacy knowledge naming.
 - Keep tenant/workspace scope enforcement intact.
+
+Workbench:
+- `GET /api/v1/knowledge/workbench` aggregates knowledge inventory, index health, ingest state, and retrieval run metrics for the Knowledge workspace landing page.
+- `GET /api/v1/knowledge/workbench/items` returns filtered, paginated table rows without changing the aggregate endpoint contract.

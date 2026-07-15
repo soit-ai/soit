@@ -1,10 +1,7 @@
-import { get, post } from '@/utils/request'
+import { del, get, patch, post, put } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface NotificationAction {
   target?: string | null
@@ -39,6 +36,52 @@ export interface NotificationUnreadCount {
 
 export interface NotificationBulkResult {
   updated: number
+}
+
+export type NotificationDeliveryMode = 'in_app' | 'in_app_email' | 'in_app_all'
+export type NotificationEndpointKind = 'email' | 'webhook' | 'slack' | 'teams' | 'discord' | 'telegram' | 'other'
+
+export interface NotificationPreference {
+  id: string
+  delivery_mode: NotificationDeliveryMode
+  categories: Record<string, boolean>
+  quiet_hours_enabled: boolean
+  quiet_hours_start: string
+  quiet_hours_end: string
+  timezone: string
+  created_at: string
+  updated_at: string
+}
+
+export type NotificationPreferenceUpdate = Omit<NotificationPreference, 'id' | 'created_at' | 'updated_at'>
+
+export interface NotificationEndpoint {
+  id: string
+  name: string
+  kind: NotificationEndpointKind
+  display_target: string
+  status: 'active' | 'disabled'
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationEndpointCreate {
+  name: string
+  kind: NotificationEndpointKind
+  url: string
+}
+
+export interface NotificationDelivery {
+  id: string
+  notification_id: string
+  endpoint_id: string
+  status: 'queued' | 'sending' | 'sent' | 'failed'
+  attempt_count: number
+  available_at: string
+  last_error?: string | null
+  sent_at?: string | null
+  created_at: string
+  updated_at: string
 }
 
 type NotificationListParams = {
@@ -81,4 +124,43 @@ export const markNotificationsRead = async (payload: { ids?: string[]; all?: boo
 export const archiveNotification = async (notificationId: string): Promise<Notification> => {
   const data = await post(`/notifications/${notificationId}/archive`)
   return unwrapResponse<Notification>(data)
+}
+
+export const getNotificationPreferences = async (): Promise<NotificationPreference> => {
+  return unwrapResponse<NotificationPreference>(await get('/notifications/preferences'))
+}
+
+export const updateNotificationPreferences = async (
+  payload: NotificationPreferenceUpdate,
+): Promise<NotificationPreference> => {
+  return unwrapResponse<NotificationPreference>(await put('/notifications/preferences', payload))
+}
+
+export const listNotificationEndpoints = async (): Promise<NotificationEndpoint[]> => {
+  return unwrapResponse<NotificationEndpoint[]>(await get('/notifications/endpoints'))
+}
+
+export const createNotificationEndpoint = async (
+  payload: NotificationEndpointCreate,
+): Promise<NotificationEndpoint> => {
+  return unwrapResponse<NotificationEndpoint>(await post('/notifications/endpoints', payload))
+}
+
+export const updateNotificationEndpoint = async (
+  endpointId: string,
+  payload: Partial<NotificationEndpointCreate> & { status?: 'active' | 'disabled' },
+): Promise<NotificationEndpoint> => {
+  return unwrapResponse<NotificationEndpoint>(await patch(`/notifications/endpoints/${endpointId}`, payload))
+}
+
+export const deleteNotificationEndpoint = async (endpointId: string): Promise<void> => {
+  await del(`/notifications/endpoints/${endpointId}`)
+}
+
+export const testNotificationEndpoint = async (endpointId: string): Promise<NotificationDelivery> => {
+  return unwrapResponse<NotificationDelivery>(await post(`/notifications/endpoints/${endpointId}/test`))
+}
+
+export const listNotificationDeliveries = async (notificationId: string): Promise<NotificationDelivery[]> => {
+  return unwrapResponse<NotificationDelivery[]>(await get(`/notifications/${notificationId}/deliveries`))
 }

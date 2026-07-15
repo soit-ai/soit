@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.infra.db.pagination import PageToken, parse_page_params
 from app.kernel.commons.time import to_iso8601, utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.contracts.status import ApprovalStatus
-from app.kernel.trace.models import Run, RunCostEntry, RunStep
+from app.kernel.contracts.pagination import PageToken, parse_page_params
+from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
+from app.kernel.runtime.runs.service import RunService
+from app.kernel.runtime.tasks.status import ApprovalStatus
 from app.modules.observe.application.dashboard_schemas import (
     AgentSummaryResponse,
     ApprovalsSummaryResponse,
@@ -26,13 +28,13 @@ from app.modules.observe.application.dashboard_schemas import (
     MetricCardResponse,
     ModelCostResponse,
     PriorityAlertResponse,
+    RecentRunResponse,
     ToolHealthResponse,
     WorkflowBottleneckResponse,
     WorkspaceObserveDashboard,
     WorkspaceSummaryResponse,
 )
 from app.modules.observe.infra.repository import ApprovalRepository, FeedbackRepository
-
 
 RANGE_SECONDS = {
     "1h": 60 * 60,
@@ -55,6 +57,8 @@ TAB_LABELS = {
     "tool_reliability": "工具可靠性",
     "knowledge_quality": "知识质量",
 }
+
+MAINLINE_RUN_MODES = {"agent", "workflow", "knowledge", "chat", "response"}
 
 
 class ObserveDashboardService:
@@ -104,7 +108,7 @@ class ObserveDashboardService:
         value = metrics.get(key)
         if isinstance(value, bool):
             return int(value)
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return int(value)
         if isinstance(value, str) and value.strip().isdigit():
             return int(value.strip())
@@ -115,7 +119,7 @@ class ObserveDashboardService:
         value = metrics.get(key)
         if isinstance(value, bool):
             return None
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return float(value)
         if isinstance(value, str):
             try:
@@ -127,9 +131,9 @@ class ObserveDashboardService:
     @staticmethod
     def _bucket_key(value: datetime, window_start: datetime, bucket: timedelta) -> str:
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=UTC)
         if window_start.tzinfo is None:
-            window_start = window_start.replace(tzinfo=timezone.utc)
+            window_start = window_start.replace(tzinfo=UTC)
         elapsed = max(0, int((value - window_start).total_seconds()))
         bucket_seconds = max(1, int(bucket.total_seconds()))
         offset = (elapsed // bucket_seconds) * bucket_seconds
@@ -183,6 +187,23 @@ class ObserveDashboardService:
             .all()
         )
 
+    def _responses_for_runs(self, run_ids: list[str]) -> list[Response]:
+        if not run_ids:
+            return []
+        return list(
+            self.db.execute(
+                select(Response).where(
+                    and_(
+                        Response.tenant_id == self.ctx.tenant_id,
+                        Response.workspace_id == self.ctx.workspace_id,
+                        Response.run_id.in_(run_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
     def _count_runs(self, start: datetime, end: datetime) -> int:
         return int(
             self.db.execute(
@@ -207,6 +228,110 @@ class ObserveDashboardService:
         if step.step_id and step.step_id.startswith(("tool:", "mcp_tool:")):
             return step.step_id
         return step.step_id if step.step_type == "tool" and step.step_id else None
+
+    @staticmethod
+    def _has_tool_projection(step: RunStep) -> bool:
+        metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
+        return step.step_type == "tool" or isinstance(metrics.get("tool_call"), dict)
+
+    @staticmethod
+    def _citation_knowledge_id(citation: Any) -> str | None:
+        if not isinstance(citation, dict):
+            return None
+        for key in ("knowledge_id", "knowledge_ref", "source_knowledge_id"):
+            value = citation.get(key)
+            if isinstance(value, str) and value:
+                return value
+        metadata = citation.get("metadata")
+        if isinstance(metadata, dict):
+            value = metadata.get("knowledge_id")
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    @staticmethod
+    def _cost_by_run(costs: list[RunCostEntry]) -> dict[str, float]:
+        totals: dict[str, float] = defaultdict(float)
+        for cost in costs:
+            totals[cost.run_id] += float(cost.amount)
+        return totals
+
+    @staticmethod
+    def _failure_reason(run: Run) -> str | None:
+        return run.error_message or run.error_code
+
+    def _recent_run_payload(
+        self,
+        run: Run,
+        cost_by_run: dict[str, float],
+        observe_summaries: dict[str, Any],
+    ) -> RecentRunResponse:
+        return RecentRunResponse(
+            run_id=run.id,
+            mode=run.mode,
+            kind=run.kind,
+            subject_kind=run.subject_kind,
+            subject_id=run.subject_id,
+            status=run.status,
+            cost_usd=round(cost_by_run.get(run.id, 0.0), 6),
+            failure_reason=self._failure_reason(run),
+            started_at=to_iso8601(run.started_at),
+            duration_ms=run.duration_ms,
+            observe_summary=observe_summaries.get(run.id),
+            detail_url=f"/observe/runs/{run.id}",
+        )
+
+    @staticmethod
+    def _recent_run_sort_key(run: Run) -> tuple[int, float]:
+        status_rank = 0 if run.status == "failed" else 1
+        started_at = run.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+        return (status_rank, -started_at.timestamp())
+
+    def _recent_mainline_runs(self, runs: list[Run]) -> list[Run]:
+        mainline_runs = [
+            run
+            for run in runs
+            if run.mode in MAINLINE_RUN_MODES or (run.kind in MAINLINE_RUN_MODES if run.kind else False)
+        ]
+        return sorted(mainline_runs, key=self._recent_run_sort_key)[:10]
+
+    def _latest_row_fields(self, run: Run | None, cost_by_run: dict[str, float]) -> dict[str, Any]:
+        if not run:
+            return {
+                "latest_run_id": None,
+                "latest_run_status": None,
+                "latest_run_cost_usd": 0.0,
+                "latest_failure_reason": None,
+                "detail_url": None,
+            }
+        return {
+            "latest_run_id": run.id,
+            "latest_run_status": run.status,
+            "latest_run_cost_usd": round(cost_by_run.get(run.id, 0.0), 6),
+            "latest_failure_reason": self._failure_reason(run),
+            "detail_url": f"/observe/runs/{run.id}",
+        }
+
+    def _metric_run_fields(self, run: Run | None, cost_by_run: dict[str, float]) -> dict[str, Any]:
+        if not run:
+            return {}
+        return {
+            "run_id": run.id,
+            "detail_url": f"/observe/runs/{run.id}",
+            "status": run.status,
+            "cost_usd": round(cost_by_run.get(run.id, 0.0), 6),
+            "failure_reason": self._failure_reason(run),
+        }
+
+    @staticmethod
+    def _latest_run(current: Run | None, candidate: Run | None) -> Run | None:
+        if candidate is None:
+            return current
+        if current is None or candidate.started_at > current.started_at:
+            return candidate
+        return current
 
     def _paginate_rows(self, rows: list[dict[str, Any]], *, page_token: str | None, page_size: int) -> tuple[list[dict[str, Any]], DashboardPageResponse]:
         limit, token_obj = parse_page_params(page_token, page_size, max_page_size=50)
@@ -239,6 +364,7 @@ class ObserveDashboardService:
         runs: list[Run],
         steps: list[RunStep],
         costs: list[RunCostEntry],
+        responses: list[Response],
         *,
         window_start: datetime,
         bucket: timedelta,
@@ -323,24 +449,23 @@ class ObserveDashboardService:
                 if agent_id:
                     workflow["affected_agents"].add(agent_id)
 
-            if step.step_type == "tool":
+            tool_ref = self._resolve_tool_ref(step)
+            if tool_ref and self._has_tool_projection(step):
                 trend[bucket_key]["tool_count"] += 1
-                tool_ref = self._resolve_tool_ref(step)
-                if tool_ref:
-                    tool = tool_health_map[tool_ref]
-                    tool["call_count"] += 1
-                    if step.status == "failed":
-                        tool["failed_call_count"] += 1
-                        trend[bucket_key]["tool_failed_count"] += 1
-                        code = step.error_code or "unknown"
-                        tool["error_codes"][code] += 1
-                        if "timeout" in code.lower() or "timeout" in (step.error_message or "").lower():
-                            tool["timeout_count"] += 1
-                    tool["retry_count"] += self._int_metric(metrics, "retry_count")
-                    if latency:
-                        tool["latencies"].append(latency)
-                    if agent_id:
-                        tool["agents"].add(agent_id)
+                tool = tool_health_map[tool_ref]
+                tool["call_count"] += 1
+                if step.status == "failed":
+                    tool["failed_call_count"] += 1
+                    trend[bucket_key]["tool_failed_count"] += 1
+                    code = step.error_code or "unknown"
+                    tool["error_codes"][code] += 1
+                    if "timeout" in code.lower() or "timeout" in (step.error_message or "").lower():
+                        tool["timeout_count"] += 1
+                tool["retry_count"] += self._int_metric(metrics, "retry_count")
+                if latency:
+                    tool["latencies"].append(latency)
+                if agent_id:
+                    tool["agents"].add(agent_id)
 
             if step.step_type in {"retrieval", "rerank"}:
                 trend[bucket_key]["retrieval_count"] += 1
@@ -366,6 +491,27 @@ class ObserveDashboardService:
                 knowledge = knowledge_map[run.subject_id or "unknown"]
                 knowledge["query_count"] += 1
                 knowledge["failed_query_count"] += 1
+
+        for response in responses:
+            run = run_by_id.get(response.run_id or "")
+            if not run:
+                continue
+            citations = (response.output_json or {}).get("citations") if isinstance(response.output_json, dict) else None
+            if not isinstance(citations, list):
+                continue
+            citation_counts: dict[str, int] = defaultdict(int)
+            for citation in citations:
+                knowledge_id = self._citation_knowledge_id(citation)
+                if knowledge_id:
+                    citation_counts[knowledge_id] += 1
+            for knowledge_id, citation_count in citation_counts.items():
+                knowledge = knowledge_map[knowledge_id]
+                if int(knowledge["query_count"]) <= 0:
+                    knowledge["query_count"] += 1
+                knowledge["result_count"] += citation_count
+                knowledge["citation_count"] += citation_count
+                if run.subject_kind == "agent" and run.subject_id:
+                    knowledge["agents"].add(run.subject_id)
 
         return {
             "agent_summary_map": agent_summary_map,
@@ -411,7 +557,7 @@ class ObserveDashboardService:
         self,
         *,
         tab: str = "agent_health",
-        range_label: str = "1h",
+        range_label: str = "24h",
         bucket_label: str = "10m",
         q: str | None = None,
         workspace_scope: str = "all",
@@ -428,18 +574,63 @@ class ObserveDashboardService:
         runs = self._scoped_runs(window_start, now)
         steps = self._scoped_steps(window_start, now)
         costs = self._scoped_costs(window_start, now)
+        responses = self._responses_for_runs([run.id for run in runs])
         previous_runs = self._scoped_runs(previous_start, window_start)
         previous_costs = self._scoped_costs(previous_start, window_start)
         approvals = self.approval_repo.list(limit=500, offset=0)
         feedback = self.feedback_repo.list(limit=500, offset=0)
 
-        aggregate = self._aggregate(runs, steps, costs, window_start=window_start, bucket=bucket_delta)
+        aggregate = self._aggregate(runs, steps, costs, responses, window_start=window_start, bucket=bucket_delta)
         agent_summary_map = aggregate["agent_summary_map"]
         model_cost_map = aggregate["model_cost_map"]
         workflow_map = aggregate["workflow_map"]
         tool_health_map = aggregate["tool_health_map"]
         knowledge_map = aggregate["knowledge_map"]
         trend_rows = self._build_trend_rows(aggregate["trend"], window_start, now, bucket_delta)
+        run_by_id = {run.id: run for run in runs}
+        cost_by_run = self._cost_by_run(costs)
+        observe_summaries = RunService(self.db, self.ctx).build_observe_summaries([run.id for run in runs])
+        latest_agent_run: dict[str, Run] = {}
+        latest_node_run: dict[str, Run] = {}
+        latest_tool_run: dict[str, Run] = {}
+        latest_knowledge_run: dict[str, Run] = {}
+        latest_run = max(runs, key=lambda item: item.started_at, default=None)
+        latest_failed_run = max((run for run in runs if run.status == "failed"), key=lambda item: item.started_at, default=None)
+        latest_active_run = max((run for run in runs if run.status in {"queued", "running", "paused"}), key=lambda item: item.started_at, default=None)
+
+        for run in runs:
+            if run.subject_kind == "agent" and run.subject_id:
+                latest_agent_run[run.subject_id] = self._latest_run(latest_agent_run.get(run.subject_id), run)  # type: ignore[assignment]
+
+        for step in steps:
+            run = run_by_id.get(step.run_id)
+            if not run:
+                continue
+            if step.node_id:
+                latest_node_run[step.node_id] = self._latest_run(latest_node_run.get(step.node_id), run)  # type: ignore[assignment]
+            tool_ref = self._resolve_tool_ref(step) if self._has_tool_projection(step) else None
+            if tool_ref:
+                latest_tool_run[tool_ref] = self._latest_run(latest_tool_run.get(tool_ref), run)  # type: ignore[assignment]
+            if step.step_type in {"retrieval", "rerank"}:
+                metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
+                knowledge_id = metrics.get("knowledge_id")
+                if not isinstance(knowledge_id, str) or not knowledge_id:
+                    knowledge_id = "unknown"
+                latest_knowledge_run[knowledge_id] = self._latest_run(latest_knowledge_run.get(knowledge_id), run)  # type: ignore[assignment]
+            elif step.status == "failed" and run.subject_kind == "knowledge":
+                latest_knowledge_run[run.subject_id or "unknown"] = self._latest_run(latest_knowledge_run.get(run.subject_id or "unknown"), run)  # type: ignore[assignment]
+
+        for response in responses:
+            run = run_by_id.get(response.run_id or "")
+            if not run:
+                continue
+            citations = (response.output_json or {}).get("citations") if isinstance(response.output_json, dict) else None
+            if not isinstance(citations, list):
+                continue
+            for citation in citations:
+                knowledge_id = self._citation_knowledge_id(citation)
+                if knowledge_id:
+                    latest_knowledge_run[knowledge_id] = self._latest_run(latest_knowledge_run.get(knowledge_id), run)  # type: ignore[assignment]
 
         failed_run_count = sum(1 for run in runs if run.status == "failed")
         active_run_count = sum(1 for run in runs if run.status in {"queued", "running", "paused"})
@@ -531,11 +722,11 @@ class ObserveDashboardService:
         )
 
         metric_cards = [
-            MetricCardResponse(id="run_count", label="运行次数", value=str(len(runs)), delta=str(len(runs) - previous_run_count), trend=[row["run_count"] for row in trend_rows], tone="blue"),
-            MetricCardResponse(id="failed_run_count", label="失败运行", value=str(failed_run_count), delta=str(failed_run_count - previous_failed_run_count), trend=[row["failed_run_count"] for row in trend_rows], tone="red"),
-            MetricCardResponse(id="active_run_count", label="活跃运行", value=str(active_run_count), delta="0", trend=[active_run_count], tone="cyan"),
+            MetricCardResponse(id="run_count", label="运行次数", value=str(len(runs)), delta=str(len(runs) - previous_run_count), trend=[row["run_count"] for row in trend_rows], tone="blue", **self._metric_run_fields(latest_run, cost_by_run)),
+            MetricCardResponse(id="failed_run_count", label="失败运行", value=str(failed_run_count), delta=str(failed_run_count - previous_failed_run_count), trend=[row["failed_run_count"] for row in trend_rows], tone="red", **self._metric_run_fields(latest_failed_run, cost_by_run)),
+            MetricCardResponse(id="active_run_count", label="活跃运行", value=str(active_run_count), delta="0", trend=[active_run_count], tone="cyan", **self._metric_run_fields(latest_active_run, cost_by_run)),
             MetricCardResponse(id="pending_approvals", label="待审批", value=str(approvals_summary.pending), delta="0", trend=[approvals_summary.pending], tone="amber"),
-            MetricCardResponse(id="total_cost_usd", label="成本 (USD)", value=f"{total_cost_usd:.2f}", delta=f"{total_cost_usd - previous_cost_usd:.2f}", trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green"),
+            MetricCardResponse(id="total_cost_usd", label="成本 (USD)", value=f"{total_cost_usd:.2f}", delta=f"{total_cost_usd - previous_cost_usd:.2f}", trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green", **self._metric_run_fields(latest_run, cost_by_run)),
         ]
 
         priority_alert = None
@@ -546,6 +737,7 @@ class ObserveDashboardService:
                 scope=f"{len(workflow_bottlenecks)} 个工作区",
                 affected_agents=len(agent_summaries),
                 duration_label=f"{max(1, int(range_delta.total_seconds() // 60))} 分钟",
+                detail_url=f"/observe/runs/{latest_failed_run.id}" if latest_failed_run else "/observe/runs",
             )
 
         agent_rows = [
@@ -565,6 +757,7 @@ class ObserveDashboardService:
                 "last_error": agent_summary_map[agent.agent_id]["last_error"],
                 "owner": "Jude",
                 "last_run_at": agent.last_run_at,
+                **self._latest_row_fields(latest_agent_run.get(agent.agent_id), cost_by_run),
             }
             for agent in agent_summaries
         ]
@@ -579,6 +772,7 @@ class ObserveDashboardService:
                 "failure_rate": self._rate(item.failed_step_count, item.step_count),
                 "affected_agents": sorted(workflow_map[item.node_id]["affected_agents"]),
                 "owner": "Jude",
+                **self._latest_row_fields(latest_node_run.get(item.node_id), cost_by_run),
             }
             for item in workflow_bottlenecks
         ], key=lambda row: (-float(row["failure_rate"]), str(row["id"])))
@@ -595,6 +789,7 @@ class ObserveDashboardService:
                 "related_agents": sorted(tool_health_map[item.tool_ref]["agents"]),
                 "owner": "Jude",
                 "status": item.health_status,
+                **self._latest_row_fields(latest_tool_run.get(item.tool_ref), cost_by_run),
             }
             for item in tool_health
         ]
@@ -610,6 +805,7 @@ class ObserveDashboardService:
                 "last_updated": None,
                 "status": item.quality_status,
                 "owner": "Jude",
+                **self._latest_row_fields(latest_knowledge_run.get(item.knowledge_id), cost_by_run),
             }
             for item in knowledge_quality
         ]
@@ -631,7 +827,7 @@ class ObserveDashboardService:
             page=page,
             empty_state=EmptyStateResponse(
                 title=f"暂无{TAB_LABELS[active_tab]}数据",
-                description="当前时间范围内没有可展示的观测数据。",
+                description="当前时间范围内没有对应应用观测数据。",
             ),
         )
 
@@ -653,6 +849,10 @@ class ObserveDashboardService:
             tool_health=tool_health,
             knowledge_quality=knowledge_quality,
             approvals_summary=approvals_summary,
+            recent_runs=[
+                self._recent_run_payload(run, cost_by_run, observe_summaries)
+                for run in self._recent_mainline_runs(runs)
+            ],
         )
 
     def _section_summary(
@@ -695,9 +895,6 @@ class ObserveDashboardService:
         knowledge_rows: list[dict[str, Any]],
     ) -> dict[str, Any]:
         if tab == "agent_health":
-            distribution = defaultdict(int)
-            for row in trend_rows:
-                pass
             return {
                 "trend": trend_rows,
                 "health_distribution": [

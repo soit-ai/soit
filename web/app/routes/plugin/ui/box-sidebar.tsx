@@ -1,196 +1,91 @@
 import * as React from 'react'
-import { useState } from 'react'
 import {
-  Send,
-  BrainCog,
-  Settings2,
-  LifeBuoy,
-  Workflow,
-  Star,
-  Clock,
-  Upload,
+  AlertTriangle,
+  Archive,
   BarChart,
-  RefreshCw,
-  ChevronRight,
-  ChevronDown,
   ExternalLink,
-  Puzzle,
-  Code,
-  Zap,
-  Cloud,
-  GitBranch,
-  Package
+  History,
+  Home,
+  PackageCheck,
+  RefreshCw,
+  ShieldCheck,
+  Store,
+  Upload,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router'
 
-import { useTranslation } from '@/i18n'
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail, SidebarInput, useSidebar, SidebarTrigger } from '@/components/ui/sidebar'
-import { useNavigate } from '@/hooks/use-navigate'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInput,
+  SidebarRail,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useQuery } from '@/hooks/use-query'
+import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
+import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
+import { listPluginCapabilities, listPlugins } from '@/services/plugin-service'
 
-interface PluginStatus {
-  totalPlugins: number
-  activePlugins: number
-  recentUpdates: number
-  storageUsage: number
-  storageLimit: number
-  lastUpdated: string
-  healthStatus: 'normal' | 'warning' | 'critical'
-  apiUsage: {
-    calls: number
-    limit: number
-  }
+interface PrimaryNavItem {
+  id: string
+  labelKey: TranslationKey
+  url: string
+  icon: React.ComponentType<{ size?: number }>
 }
 
-const navData = {
-  navMain: [
-    {
-      id: 'overview',
-      titleKey: 'plugin.sidebar.main.overview',
-      url: '/plugins/dashboard',
-      icon: Puzzle,
-      isActive: true,
-      items: [],
-    },
-    {
-      id: 'browse',
-      titleKey: 'plugin.sidebar.main.browse',
-      url: '/plugins/browse',
-      icon: BrainCog,
-      items: [
-        {
-          id: 'all',
-          titleKey: 'plugin.sidebar.browse.all',
-          url: '/plugins/browse/all',
-        },
-        {
-          id: 'recent',
-          titleKey: 'plugin.sidebar.browse.recent',
-          url: '/plugins/browse/recent',
-          icon: Clock,
-        },
-        {
-          id: 'favorites',
-          titleKey: 'plugin.sidebar.browse.favorites',
-          url: '/plugins/browse/favorites',
-          icon: Star,
-        },
-        {
-          id: 'uploads',
-          titleKey: 'plugin.sidebar.browse.uploads',
-          url: '/plugins/browse/uploads',
-          icon: Upload,
-        },
-      ],
-    },
-    {
-      id: 'development',
-      titleKey: 'plugin.sidebar.main.development',
-      url: '/plugins/development',
-      icon: Code,
-      items: [
-        {
-          id: 'editor',
-          titleKey: 'plugin.sidebar.development.editor',
-          url: '/plugins/development/editor',
-        },
-        {
-          id: 'debug',
-          titleKey: 'plugin.sidebar.development.debug',
-          url: '/plugins/development/debug',
-        },
-        {
-          id: 'version',
-          titleKey: 'plugin.sidebar.development.version',
-          url: '/plugins/development/version',
-          icon: GitBranch,
-        },
-      ],
-    },
-    {
-      id: 'integration',
-      titleKey: 'plugin.sidebar.main.integration',
-      url: '/plugins/integration',
-      icon: Zap,
-      items: [
-        {
-          id: 'api',
-          titleKey: 'plugin.sidebar.integration.api',
-          url: '/plugins/integration/api',
-          icon: Cloud,
-        },
-        {
-          id: 'workflow',
-          titleKey: 'plugin.sidebar.integration.workflow',
-          url: '/plugins/integration/workflow',
-          icon: Workflow,
-        },
-      ],
-    },
-    {
-      id: 'management',
-      titleKey: 'plugin.sidebar.main.management',
-      url: '/plugins/management',
-      icon: Settings2,
-      items: [
-        {
-          id: 'dependencies',
-          titleKey: 'plugin.sidebar.management.dependencies',
-          url: '/plugins/management/dependencies',
-          icon: Package,
-        },
-        {
-          id: 'permissions',
-          titleKey: 'plugin.sidebar.management.permissions',
-          url: '/plugins/management/permissions',
-        },
-        {
-          id: 'analytics',
-          titleKey: 'plugin.sidebar.management.analytics',
-          url: '/plugins/management/analytics',
-          icon: BarChart,
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      id: 'docs',
-      titleKey: 'plugin.sidebar.secondary.docs',
-      url: '/help/plugin',
-      icon: LifeBuoy,
-    },
-    {
-      id: 'feedback',
-      titleKey: 'plugin.sidebar.secondary.feedback',
-      url: '/observability/feedback',
-      icon: Send,
-    },
-  ],
-  projects: [
-    {
-      id: 'favorites',
-      nameKey: 'plugin.sidebar.projects.favorites',
-      url: '/plugins/favorites',
-      icon: Star,
-    },
-    {
-      id: 'recent',
-      nameKey: 'plugin.sidebar.projects.recent',
-      url: '/plugins/recent',
-      icon: Clock,
-    },
-    {
-      id: 'mine',
-      nameKey: 'plugin.sidebar.projects.mine',
-      url: '/plugins/my',
-      icon: Puzzle,
-    },
-  ],
-}
+const primaryNavItems: PrimaryNavItem[] = [
+  {
+    id: 'overview',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.workspace',
+    url: '/plugins',
+    icon: Home,
+  },
+  {
+    id: 'library',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.library',
+    url: '/plugins?view=library',
+    icon: Store,
+  },
+  {
+    id: 'run-history',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.runHistory',
+    url: '/observe/runs?subject_kind=plugin',
+    icon: History,
+  },
+  {
+    id: 'market',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.market',
+    url: '/plugins?view=market',
+    icon: PackageCheck,
+  },
+  {
+    id: 'publish-review',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.publishReview',
+    url: '/plugins?view=publish-review',
+    icon: Upload,
+  },
+  {
+    id: 'incidents',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.incidents',
+    url: '/plugins?view=incidents',
+    icon: AlertTriangle,
+  },
+  {
+    id: 'recycle-bin',
+    labelKey: 'plugin.workspaceDashboard.sidebar.menu.recycleBin',
+    url: '/plugins?view=recycle-bin',
+    icon: Archive,
+  },
+]
 
 export function BoxSidebar({
   activeTab = 'overview',
@@ -200,262 +95,172 @@ export function BoxSidebar({
   activeTab?: string
   onTabChange?: (tabId: string) => void
 } & React.ComponentProps<typeof Sidebar>) {
-  const { t, i18n } = useTranslation()
-  const [pluginStatus, setPluginStatus] = useState<PluginStatus>(() => ({
-    totalPlugins: 78,
-    activePlugins: 42,
-    recentUpdates: 15,
-    storageUsage: 3.2,
-    storageLimit: 10,
-    lastUpdated: new Date().toLocaleString(i18n.language, { hour12: false }).replace(/\//g, '-'),
-    healthStatus: 'normal',
-    apiUsage: {
-      calls: 356,
-      limit: 500,
-    },
-  }))
-
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [expandedItems, setExpandedItems] = useState<{ [key: string]: boolean }>({})
-
-  // Refresh plugin status.
-  const refreshPluginStatus = () => {
-    setIsRefreshing(true)
-    setTimeout(() => {
-      setPluginStatus({
-        totalPlugins: 78,
-        activePlugins: Math.floor(Math.random() * 10) + 35,
-        recentUpdates: Math.floor(Math.random() * 10) + 10,
-        storageUsage: parseFloat((Math.random() * 1 + 3).toFixed(1)),
-        storageLimit: 10,
-        lastUpdated: new Date().toLocaleString(i18n.language, { hour12: false }).replace(/\//g, '-'),
-        healthStatus: Math.random() > 0.8 ? 'warning' : 'normal',
-        apiUsage: {
-          calls: Math.floor(Math.random() * 50) + 330,
-          limit: 500,
-        },
-      })
-      setIsRefreshing(false)
-    }, 800)
-  }
-
-  // Toggle menu item expand/collapse state.
-  const toggleMenuItem = (itemId: string) => {
-    setExpandedItems(prev => ({
-      ...prev,
-      [itemId]: !prev[itemId],
-    }))
-  }
-
-  // Handle menu item click.
-  const handleMenuItemClick = (itemId: string) => {
-    const item = navData.navMain.find(navItem => navItem.id === itemId)
-    if (item?.items && item.items.length > 0) {
-      toggleMenuItem(itemId)
-      return
-    }
-
-    if (onTabChange) {
-      onTabChange(itemId)
-    }
-  }
-
-  // Handle sub menu item click.
-  const handleSubItemClick = (parentId: string, subItemId: string) => {
-    if (onTabChange) {
-      onTabChange(`${parentId}/${subItemId}`)
-    }
-  }
-
+  const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
   const { setOpen } = useSidebar()
   const navigate = useNavigate()
+  const resolvedActiveTab = searchParams.get('view') || activeTab
 
-  // Render menu item.
-  const renderMenuItem = (item: any) => {
-    const isActive = activeTab === item.id || activeTab.startsWith(`${item.id}/`)
-    const isExpanded = expandedItems[item.id] || false
-    const hasSubItems = item.items && item.items.length > 0
-    const title = t(item.titleKey)
-    const description = item.descriptionKey ? t(item.descriptionKey) : title
+  const {
+    data: pluginPage,
+    isFetching: pluginsFetching,
+    refetch: refetchPlugins,
+  } = useQuery({
+    queryKey: ['plugins', 'sidebar', 'plugins'],
+    queryFn: () => listPlugins({ page_size: 100 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const {
+    data: capabilityPage,
+    isFetching: capabilitiesFetching,
+    refetch: refetchCapabilities,
+  } = useQuery({
+    queryKey: ['plugins', 'sidebar', 'capabilities'],
+    queryFn: () => listPluginCapabilities({ page_size: 100 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const plugins = pluginPage?.items || []
+  const capabilities = capabilityPage?.items || []
+  const activePlugins = plugins.filter((plugin) => plugin.installed && plugin.enabled).length
+  const highRiskCount = plugins.filter((plugin) => {
+    const risk = String(plugin.metadata_json?.risk || plugin.metadata_json?.risk_level || '').toLowerCase()
+    return risk === 'high' || (plugin.installed && plugin.enabled === false)
+  }).length
+  const healthRate = plugins.length ? Math.round(((plugins.length - highRiskCount) / plugins.length) * 100) : 100
+  const isFetching = pluginsFetching || capabilitiesFetching
+  const updatedAt = plugins
+    .map((plugin) => plugin.updated_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1)
+
+  const refresh = () => {
+    void refetchPlugins()
+    void refetchCapabilities()
+  }
+
+  const handleMenuItemClick = (item: PrimaryNavItem) => {
+    onTabChange?.(item.id)
+    navigate(item.url)
+  }
+
+  const renderMenuItem = (item: PrimaryNavItem) => {
+    const isActive = resolvedActiveTab === item.id || (item.id === 'overview' && resolvedActiveTab === activeTab)
 
     return (
-      <div key={item.id} className="space-y-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={isActive ? 'secondary' : 'ghost'}
-              className="w-full justify-start gap-2 relative"
-              onClick={() => handleMenuItemClick(item.id)}
-            >
-              <div className="relative">
-                {item.icon && <item.icon size={16} />}
-              </div>
-              <span>{title}</span>
-              {hasSubItems && (
-                <div className="ml-auto">
-                  {isExpanded ? (
-                    <ChevronDown size={14} />
-                  ) : (
-                    <ChevronRight size={14} />
-                  )}
-                </div>
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <p>{description}</p>
-          </TooltipContent>
-        </Tooltip>
-
-        {hasSubItems && isExpanded && (
-          <div className="pl-8 space-y-1 animate-in slide-in-from-left-5 duration-200">
-            {item.items.map((subItem: any) => {
-              const isSubActive = activeTab === `${item.id}/${subItem.id}`
-              const subTitle = t(subItem.titleKey)
-              const subDescription = subItem.descriptionKey ? t(subItem.descriptionKey) : subTitle
-
-              return (
-                <Tooltip key={subItem.id}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant={isSubActive ? 'secondary' : 'ghost'}
-                      className="w-full justify-start gap-2 text-sm"
-                      onClick={() => handleSubItemClick(item.id, subItem.id)}
-                    >
-                      <span>{subTitle}</span>
-                      {subItem.icon && <subItem.icon size={14} className="ml-auto" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{subDescription}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      <Tooltip key={item.id}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={isActive ? 'secondary' : 'ghost'}
+            className="w-full justify-start gap-2"
+            onClick={() => handleMenuItemClick(item)}
+          >
+            <item.icon size={16} />
+            <span>{t(item.labelKey)}</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>{t(item.labelKey)}</p>
+        </TooltipContent>
+      </Tooltip>
     )
   }
 
   return (
     <Sidebar className="hidden flex-1 md:flex" {...props}>
       <SidebarHeader className="mt-0">
-        <div className="flex w-full items-center justify-between mb-2 px-2">
-          <div className="text-lg font-medium text-foreground">{t('plugin.sidebar.title')}</div>
+        <div className="mb-2 flex w-full items-center justify-between px-2">
+          <div className="text-lg font-medium text-foreground">{t('plugin.workspaceDashboard.sidebar.title')}</div>
           <SidebarTrigger className="-mr-1" />
         </div>
-        <SidebarInput placeholder={t('plugin.sidebar.searchPlaceholder')} className="mx-2 w-auto" />
+        <SidebarInput placeholder={t('plugin.workspaceDashboard.sidebar.searchPlaceholder')} className="mx-2 w-auto" />
       </SidebarHeader>
       <SidebarContent>
         <ScrollArea className="flex-1 overflow-auto">
-          <div className="w-full">
-            {/* Primary menu. */}
-            <div className="px-2 py-2">
-              <div className="space-y-1 animate-in fade-in-50 duration-100">
-                {navData.navMain.map(renderMenuItem)}
-              </div>
+          <div className="w-full px-2 py-2">
+            <div className="space-y-1 animate-in fade-in-50 duration-100">
+              {primaryNavItems.slice(0, 4).map(renderMenuItem)}
             </div>
-
-            {/* Favorite plugins menu. */}
-            <div className="px-2 py-2">
-              <h2 className="px-3 mb-2 text-sm font-semibold tracking-tight text-muted-foreground">
-                {t('plugin.sidebar.projects.title')}
-              </h2>
-              <div className="space-y-1">
-                {navData.projects.map((project: any) => (
-                  <Button
-                    key={project.id}
-                    variant="ghost"
-                    className="w-full justify-start gap-2"
-                    onClick={() => {
-                      setOpen(false)
-                      navigate(project.url)
-                    }}
-                  >
-                    {project.icon && <project.icon size={16} />}
-                    <span>{t(project.nameKey)}</span>
-                  </Button>
-                ))}
-              </div>
+            <div className="mt-5 px-3 text-xs font-semibold uppercase text-muted-foreground">
+              {t('plugin.workspaceDashboard.sidebar.management')}
+            </div>
+            <div className="mt-2 space-y-1">
+              {primaryNavItems.slice(4).map(renderMenuItem)}
             </div>
           </div>
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter className="mt-auto">
-        {/* Plugin stats card. */}
         <div className="px-2 py-2">
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-3">
+          <div className="rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
             <div className="flex flex-col space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <Puzzle className="mr-2 h-5 w-5 text-primary" />
-                  <h3 className="font-semibold">{t('plugin.sidebar.stats.title')}</h3>
+                  <PackageCheck className="mr-2 h-5 w-5 text-primary" />
+                  <h3 className="font-semibold">{t('plugin.workspaceDashboard.sidebar.stats.title')}</h3>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={refreshPluginStatus}
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw
-                    className={cn(
-                      'h-4 w-4',
-                      isRefreshing && 'animate-spin'
-                    )}
-                  />
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={refresh} disabled={isFetching}>
+                  <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
                 </Button>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">{t('plugin.sidebar.stats.total')}</span>
-                  <span className="font-semibold">{pluginStatus.totalPlugins}</span>
+                  <span className="text-xs text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.total')}</span>
+                  <span className="font-semibold">{plugins.length}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">{t('plugin.sidebar.stats.active')}</span>
-                  <span className="font-semibold">{pluginStatus.activePlugins}</span>
+                  <span className="text-xs text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.active')}</span>
+                  <span className="font-semibold">{activePlugins}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{t('plugin.sidebar.stats.storageUsage')}</span>
-                  <span>{pluginStatus.storageUsage}/{pluginStatus.storageLimit} GB</span>
+                  <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.capabilities')}</span>
+                  <span>{capabilities.length}</span>
                 </div>
-                <Progress
-                  value={(pluginStatus.storageUsage / pluginStatus.storageLimit) * 100}
-                  className={cn(
-                    pluginStatus.storageUsage / pluginStatus.storageLimit > 0.8 ? 'bg-amber-200' : 'bg-blue-200'
-                  )}
-                />
+                <Progress value={Math.min(capabilities.length, 100)} className="bg-blue-200" />
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{t('plugin.sidebar.stats.apiCalls')}</span>
-                  <span>{pluginStatus.apiUsage.calls}/{pluginStatus.apiUsage.limit}</span>
+                  <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.risks')}</span>
+                  <span>{highRiskCount}</span>
                 </div>
-                <Progress
-                  value={(pluginStatus.apiUsage.calls / pluginStatus.apiUsage.limit) * 100}
-                  className="bg-purple-200"
-                />
+                <Progress value={Math.min(highRiskCount * 10, 100)} className={highRiskCount > 0 ? 'bg-amber-200' : 'bg-muted'} />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.health')}</span>
+                  <span>{healthRate}%</span>
+                </div>
+                <Progress value={healthRate} className="bg-emerald-200" />
               </div>
 
               <div className="text-xs text-muted-foreground">
-                {t('plugin.sidebar.stats.updatedAt', { time: pluginStatus.lastUpdated })}
+                {t('plugin.workspaceDashboard.sidebar.stats.updatedAt', {
+                  timestamp: updatedAt ? new Date(updatedAt).toLocaleString() : '-',
+                })}
               </div>
 
-              <div className="flex justify-between mt-2 pt-2 border-t text-xs">
+              <div className="mt-2 flex justify-between border-t pt-2 text-xs">
                 <Button variant="ghost" size="sm" className="h-7 gap-1">
                   <BarChart className="h-3.5 w-3.5" />
-                  <span>{t('plugin.sidebar.stats.report')}</span>
+                  <span>{t('plugin.workspaceDashboard.sidebar.stats.report')}</span>
                 </Button>
                 <Button variant="ghost" size="sm" className="h-7 gap-1">
                   <ExternalLink className="h-3.5 w-3.5" />
-                  <span>{t('plugin.sidebar.stats.details')}</span>
+                  <span>{t('plugin.workspaceDashboard.sidebar.stats.details')}</span>
                 </Button>
               </div>
             </div>

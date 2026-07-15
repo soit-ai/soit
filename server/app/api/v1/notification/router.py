@@ -3,24 +3,31 @@
 Notification API routes.
 """
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, status
 
-from app.kernel.contracts.context import RequestContext
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
-from app.infra.db.pagination import PaginatedResponse
-from app.modules.notification.application.schemas import (
-    NotificationCreate,
-    NotificationResponse,
-    NotificationReadRequest,
-    NotificationUnreadCount,
-    NotificationBulkResult,
-)
-from app.modules.notification.application.service import NotificationService
 from app.api.v1.notification.dependencies import get_notification_service
 from app.api.v1.notification.handlers import NotificationHandlers
-
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
+from app.infra.db.pagination import PaginatedResponse
+from app.kernel.contracts.context import RequestContext
+from app.modules.notification.application.schemas import (
+    NotificationBulkResult,
+    NotificationCreate,
+    NotificationDeliveryResponse,
+    NotificationEndpointCreate,
+    NotificationEndpointResponse,
+    NotificationEndpointUpdate,
+    NotificationPreferenceResponse,
+    NotificationPreferenceUpdate,
+    NotificationReadRequest,
+    NotificationResponse,
+    NotificationUnreadCount,
+)
+from app.modules.notification.application.service import NotificationService
 
 router = APIRouter()
 
@@ -37,12 +44,12 @@ async def create_notification(
 
 @router.get("", response_model=PaginatedResponse[NotificationResponse])
 async def list_notifications(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
-    status: Optional[str] = None,
-    type: Optional[str] = None,
-    severity: Optional[str] = None,
-    source_module: Optional[str] = None,
+    status: str | None = None,
+    type: str | None = None,
+    severity: str | None = None,
+    source_module: str | None = None,
     include_archived: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: NotificationService = Depends(get_notification_service),
@@ -69,6 +76,72 @@ async def get_unread_count(
     return await handlers.unread_count(ctx)
 
 
+@router.get("/preferences", response_model=NotificationPreferenceResponse)
+async def get_notification_preferences(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).get_preferences(ctx)
+
+
+@router.put("/preferences", response_model=NotificationPreferenceResponse)
+async def update_notification_preferences(
+    data: NotificationPreferenceUpdate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).update_preferences(ctx, data)
+
+
+@router.get("/endpoints", response_model=list[NotificationEndpointResponse])
+async def list_notification_endpoints(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).list_endpoints(ctx)
+
+
+@router.post("/endpoints", response_model=NotificationEndpointResponse, status_code=status.HTTP_201_CREATED)
+async def create_notification_endpoint(
+    data: NotificationEndpointCreate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).create_endpoint(ctx, data)
+
+
+@router.patch("/endpoints/{endpoint_id}", response_model=NotificationEndpointResponse)
+async def update_notification_endpoint(
+    endpoint_id: str,
+    data: NotificationEndpointUpdate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).update_endpoint(ctx, endpoint_id, data)
+
+
+@router.delete("/endpoints/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification_endpoint(
+    endpoint_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    await NotificationHandlers(service).delete_endpoint(ctx, endpoint_id)
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/test",
+    response_model=NotificationDeliveryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def test_notification_endpoint(
+    endpoint_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).test_endpoint(ctx, endpoint_id)
+
+
 @router.get("/{notification_id}", response_model=NotificationResponse)
 async def get_notification(
     notification_id: str,
@@ -77,6 +150,15 @@ async def get_notification(
 ):
     handlers = NotificationHandlers(service)
     return await handlers.get_notification(ctx, notification_id)
+
+
+@router.get("/{notification_id}/deliveries", response_model=list[NotificationDeliveryResponse])
+async def list_notification_deliveries(
+    notification_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: NotificationService = Depends(get_notification_service),
+):
+    return await NotificationHandlers(service).list_deliveries(ctx, notification_id)
 
 
 @router.post("/{notification_id}/read", response_model=NotificationResponse)

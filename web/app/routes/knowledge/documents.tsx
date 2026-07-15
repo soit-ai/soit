@@ -120,7 +120,7 @@ function KnowledgeDocumentsPage() {
                       </div>
                       <div className="text-xs text-muted-foreground">{document.doc_key}</div>
                     </TableCell>
-                    <TableCell>{document.source_type}</TableCell>
+                    <TableCell>{document.source_kind}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{document.status}</Badge>
                     </TableCell>

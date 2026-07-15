@@ -1,8 +1,9 @@
 import { toast } from 'sonner'
 import { fetchEventSource, type FetchEventSourceInit } from '@microsoft/fetch-event-source'
-import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 import { debugLog } from './debug'
 import { uuidv4 } from './uuid'
+import type { ApiEnvelope } from '@/types/api'
 
 const TIME_OUT = 100000
 const BASE_URL = (import.meta.env.VITE_BASE_URL || '/api/v1').replace(/\/$/, '')
@@ -10,6 +11,11 @@ export const API_BASE_URL = BASE_URL
 const ERROR_CODES_OK = new Set([0, 200])
 const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized', 'forbidden', 'UNAUTHORIZED', 'FORBIDDEN'])
 const AUTO_REDIRECT_UNAUTHORIZED = true
+const API_ENVELOPE_KEYS = new Set(['success', 'code', 'message', 'data', 'request_id', 'run_id'])
+
+type LegacyApiEnvelope<T> = {
+  data: T
+}
 
 export const ContentType = {
   json: 'application/json',
@@ -30,22 +36,50 @@ const request = axios.create({
 export type RequestConfigWithToast = AxiosRequestConfig & {
   suppressErrorToast?: boolean
 }
+
+export function buildAuthHeaders(existing?: Record<string, string>): Record<string, string> {
+  const headers = { ...(existing || {}) }
+  const token = localStorage.getItem('token') || ''
+  const tenantId = localStorage.getItem('tenant_id') || ''
+  const workspaceId = localStorage.getItem('workspace_id') || ''
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (tenantId) headers['X-Tenant-Id'] = tenantId
+  if (workspaceId) headers['X-Workspace-Id'] = workspaceId
+  return headers
+}
+
+function isLegacyApiEnvelope<T>(
+  payload: ApiEnvelope<T> | LegacyApiEnvelope<T> | T,
+): payload is LegacyApiEnvelope<T> {
+  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+    return false
+  }
+  return Object.keys(payload).every((key) => API_ENVELOPE_KEYS.has(key))
+}
+
+function unwrapApiEnvelope<T>(payload: ApiEnvelope<T> | LegacyApiEnvelope<T> | T): T {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'success' in payload &&
+    payload.success === true &&
+    'data' in payload
+  ) {
+    return payload.data
+  }
+  if (isLegacyApiEnvelope(payload)) {
+    return payload.data
+  }
+  return payload as T
+}
 // Add request interceptors
 request.interceptors.request.use(
   // @ts-ignore
   function (config) {
-    const token = localStorage.getItem('token') || ''
-    const headers = {
+    const headers = buildAuthHeaders({
       'Content-Type': ContentType.json,
       ...(config?.headers as Record<string, string> | undefined),
-    } as Record<string, string>
-    if (token) {
-      headers.Authorization = `Bearer ${token}`
-    }
-    const workspaceId = localStorage.getItem('workspace_id') || ''
-    if (workspaceId) {
-      headers['X-Workspace-Id'] = workspaceId
-    }
+    })
     const newConfig = { ...config, headers } as AxiosRequestConfig
     return newConfig
   },
@@ -123,10 +157,10 @@ function isUnauthorizedError(code: number | string | null | undefined): boolean 
 export default request
 
 // post http
-export async function post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request.post(url, data, config)
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     debugLog('post error:', error, url, data, config)
     return Promise.reject(error)
@@ -134,10 +168,10 @@ export async function post<T = any>(url: string, data?: any, config?: AxiosReque
 }
 
 // get http
-export async function get<T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function get<T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request.get(url, { params, ...config })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     debugLog('get error:', error, url, params, config)
     return Promise.reject(error)
@@ -145,10 +179,10 @@ export async function get<T = any>(url: string, params?: Record<string, any>, co
 }
 
 // put http
-export async function put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request.put(url, data, config)
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('put error:', error, url, data, config)
@@ -157,10 +191,10 @@ export async function put<T = any>(url: string, data?: any, config?: AxiosReques
 }
 
 // delete http
-export async function del<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function del<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request.delete(url, { params: data, ...config })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('delete error:', error, url, data, config)
@@ -169,10 +203,10 @@ export async function del<T = any>(url: string, data?: any, config?: AxiosReques
 }
 
 // patch http
-export async function patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request.patch(url, data, config)
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('patch error:', error, url, data, config)
@@ -181,7 +215,7 @@ export async function patch<T = any>(url: string, data?: any, config?: AxiosRequ
 }
 
 // post form
-export async function postForm<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function postForm<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request({
       url: url,
@@ -193,7 +227,7 @@ export async function postForm<T = any>(url: string, data?: any, config?: AxiosR
         ...config?.headers,
       },
     })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('postForm error:', error, url, data, config)
@@ -202,7 +236,7 @@ export async function postForm<T = any>(url: string, data?: any, config?: AxiosR
 }
 
 // get form
-export async function getForm<T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> {
+export async function getForm<T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<T> {
   try {
     const res = await request({
       url: url,
@@ -214,7 +248,7 @@ export async function getForm<T = any>(url: string, params?: Record<string, any>
         ...config?.headers,
       },
     })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('getForm error:', error, url, params, config)
@@ -223,7 +257,7 @@ export async function getForm<T = any>(url: string, params?: Record<string, any>
 }
 
 // get file
-export const getFile = async <T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> => {
+export const getFile = async <T = Blob>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<T> => {
   try {
     const res = await request({
       url: url,
@@ -236,7 +270,7 @@ export const getFile = async <T = any>(url: string, params?: Record<string, any>
         ...config?.headers,
       },
     })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return res.data as T
   } catch (error) {
     // throw new Error(error);
     debugLog('getExportFile error:', error, url, params, config)
@@ -245,7 +279,7 @@ export const getFile = async <T = any>(url: string, params?: Record<string, any>
 }
 
 // post file
-export const postFile = async <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> => {
+export const postFile = async <T = Blob>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
   try {
     const res = await request({
       url: url,
@@ -258,7 +292,7 @@ export const postFile = async <T = any>(url: string, data?: any, config?: AxiosR
         ...config?.headers,
       },
     })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return res.data as T
   } catch (error) {
     // throw new Error(error);
     debugLog('postExportFile error:', error, url, data, config)
@@ -267,7 +301,7 @@ export const postFile = async <T = any>(url: string, data?: any, config?: AxiosR
 }
 
 // upload file
-export const uploadFile = async <T = any>(url: string, data?: any, config?: RequestConfigWithToast): Promise<AxiosResponse<T, any>> => {
+export const uploadFile = async <T = any>(url: string, data?: any, config?: RequestConfigWithToast): Promise<T> => {
   try {
     const res = await request({
       url: url,
@@ -279,7 +313,7 @@ export const uploadFile = async <T = any>(url: string, data?: any, config?: Requ
         ...config?.headers,
       },
     })
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return unwrapApiEnvelope<T>(res.data)
   } catch (error) {
     // throw new Error(error);
     debugLog('uploadFile error:', error, url, data, config)
@@ -288,7 +322,7 @@ export const uploadFile = async <T = any>(url: string, data?: any, config?: Requ
 }
 
 // download file
-export const downloadFile = async <T = any>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<AxiosResponse<T, any>> => {
+export const downloadFile = async <T = Blob>(url: string, params?: Record<string, any>, config?: AxiosRequestConfig): Promise<T> => {
   try {
     const res = await request({
       url: url,
@@ -309,7 +343,7 @@ export const downloadFile = async <T = any>(url: string, params?: Record<string,
     a.href = downloadUrl
     a.download = res.headers['content-disposition']
     a.click()
-    return Promise.resolve(res.data) as Promise<AxiosResponse<T, any>>
+    return res.data as T
   } catch (error) {
     // throw new Error(error);
     debugLog('downloadFile error:', error, url, params, config)
@@ -339,8 +373,8 @@ export async function* sse(url: string, data?: any, config?: FetchEventSourceIni
     const sourcePromise = fetchEventSource(url, {
       method: 'POST',
       headers: {
-        'Content-Type': ContentType.json,
-        ...config?.headers,
+        ...buildAuthHeaders({ 'Content-Type': ContentType.json }),
+        ...(config?.headers as Record<string, string> | undefined),
       },
       openWhenHidden: true,
       signal: config?.signal,

@@ -3,156 +3,157 @@
 Knowledge domain Pydantic schemas.
 """
 
-from typing import Optional, Dict, Any, List
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KnowledgeCreate(BaseModel):
     """Schema for creating a knowledge base."""
-    
+
     name: str = Field(..., min_length=1, max_length=255)
     """Knowledge name."""
-    
+
     type: str = Field(..., pattern="^(document|qa|code|graph|other)$")
     """Knowledge type."""
-    
-    description: Optional[str] = Field(None, max_length=1000)
+
+    description: str | None = Field(None, max_length=1000)
     """Knowledge description."""
-    
+
     visibility: str = Field(default="private", pattern="^(private|workspace|tenant)$")
     """Visibility."""
-    
-    settings_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    settings_json: dict[str, Any] | None = Field(default_factory=dict)
     """General settings."""
-    
-    chunking_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    chunking_json: dict[str, Any] | None = Field(default_factory=dict)
     """Chunking strategy."""
-    
-    retrieval_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    retrieval_json: dict[str, Any] | None = Field(default_factory=dict)
     """Retrieval strategy."""
-    
-    default_embedding_model_ref: Optional[str] = Field(None)
+
+    default_embedding_model_ref: str | None = Field(None)
     """Default embedding model."""
-    
-    default_reranker_ref: Optional[str] = Field(None)
+
+    default_reranker_ref: str | None = Field(None)
     """Default reranker."""
-    
-    tags: Optional[List[str]] = Field(None)
+
+    tags: list[str] | None = Field(None)
     """Tags."""
 
 
 class KnowledgeUpdate(BaseModel):
     """Schema for updating a knowledge base."""
-    
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+
+    name: str | None = Field(None, min_length=1, max_length=255)
     """Knowledge name."""
-    
-    description: Optional[str] = Field(None, max_length=1000)
+
+    description: str | None = Field(None, max_length=1000)
     """Knowledge description."""
-    
-    status: Optional[str] = Field(None, pattern="^(active|archived|disabled)$")
+
+    status: str | None = Field(None, pattern="^(active|archived|disabled)$")
     """Status."""
-    
-    visibility: Optional[str] = Field(None, pattern="^(private|workspace|tenant)$")
+
+    visibility: str | None = Field(None, pattern="^(private|workspace|tenant)$")
     """Visibility."""
-    
-    settings_json: Optional[Dict[str, Any]] = None
+
+    settings_json: dict[str, Any] | None = None
     """General settings."""
-    
-    chunking_json: Optional[Dict[str, Any]] = None
+
+    chunking_json: dict[str, Any] | None = None
     """Chunking strategy."""
-    
-    retrieval_json: Optional[Dict[str, Any]] = None
+
+    retrieval_json: dict[str, Any] | None = None
     """Retrieval strategy."""
-    
-    default_embedding_model_ref: Optional[str] = None
+
+    default_embedding_model_ref: str | None = None
     """Default embedding model."""
-    
-    default_reranker_ref: Optional[str] = None
+
+    default_reranker_ref: str | None = None
     """Default reranker."""
-    
-    tags: Optional[List[str]] = None
+
+    tags: list[str] | None = None
     """Tags."""
 
 
 class DocumentUpload(BaseModel):
     """Schema for uploading a document."""
-    
+
     doc_key: str = Field(..., min_length=1)
     """Document key."""
-    
-    source_type: str = Field(..., pattern="^(upload|crawler|api|manual)$")
-    """Source type."""
-    
-    source_uri: Optional[str] = None
+
+    source_kind: str = Field(..., pattern="^(upload|crawler|api|manual)$")
+    """Source kind."""
+
+    source_uri: str | None = None
     """Source URI."""
-    
-    file_id: Optional[str] = None
+
+    file_id: str | None = None
     """File ID."""
 
-    filename: Optional[str] = None
+    filename: str | None = None
     """Original filename."""
 
-    mime_type: Optional[str] = None
+    mime_type: str | None = None
     """MIME type."""
 
-    size_bytes: Optional[int] = None
+    size_bytes: int | None = None
     """File size in bytes."""
 
-    checksum: Optional[str] = None
+    checksum: str | None = None
     """File checksum (sha256)."""
 
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
     """Content hash (sha256)."""
 
-    title: Optional[str] = None
+    title: str | None = None
     """Title."""
-    
-    language: Optional[str] = None
+
+    language: str | None = None
     """Language."""
-    
-    access_policy_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    access_policy_json: dict[str, Any] | None = Field(default_factory=dict)
     """Access policy."""
 
 
 class QueryRequest(BaseModel):
     """Schema for querying knowledge."""
-    
+
     query: str = Field(..., min_length=1)
     """Query text."""
-    
+
     top_k: int = Field(default=10, ge=1, le=100)
     """Number of results."""
-    
-    index_id: Optional[str] = None
+
+    index_id: str | None = None
     """Index ID (use default if not specified)."""
-    
-    filter: Optional[Dict[str, Any]] = None
+
+    filter: dict[str, Any] | None = None
     """Metadata filter."""
-    
+
     use_rerank: bool = Field(default=False)
     """Use reranking."""
-    
-    reranker_ref: Optional[str] = None
+
+    reranker_ref: str | None = None
     """Reranker reference."""
 
-    strategy: Optional[str] = Field(default=None, pattern="^(vector|multi_index|keyword|hybrid)$")
+    strategy: str | None = Field(default=None, pattern="^(vector|multi_index|keyword|hybrid)$")
     """Retrieval strategy."""
 
-    index_ids: Optional[List[str]] = None
+    index_ids: list[str] | None = None
     """Index IDs for multi-index retrieval."""
 
-    keyword_top_k: Optional[int] = Field(default=None, ge=1, le=200)
+    keyword_top_k: int | None = Field(default=None, ge=1, le=200)
     """Top K for keyword retrieval."""
 
-    keyword_candidate_limit: Optional[int] = Field(default=None, ge=10, le=10000)
+    keyword_candidate_limit: int | None = Field(default=None, ge=10, le=10000)
     """Max chunks to scan for keyword retrieval."""
 
-    keyword_min_score: Optional[int] = Field(default=None, ge=1)
+    keyword_min_score: int | None = Field(default=None, ge=1)
     """Minimum keyword score to include a chunk."""
 
-    hybrid_alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    hybrid_alpha: float | None = Field(default=None, ge=0.0, le=1.0)
     """Weight for vector scores in hybrid retrieval."""
 
     include_snippets: bool = Field(default=True)
@@ -167,23 +168,23 @@ class QueryRequest(BaseModel):
 
 class QueryResult(BaseModel):
     """Schema for query result."""
-    
+
     chunk_id: str
     """Chunk ID."""
-    
+
     document_id: str
     """Document ID."""
-    
+
     score: float
     """Similarity score."""
-    
+
     text: str
     """Chunk text."""
 
-    snippets: List[str] = Field(default_factory=list)
+    snippets: list[str] = Field(default_factory=list)
     """Snippet list for citations."""
-    
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
     """Chunk metadata."""
 
 
@@ -202,75 +203,75 @@ class QueryCitation(BaseModel):
     score: float
     """Score used for ranking."""
 
-    knowledge_id: Optional[str] = None
+    knowledge_id: str | None = None
     """Knowledge ID."""
 
-    doc_key: Optional[str] = None
+    doc_key: str | None = None
     """Document key."""
 
-    title: Optional[str] = None
+    title: str | None = None
     """Document title."""
 
-    source_uri: Optional[str] = None
+    source_uri: str | None = None
     """Source URI."""
 
-    chunk_no: Optional[int] = None
+    chunk_no: int | None = None
     """Chunk number."""
 
-    page_no: Optional[int] = None
+    page_no: int | None = None
     """Page number."""
 
-    section_path: Optional[List[str]] = None
+    section_path: list[str] | None = None
     """Section path."""
 
-    snippet: Optional[str] = None
+    snippet: str | None = None
     """Primary snippet."""
 
 
 class QueryResponse(BaseModel):
     """Schema for query response."""
-    
-    results: List[QueryResult]
+
+    results: list[QueryResult]
     """Query results."""
-    
+
     total: int
     """Total results count."""
 
-    citations: List[QueryCitation] = Field(default_factory=list)
+    citations: list[QueryCitation] = Field(default_factory=list)
     """Citation list (sources + snippets)."""
 
 
 class KnowledgeResponse(BaseModel):
     """Schema for knowledge response."""
-    
+
     id: str
     tenant_id: str
     workspace_id: str
     name: str
     type: str
-    description: Optional[str]
+    description: str | None
     status: str
     visibility: str
-    settings_json: Dict[str, Any]
-    chunking_json: Dict[str, Any]
-    retrieval_json: Dict[str, Any]
-    default_embedding_model_ref: Optional[str]
-    default_reranker_ref: Optional[str]
-    default_index_id: Optional[str]
+    settings_json: dict[str, Any]
+    chunking_json: dict[str, Any]
+    retrieval_json: dict[str, Any]
+    default_embedding_model_ref: str | None
+    default_reranker_ref: str | None
+    default_index_id: str | None
     doc_count: int
     chunk_count: int
-    last_ingested_at: Optional[datetime]
-    last_indexed_at: Optional[datetime]
-    tags: Optional[List[str]]
+    last_ingested_at: datetime | None
+    last_indexed_at: datetime | None
+    tags: list[str] | None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class DocumentResponse(BaseModel):
     """Schema for document response."""
-    
+
     id: str
     tenant_id: str
     workspace_id: str
@@ -278,26 +279,26 @@ class DocumentResponse(BaseModel):
     doc_key: str
     version: int
     is_latest: bool
-    source_type: str
-    title: Optional[str]
-    language: Optional[str]
-    mime_type: Optional[str]
-    filename: Optional[str]
-    size_bytes: Optional[int]
-    checksum: Optional[str]
-    content_hash: Optional[str]
-    source_uri: Optional[str]
-    file_id: Optional[str]
-    error_code: Optional[str]
-    error_message: Optional[str]
+    source_kind: str
+    title: str | None
+    language: str | None
+    mime_type: str | None
+    filename: str | None
+    size_bytes: int | None
+    checksum: str | None
+    content_hash: str | None
+    source_uri: str | None
+    file_id: str | None
+    error_code: str | None
+    error_message: str | None
     retry_count: int
     status: str
-    parse_meta_json: Dict[str, Any] = Field(default_factory=dict)
-    index_meta_json: Dict[str, Any] = Field(default_factory=dict)
+    parse_meta_json: dict[str, Any] = Field(default_factory=dict)
+    index_meta_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
-    deleted_at: Optional[datetime]
-    
+    deleted_at: datetime | None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -311,14 +312,14 @@ class ChunkResponse(BaseModel):
     document_id: str
     document_version: int
     chunk_no: int
-    chunk_key: Optional[str]
-    text_preview: Optional[str]
-    start_offset: Optional[int]
-    end_offset: Optional[int]
-    page_no: Optional[int]
-    section_path: List[str]
-    char_count: Optional[int]
-    token_count: Optional[int]
+    chunk_key: str | None
+    text_preview: str | None
+    start_offset: int | None
+    end_offset: int | None
+    page_no: int | None
+    section_path: list[str]
+    char_count: int | None
+    token_count: int | None
     index_status: str
     created_at: datetime
     updated_at: datetime
@@ -329,10 +330,10 @@ class ChunkResponse(BaseModel):
 class ChunkUpdate(BaseModel):
     """Schema for updating a chunk."""
 
-    content: Optional[str] = None
+    content: str | None = None
     """Updated chunk content."""
 
-    index_status: Optional[str] = Field(
+    index_status: str | None = Field(
         default=None,
         pattern="^(pending|indexed|failed|disabled)$",
     )
@@ -341,7 +342,7 @@ class ChunkUpdate(BaseModel):
 
 class IndexResponse(BaseModel):
     """Schema for index response."""
-    
+
     id: str
     tenant_id: str
     workspace_id: str
@@ -354,12 +355,16 @@ class IndexResponse(BaseModel):
     metric_type: str
     status: str
     build_version: int
+    last_build_at: datetime | None
+    last_run_id: str | None
     doc_count: int
     chunk_count: int
     vector_count: int
+    last_error_code: str | None
+    last_error_message: str | None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -384,47 +389,47 @@ class IndexCreate(BaseModel):
     is_primary: bool = Field(default=False)
     """Whether this is the primary index."""
 
-    collection_name: Optional[str] = None
+    collection_name: str | None = None
     """Collection name in vector store."""
 
-    partition_strategy: Optional[str] = None
+    partition_strategy: str | None = None
     """Partition strategy."""
 
-    namespace: Optional[str] = None
+    namespace: str | None = None
     """Namespace."""
 
-    index_params_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    index_params_json: dict[str, Any] | None = Field(default_factory=dict)
     """Index params."""
 
-    search_params_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    search_params_json: dict[str, Any] | None = Field(default_factory=dict)
     """Search params."""
 
-    reranker_ref: Optional[str] = None
+    reranker_ref: str | None = None
     """Reranker reference."""
 
-    filters_json: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    filters_json: dict[str, Any] | None = Field(default_factory=dict)
     """Default filters."""
 
 
 class IndexUpdate(BaseModel):
     """Schema for updating an index."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: str | None = Field(None, min_length=1, max_length=255)
     """Index name."""
 
-    is_primary: Optional[bool] = None
+    is_primary: bool | None = None
     """Set as primary index."""
 
-    status: Optional[str] = Field(None, pattern="^(draft|building|ready|failed|disabled)$")
+    status: str | None = Field(None, pattern="^(draft|building|ready|failed|disabled)$")
     """Index status."""
 
-    search_params_json: Optional[Dict[str, Any]] = None
+    search_params_json: dict[str, Any] | None = None
     """Search params."""
 
-    reranker_ref: Optional[str] = None
+    reranker_ref: str | None = None
     """Reranker reference."""
 
-    filters_json: Optional[Dict[str, Any]] = None
+    filters_json: dict[str, Any] | None = None
     """Default filters."""
 
 
@@ -435,18 +440,18 @@ class IngestTaskResponse(BaseModel):
     tenant_id: str
     workspace_id: str
     knowledge_id: str
-    document_id: Optional[str]
+    document_id: str | None
     status: str
-    payload_json: Dict[str, Any]
-    run_id: Optional[str]
-    error_code: Optional[str]
-    error_message: Optional[str]
+    payload_json: dict[str, Any]
+    run_id: str | None
+    error_code: str | None
+    error_message: str | None
     retry_count: int
     max_retries: int
-    started_at: Optional[datetime]
-    finished_at: Optional[datetime]
-    created_by: Optional[str]
-    updated_by: Optional[str]
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_by: str | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -465,4 +470,4 @@ class KnowledgeConsumerUsageResponse(BaseModel):
     resource_version_status: str
     resource_version_created_at: datetime
     run_count: int
-    last_run_at: Optional[datetime]
+    last_run_at: datetime | None

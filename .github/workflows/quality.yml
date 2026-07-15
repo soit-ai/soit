@@ -26,6 +26,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      ENVIRONMENT: test
+      SOIT_TESTING: "1"
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/soit_test
     defaults:
       run:
@@ -113,7 +115,6 @@ jobs:
   backend-strict:
     name: backend-strict
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: server
@@ -136,7 +137,101 @@ jobs:
         run: uv run ruff check app tests
 
       - name: Mypy
-        run: uv run mypy app tests
+        run: uv run mypy --config-file mypy-core.ini
+
+  container-smoke:
+    name: container-smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: soit_container
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d soit_container"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose configuration
+        run: docker compose -f docker/docker-compose.yml config --quiet
+
+      - name: Build backend image
+        run: docker build --tag soit-api:ci ./server
+
+      - name: Apply migrations from image
+        run: >-
+          docker run --rm --network host
+          -e ENVIRONMENT=development
+          -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/soit_container
+          -e REDIS_URL=redis://127.0.0.1:6379/0
+          -e EVENT_BUS_BACKEND=redis
+          -e EVENT_BUS_REDIS_URL=redis://127.0.0.1:6379/0
+          soit-api:ci alembic upgrade head
+
+      - name: Start backend image
+        run: >-
+          docker run --detach --name soit-api-ci --network host
+          -e ENVIRONMENT=development
+          -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/soit_container
+          -e REDIS_URL=redis://127.0.0.1:6379/0
+          -e EVENT_BUS_BACKEND=redis
+          -e EVENT_BUS_REDIS_URL=redis://127.0.0.1:6379/0
+          soit-api:ci
+
+      - name: Verify backend readiness
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9200/health/ready | grep --quiet '"status":"ready"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs soit-api-ci
+          exit 1
+
+      - name: Start outbox dispatcher image
+        run: >-
+          docker run --detach --name soit-outbox-ci --network host
+          -e ENVIRONMENT=development
+          -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/soit_container
+          -e REDIS_URL=redis://127.0.0.1:6379/0
+          -e EVENT_BUS_BACKEND=redis
+          -e EVENT_BUS_REDIS_URL=redis://127.0.0.1:6379/0
+          soit-api:ci python scripts/outbox_dispatcher.py
+
+      - name: Verify outbox dispatcher readiness
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9201/metrics | grep --quiet 'soit_outbox_pending'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs soit-outbox-ci
+          exit 1
+
+      - name: Stop backend image
+        if: always()
+        run: |
+          docker rm --force soit-outbox-ci || true
+          docker rm --force soit-api-ci || true
 
   frontend-p0:
     name: frontend-p0
@@ -161,8 +256,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Dependency audit
+        run: npm audit --omit=dev
+
       - name: Build
         run: npm run build
+
+      - name: Bundle budget
+        run: npm run budget
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

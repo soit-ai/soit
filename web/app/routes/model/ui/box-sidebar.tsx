@@ -62,136 +62,29 @@ const data = {
   navMain: [
     {
       id: 'overview',
-      titleKey: 'system.model.sidebar.menu.overview',
-      url: '/models/dashboard',
+      titleKey: 'model.sidebar.menu.overview',
+      url: '/models/overview',
       icon: PieChart,
       isActive: true,
       items: [],
     },
     {
-      id: 'types',
-      titleKey: 'system.model.sidebar.menu.types',
-      url: '/models/types',
-      icon: Cpu,
-      items: [
-        {
-          id: 'llm',
-          titleKey: 'system.model.sidebar.menu.typesItems.llm',
-          url: '/models/types/llm',
-          icon: Bot,
-        },
-        {
-          id: 'embedding',
-          titleKey: 'system.model.sidebar.menu.typesItems.embedding',
-          url: '/models/types/embedding',
-          icon: Code,
-        },
-        {
-          id: 'speech2text',
-          titleKey: 'system.model.sidebar.menu.typesItems.speech2text',
-          url: '/models/types/speech2text',
-          icon: FileText,
-        },
-        {
-          id: 'moderation',
-          titleKey: 'system.model.sidebar.menu.typesItems.moderation',
-          url: '/models/types/moderation',
-          icon: Search,
-        },
-        {
-          id: 'tts',
-          titleKey: 'system.model.sidebar.menu.typesItems.tts',
-          url: '/models/types/tts',
-          icon: Scroll,
-        },
-        {
-          id: 'vision',
-          titleKey: 'system.model.sidebar.menu.typesItems.vision',
-          url: '/models/types/vision',
-          icon: SquareTerminal,
-        },
-      ],
-    },
-    {
-      id: 'management',
-      titleKey: 'system.model.sidebar.menu.management',
-      url: '/models/management',
-      icon: Settings2,
-      items: [
-        {
-          id: 'deployment',
-          titleKey: 'system.model.sidebar.menu.managementItems.deployment',
-          url: '/models/management/deployment',
-          icon: GitBranch,
-        },
-        {
-          id: 'performance',
-          titleKey: 'system.model.sidebar.menu.managementItems.performance',
-          url: '/models/management/performance',
-          icon: Zap,
-        },
-        {
-          id: 'versions',
-          titleKey: 'system.model.sidebar.menu.managementItems.versions',
-          url: '/models/management/versions',
-          icon: Clock,
-        },
-      ],
-    },
-    {
-      id: 'usage',
-      titleKey: 'system.model.sidebar.menu.usage',
-      url: '/models/usage',
-      icon: BarChart,
-      items: [
-        {
-          id: 'apiUsage',
-          titleKey: 'system.model.sidebar.menu.usageItems.apiUsage',
-          url: '/models/usage/api',
-        },
-        {
-          id: 'userAnalysis',
-          titleKey: 'system.model.sidebar.menu.usageItems.userAnalysis',
-          url: '/models/usage/users',
-          icon: Users,
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      id: 'help',
-      titleKey: 'system.model.sidebar.secondary.help',
-      url: '/help/model',
-      icon: LifeBuoy,
-    },
-    {
-      id: 'feedback',
-      titleKey: 'system.model.sidebar.secondary.feedback',
-      url: '/observability/feedback',
-      icon: Send,
-    },
-  ],
-  projects: [
-    {
-      id: 'favorites',
-      nameKey: 'system.model.sidebar.projects.favorites',
-      url: '/models/favorites',
-      icon: Star,
-    },
-    {
-      id: 'recent',
-      nameKey: 'system.model.sidebar.projects.recent',
-      url: '/models/recent',
-      icon: Clock,
-    },
-    {
-      id: 'mine',
-      nameKey: 'system.model.sidebar.projects.mine',
-      url: '/models/my',
+      id: 'library',
+      titleKey: 'model.sidebar.menu.library',
+      url: '/models/library',
       icon: Database,
+      items: [],
+    },
+    {
+      id: 'providers',
+      titleKey: 'model.sidebar.menu.providers',
+      url: '/models/providers',
+      icon: Bot,
+      items: [],
     },
   ],
+  navSecondary: [],
+  projects: [],
 }
 
 export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { activeTab?: string, onTabChange?: (tabId: string) => void } & React.ComponentProps<typeof Sidebar>) {
@@ -254,6 +147,9 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
     // Otherwise, trigger a tab change.
     if (onTabChange) {
       onTabChange(itemId)
+    }
+    if (item?.url) {
+      navigate(item.url)
     }
   }
 
@@ -352,10 +248,10 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
     <Sidebar className="hidden flex-1 md:flex" {...props}>
       <SidebarHeader className="mt-0">
         <div className="flex w-full items-center justify-between mb-2 px-2">
-          <div className="text-lg font-medium text-foreground">{t('system.model.sidebar.title')}</div>
+          <div className="text-lg font-medium text-foreground">{t('model.sidebar.title')}</div>
           <SidebarTrigger className="-mr-1" />
         </div>
-        <SidebarInput placeholder={t('system.model.sidebar.searchPlaceholder')} className="mx-2 w-auto" />
+        <SidebarInput placeholder={t('model.sidebar.searchPlaceholder')} className="mx-2 w-auto" />
       </SidebarHeader>
       <SidebarContent>
         <ScrollArea className="flex-1 overflow-auto">
@@ -367,28 +263,28 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               </div>
             </div>
             
-            {/* Project menu. */}
-            <div className="px-2 py-2">
-              <h2 className="px-3 mb-2 text-sm font-semibold tracking-tight text-muted-foreground">
-                {t('system.model.sidebar.projects.title')}
-              </h2>
-              <div className="space-y-1">
-                {data.projects.map((project: any) => (
-                  <Button
-                    key={project.id}
-                    variant="ghost"
-                    className="w-full justify-start gap-2"
-                    onClick={() => {
-                      setOpen(false)
-                      navigate(project.url)
-                    }}
-                  >
-                    {project.icon && <project.icon size={16} />}
-                    <span>{t(project.nameKey)}</span>
-                  </Button>
-                ))}
+            {data.projects.length ? (
+              <div className="px-2 py-2">
+                <h2 className="px-3 mb-2 text-sm font-semibold tracking-tight text-muted-foreground">
+                  {t('model.sidebar.projects.title')}
+                </h2>
+                <div className="space-y-1">
+                  {data.projects.map((project: any) => (
+                    <Button
+                      key={project.id}
+                      variant="ghost"
+                      className="w-full justify-start gap-2"
+                      onClick={() => {
+                        navigate(project.url)
+                      }}
+                    >
+                      {project.icon && <project.icon size={16} />}
+                      <span>{t(project.nameKey)}</span>
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </ScrollArea>
       </SidebarContent>
@@ -400,7 +296,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <Cpu className="mr-2 h-5 w-5 text-primary" />
-                  <h3 className="font-semibold">{t('system.model.sidebar.stats.title')}</h3>
+                  <h3 className="font-semibold">{t('model.sidebar.stats.title')}</h3>
                 </div>
                 <Button
                   variant="ghost"
@@ -418,18 +314,18 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">{t('system.model.sidebar.stats.totalModels')}</span>
+                  <span className="text-muted-foreground text-xs">{t('model.sidebar.stats.totalModels')}</span>
                   <span className="font-semibold">{modelStatus.totalModels}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">{t('system.model.sidebar.stats.activeModels')}</span>
+                  <span className="text-muted-foreground text-xs">{t('model.sidebar.stats.activeModels')}</span>
                   <span className="font-semibold">{modelStatus.activeModels}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{t('system.model.sidebar.stats.apiUsage')}</span>
+                  <span className="text-muted-foreground">{t('model.sidebar.stats.apiUsage')}</span>
                   <span>{modelStatus.apiUsage}/{modelStatus.apiLimit}</span>
                 </div>
                 <Progress
@@ -442,8 +338,8 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{t('system.model.sidebar.stats.performance')}</span>
-                  <span>{t('system.model.sidebar.stats.latency', { value: modelStatus.performance.latency })}</span>
+                  <span className="text-muted-foreground">{t('model.sidebar.stats.performance')}</span>
+                  <span>{t('model.sidebar.stats.latency', { value: modelStatus.performance.latency })}</span>
                 </div>
                 <Progress
                   value={Math.min((modelStatus.performance.latency / 500) * 100, 100)}
@@ -452,17 +348,17 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
               </div>
 
               <div className="text-xs text-muted-foreground">
-                {t('system.model.sidebar.stats.updatedAt', { timestamp: modelStatus.lastUpdated })}
+                {t('model.sidebar.stats.updatedAt', { timestamp: modelStatus.lastUpdated })}
               </div>
               
               <div className="flex justify-between mt-2 pt-2 border-t text-xs">
                 <Button variant="ghost" size="sm" className="h-7 gap-1">
                   <BarChart className="h-3.5 w-3.5" />
-                  <span>{t('system.model.sidebar.stats.report')}</span>
+                  <span>{t('model.sidebar.stats.report')}</span>
                 </Button>
                 <Button variant="ghost" size="sm" className="h-7 gap-1">
                   <ExternalLink className="h-3.5 w-3.5" />
-                  <span>{t('system.model.sidebar.stats.details')}</span>
+                  <span>{t('model.sidebar.stats.details')}</span>
                 </Button>
               </div>
             </div>

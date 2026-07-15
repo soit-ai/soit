@@ -41,7 +41,7 @@ function IndexPage() {
   const [selectedModel, setSelectedModel] = useState(() => {
     return resolveStoredChatModel()
   })
-  const { data: activeThread } = useQuery({
+  const activeThreadQuery = useQuery({
     queryKey: ['chat-thread', threadId],
     queryFn: () => getThread(threadId),
     options: {
@@ -50,6 +50,7 @@ function IndexPage() {
       refetchOnWindowFocus: false,
     },
   })
+  const { data: activeThread } = activeThreadQuery
 
   const chat = useChat({
     agentId,
@@ -57,7 +58,7 @@ function IndexPage() {
     modelName: selectedModel,
   })
 
-  const { data: modelConfigs = [] } = useQuery<ModelLibraryItem[]>({
+  const modelConfigsQuery = useQuery<ModelLibraryItem[]>({
     queryKey: ['chat-models'],
     queryFn: () => listModels(),
     options: {
@@ -65,8 +66,9 @@ function IndexPage() {
       refetchOnWindowFocus: false,
     },
   })
+  const { data: modelConfigs = [] } = modelConfigsQuery
 
-  const { data: activeAgent } = useQuery<Agent | null>({
+  const activeAgentQuery = useQuery<Agent | null>({
     queryKey: ['agent', agentId],
     queryFn: () => (agentId && agentId !== 'default' ? getAgent(agentId) : Promise.resolve(null)),
     options: {
@@ -74,8 +76,9 @@ function IndexPage() {
       refetchOnWindowFocus: false,
     },
   })
+  const { data: activeAgent } = activeAgentQuery
 
-  const { data: agentPage } = useQuery({
+  const agentPageQuery = useQuery({
     queryKey: ['chat-agents'],
     queryFn: () => listAgents({ page_size: 100 }),
     options: {
@@ -83,6 +86,24 @@ function IndexPage() {
       refetchOnWindowFocus: false,
     },
   })
+  const { data: agentPage } = agentPageQuery
+
+  const loadError =
+    activeThreadQuery.error ||
+    modelConfigsQuery.error ||
+    activeAgentQuery.error ||
+    agentPageQuery.error
+
+  const reloadChat = useCallback(() => {
+    if (threadId) {
+      void activeThreadQuery.refetch()
+    }
+    void modelConfigsQuery.refetch()
+    if (agentId && agentId !== 'default') {
+      void activeAgentQuery.refetch()
+    }
+    void agentPageQuery.refetch()
+  }, [activeThreadQuery, activeAgentQuery, agentId, agentPageQuery, modelConfigsQuery, threadId])
 
   const providers = useMemo<ProviderOption[]>(() => {
     const map = new Map<string, ProviderOption>()
@@ -338,6 +359,22 @@ function IndexPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6">
+        <div
+          role="alert"
+          className="flex max-w-md flex-col items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-6 text-center"
+        >
+          <p className="text-sm font-medium text-foreground">{t('chat.errors.loadFailed')}</p>
+          <Button type="button" variant="outline" onClick={reloadChat}>
+            {t('common.retry')}
+          </Button>
         </div>
       </div>
     )

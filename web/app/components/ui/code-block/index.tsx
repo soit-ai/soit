@@ -1,9 +1,9 @@
 import React from 'react';
 import { Button, Tooltip } from 'antd';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
-import { createHighlighter, type Highlighter } from "shiki";
 import { useClipboard } from 'use-clipboard-copy';
 import { useTheme } from '@/components/theme-provider';
+import { highlightCodeToHtml, plainCodeToHtml } from '@/lib/shiki';
 
 // Add global styles
 const codeLineNumbersStyle = `
@@ -58,52 +58,34 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   const { theme } = useTheme();
   const clipboard = useClipboard();
   const [copied, setCopied] = React.useState(false);
-  const [highlighter, setHighlighter] = React.useState<Highlighter | null>(null);
   const [highlightedCode, setHighlightedCode] = React.useState<string>("");
 
   React.useEffect(() => {
-    const loadHighlighter = async () => {
+    let active = true;
+    const loadHighlightedCode = async () => {
       try {
-        const highlighter = await createHighlighter({
-          themes: ["github-dark", "github-light"],
-          langs: [language],
+        const html = await highlightCodeToHtml({
+          code: value,
+          language,
+          showLineNumbers,
+          theme: theme === "dark" ? "github-dark" : "github-light",
         });
-        setHighlighter(highlighter);
-      } catch (error) {
-        console.error("Failed to load highlighter:", error);
-      }
-    };
-    
-    loadHighlighter();
-  }, [language]);
-
-  React.useEffect(() => {
-    if (highlighter) {
-      try {
-        const _theme = theme === "dark" ? "github-dark" : "github-light";
-        const html = highlighter.codeToHtml(value, { 
-          lang: language, 
-          theme: _theme,
-          transformers: showLineNumbers ? [
-            {
-              line(element, index) {
-                element.properties["class"] = "line";
-                element.properties["line-number"] = String(index + 1);
-                return element;
-              }
-            }
-          ] : undefined
-        });
-        const htmlWithStyle = showLineNumbers 
-          ? `<style>${codeLineNumbersStyle}</style>${html}` 
-          : html;
-        setHighlightedCode(htmlWithStyle);
+        if (active) {
+          setHighlightedCode(showLineNumbers ? `<style>${codeLineNumbersStyle}</style>${html}` : html);
+        }
       } catch (error) {
         console.error("Failed to highlight code:", error);
-        setHighlightedCode(`<pre><code>${value}</code></pre>`);
+        if (active) {
+          setHighlightedCode(plainCodeToHtml(value));
+        }
       }
-    }
-  }, [highlighter, value, language, showLineNumbers, theme]);
+    };
+
+    void loadHighlightedCode();
+    return () => {
+      active = false;
+    };
+  }, [value, language, showLineNumbers, theme]);
 
   const handleCopy = () => {
     clipboard.copy(value);
@@ -125,7 +107,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
         </Tooltip>
       )}
       <div className="p-4 relative">
-        {highlighter ? (
+        {highlightedCode ? (
           <div 
             className={`shiki-container w-full ${showLineNumbers ? 'shiki-with-line-numbers text-sm' : ''}`}
             dangerouslySetInnerHTML={{ __html: highlightedCode }} 

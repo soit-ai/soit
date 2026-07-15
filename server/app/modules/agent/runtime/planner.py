@@ -4,9 +4,14 @@ Agent planner using native LLM function calling.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolDefinition, ToolCall
+from app.kernel.ports.llm.interface import (
+    ChatMessage,
+    LLMPort,
+    ToolCall,
+    ToolDefinition,
+)
 
 
 @dataclass
@@ -14,12 +19,12 @@ class PlanResult:
     """Planner result payload."""
 
     action: str  # "tool" or "respond"
-    tool_calls: Optional[List[ToolCall]]
-    response: Optional[str]
-    raw: Dict[str, Any]
+    tool_calls: list[ToolCall] | None
+    response: str | None
+    raw: dict[str, Any]
     tokens_prompt: int
     tokens_completion: int
-    finish_reason: Optional[str]
+    finish_reason: str | None
 
 
 class AgentPlanner:
@@ -30,13 +35,13 @@ class AgentPlanner:
 
     async def plan(
         self,
-        messages: List[ChatMessage],
-        tool_definitions: Optional[List[ToolDefinition]],
+        messages: list[ChatMessage],
+        tool_definitions: list[ToolDefinition] | None,
         model: str,
-        temperature: Optional[float],
+        temperature: float | None,
         run_id: str,
-        memory_context: Optional[str] = None,
-        rag_context: Optional[str] = None,
+        memory_context: str | None = None,
+        rag_context: str | None = None,
     ) -> PlanResult:
         """Plan next action using native function calling."""
         planning_messages = list(messages)

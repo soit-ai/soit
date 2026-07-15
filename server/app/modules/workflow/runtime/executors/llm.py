@@ -3,17 +3,18 @@
 LLM node executor.
 """
 
-from typing import Dict, Any, List
-from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
-from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
+from typing import Any
+
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
+from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
 class LLMNodeExecutor(NodeExecutor):
     """Executor for LLM nodes."""
 
-    def _response_output_payload(self, response: ChatResponse, model: str) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    def _response_output_payload(self, response: ChatResponse, model: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "text": response.text,
             "model": response.model or model,
         }
@@ -21,7 +22,7 @@ class LLMNodeExecutor(NodeExecutor):
             payload["finish_reason"] = response.finish_reason
         return payload
 
-    def _response_usage_payload(self, response: ChatResponse) -> Dict[str, Any]:
+    def _response_usage_payload(self, response: ChatResponse) -> dict[str, Any]:
         prompt_tokens = int(response.tokens_prompt or 0)
         completion_tokens = int(response.tokens_completion or 0)
         return {
@@ -29,26 +30,26 @@ class LLMNodeExecutor(NodeExecutor):
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
         }
-    
+
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute LLM node.
-        
+
         Args:
             node: Node definition.
             context: Execution context.
             inputs: Resolved inputs.
-            
+
         Returns:
             Output dictionary with 'text' and optional 'model'.
         """
         if not context.llm_port:
             raise ValidationError("LLM gateway not available")
-        
+
         # Extract parameters
         prompt = inputs.get("prompt") or inputs.get("message")
         messages_input = inputs.get("messages")
@@ -77,7 +78,7 @@ class LLMNodeExecutor(NodeExecutor):
 
         if not messages:
             raise ValidationError("LLM node requires at least one message")
-        
+
         linked_response = None
         if context.response_service:
             linked_response = context.response_service.create_linked_response(
@@ -151,7 +152,7 @@ class LLMNodeExecutor(NodeExecutor):
                     "usage": usage_payload,
                 },
             )
-        
+
         # Return output
         output = {
             "text": response.text,
@@ -159,8 +160,8 @@ class LLMNodeExecutor(NodeExecutor):
         }
         if linked_response:
             output["response_id"] = linked_response.id
-        
+
         if response.finish_reason:
             output["finish_reason"] = response.finish_reason
-        
+
         return output

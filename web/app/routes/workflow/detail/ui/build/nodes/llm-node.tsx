@@ -109,9 +109,9 @@ export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) 
             <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
             <SelectItem value="gpt-4">GPT-4</SelectItem>
             <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-            <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-            <SelectItem value="claude-3-sonnet">Claude 3 Sonnet</SelectItem>
-            <SelectItem value="claude-3-haiku">Claude 3 Haiku</SelectItem>
+            <SelectItem value="model:anthropic:claude-opus-4-8">Claude Opus 4.8</SelectItem>
+            <SelectItem value="model:anthropic:claude-sonnet-4-6">Claude Sonnet 4.6</SelectItem>
+            <SelectItem value="model:anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5</SelectItem>
             <SelectItem value="llama-3-70b">Llama 3 70B</SelectItem>
             <SelectItem value="llama-3-8b">Llama 3 8B</SelectItem>
           </SelectContent>

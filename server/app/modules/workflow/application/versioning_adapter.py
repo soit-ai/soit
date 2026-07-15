@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from app.modules.versioning.application.service import VersioningAdapter
 from app.modules.workflow.domain.models import WorkflowPublish, WorkflowVersion
@@ -50,8 +51,8 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         version_no: int,
         spec_schema: str,
         spec_json: dict[str, Any],
-        based_on_version_id: Optional[str],
-        metadata: Optional[dict[str, Any]],
+        based_on_version_id: str | None,
+        metadata: dict[str, Any] | None,
     ) -> WorkflowVersion:
         payload = metadata or {}
         return self.version_repo.create(
@@ -84,9 +85,9 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         *,
         scope: str,
         status: str,
-        notes: Optional[str],
-        previous_live_version_id: Optional[str],
-        rollback_of_publish_id: Optional[str] = None,
+        notes: str | None,
+        previous_live_version_id: str | None,
+        rollback_of_publish_id: str | None = None,
     ) -> Any:
         return self.publish_repo.create(
             WorkflowPublish(
@@ -123,7 +124,7 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         *,
         spec_schema: str,
         spec_json: dict[str, Any],
-        metadata: Optional[dict[str, Any]],
+        metadata: dict[str, Any] | None,
     ) -> None:
         self.validate_spec_callback(spec_json)
 

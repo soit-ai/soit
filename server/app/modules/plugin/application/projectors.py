@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -18,16 +18,21 @@ from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.registry.deps import get_registry
 from app.kernel.specs.validator import SpecValidator
-from app.modules.plugin.domain.models import Plugin, PluginInstallation, PluginInstalledArtifact, PluginVersion
-from app.modules.plugin.infra.repository import PluginInstalledArtifactRepository
+from app.modules.plugin.application.ports import PluginProjectionRepositoryPort
+from app.modules.plugin.domain.models import (
+    Plugin,
+    PluginInstallation,
+    PluginInstalledArtifact,
+    PluginVersion,
+)
 
 
 @dataclass(frozen=True)
 class ArtifactProjection:
     artifact_kind: str
     artifact_ref: str
-    artifact_id: Optional[str]
-    artifact_version_id: Optional[str]
+    artifact_id: str | None
+    artifact_version_id: str | None
     metadata_json: dict[str, Any]
 
 
@@ -38,8 +43,8 @@ class PluginProjectionContext:
         db: Session,
         ctx: RequestContext,
         plugin: Plugin,
-        version: Optional[PluginVersion],
-        installation: Optional[PluginInstallation],
+        version: PluginVersion | None,
+        installation: PluginInstallation | None,
         install_dir: Path,
         spec: dict[str, Any],
     ) -> None:
@@ -56,7 +61,7 @@ class PluginProjectionContext:
 class BaseProjector:
     artifact_kind: str
 
-    def __init__(self, validator: Optional[SpecValidator] = None) -> None:
+    def __init__(self, validator: SpecValidator | None = None) -> None:
         self.validator = validator or SpecValidator()
 
     def load_artifact(self, projection_ctx: PluginProjectionContext, artifact_ref: str) -> dict[str, Any]:
@@ -304,7 +309,7 @@ class PluginProjectorRegistry:
     async def project_all(
         self,
         projection_ctx: PluginProjectionContext,
-        artifact_repo: PluginInstalledArtifactRepository,
+        artifact_repo: PluginProjectionRepositoryPort,
     ) -> list[PluginInstalledArtifact]:
         projected: list[PluginInstalledArtifact] = []
         projected_refs: set[str] = set()
@@ -362,7 +367,7 @@ class PluginProjectorRegistry:
     async def set_enabled(
         self,
         projection_ctx: PluginProjectionContext,
-        artifact_repo: PluginInstalledArtifactRepository,
+        artifact_repo: PluginProjectionRepositoryPort,
         enabled: bool,
     ) -> None:
         if not projection_ctx.installation:
@@ -375,7 +380,7 @@ class PluginProjectorRegistry:
     async def uninstall(
         self,
         projection_ctx: PluginProjectionContext,
-        artifact_repo: PluginInstalledArtifactRepository,
+        artifact_repo: PluginProjectionRepositoryPort,
     ) -> None:
         if not projection_ctx.installation:
             return

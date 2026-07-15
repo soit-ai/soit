@@ -229,13 +229,48 @@ def build_identity_service(*, db: Session) -> IdentityService:
 
 
 def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubService:
+    from app.adapters.llm.litellm import LiteLLMPort
+    from app.kernel.ports.llm.runtime_config import (
+        resolve_litellm_runtime_config,
+    )
+    from app.modules.modelhub.domain.models import Provider
+
     provider_repo = ProviderRepository(db, ctx)
     platform_model_repo = PlatformModelRepository(db, ctx)
     provider_model_repo = ProviderModelRepository(db, ctx)
     sync_job_repo = SyncJobRepository(db, ctx)
     container = get_container()
     secrets_port = container.get_secrets_port(ctx)
+    provider_resolver = container.get("llm_provider_resolver")
     catalog_adapter = ProviderCatalogAdapter()
+
+    def build_litellm_port(
+        provider: Provider,
+        credentials: dict[str, str],
+    ) -> LiteLLMPort:
+        connection = provider.connection_config_json or {}
+        retry_policy = connection.get("retry_policy") or {}
+        timeout_ms = connection.get("timeout_ms")
+        runtime = resolve_litellm_runtime_config(
+            provider_kind=provider.kind,
+            runtime_config=provider.runtime_config_json,
+            connection_config=connection,
+            auth_config=provider.auth_config_json,
+            credential_ref=provider.credential_ref,
+        )
+        extra_credentials = {
+            key: value for key, value in credentials.items() if key != "api_key"
+        }
+        return LiteLLMPort(
+            provider_kind=provider.kind,
+            litellm_provider=runtime.provider,
+            litellm_params={**runtime.params, **extra_credentials},
+            api_key=credentials.get("api_key"),
+            api_base=provider.base_url,
+            timeout=float(timeout_ms) / 1000 if timeout_ms is not None else 60.0,
+            max_retries=int(retry_policy.get("max_retries", 3)),
+        )
+
     return ModelHubService(
         db,
         ctx,
@@ -245,6 +280,8 @@ def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubServi
         sync_job_repo,
         secrets_port,
         catalog_adapter,
+        litellm_port_factory=build_litellm_port,
+        provider_cache_invalidator=provider_resolver.invalidate,
     )
 
 
@@ -355,7 +392,12 @@ def build_memory_service(*, db: Session, ctx: RequestContext) -> MemoryService:
 def build_notification_service(*, db: Session, ctx: RequestContext) -> NotificationService:
     """NotificationService factory."""
     notification_repo = NotificationRepository(db, ctx)
-    return NotificationService(db=db, ctx=ctx, repo=notification_repo)
+    return NotificationService(
+        db=db,
+        ctx=ctx,
+        repo=notification_repo,
+        secrets_port=get_container().get_secrets_port(ctx),
+    )
 
 
 def build_run_service(*, db: Session, ctx: RequestContext) -> RunService:

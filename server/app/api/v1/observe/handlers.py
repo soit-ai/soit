@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
@@ -29,10 +27,10 @@ class ObserveHandlers:
         self,
         ctx: RequestContext,
         *,
-        status: Optional[str],
-        run_id: Optional[str],
-        task_id: Optional[str],
-        page_token: Optional[str],
+        status: str | None,
+        run_id: str | None,
+        task_id: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[ApprovalResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -67,10 +65,10 @@ class ObserveHandlers:
         self,
         ctx: RequestContext,
         *,
-        run_id: Optional[str],
-        agent_id: Optional[str],
-        thread_id: Optional[str],
-        page_token: Optional[str],
+        run_id: str | None,
+        agent_id: str | None,
+        thread_id: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[FeedbackResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -97,9 +95,9 @@ class ObserveHandlers:
         tab: str,
         range_label: str,
         bucket_label: str,
-        q: Optional[str],
+        q: str | None,
         workspace_scope: str,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> WorkspaceObserveDashboard:
         return WorkspaceObserveDashboard.model_validate(

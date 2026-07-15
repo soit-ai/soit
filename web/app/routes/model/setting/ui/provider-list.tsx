@@ -15,41 +15,24 @@ import {
   healthCheck,
   syncFromPlatform,
   listSyncJobs,
+  getProviderSupportMatrix,
+  type AdapterBackendSupport,
+  type ProviderPreset,
+  type ProviderSupportStatus,
 } from '@/services/provider-service'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/i18n'
+import type { ProviderConfig } from './types'
 
 // Provider kind enum
 const ProviderKindEnum = {
   OPENAI: "openai",
+  DEEPSEEK: "deepseek",
   ANTHROPIC: "anthropic",
   GEMINI: "gemini",
-  OPENAI_COMPAT: "openai_compat",
+  OPENAI_COMPAT: "openai_compatible",
+  OPENAI_COMPAT_LEGACY: "openai_compat",
 } as const
-
-// Provider status enum
-const ProviderStatusEnum = {
-  active: "active",
-  disabled: "disabled",
-  error: "error"
-} as const
-
-export interface ProviderConfig {
-  id: string
-  name: string
-  kind: typeof ProviderKindEnum[keyof typeof ProviderKindEnum]
-  baseUrl?: string
-  credentialRef?: string
-  status: keyof typeof ProviderStatusEnum
-  syncPolicy?: {
-    auto_sync?: boolean
-    interval_minutes?: number
-    recreate_deleted?: boolean
-    default_enabled?: boolean
-  }
-  createdAt?: string
-  updatedAt?: string
-}
 
 export interface ProviderListProps {
   open: boolean
@@ -64,8 +47,11 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
   const drawer = useDrawer()
   const { toast } = useToast()
   const [providers, setProviders] = useState<ProviderConfig[]>([])
+  const [supportMatrix, setSupportMatrix] = useState<ProviderSupportStatus[]>([])
+  const [adapterBackends, setAdapterBackends] = useState<AdapterBackendSupport[]>([])
+  const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>([])
   const [loading, setLoading] = useState(true)
-  const resolvedTitle = title ?? t('system.model.providerList.title')
+  const resolvedTitle = title ?? t('model.providerList.title')
 
   // Load providers
   useEffect(() => {
@@ -75,13 +61,19 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
   const loadProviders = async () => {
     try {
       setLoading(true)
-      const data = await listProviders()
+      const [data, support] = await Promise.all([
+        listProviders(),
+        getProviderSupportMatrix(),
+      ])
       setProviders(data)
+      setSupportMatrix(support.providers)
+      setAdapterBackends(support.adapterBackends)
+      setProviderPresets(support.providerPresets)
     } catch (error) {
       console.error('Failed to load providers:', error)
       toast({
-        title: t('system.model.providerList.loadFailedTitle'),
-        description: t('system.model.providerList.loadFailedDescription'),
+        title: t('model.providerList.loadFailedTitle'),
+        description: t('model.providerList.loadFailedDescription'),
         type: 'error',
       })
     } finally {
@@ -104,35 +96,35 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
       drawer.close()
 
       toast({
-        title: t('system.model.providerList.saveSuccessTitle'),
-        description: t('system.model.providerList.saveSuccessDescription'),
+        title: t('model.providerList.saveSuccessTitle'),
+        description: t('model.providerList.saveSuccessDescription'),
       })
     } catch (error) {
       console.error('Failed to save provider:', error)
       toast({
-        title: t('system.model.providerList.saveFailedTitle'),
-        description: t('system.model.providerList.saveFailedDescription'),
+        title: t('model.providerList.saveFailedTitle'),
+        description: t('model.providerList.saveFailedDescription'),
         type: 'error',
       })
     }
   }
 
   const handleDeleteProvider = async (id: string) => {
-    if (confirm(t('system.model.providerList.deleteConfirm'))) {
+    if (confirm(t('model.providerList.deleteConfirm'))) {
       try {
         await deleteProvider(id)
         await loadProviders()
         onDeleteProvider(id)
 
         toast({
-          title: t('system.model.providerList.deleteSuccessTitle'),
-          description: t('system.model.providerList.deleteSuccessDescription'),
+          title: t('model.providerList.deleteSuccessTitle'),
+          description: t('model.providerList.deleteSuccessDescription'),
         })
       } catch (error) {
         console.error('Failed to delete provider:', error)
         toast({
-          title: t('system.model.providerList.deleteFailedTitle'),
-          description: t('system.model.providerList.deleteFailedDescription'),
+          title: t('model.providerList.deleteFailedTitle'),
+          description: t('model.providerList.deleteFailedDescription'),
           type: 'error',
         })
       }
@@ -140,21 +132,21 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
   }
 
   const handleEditProvider = (provider: ProviderConfig) => {
-    openProviderFormDrawer(provider, t('system.model.providerList.editProvider'))
+    openProviderFormDrawer(provider, t('model.providerList.editProvider'))
   }
 
   const handleHealthcheck = async (provider: ProviderConfig) => {
     try {
       await healthCheck(provider.id)
       toast({
-        title: t('system.model.providerList.healthcheckSuccessTitle'),
-        description: t('system.model.providerList.healthcheckSuccessDescription'),
+        title: t('model.providerList.healthcheckSuccessTitle'),
+        description: t('model.providerList.healthcheckSuccessDescription'),
       })
     } catch (error) {
       console.error('Healthcheck failed:', error)
       toast({
-        title: t('system.model.providerList.healthcheckFailedTitle'),
-        description: t('system.model.providerList.healthcheckFailedDescription'),
+        title: t('model.providerList.healthcheckFailedTitle'),
+        description: t('model.providerList.healthcheckFailedDescription'),
         type: 'error',
       })
     }
@@ -164,14 +156,14 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
     try {
       await syncFromPlatform(provider.id)
       toast({
-        title: t('system.model.providerList.syncSuccessTitle'),
-        description: t('system.model.providerList.syncSuccessDescription'),
+        title: t('model.providerList.syncSuccessTitle'),
+        description: t('model.providerList.syncSuccessDescription'),
       })
     } catch (error) {
       console.error('Sync failed:', error)
       toast({
-        title: t('system.model.providerList.syncFailedTitle'),
-        description: t('system.model.providerList.syncFailedDescription'),
+        title: t('model.providerList.syncFailedTitle'),
+        description: t('model.providerList.syncFailedDescription'),
         type: 'error',
       })
     }
@@ -181,14 +173,14 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
     try {
       const jobs = await listSyncJobs(provider.id)
       toast({
-        title: t('system.model.providerList.jobsTitle'),
+        title: t('model.providerList.jobsTitle'),
         description: JSON.stringify(jobs.slice(0, 3)),
       })
     } catch (error) {
       console.error('Load jobs failed:', error)
       toast({
-        title: t('system.model.providerList.jobsFailedTitle'),
-        description: t('system.model.providerList.jobsFailedDescription'),
+        title: t('model.providerList.jobsFailedTitle'),
+        description: t('model.providerList.jobsFailedDescription'),
         type: 'error',
       })
     }
@@ -197,6 +189,7 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
   const handleAddProvider = () => {
     const newProvider: ProviderConfig = {
       id: '',
+      adapterBackend: 'native',
       name: '',
       kind: ProviderKindEnum.OPENAI,
       status: 'active',
@@ -211,7 +204,7 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    openProviderFormDrawer(newProvider, t('system.model.providerList.addProvider'))
+    openProviderFormDrawer(newProvider, t('model.providerList.addProvider'))
   }
 
   const openProviderFormDrawer = (provider: ProviderConfig, title: string) => {
@@ -220,6 +213,8 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
         item={provider}
         index={0}
         onSave={handleSaveProvider}
+        adapterBackends={adapterBackends}
+        providerPresets={providerPresets}
       />,
       {
         direction: 'right',
@@ -228,24 +223,61 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
     )
   }
 
+  const supportBadgeVariant = (status: ProviderSupportStatus['support_status']) => {
+    if (status === 'supported') return 'default'
+    if (status === 'unavailable') return 'secondary'
+    return 'outline'
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-hidden h-full">
         <DrawerHeader>
           <DrawerTitle className="text-sm font-bold">{resolvedTitle}</DrawerTitle>
           <DrawerDescription>
-            {t('system.model.providerList.description')}
+            {t('model.providerList.description')}
           </DrawerDescription>
         </DrawerHeader>
         <ScrollArea className="flex-1 h-full p-4">
           <div className="space-y-4 p-1">
+            {supportMatrix.length > 0 && (
+              <div className="grid gap-2">
+                {supportMatrix.map((item) => (
+                  <div key={item.provider_kind} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">{item.display_name}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {t('model.providerList.support.capabilities', {
+                            chat: item.chat_supported ? t('model.providerList.support.enabled') : t('model.providerList.support.disabled'),
+                            embeddings: item.embeddings_supported ? t('model.providerList.support.enabled') : t('model.providerList.support.disabled'),
+                            catalog: item.catalog_supported ? t('model.providerList.support.enabled') : t('model.providerList.support.disabled'),
+                          })}
+                        </div>
+                      </div>
+                      <Badge variant={supportBadgeVariant(item.support_status)}>
+                        {t(`model.providerList.support.status.${item.support_status}`)}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {t('model.providerList.support.configured', {
+                        count: item.provider_count,
+                      })}
+                    </div>
+                    {item.notes && (
+                      <div className="mt-1 text-xs text-muted-foreground">{item.notes}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {loading ? (
               <div className="text-center py-8 text-muted-foreground">
-                {t('system.model.providerList.loading')}
+                {t('model.providerList.loading')}
               </div>
             ) : providers.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                {t('system.model.providerList.empty')}
+                {t('model.providerList.empty')}
               </div>
             ) : (
               providers.map((provider) => (
@@ -254,31 +286,31 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle className="text-base">{provider.name}</CardTitle>
-                        <CardDescription className="text-xs mt-1">{provider.kind}</CardDescription>
+                        <CardDescription className="text-xs mt-1">{provider.kind} · {provider.adapterBackend}</CardDescription>
                       </div>
                       <Badge variant={provider.status === 'active' ? 'default' : 'secondary'}>
-                        {provider.status === 'active' ? t('system.model.providerList.status.active') : t('system.model.providerList.status.inactive')}
+                        {provider.status === 'active' ? t('model.providerList.status.active') : t('model.providerList.status.inactive')}
                       </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="p-4 pt-0">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{t('system.model.providerList.fields.code')}: {provider.kind}</span>
+                      <span>{t('model.providerList.fields.code')}: {provider.kind}</span>
                       <span>•</span>
-                      <span>{t('system.model.providerList.fields.type')}: {provider.status}</span>
+                      <span>{t('model.providerList.fields.type')}: {provider.status}</span>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleHealthcheck(provider) }}>
                         <HeartPulse className="w-4 h-4 mr-1" />
-                        {t('system.model.providerList.actions.healthcheck')}
+                        {t('model.providerList.actions.healthcheck')}
                       </Button>
                       <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleSync(provider) }}>
                         <RefreshCw className="w-4 h-4 mr-1" />
-                        {t('system.model.providerList.actions.sync')}
+                        {t('model.providerList.actions.sync')}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleViewJobs(provider) }}>
                         <ListChecks className="w-4 h-4 mr-1" />
-                        {t('system.model.providerList.actions.jobs')}
+                        {t('model.providerList.actions.jobs')}
                       </Button>
                     </div>
                   </CardContent>
@@ -295,7 +327,7 @@ export function ProviderList({ onSaveProvider, onDeleteProvider, title }: Provid
           onClick={handleAddProvider}
         >
           <Plus className="w-4 h-4 mr-2" />
-          {t('system.model.providerList.addProvider')}
+          {t('model.providerList.addProvider')}
         </Button>
       </DrawerFooter>
     </div>

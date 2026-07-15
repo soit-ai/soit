@@ -1,6 +1,6 @@
 # SOIT 平台架构图
 
-本文档汇总 SOIT-Pro 当前平台架构。图中边界来自根目录 `README.md`、`server/docs/architecture/PROJECT_STRUCTURE.md`、`web/docs/PROJECT_STRUCTURE.md` 以及当前源码目录。
+本文档汇总 SOIT 当前平台架构。图中边界来自根目录 `README.md`、`server/docs/architecture/PROJECT_STRUCTURE.md`、`web/docs/PROJECT_STRUCTURE.md` 以及当前源码目录。
 
 ## 平台总览
 
@@ -9,7 +9,7 @@ flowchart TB
   Users["用户 / 管理员 / 开发者"]
 
   subgraph Web["web/ 前端应用"]
-    WebRoutes["路由工作台<br/>agents · chat · workflow · knowledge · tasks · observability"]
+    WebRoutes["路由工作台<br/>agents · chat · workflow · knowledge · tasks · observe"]
     WebUI["共享 UI 与业务组件<br/>components · hooks · stores · i18n"]
     WebServices["API 客户端<br/>services · request · config"]
     WebRoutes --> WebUI
@@ -28,10 +28,9 @@ flowchart TB
       Agent["agent"]
       Workflow["workflow"]
       Knowledge["knowledge"]
-      Capability["capability_registry"]
       ModelHub["modelhub"]
       Plugin["plugin / skill"]
-      Observability["observability"]
+      Observe["observe"]
       Security["identity · security · secrets"]
       Notification["notification"]
     end
@@ -41,7 +40,7 @@ flowchart TB
       Runtime["runtime · execution · responses"]
       Registry["registry · projections"]
       Identity["identity · security"]
-      Trace["trace · observability"]
+      Trace["trace · observe"]
       Events["events"]
       Ports["ports<br/>llm · tools · vector · storage · secrets"]
     end
@@ -135,17 +134,17 @@ sequenceDiagram
 
 - `web/` 负责用户工作台、路由、状态和 API 客户端，不承载后端业务规则。
 - `api/` 只做 HTTP、WebSocket、SSE 传输和请求编排，保持薄层。
-- `modules/` 承载 agent、workflow、knowledge、plugin、observability 等业务域逻辑。
-- `kernel/` 是稳定核心，定义 contracts、specs、runtime、registry、security、trace、events 和 ports；`kernel/` 不依赖 `modules/`。
+- `modules/` 承载 agent、workflow、knowledge、plugin、observe 等业务域逻辑。
+- `kernel/` 是稳定核心，定义 contracts、specs、runtime、registry、security、events 和 ports；`kernel/` 不依赖 `modules/`。执行态与持久化态集中在 `kernel/runtime/`，其中 run trace 属于 `runtime/runs/`。
 - `adapters/` 实现 kernel ports，连接模型、工具、向量库、对象存储和密钥系统，不放业务逻辑。
-- `infra/` 提供数据库会话等基础设施能力。
+- `infra/` 提供数据库会话和 OpenTelemetry SDK/OTLP 配置等基础设施能力。
 - 外部调用必须经由受治理的 adapters/gateways，业务代码不直接调用模型 SDK、HTTP 客户端或外部服务。
 
 ## 设计原则映射
 
 - Spec-first: Agent、Workflow、Tool、Knowledge、Plugin 等平台原语由版本化 specs/contracts 约束。
 - Scope-by-default: API、业务域和数据层围绕 tenant/workspace 作用域组织。
-- Trace everything: 执行统一落到 Run、Task、RunStep、Trace 和 observability 数据。
+- Trace everything: 执行统一落到 Run、Task、RunStep、Cost 和 observe 数据，并通过 W3C Trace Context 将 API、Outbox、Knowledge Worker、数据库、HTTP、LLM 与 Tool span 串联；`run_id`、`step_id`、`trace_id` 是产品审计与技术链路的关联键。
 - Gateway-only: LLM、tool、vector、storage、secrets 通过 ports/adapters 接入。
 - Immutable versions: agent、workflow、skill、plugin 等版本追加写入，release 指针表达当前发布状态。
 
@@ -203,7 +202,7 @@ flowchart TB
     Workflow["workflow<br/>DAG design surface"]
     Knowledge["knowledge<br/>base · documents · analytics"]
     Tasks["tasks<br/>execution queue · detail control"]
-    Observability["observability<br/>runs · approvals · feedback"]
+    Observe["observe<br/>runs · approvals · feedback"]
   end
 
   subgraph Admin["admin routes"]
@@ -232,7 +231,7 @@ flowchart LR
   AppServices["modules/*/application<br/>business use cases"]
   Domain["modules<br/>agent · workflow · knowledge · plugin · modelhub · security"]
   KernelContracts["kernel contracts/specs<br/>stable platform language"]
-  KernelRuntime["kernel runtime<br/>execution · responses · events · trace"]
+  KernelRuntime["kernel runtime<br/>tasks · threads · runs · responses"]
   KernelPorts["kernel ports<br/>llm · tools · vector · storage · secrets"]
   Adapters["adapters<br/>replaceable implementations"]
   Infra["infra<br/>db session and infrastructure"]
@@ -295,7 +294,7 @@ flowchart TB
     Workflows["workflows"]
   end
 
-  Registry["capability registry<br/>source-agnostic catalog"]
+  AgentCatalog["agent capability catalog<br/>assembly candidates"]
   Binding["typed binding<br/>capability id · source kind · version"]
   Policy["governance policy<br/>allowlist · egress · RBAC"]
   Secrets["workspace secrets<br/>Vault-backed visibility"]
@@ -310,8 +309,8 @@ flowchart TB
   RuntimeUse["runtime resolution<br/>model · tool · knowledge · workflow"]
   Audit["audit and trace<br/>who used what version"]
 
-  Sources --> Registry
-  Registry --> Binding
+  Sources --> AgentCatalog
+  AgentCatalog --> Binding
   Binding --> Versions
   Policy --> Binding
   Secrets --> Binding

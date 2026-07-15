@@ -24,7 +24,7 @@ export function ModelStats({ providerId, modelId, modelName }: ModelStatsProps) 
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<UsageStats[]>([])
   const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('week')
-  const currencySymbol = t('system.model.stats.currency')
+  const currencySymbol = t('model.stats.currency')
   const dateLocale = i18n.language === 'zh-CN' ? zhCN : enUS
 
   useEffect(() => {
@@ -53,17 +53,17 @@ export function ModelStats({ providerId, modelId, modelName }: ModelStatsProps) 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('system.model.stats.title')}</CardTitle>
+        <CardTitle>{t('model.stats.title')}</CardTitle>
         <CardDescription>
-          {t('system.model.stats.description', { modelName })}
+          {t('model.stats.description', { modelName })}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="week" onValueChange={(value) => setTimeRange(value as 'day' | 'week' | 'month')}>
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="day">{t('system.model.stats.range.day')}</TabsTrigger>
-            <TabsTrigger value="week">{t('system.model.stats.range.week')}</TabsTrigger>
-            <TabsTrigger value="month">{t('system.model.stats.range.month')}</TabsTrigger>
+            <TabsTrigger value="day">{t('model.stats.range.day')}</TabsTrigger>
+            <TabsTrigger value="week">{t('model.stats.range.week')}</TabsTrigger>
+            <TabsTrigger value="month">{t('model.stats.range.month')}</TabsTrigger>
           </TabsList>
           <TabsContent value={timeRange} className="mt-4">
             <div className="h-[300px]">
@@ -92,13 +92,15 @@ export function ModelStats({ providerId, modelId, modelName }: ModelStatsProps) 
                       tick={{ fontSize: 12 }}
                     />
                     <Tooltip
-                      formatter={(value: number, name: string) => {
-                        if (name === 'cost') {
-                          return [`${currencySymbol}${formatValue(value)}`, t('system.model.stats.tooltip.cost')]
+                      formatter={(value, name) => {
+                        const numericValue = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0)
+                        const metricName = String(name)
+                        if (metricName === 'cost') {
+                          return [`${currencySymbol}${formatValue(numericValue)}`, t('model.stats.tooltip.cost')]
                         }
-                        return [formatValue(value), name === 'requests' ? t('system.model.stats.tooltip.requests') : t('system.model.stats.tooltip.tokens')]
+                        return [formatValue(numericValue), metricName === 'requests' ? t('model.stats.tooltip.requests') : t('model.stats.tooltip.tokens')]
                       }}
-                      labelFormatter={formatDate}
+                      labelFormatter={(label) => formatDate(String(label))}
                     />
                     <Line
                       yAxisId="left"
@@ -125,7 +127,7 @@ export function ModelStats({ providerId, modelId, modelName }: ModelStatsProps) 
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                  {t('system.model.stats.empty')}
+                  {t('model.stats.empty')}
                 </div>
               )}
             </div>

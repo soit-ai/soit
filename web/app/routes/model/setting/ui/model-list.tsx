@@ -22,7 +22,7 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
   const { toast } = useToast();
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [loading, setLoading] = useState(true);
-  const resolvedTitle = title ?? t('system.model.list.title');
+  const resolvedTitle = title ?? t('model.list.title');
 
   // Load models
   useEffect(() => {
@@ -39,8 +39,8 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
     } catch (error) {
       console.error('Failed to load models:', error);
       toast({
-        title: t('system.model.list.loadFailedTitle'),
-        description: t('system.model.list.loadFailedDescription'),
+        title: t('model.list.loadFailedTitle'),
+        description: t('model.list.loadFailedDescription'),
         type: 'error',
       });
     } finally {
@@ -71,35 +71,35 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
       drawer.close();
 
       toast({
-        title: t('system.model.list.saveSuccessTitle'),
-        description: t('system.model.list.saveSuccessDescription'),
+        title: t('model.list.saveSuccessTitle'),
+        description: t('model.list.saveSuccessDescription'),
       });
     } catch (error) {
       console.error('Failed to save model:', error);
       toast({
-        title: t('system.model.list.saveFailedTitle'),
-        description: t('system.model.list.saveFailedDescription'),
+        title: t('model.list.saveFailedTitle'),
+        description: t('model.list.saveFailedDescription'),
         type: 'error',
       });
     }
   };
 
   const handleDeleteModel = async (id: string) => {
-    if (confirm(t('system.model.list.deleteConfirm'))) {
+    if (confirm(t('model.list.deleteConfirm'))) {
       try {
         await deleteProviderModel(provider, id);
         setModels(models.filter(m => m.id !== id));
         onDeleteModel(id);
 
         toast({
-          title: t('system.model.list.deleteSuccessTitle'),
-          description: t('system.model.list.deleteSuccessDescription'),
+          title: t('model.list.deleteSuccessTitle'),
+          description: t('model.list.deleteSuccessDescription'),
         });
       } catch (error) {
         console.error('Failed to delete model:', error);
         toast({
-          title: t('system.model.list.deleteFailedTitle'),
-          description: t('system.model.list.deleteFailedDescription'),
+          title: t('model.list.deleteFailedTitle'),
+          description: t('model.list.deleteFailedDescription'),
           type: 'error',
         });
       }
@@ -120,21 +120,21 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
       onSaveModel(updatedModel);
 
       toast({
-        title: t('system.model.list.toggleSuccessTitle'),
-        description: t('system.model.list.toggleSuccessDescription', { status: isActive ? t('system.model.list.status.enabled') : t('system.model.list.status.disabled') }),
+        title: t('model.list.toggleSuccessTitle'),
+        description: t('model.list.toggleSuccessDescription', { status: isActive ? t('model.list.status.enabled') : t('model.list.status.disabled') }),
       });
     } catch (error) {
       console.error('Failed to toggle model status:', error);
       toast({
-        title: t('system.model.list.toggleFailedTitle'),
-        description: t('system.model.list.toggleFailedDescription'),
+        title: t('model.list.toggleFailedTitle'),
+        description: t('model.list.toggleFailedDescription'),
         type: 'error',
       });
     }
   };
 
   const handleEditModel = (model: ModelConfig) => {
-    openModelFormDrawer(model, t('system.model.list.editTitle'));
+    openModelFormDrawer(model, t('model.list.editTitle'));
   };
 
   const handleAddModel = () => {
@@ -145,13 +145,48 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
       modelId: '',
       displayName: '',
       description: '',
+      capabilities: [],
+      capabilitiesJson: {},
+      status: 'active',
       enabled: true,
       source: 'local',
+      architecture: {
+        modality: 'text->text',
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+        tokenizer: 'GPT',
+      },
+      capabilityMatrix: {},
+      parameterConfig: {
+        supported_parameters: ['temperature', 'top_p', 'max_tokens'],
+        default_parameters: {
+          temperature: 0.7,
+          top_p: 1,
+          max_tokens: 4096,
+        },
+      },
+      pricing: {
+        currency: 'USD',
+        pricing_source: 'manual',
+        prompt: { amount: 0, unit: '1M_tokens' },
+        completion: { amount: 0, unit: '1M_tokens' },
+        request: { amount: 0, unit: 'request' },
+      },
+      diagnostics: {
+        last_test_status: 'skipped',
+        test_mode: 'chat',
+        test_prompt: 'Please reply with one sentence: diagnostics passed.',
+        timeout_ms: 30000,
+        support: { catalog: 'unknown', diagnostics: 'unknown', runtime: 'unknown' },
+        runtime_stats: { month_calls: 0, month_tokens: 0, avg_latency_ms: 0, error_rate: 0 },
+      },
+      rawMeta: {},
+      userOverridesJson: {},
       syncStatus: 'never_synced',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    openModelFormDrawer(newModel, t('system.model.list.addTitle'));
+    openModelFormDrawer(newModel, t('model.list.addTitle'));
   };
 
   const openModelFormDrawer = (model: ModelConfig, title: string) => {
@@ -185,18 +220,18 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
         <DrawerHeader>
           <DrawerTitle className="text-sm font-bold">{resolvedTitle}</DrawerTitle>
           <DrawerDescription>
-            {t('system.model.list.description')}
+            {t('model.list.description')}
           </DrawerDescription>
         </DrawerHeader>
         <ScrollArea className="flex-1 h-full p-4">
           <div className="space-y-4 p-1">
             {loading ? (
               <div className="text-center py-8 text-muted-foreground">
-                {t('system.model.list.loading')}
+                {t('model.list.loading')}
               </div>
             ) : models.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                {t('system.model.list.empty')}
+                {t('model.list.empty')}
               </div>
             ) : (
               models.map((model) => (
@@ -218,7 +253,7 @@ export function ModelList({ onSaveModel, onDeleteModel, provider, title }: Model
           onClick={handleAddModel}
         >
           <Plus className="w-4 h-4 mr-2" />
-          {t('system.model.list.addTitle')}
+          {t('model.list.addTitle')}
         </Button>
       </DrawerFooter>
     </div>

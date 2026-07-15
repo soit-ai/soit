@@ -3,8 +3,8 @@
 import * as React from "react"
 import { Copy, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { createHighlighter, type Highlighter } from "shiki"
 import { useTheme } from '@/components/theme-provider'
+import { highlightCodeToHtml, plainCodeToHtml } from '@/lib/shiki'
 
 // Global styles for line numbers.
 const codeLineNumbersStyle = `
@@ -57,55 +57,34 @@ export function Codebox({
 }: CodeboxProps) {
   const { theme } = useTheme()
   const [copied, setCopied] = React.useState(false)
-  const [highlighter, setHighlighter] = React.useState<Highlighter | null>(null)
   const [highlightedCode, setHighlightedCode] = React.useState<string>("") 
 
   React.useEffect(() => {
-    const loadHighlighter = async () => {
+    let active = true
+    const loadHighlightedCode = async () => {
       try {
-        const highlighter = await createHighlighter({
-          themes: ["github-dark", "github-light"],
-          langs: [language],
+        const html = await highlightCodeToHtml({
+          code,
+          language,
+          showLineNumbers,
+          theme: theme === "dark" ? "github-dark" : "github-light",
         })
-        setHighlighter(highlighter)
-      } catch (error) {
-        console.error("Failed to load highlighter:", error)
-      }
-    }
-    
-    loadHighlighter()
-  }, [language])
-
-  React.useEffect(() => {
-    if (highlighter) {
-      try {
-        const _theme = theme === "dark" ? "github-dark" : "github-light"
-        const html = highlighter.codeToHtml(code, { 
-          lang: language, 
-          theme: _theme,
-          transformers: showLineNumbers ? [
-            {
-              line(element, index) {
-                element.properties["class"] = "line"
-                // Use index + 1 to keep line numbers 1-based.
-                element.properties["line-number"] = String(index + 1)
-                return element
-              }
-            }
-          ] : undefined
-        })
-        // Add line number styles when enabled.
-        const htmlWithStyle = showLineNumbers 
-          ? `<style>${codeLineNumbersStyle}</style>${html}` 
-          : html
-        setHighlightedCode(htmlWithStyle)
+        if (active) {
+          setHighlightedCode(showLineNumbers ? `<style>${codeLineNumbersStyle}</style>${html}` : html)
+        }
       } catch (error) {
         console.error("Failed to highlight code:", error)
-        // Fall back to plain text rendering.
-        setHighlightedCode(`<pre><code>${code}</code></pre>`)
+        if (active) {
+          setHighlightedCode(plainCodeToHtml(code))
+        }
       }
     }
-  }, [highlighter, code, language, showLineNumbers, theme])
+
+    void loadHighlightedCode()
+    return () => {
+      active = false
+    }
+  }, [code, language, showLineNumbers, theme])
 
   const copyToClipboard = React.useCallback(() => {
     navigator.clipboard.writeText(code).then(() => {
@@ -134,7 +113,7 @@ export function Codebox({
         </button>
       </div>
       <div className="p-4 relative">
-        {highlighter ? (
+        {highlightedCode ? (
           <div 
             className={cn(
               "shiki-container w-full", 

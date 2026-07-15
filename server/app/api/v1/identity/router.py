@@ -7,7 +7,6 @@ from fastapi import APIRouter
 
 from app.api.v1.identity import handlers
 
-
 router = APIRouter()
 
 

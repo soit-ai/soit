@@ -27,20 +27,26 @@ import { useSearchParams } from 'react-router'
 type RunFilters = {
   status: string
   mode: string
+  subjectKind: string
   subjectId: string
   subjectVersionId: string
-  workflowId: string
   userId: string
+  hasToolCall: boolean
+  hasCitation: boolean
+  hasAudit: boolean
   dateRange: DateRange
 }
 
 const createDefaultFilters = (): RunFilters => ({
   status: 'all',
   mode: '',
+  subjectKind: '',
   subjectId: '',
   subjectVersionId: '',
-  workflowId: '',
   userId: '',
+  hasToolCall: false,
+  hasCitation: false,
+  hasAudit: false,
   dateRange: { from: undefined, to: undefined },
 })
 
@@ -56,16 +62,24 @@ const buildFilters = (activeFilters: RunFilters) => {
   const params: {
     mode?: string
     status?: string
+    subject_kind?: string
     subject_id?: string
     subject_version_id?: string
-    workflow_id?: string
     user_id?: string
     started_after?: string
     started_before?: string
+    include_observe_summary?: boolean
+    has_tool_call?: boolean
+    has_citation?: boolean
+    has_audit?: boolean
   } = {}
   const trimmedMode = activeFilters.mode.trim()
   if (trimmedMode) {
     params.mode = trimmedMode
+  }
+  const trimmedSubjectKind = activeFilters.subjectKind.trim()
+  if (trimmedSubjectKind) {
+    params.subject_kind = trimmedSubjectKind
   }
   const trimmedSubject = activeFilters.subjectId.trim()
   if (trimmedSubject) {
@@ -74,10 +88,6 @@ const buildFilters = (activeFilters: RunFilters) => {
   const trimmedSubjectVersion = activeFilters.subjectVersionId.trim()
   if (trimmedSubjectVersion) {
     params.subject_version_id = trimmedSubjectVersion
-  }
-  const trimmedWorkflow = activeFilters.workflowId.trim()
-  if (trimmedWorkflow) {
-    params.workflow_id = trimmedWorkflow
   }
   const trimmedUser = activeFilters.userId.trim()
   if (trimmedUser) {
@@ -92,6 +102,16 @@ const buildFilters = (activeFilters: RunFilters) => {
   if (activeFilters.dateRange?.to) {
     params.started_before = toEndOfDay(activeFilters.dateRange.to).toISOString()
   }
+  params.include_observe_summary = true
+  if (activeFilters.hasToolCall) {
+    params.has_tool_call = true
+  }
+  if (activeFilters.hasCitation) {
+    params.has_citation = true
+  }
+  if (activeFilters.hasAudit) {
+    params.has_audit = true
+  }
   return params
 }
 
@@ -100,10 +120,21 @@ const formatTimestamp = (value?: string | null) => {
   return formatDateTime(isoToZonedDate(value))
 }
 
+const formatObserveSummary = (run: RunResponse) => {
+  const summary = run.observe_summary
+  if (!summary) return '-'
+  return [
+    `步骤 ${summary.step_count}`,
+    `工具 ${summary.tool_call_count}`,
+    `引用 ${summary.citation_count}`,
+    `审计 ${summary.audit_count}`,
+  ].join(' · ')
+}
+
 function Page() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState<RunFilters>(() => createDefaultFilters())
   const [appliedFilters, setAppliedFilters] = useState<RunFilters>(() => createDefaultFilters())
   const [runs, setRuns] = useState<RunResponse[]>([])
@@ -147,10 +178,13 @@ function Page() {
     setAppliedFilters({
       status: filters.status,
       mode: filters.mode,
+      subjectKind: filters.subjectKind,
       subjectId: filters.subjectId,
       subjectVersionId: filters.subjectVersionId,
-      workflowId: filters.workflowId,
       userId: filters.userId,
+      hasToolCall: filters.hasToolCall,
+      hasCitation: filters.hasCitation,
+      hasAudit: filters.hasAudit,
       dateRange: { ...filters.dateRange },
     })
   }
@@ -169,13 +203,41 @@ function Page() {
     const nextFilters = createDefaultFilters()
     nextFilters.mode = searchParams.get('mode') || ''
     nextFilters.status = searchParams.get('status') || 'all'
+    nextFilters.subjectKind = searchParams.get('subject_kind') || ''
     nextFilters.subjectId = searchParams.get('subject_id') || ''
     nextFilters.subjectVersionId = searchParams.get('subject_version_id') || ''
-    nextFilters.workflowId = searchParams.get('workflow_id') || ''
     nextFilters.userId = searchParams.get('user_id') || ''
+    nextFilters.hasToolCall = searchParams.get('has_tool_call') === 'true'
+    nextFilters.hasCitation = searchParams.get('has_citation') === 'true'
+    nextFilters.hasAudit = searchParams.get('has_audit') === 'true'
     setFilters(nextFilters)
     setAppliedFilters(nextFilters)
   }, [searchParams])
+
+  const applyQuickFilter = (kind: 'mvp' | 'all' | 'failed' | 'tool' | 'citation' | 'audit') => {
+    const next = createDefaultFilters()
+    const params = new URLSearchParams()
+    params.set('include_observe_summary', 'true')
+    if (kind === 'mvp') {
+      next.mode = 'agent'
+      params.set('mode', 'agent')
+    } else if (kind === 'failed') {
+      next.status = 'failed'
+      params.set('status', 'failed')
+    } else if (kind === 'tool') {
+      next.hasToolCall = true
+      params.set('has_tool_call', 'true')
+    } else if (kind === 'citation') {
+      next.hasCitation = true
+      params.set('has_citation', 'true')
+    } else if (kind === 'audit') {
+      next.hasAudit = true
+      params.set('has_audit', 'true')
+    }
+    setFilters(next)
+    setAppliedFilters(next)
+    setSearchParams(kind === 'all' ? new URLSearchParams([['include_observe_summary', 'true']]) : params)
+  }
 
   const fetchCosts = useCallback(
     async (activeFilters: RunFilters) => {
@@ -213,6 +275,14 @@ function Page() {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
       <div className="rounded-lg border bg-card p-3">
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('mvp')}>MVP 主链路</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('all')}>全部应用 Run</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('failed')}>失败 Run</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('tool')}>有工具调用</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('citation')}>有 citation</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('audit')}>有 audit</Button>
+        </div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-1 flex-wrap gap-3">
             <div className="flex flex-col gap-1">
@@ -242,6 +312,15 @@ function Page() {
               />
             </div>
             <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Subject Kind</span>
+              <Input
+                value={filters.subjectKind}
+                onChange={(event) => setFilters((prev) => ({ ...prev, subjectKind: event.target.value }))}
+                placeholder="workflow, agent, thread"
+                className="w-full sm:w-[180px]"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">Subject ID</span>
               <Input
                 value={filters.subjectId}
@@ -256,15 +335,6 @@ function Page() {
                 value={filters.subjectVersionId}
                 onChange={(event) => setFilters((prev) => ({ ...prev, subjectVersionId: event.target.value }))}
                 placeholder={t('run.list.filters.app.placeholder')}
-                className="w-full sm:w-[220px]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{t('run.list.filters.workflow.label')}</span>
-              <Input
-                value={filters.workflowId}
-                onChange={(event) => setFilters((prev) => ({ ...prev, workflowId: event.target.value }))}
-                placeholder={t('run.list.filters.workflow.placeholder')}
                 className="w-full sm:w-[220px]"
               />
             </div>
@@ -445,6 +515,7 @@ function Page() {
                   <TableHead>{t('run.list.table.status')}</TableHead>
                   <TableHead>{t('run.list.table.startedAt')}</TableHead>
                   <TableHead>{t('run.list.table.duration')}</TableHead>
+                  <TableHead>观测摘要</TableHead>
                   <TableHead>{t('run.list.table.input')}</TableHead>
                   <TableHead className="text-right">{t('run.list.table.actions')}</TableHead>
                 </TableRow>
@@ -459,9 +530,10 @@ function Page() {
                     <TableCell>{run.status}</TableCell>
                     <TableCell>{formatTimestamp(run.started_at)}</TableCell>
                     <TableCell>{run.duration_ms ? `${run.duration_ms} ms` : '-'}</TableCell>
+                    <TableCell className="min-w-[220px] text-xs text-muted-foreground">{formatObserveSummary(run)}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{run.input_summary || '-'}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/observability/runs/${run.id}`)}>
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/observe/runs/${run.id}`)}>
                         {t('run.list.table.view')}
                       </Button>
                     </TableCell>

@@ -17,13 +17,13 @@ function ModelHeader({ onAddProvider }: { onAddProvider: () => void }) {
   return (
     <div className="flex flex-1 justify-between">
       <div className="flex flex-col">
-        <h2 className="text-lg font-bold tracking-tight">{t('system.model.home.title')}</h2>
-        <p className="text-sm text-muted-foreground mt-1">{t('system.model.home.description')}</p>
+        <h2 className="text-lg font-bold tracking-tight">{t('model.home.title')}</h2>
+        <p className="text-sm text-muted-foreground mt-1">{t('model.home.description')}</p>
       </div>
       <div className="flex items-center gap-2">
         <Button className="gap-2" size={'sm'} onClick={onAddProvider}>
           <Plus className="h-4 w-4" />
-          {t('system.model.home.add')}
+          {t('model.home.add')}
         </Button>
       </div>
     </div>
@@ -139,28 +139,28 @@ function BoxPage() {
           <TabsList>
             <TabsTrigger value="all" className="flex items-center">
               <Tag className="mr-2 h-4 w-4" />
-              {t('system.model.home.tabs.all')}
+              {t('model.home.tabs.all')}
               <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                 {counts.all}
               </span>
             </TabsTrigger>
             <TabsTrigger value="llm" className="flex items-center">
               <Tag className="mr-2 h-4 w-4" />
-              {t('system.model.home.tabs.llm')}
+              {t('model.home.tabs.llm')}
               <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                 {counts.llm}
               </span>
             </TabsTrigger>
             <TabsTrigger value="embedding" className="flex items-center">
               <Tag className="mr-2 h-4 w-4" />
-              {t('system.model.home.tabs.embedding')}
+              {t('model.home.tabs.embedding')}
               <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                 {counts.embedding}
               </span>
             </TabsTrigger>
             <TabsTrigger value="tts" className="flex items-center">
               <Tag className="mr-2 h-4 w-4" />
-              {t('system.model.home.tabs.tts')}
+              {t('model.home.tabs.tts')}
               <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                 {counts.tts}
               </span>
@@ -172,7 +172,7 @@ function BoxPage() {
           <div className="relative w-full sm:w-[200px]">
             <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder={t('system.model.home.searchPlaceholder')}
+              placeholder={t('model.home.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8"
@@ -181,25 +181,25 @@ function BoxPage() {
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-full sm:w-[140px]">
               <SlidersHorizontal className="mr-2 h-4 w-4" />
-              <SelectValue placeholder={t('system.model.home.sort.placeholder')} />
+              <SelectValue placeholder={t('model.home.sort.placeholder')} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="default">
                 <div className="flex items-center">
                   <Tag className="mr-2 h-4 w-4" />
-                  {t('system.model.home.sort.default')}
+                  {t('model.home.sort.default')}
                 </div>
               </SelectItem>
               <SelectItem value="name">
                 <div className="flex items-center">
                   <Tag className="mr-2 h-4 w-4" />
-                  {t('system.model.home.sort.name')}
+                  {t('model.home.sort.name')}
                 </div>
               </SelectItem>
               <SelectItem value="popular">
                 <div className="flex items-center">
                   <TrendingUp className="mr-2 h-4 w-4" />
-                  {t('system.model.home.sort.popular')}
+                  {t('model.home.sort.popular')}
                 </div>
               </SelectItem>
             </SelectContent>

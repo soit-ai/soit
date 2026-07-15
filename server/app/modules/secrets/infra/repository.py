@@ -3,9 +3,11 @@
 Secrets repository.
 """
 
-from typing import Optional, List
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
@@ -26,7 +28,7 @@ class SecretRepository(Repository[Secret]):
         self.db.refresh(secret)
         return secret
 
-    def get_by_id(self, secret_id: str) -> Optional[Secret]:
+    def get_by_id(self, secret_id: str) -> Secret | None:
         """Get secret by ID."""
         query = select(Secret).where(
             and_(
@@ -39,7 +41,7 @@ class SecretRepository(Repository[Secret]):
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
 
-    def get_by_name(self, name: str) -> Optional[Secret]:
+    def get_by_name(self, name: str) -> Secret | None:
         """Get secret by name."""
         query = select(Secret).where(
             and_(
@@ -56,7 +58,7 @@ class SecretRepository(Repository[Secret]):
         self,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Secret]:
+    ) -> list[Secret]:
         """List secrets for workspace."""
         query = (
             select(Secret)
@@ -78,9 +80,9 @@ class SecretRepository(Repository[Secret]):
         self,
         secret: Secret,
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        updated_by: Optional[str] = None,
+        name: str | None = None,
+        description: str | None = None,
+        updated_by: str | None = None,
         last_rotated_at: Optional["datetime"] = None,
     ) -> Secret:
         """Update secret metadata."""
@@ -99,7 +101,7 @@ class SecretRepository(Repository[Secret]):
         self.db.refresh(secret)
         return secret
 
-    def soft_delete(self, secret: Secret, updated_by: Optional[str] = None) -> Secret:
+    def soft_delete(self, secret: Secret, updated_by: str | None = None) -> Secret:
         """Soft delete a secret record."""
         from app.kernel.commons.time import utc_now
         secret.deleted_at = utc_now()

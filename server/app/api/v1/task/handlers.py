@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.runtime.query_service import RuntimeQueryService
-from app.kernel.runtime.schemas import (
+from app.kernel.runtime.tasks.query_service import TaskQueryService
+from app.kernel.runtime.tasks.schemas import (
     TaskCheckpointResponse,
     TaskControlResponse,
     TaskDetailResponse,
-    TaskHandlingResponse,
     TaskEventResponse,
+    TaskHandlingResponse,
     TaskResponse,
     TaskWorkbenchItemsResponse,
     TaskWorkbenchResponse,
 )
+from app.kernel.runtime.tasks.service import TaskService
 
 
 class TaskHandlers:
@@ -25,8 +23,8 @@ class TaskHandlers:
 
     def __init__(
         self,
-        service: RuntimeQueryService,
-        runtime_service: RuntimeCoreService | None = None,
+        service: TaskQueryService,
+        runtime_service: TaskService | None = None,
     ) -> None:
         self.service = service
         self.runtime_service = runtime_service
@@ -35,11 +33,11 @@ class TaskHandlers:
         self,
         ctx: RequestContext,
         *,
-        status: Optional[str],
-        task_type: Optional[str],
-        agent_id: Optional[str],
-        thread_id: Optional[str],
-        page_token: Optional[str],
+        status: str | None,
+        task_type: str | None,
+        agent_id: str | None,
+        thread_id: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[TaskResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -61,7 +59,7 @@ class TaskHandlers:
         self,
         ctx: RequestContext,
         *,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> TaskWorkbenchResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -72,12 +70,12 @@ class TaskHandlers:
         self,
         ctx: RequestContext,
         *,
-        tab: Optional[str],
-        keyword: Optional[str],
-        status: Optional[str],
-        date_from: Optional[str],
-        date_to: Optional[str],
-        page_token: Optional[str],
+        tab: str | None,
+        keyword: str | None,
+        status: str | None,
+        date_from: str | None,
+        date_to: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> TaskWorkbenchItemsResponse:
         limit, token_obj = parse_page_params(page_token, page_size)

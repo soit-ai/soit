@@ -3,8 +3,8 @@
 Identity entrypoint dependencies.
 """
 
-from sqlalchemy.orm import Session
 from fastapi import Depends
+from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db
 from app.modules.identity.application.service import IdentityService

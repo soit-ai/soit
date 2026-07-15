@@ -1,4 +1,5 @@
 import { Activity, Bot, Database, Gauge, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
+import { Toaster } from 'sonner'
 
 import { Link } from '@/components/ui/link'
 import logoIcon from '@/assets/logo-m.png'
@@ -46,7 +47,8 @@ const railMetrics = [
 
 export function AuthShell({ children }: AuthShellProps) {
   return (
-    <div className="grid min-h-svh bg-[linear-gradient(135deg,#f8fafc_0%,#eef4f8_46%,#edf7f8_100%)] lg:grid-cols-[minmax(460px,0.9fr)_minmax(560px,1.1fr)] dark:bg-[linear-gradient(135deg,#101827_0%,#0f1b2a_52%,#0c2429_100%)]">
+    <>
+      <div className="grid min-h-svh bg-[linear-gradient(135deg,#f8fafc_0%,#eef4f8_46%,#edf7f8_100%)] lg:grid-cols-[minmax(460px,0.9fr)_minmax(560px,1.1fr)] dark:bg-[linear-gradient(135deg,#101827_0%,#0f1b2a_52%,#0c2429_100%)]">
       <div className="relative flex min-h-svh flex-col overflow-hidden border-slate-200/70 lg:border-r dark:border-white/10">
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(15,23,42,0.035)_1px,transparent_1px),linear-gradient(rgba(15,23,42,0.035)_1px,transparent_1px)] [background-size:36px_36px] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)]" />
         <div className="relative z-10 flex flex-1 flex-col gap-5 p-5 sm:p-7 md:p-9">
@@ -160,6 +162,8 @@ export function AuthShell({ children }: AuthShellProps) {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      <Toaster position="top-right" expand closeButton />
+    </>
   )
 }

@@ -110,7 +110,7 @@ export interface RunResponseTimelineRead {
 }
 
 export const createResponse = (data: ResponseCreateRequest): Promise<ResponseRead> => {
-  return post<ResponseRead>('/responses', data).then((response) => response.data)
+  return post<ResponseRead>('/responses', data)
 }
 
 export const createStreamResponse = (
@@ -121,9 +121,9 @@ export const createStreamResponse = (
 }
 
 export const getRunResponseTimeline = (runId: string): Promise<RunResponseTimelineRead> => {
-  return get<RunResponseTimelineRead>(`/responses/by-run/${runId}`).then((response) => response.data)
+  return get<RunResponseTimelineRead>(`/responses/by-run/${runId}`)
 }
 
 export const cancelResponse = (responseId: string): Promise<{ status: string; response_id: string }> => {
-  return post<{ status: string; response_id: string }>(`/responses/${responseId}/cancel`).then((response) => response.data)
+  return post<{ status: string; response_id: string }>(`/responses/${responseId}/cancel`)
 }

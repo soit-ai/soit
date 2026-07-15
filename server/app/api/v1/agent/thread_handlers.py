@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.threads.schemas import (
+    ThreadCreateRequest,
+    ThreadDetailResponse,
+    ThreadMessageResponse,
+    ThreadResponse,
+    ThreadUpdateRequest,
+)
 from app.kernel.runtime.threads.service import ThreadService
-from app.kernel.runtime.threads.schemas import ThreadCreateRequest, ThreadDetailResponse, ThreadMessageResponse, ThreadResponse, ThreadUpdateRequest
 from app.modules.agent.application.thread_query_service import AgentThreadQueryService
 
 
@@ -17,7 +21,7 @@ class ThreadHandlers:
     def __init__(
         self,
         query_service: AgentThreadQueryService,
-        runtime_service: Optional[ThreadService] = None,
+        runtime_service: ThreadService | None = None,
     ) -> None:
         self.query_service = query_service
         self.runtime_service = runtime_service
@@ -64,10 +68,10 @@ class ThreadHandlers:
         self,
         ctx: RequestContext,
         *,
-        status: Optional[str],
-        agent_id: Optional[str],
-        search: Optional[str],
-        page_token: Optional[str],
+        status: str | None,
+        agent_id: str | None,
+        search: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[ThreadResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)

@@ -1,11 +1,8 @@
 import request, { del, get, post, put, patch } from '@/utils/request'
 import type { RunCostByMode, RunCostSummary, RunResponse } from './run-service'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface KnowledgeBase {
   id: string
@@ -116,9 +113,13 @@ export interface KnowledgeIndex {
   metric_type: string
   status: string
   build_version: number
+  last_build_at?: string | null
+  last_run_id?: string | null
   doc_count: number
   chunk_count: number
   vector_count: number
+  last_error_code?: string | null
+  last_error_message?: string | null
   created_at: string
   updated_at: string
 }
@@ -297,14 +298,14 @@ export const listKnowledgeBases = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<KnowledgeBase>> => {
-  return get<PaginatedResponse<KnowledgeBase>>('/knowledge', params).then((response) => response.data)
+  return get<PaginatedResponse<KnowledgeBase>>('/knowledge', params)
 }
 
 export const getKnowledgeWorkbench = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<KnowledgeWorkbenchResponse> => {
-  return get<KnowledgeWorkbenchResponse>('/knowledge/workbench', params).then((response) => response.data)
+  return get<KnowledgeWorkbenchResponse>('/knowledge/workbench', params)
 }
 
 export const getKnowledgeWorkbenchItems = (params?: {
@@ -313,19 +314,19 @@ export const getKnowledgeWorkbenchItems = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<KnowledgeWorkbenchItemsResponse> => {
-  return get<KnowledgeWorkbenchItemsResponse>('/knowledge/workbench/items', params).then((response) => response.data)
+  return get<KnowledgeWorkbenchItemsResponse>('/knowledge/workbench/items', params)
 }
 
 export const getKnowledgeBase = (knowledgeId: string): Promise<KnowledgeBase> => {
-  return get<KnowledgeBase>(`/knowledge/${knowledgeId}`).then((response) => response.data)
+  return get<KnowledgeBase>(`/knowledge/${knowledgeId}`)
 }
 
 export const createKnowledgeBase = (data: KnowledgeCreateRequest): Promise<KnowledgeBase> => {
-  return post<KnowledgeBase>('/knowledge', data).then((response) => response.data)
+  return post<KnowledgeBase>('/knowledge', data)
 }
 
 export const updateKnowledgeBase = (knowledgeId: string, data: KnowledgeUpdateRequest): Promise<KnowledgeBase> => {
-  return put<KnowledgeBase>(`/knowledge/${knowledgeId}`, data).then((response) => response.data)
+  return put<KnowledgeBase>(`/knowledge/${knowledgeId}`, data)
 }
 
 export const deleteKnowledgeBase = (knowledgeId: string): Promise<void> => {
@@ -336,40 +337,40 @@ export const listKnowledgeDocuments = (
   knowledgeId: string,
   params?: { limit?: number; offset?: number }
 ): Promise<KnowledgeDocument[]> => {
-  return get<KnowledgeDocument[]>(`/knowledge/${knowledgeId}/documents`, params).then((response) => response.data)
+  return get<KnowledgeDocument[]>(`/knowledge/${knowledgeId}/documents`, params)
 }
 
 export const listKnowledgeRuns = (
   knowledgeId: string,
   params?: { page_token?: string; page_size?: number }
 ): Promise<PaginatedResponse<RunResponse>> => {
-  return get<PaginatedResponse<RunResponse>>(`/knowledge/${knowledgeId}/runs`, params).then((response) => response.data)
+  return get<PaginatedResponse<RunResponse>>(`/knowledge/${knowledgeId}/runs`, params)
 }
 
 export const getKnowledgeRunCostSummary = (knowledgeId: string): Promise<RunCostSummary> => {
-  return get<RunCostSummary>(`/knowledge/${knowledgeId}/runs/costs/summary`).then((response) => response.data)
+  return get<RunCostSummary>(`/knowledge/${knowledgeId}/runs/costs/summary`)
 }
 
 export const getKnowledgeRunCostByMode = (knowledgeId: string): Promise<RunCostByMode[]> => {
-  return get<RunCostByMode[]>(`/knowledge/${knowledgeId}/runs/costs/by-mode`).then((response) => response.data)
+  return get<RunCostByMode[]>(`/knowledge/${knowledgeId}/runs/costs/by-mode`)
 }
 
 export const listKnowledgeUsages = (knowledgeId: string): Promise<KnowledgeUsage[]> => {
-  return get<KnowledgeUsage[]>(`/knowledge/${knowledgeId}/usages`).then((response) => response.data)
+  return get<KnowledgeUsage[]>(`/knowledge/${knowledgeId}/usages`)
 }
 
 export const listKnowledgeIndexes = (
   knowledgeId: string,
   params?: { limit?: number; offset?: number }
 ): Promise<KnowledgeIndex[]> => {
-  return get<KnowledgeIndex[]>(`/knowledge/${knowledgeId}/indexes`, params).then((response) => response.data)
+  return get<KnowledgeIndex[]>(`/knowledge/${knowledgeId}/indexes`, params)
 }
 
 export const createKnowledgeIndex = (
   knowledgeId: string,
   data: KnowledgeIndexCreateRequest
 ): Promise<KnowledgeIndex> => {
-  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes`, data).then((response) => response.data)
+  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes`, data)
 }
 
 export const updateKnowledgeIndex = (
@@ -377,7 +378,7 @@ export const updateKnowledgeIndex = (
   indexId: string,
   data: KnowledgeIndexUpdateRequest
 ): Promise<KnowledgeIndex> => {
-  return patch<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}`, data).then((response) => response.data)
+  return patch<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}`, data)
 }
 
 export const deleteKnowledgeIndex = (knowledgeId: string, indexId: string): Promise<void> => {
@@ -385,7 +386,7 @@ export const deleteKnowledgeIndex = (knowledgeId: string, indexId: string): Prom
 }
 
 export const rebuildKnowledgeIndex = (knowledgeId: string, indexId: string): Promise<KnowledgeIndex> => {
-  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}/rebuild`).then((response) => response.data)
+  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}/rebuild`)
 }
 
 export const uploadKnowledgeDocument = async (
@@ -409,14 +410,14 @@ export const uploadKnowledgeDocument = async (
   formData.append('async_ingest', String(data.async_ingest ?? true))
   formData.append('max_retries', String(data.max_retries ?? 1))
   if (file) formData.append('file', file)
-  const response = await request.post(`/knowledge/${knowledgeId}/documents`, formData, {
+  const response = await post<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return response.data.data
+  return response
 }
 
 export const getKnowledgeDocument = (knowledgeId: string, documentId: string): Promise<KnowledgeDocument> => {
-  return get<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents/${documentId}`).then((response) => response.data)
+  return get<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents/${documentId}`)
 }
 
 export const getKnowledgeDocumentContent = async (knowledgeId: string, documentId: string): Promise<string> => {
@@ -433,7 +434,7 @@ export const downloadKnowledgeDocument = (knowledgeId: string, documentId: strin
 }
 
 export const listKnowledgeDocumentVersions = (knowledgeId: string, docKey: string): Promise<KnowledgeDocument[]> => {
-  return get<KnowledgeDocument[]>(`/knowledge/${knowledgeId}/documents/${docKey}/versions`).then((response) => response.data)
+  return get<KnowledgeDocument[]>(`/knowledge/${knowledgeId}/documents/${docKey}/versions`)
 }
 
 export const rollbackKnowledgeDocumentVersion = (
@@ -441,9 +442,7 @@ export const rollbackKnowledgeDocumentVersion = (
   docKey: string,
   version: number
 ): Promise<KnowledgeDocument> => {
-  return post<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents/${docKey}/versions/${version}/rollback`).then(
-    (response) => response.data
-  )
+  return post<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents/${docKey}/versions/${version}/rollback`)
 }
 
 export const deleteKnowledgeDocument = (knowledgeId: string, documentId: string): Promise<void> => {
@@ -455,9 +454,7 @@ export const listKnowledgeChunks = (
   documentId: string,
   params?: { limit?: number; offset?: number }
 ): Promise<KnowledgeChunk[]> => {
-  return get<KnowledgeChunk[]>(`/knowledge/${knowledgeId}/documents/${documentId}/chunks`, params).then(
-    (response) => response.data
-  )
+  return get<KnowledgeChunk[]>(`/knowledge/${knowledgeId}/documents/${documentId}/chunks`, params)
 }
 
 export const updateKnowledgeChunk = (
@@ -466,28 +463,26 @@ export const updateKnowledgeChunk = (
   chunkId: string,
   data: KnowledgeChunkUpdateRequest
 ): Promise<KnowledgeChunk> => {
-  return patch<KnowledgeChunk>(`/knowledge/${knowledgeId}/documents/${documentId}/chunks/${chunkId}`, data).then(
-    (response) => response.data
-  )
+  return patch<KnowledgeChunk>(`/knowledge/${knowledgeId}/documents/${documentId}/chunks/${chunkId}`, data)
 }
 
 export const listKnowledgeIngestTasks = (
   knowledgeId: string,
   params?: { status_filter?: string; limit?: number; offset?: number }
 ): Promise<KnowledgeIngestTask[]> => {
-  return get<KnowledgeIngestTask[]>(`/knowledge/${knowledgeId}/ingest-tasks`, params).then((response) => response.data)
+  return get<KnowledgeIngestTask[]>(`/knowledge/${knowledgeId}/ingest-tasks`, params)
 }
 
 export const getKnowledgeIngestTask = (knowledgeId: string, taskId: string): Promise<KnowledgeIngestTask> => {
-  return get<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}`).then((response) => response.data)
+  return get<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}`)
 }
 
 export const retryKnowledgeIngestTask = (knowledgeId: string, taskId: string): Promise<KnowledgeIngestTask> => {
-  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/retry`).then((response) => response.data)
+  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/retry`)
 }
 
 export const cancelKnowledgeIngestTask = (knowledgeId: string, taskId: string): Promise<KnowledgeIngestTask> => {
-  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/cancel`).then((response) => response.data)
+  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/cancel`)
 }
 
 export const retryKnowledgeDocumentIngest = (
@@ -497,12 +492,12 @@ export const retryKnowledgeDocumentIngest = (
 ): Promise<KnowledgeIngestTask> => {
   return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/documents/${documentId}/retry-ingest`, undefined, {
     params: { max_retries: maxRetries },
-  }).then((response) => response.data)
+  })
 }
 
 export const queryKnowledge = (
   knowledgeId: string,
   data: KnowledgeQueryRequest
 ): Promise<KnowledgeQueryResponse> => {
-  return post<KnowledgeQueryResponse>(`/knowledge/${knowledgeId}/query`, data).then((response) => response.data)
+  return post<KnowledgeQueryResponse>(`/knowledge/${knowledgeId}/query`, data)
 }

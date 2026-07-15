@@ -3,8 +3,10 @@
 Vault secrets gateway adapter implementation.
 """
 
+from functools import partial
 from typing import Any
 
+import anyio
 import hvac
 
 from app.kernel.ports.secrets.interface import SecretsPort
@@ -65,7 +67,12 @@ class VaultSecretsPort(SecretsPort):
 
         try:
             # Read from Vault KV v2
-            response = self.client.secrets.kv.v2.read_secret_version(path=secret_path)
+            response = await anyio.to_thread.run_sync(
+                partial(
+                    self.client.secrets.kv.v2.read_secret_version,
+                    path=secret_path,
+                )
+            )
             data = response.get("data", {}).get("data", {})
 
             # If key specified, return that value; otherwise return first value
@@ -108,9 +115,12 @@ class VaultSecretsPort(SecretsPort):
 
         try:
             # Write to Vault KV v2
-            self.client.secrets.kv.v2.create_or_update_secret(
-                path=secret_path,
-                secret={secret_key: value},
+            await anyio.to_thread.run_sync(
+                partial(
+                    self.client.secrets.kv.v2.create_or_update_secret,
+                    path=secret_path,
+                    secret={secret_key: value},
+                )
             )
         except Exception as e:
             raise ValueError(f"Failed to set secret {secret_ref}: {str(e)}")
@@ -141,6 +151,11 @@ class VaultSecretsPort(SecretsPort):
 
         try:
             # Delete from Vault KV v2
-            self.client.secrets.kv.v2.delete_metadata_and_all_versions(path=secret_path)
+            await anyio.to_thread.run_sync(
+                partial(
+                    self.client.secrets.kv.v2.delete_metadata_and_all_versions,
+                    path=secret_path,
+                )
+            )
         except Exception as e:
             raise ValueError(f"Failed to delete secret {secret_ref}: {str(e)}")

@@ -39,7 +39,6 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
   const { t } = useTranslation()
   const { direction: layoutDirection, setDirection: setLayoutDirection } = useLayoutStore();
   const getLayoutChange = (direction: LayoutDirection) => {
-    console.log('direction', direction);
     setLayoutDirection(direction);
     if (flowInstance && getLayoutedElements) {
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
-from app.kernel.runtime.contracts.status import ApprovalStatus
-from app.kernel.trace.exporter import to_runtrace_spec
-from app.kernel.trace.models import Run, RunArtifact, RunCostEntry, RunStep
+from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
+from app.kernel.runtime.runs.exporter import to_runtrace_spec
+from app.kernel.runtime.tasks.status import ApprovalStatus
 from app.modules.observe.application.dashboard_service import ObserveDashboardService
-from app.modules.observe.application.schemas import ApprovalCreate, ApprovalResolve, FeedbackCreate
+from app.modules.observe.application.schemas import (
+    ApprovalCreate,
+    ApprovalResolve,
+    FeedbackCreate,
+)
 from app.modules.observe.domain.models import ApprovalRequest, RunFeedback
 from app.modules.observe.infra.repository import ApprovalRepository, FeedbackRepository
 
@@ -67,9 +69,9 @@ class ObserveService:
         *,
         limit: int = 20,
         offset: int = 0,
-        status: Optional[str] = None,
-        run_id: Optional[str] = None,
-        task_id: Optional[str] = None,
+        status: str | None = None,
+        run_id: str | None = None,
+        task_id: str | None = None,
     ) -> list[ApprovalRequest]:
         return self.approval_repo.list(limit=limit, offset=offset, status=status, run_id=run_id, task_id=task_id)
 
@@ -111,9 +113,9 @@ class ObserveService:
         *,
         limit: int = 20,
         offset: int = 0,
-        run_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        thread_id: Optional[str] = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
     ) -> list[RunFeedback]:
         return self.feedback_repo.list(
             limit=limit,

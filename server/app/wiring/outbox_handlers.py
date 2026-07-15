@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
 from app.kernel.events.registry import OutboxHandlerRegistry
 from app.kernel.runtime.db.models.events import EventOutbox
 
@@ -23,11 +25,21 @@ def register_outbox_handlers() -> None:
 
     reg = _registry
 
-    def _builtin_smoke_handler(_db, _row: EventOutbox) -> None:
+    def _builtin_smoke_handler(_db: Session, _row: EventOutbox) -> None:
         """Placeholder consumer for `outbox.smoke` (tests / health wiring)."""
         return None
 
     reg.register("outbox.smoke", "builtin.smoke", _builtin_smoke_handler)
+
+    from app.modules.notification.handlers.apprise_delivery import (
+        handle_notification_delivery_outbox,
+    )
+
+    reg.register(
+        "notification.delivery.requested",
+        "notification.apprise.delivery",
+        handle_notification_delivery_outbox,
+    )
 
     from app.kernel.runtime.runs.events import RunEventType
     from app.kernel.runtime.runs.handlers import handle_run_created_outbox

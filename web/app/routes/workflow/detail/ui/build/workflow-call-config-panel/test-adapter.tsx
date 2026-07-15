@@ -3,6 +3,7 @@ import { Card, Form, Input, Button, Typography, Alert, Spin } from 'antd';
 import { SendOutlined, ReloadOutlined } from '@ant-design/icons';
 import { CodeBlock } from '@/components/ui/code-block';
 import { useTranslation } from '@/i18n';
+import { executeWorkflow } from '@/services/workflow-service';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -59,50 +60,12 @@ const TestAdapter: React.FC<TestAdapterProps> = ({ workflowId, adapterType }) =>
       const inputs = JSON.parse(values.inputs);
       const options = JSON.parse(values.options);
 
-      // Execute adapter call based on type.
-      if (adapterType === 'http') {
-        // Build HTTP request.
-        const response = await fetch(`/api/workflow/execute/${workflowId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            inputs,
-            options,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || t('workflow.detail.callConfig.testAdapter.errors.callFailed'));
-        }
-
-        setResult(data);
-      } else {
-        // For other adapter types, use a simulated HTTP endpoint.
-        const response = await fetch('/api/workflow/test-adapter', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            adapter_type: adapterType,
-            workflow_id: workflowId,
-            inputs,
-            options,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || t('workflow.detail.callConfig.testAdapter.errors.callFailed'));
-        }
-
-        setResult(data);
-      }
+      const data = await executeWorkflow(workflowId, inputs);
+      setResult({
+        adapter_type: adapterType,
+        options,
+        result: data,
+      });
     } catch (err: any) {
       setError(err.message || t('workflow.detail.callConfig.testAdapter.errors.callFailed'));
       setResult(null);

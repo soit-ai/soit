@@ -1,11 +1,8 @@
 import { get, post, put, del, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
 import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface Workflow {
   id: string
@@ -62,12 +59,76 @@ export interface WorkflowRunControlResponse {
   [key: string]: any
 }
 
+export interface WorkflowWorkbenchSummary {
+  total_workflows: number
+  published_workflows: number
+  running_workflows: number
+  today_runs: number
+  avg_latency_ms?: number | null
+  success_rate?: number | null
+  recent_exceptions: number
+  updated_at: string
+}
+
+export interface WorkflowWorkbenchTabs {
+  all: number
+  high_volume: number
+  publishing: number
+  abnormal: number
+  draft: number
+}
+
+export interface WorkflowWorkbenchRow {
+  id: string
+  name: string
+  description?: string | null
+  summary?: string | null
+  status: 'running' | 'publishing' | 'abnormal' | 'draft'
+  linked_agents: string[]
+  linked_agent_count: number
+  today_runs: number
+  avg_latency_ms?: number | null
+  success_rate?: number | null
+  recent_exception_count: number
+  owner?: string | null
+  last_run_at?: string | null
+  action_enabled: boolean
+  updated_at: string
+}
+
+export interface WorkflowWorkbenchResponse {
+  summary: WorkflowWorkbenchSummary
+  tabs: WorkflowWorkbenchTabs
+  items: WorkflowWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
+}
+
+export interface WorkflowWorkbenchItemsResponse {
+  items: WorkflowWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
+}
+
 export const listWorkflows = (params?: { page_token?: string; page_size?: number }): Promise<PaginatedResponse<Workflow>> => {
-  return get('/workflows', params).then((response) => response.data)
+  return get('/workflows', params)
+}
+
+export const getWorkflowWorkbench = (params?: { page_token?: string; page_size?: number }): Promise<WorkflowWorkbenchResponse> => {
+  return get('/workflows/workbench', params)
+}
+
+export const getWorkflowWorkbenchItems = (params?: {
+  tab?: string
+  keyword?: string
+  page_token?: string
+  page_size?: number
+}): Promise<WorkflowWorkbenchItemsResponse> => {
+  return get('/workflows/workbench/items', params)
 }
 
 export const getWorkflow = (workflowId: string): Promise<Workflow> => {
-  return get(`/workflows/${workflowId}`).then((response) => response.data)
+  return get(`/workflows/${workflowId}`)
 }
 
 export const createWorkflow = (data: {
@@ -79,7 +140,13 @@ export const createWorkflow = (data: {
   category?: string
   tags?: string[]
 }): Promise<Workflow> => {
-  return post('/workflows', data).then((response) => response.data)
+  return post('/workflows', data)
+}
+
+export const createTicketTriageWorkflow = (data?: {
+  name?: string
+}): Promise<Workflow> => {
+  return post('/workflows/templates/ticket-triage', data || {})
 }
 
 export const updateWorkflow = (
@@ -96,7 +163,7 @@ export const updateWorkflow = (
     metadata_json?: Record<string, any>
   }
 ): Promise<Workflow> => {
-  return put(`/workflows/${workflowId}`, data).then((response) => response.data)
+  return put(`/workflows/${workflowId}`, data)
 }
 
 export const deleteWorkflow = (workflowId: string): Promise<void> => {
@@ -107,33 +174,33 @@ export const createWorkflowVersion = (
   workflowId: string,
   data: { graph_json: Record<string, any>; created_by: string }
 ): Promise<WorkflowVersion> => {
-  return post(`/workflows/${workflowId}/versions`, data).then((response) => response.data)
+  return post(`/workflows/${workflowId}/versions`, data)
 }
 
 export const listWorkflowVersions = (
   workflowId: string,
   params?: { page_token?: string; page_size?: number }
 ): Promise<PaginatedResponse<WorkflowVersion>> => {
-  return get(`/workflows/${workflowId}/versions`, params).then((response) => response.data)
+  return get(`/workflows/${workflowId}/versions`, params)
 }
 
 export const listWorkflowReleases = (
   workflowId: string,
   params?: { page_token?: string; page_size?: number }
 ): Promise<PaginatedResponse<WorkflowRelease>> => {
-  return get(`/workflows/${workflowId}/releases`, params).then((response) => response.data)
+  return get(`/workflows/${workflowId}/releases`, params)
 }
 
 export const getCurrentWorkflowVersion = (workflowId: string): Promise<WorkflowVersion> => {
-  return get(`/workflows/${workflowId}/version/current`).then((response) => response.data)
+  return get(`/workflows/${workflowId}/version/current`)
 }
 
 export const publishWorkflowVersion = (workflowId: string, versionId: string): Promise<Workflow> => {
-  return post(`/workflows/${workflowId}/publish`, { version_id: versionId }).then((response) => response.data)
+  return post(`/workflows/${workflowId}/publish`, { version_id: versionId })
 }
 
 export const executeWorkflow = (workflowId: string, inputs: Record<string, any>): Promise<any> => {
-  return post(`/workflows/${workflowId}/execute`, inputs).then((response) => response.data)
+  return post(`/workflows/${workflowId}/execute`, inputs)
 }
 
 export const streamWorkflowExecution = (
@@ -141,21 +208,21 @@ export const streamWorkflowExecution = (
   inputs: Record<string, any>,
   config?: FetchEventSourceInit
 ): AsyncGenerator<SseEvent, void, any> => {
-  return sse(`${API_BASE_URL}/sse/execution`, { workflow_id: workflowId, inputs }, config)
+  return sse(`${API_BASE_URL}/workflows/${workflowId}/stream`, { inputs }, config)
 }
 
 export const exportWorkflowDsl = (
   workflowId: string,
   params?: { version_id?: string; format?: 'json' | 'yaml' }
 ): Promise<{ dsl: Record<string, any> | string; format: string }> => {
-  return get(`/workflows/${workflowId}/dsl`, params).then((response) => response.data)
+  return get(`/workflows/${workflowId}/dsl`, params)
 }
 
 export const importWorkflowDsl = (
   workflowId: string,
   data: { dsl: Record<string, any> | string; created_by: string; format?: 'json' | 'yaml' }
 ): Promise<WorkflowVersion> => {
-  return post(`/workflows/${workflowId}/dsl`, data).then((response) => response.data)
+  return post(`/workflows/${workflowId}/dsl`, data)
 }
 
 const mapRunControlError = (error: any): Error => {
@@ -175,13 +242,11 @@ const mapRunControlError = (error: any): Error => {
 
 export const pauseRun = (workflowId: string, runId: string): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/pause`)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
 export const resumeRun = (workflowId: string, runId: string): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/resume`)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
@@ -191,7 +256,6 @@ export const cancelRun = (
   data?: { reason?: string }
 ): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/cancel`, data)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
@@ -201,7 +265,6 @@ export const failRun = (
   data?: { error_code?: string; error_message?: string }
 ): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/fail`, data)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
@@ -211,7 +274,6 @@ export const retryRun = (
   data?: Record<string, any>
 ): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/retry`, data)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }
 
@@ -221,6 +283,5 @@ export const replayRun = (
   data?: Record<string, any>
 ): Promise<WorkflowRunControlResponse> => {
   return post(`/workflows/${workflowId}/runs/${runId}/replay`, data)
-    .then((response) => response.data)
     .catch((error) => Promise.reject(mapRunControlError(error)))
 }

@@ -3,25 +3,25 @@
 Secrets API schemas.
 """
 
-from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SecretCreate(BaseModel):
     """Create secret request."""
 
     name: str = Field(min_length=1, max_length=128)
-    description: Optional[str] = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=1024)
     value: str = Field(min_length=1)
 
 
 class SecretUpdate(BaseModel):
     """Update secret request."""
 
-    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
-    description: Optional[str] = Field(default=None, max_length=1024)
-    value: Optional[str] = Field(default=None, min_length=1)
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=1024)
+    value: str | None = Field(default=None, min_length=1)
 
 
 class SecretResponse(BaseModel):
@@ -29,11 +29,11 @@ class SecretResponse(BaseModel):
 
     id: str
     name: str
-    description: Optional[str]
+    description: str | None
     secret_ref: str
-    last_rotated_at: Optional[datetime]
-    created_by: Optional[str]
-    updated_by: Optional[str]
+    last_rotated_at: datetime | None
+    created_by: str | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -44,4 +44,4 @@ class SecretTestResponse(BaseModel):
     """Secret test response."""
 
     ok: bool
-    message: Optional[str] = None
+    message: str | None = None

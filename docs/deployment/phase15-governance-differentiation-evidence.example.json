@@ -1,0 +1,121 @@
+{
+  "phase": "Phase 1.5",
+  "governance_story": "permissions -> secrets -> audit -> cost -> replay -> regression",
+  "capability_sections": [
+    {
+      "name": "plugin_first_governance",
+      "complete": true,
+      "evidence_refs": [
+        "server/tests/entrypoints/test_plugin_unified_lifecycle_api.py",
+        "server/tests/unit/test_tool_router_strict.py",
+        "server/tests/integration/test_enterprise_mvp_scenario_seed.py",
+        "README.md",
+        "README-cn.md"
+      ],
+      "verification": [
+        {
+          "command": "uv run pytest tests/entrypoints/test_plugin_unified_lifecycle_api.py tests/unit/test_tool_router_strict.py tests/integration/test_enterprise_mvp_scenario_seed.py -q",
+          "exit_code": 0,
+          "stdout_excerpt": "passed"
+        }
+      ]
+    },
+    {
+      "name": "observe_governance_surfaces",
+      "complete": true,
+      "evidence_refs": [
+        "web/app/routes/observe/index.tsx",
+        "web/app/routes/run/detail.tsx",
+        "web/app/routes/run/audits.tsx",
+        "server/tests/entrypoints/test_observe_api.py",
+        "server/tests/unit/test_run_handlers.py"
+      ],
+      "verification": [
+        {
+          "command": "uv run pytest tests/entrypoints/test_observe_api.py tests/unit/test_run_handlers.py -q",
+          "exit_code": 0,
+          "stdout_excerpt": "passed"
+        }
+      ]
+    },
+    {
+      "name": "regression_as_release_gate",
+      "complete": true,
+      "evidence_refs": [
+        "server/app/modules/evaluation/",
+        "server/alembic/versions/20260611120000_regression_evaluation_tables.py",
+        "server/tests/entrypoints/test_evaluation_api.py",
+        "server/tests/unit/test_regression_evaluation_service.py",
+        "web/e2e/agent.spec.ts"
+      ],
+      "verification": [
+        {
+          "command": "uv run pytest tests/entrypoints/test_evaluation_api.py tests/unit/test_regression_evaluation_service.py -q",
+          "exit_code": 0,
+          "stdout_excerpt": "passed"
+        }
+      ]
+    },
+    {
+      "name": "architecture_gap_review",
+      "complete": true,
+      "evidence_refs": [
+        "server/docs/architecture/README.md",
+        "server/docs/architecture/OUTBOX_EVENT_MODEL.md"
+      ],
+      "verification": [
+        {
+          "command": "manual review: public architecture docs cover governance release boundaries",
+          "passed": true,
+          "stdout_excerpt": "public architecture docs reviewed"
+        }
+      ]
+    },
+    {
+      "name": "customer_governance_demo",
+      "complete": true,
+      "evidence_refs": [
+        "docs/governance-demo.md",
+        "server/scripts/verify_governance_demo.py",
+        "server/tests/integration/test_governance_demo_verifier.py"
+      ],
+      "verification": [
+        {
+          "command": "uv run python scripts/verify_governance_demo.py --json-output ../docs/deployment/governance-demo-report.example.json",
+          "exit_code": 0,
+          "stdout_excerpt": "governance_demo_20_min"
+        }
+      ]
+    }
+  ],
+  "demo": {
+    "complete": true,
+    "segments": [
+      "permissions",
+      "secrets",
+      "call_audit",
+      "cost_attribution",
+      "replay",
+      "regression"
+    ],
+    "verification": [
+      {
+        "command": "uv run pytest tests/integration/test_governance_demo_verifier.py tests/integration/test_support_ticket_regression_evaluator.py -q",
+        "exit_code": 0,
+        "stdout_excerpt": "passed"
+      }
+    ]
+  },
+  "release_readiness_gates": [
+    {
+      "command": "uv run python scripts/verify_governance_release.py ../docs/deployment/governance-release-v1.1.0-evidence.example.json",
+      "exit_code": 0,
+      "stdout_excerpt": "v1.1.0"
+    },
+    {
+      "command": "uv run pytest tests/unit/test_phase15_release_docs.py -q",
+      "exit_code": 0,
+      "stdout_excerpt": "passed"
+    }
+  ]
+}

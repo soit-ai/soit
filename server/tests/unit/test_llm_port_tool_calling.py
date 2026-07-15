@@ -4,7 +4,9 @@
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
+    ChatStreamChunk,
     ToolCall,
+    ToolCallDelta,
     ToolDefinition,
 )
 
@@ -63,3 +65,18 @@ def test_chat_message_assistant_with_tool_calls():
     msg = ChatMessage(role="assistant", content=None, tool_calls=[tc])
     assert msg.tool_calls is not None
     assert msg.tool_calls[0].id == "call_1"
+
+
+def test_stream_chunk_exposes_tool_call_deltas_and_completed_calls():
+    delta = ToolCallDelta(index=0, id="call_1", name="lookup", arguments_delta='{"id":')
+    call = ToolCall(id="call_1", name="lookup", arguments={"id": 7})
+
+    chunk = ChatStreamChunk(
+        tool_call_deltas=[delta],
+        tool_calls=[call],
+        done=True,
+        finish_reason="tool_calls",
+    )
+
+    assert chunk.tool_call_deltas == [delta]
+    assert chunk.tool_calls == [call]

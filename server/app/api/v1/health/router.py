@@ -55,14 +55,22 @@ async def readiness_check(db: Session = Depends(get_db)):
         from sqlalchemy import text
         db.execute(text("SELECT 1"))
         db_status = "connected"
-        readiness_status = "ready"
     except Exception:
         raise HTTPException(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is unavailable",
         )
 
-    return ReadyResponse(status=readiness_status, database=db_status)
+    from app.adapters.tools.mcp_migration import enabled_legacy_mcp_artifacts
+
+    legacy_artifacts = enabled_legacy_mcp_artifacts(db)
+    if legacy_artifacts:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Enabled legacy MCP artifacts require migration: {len(legacy_artifacts)}",
+        )
+
+    return ReadyResponse(status="ready", database=db_status)
 
 
 @router.get("/health/live", response_model=HealthResponse)

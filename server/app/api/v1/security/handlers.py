@@ -3,18 +3,17 @@
 Security request handlers (thin orchestration).
 """
 
-from typing import Optional
 
-from app.kernel.contracts.context import RequestContext
-from app.modules.security.application.service import SecurityService
-from app.modules.security.application.schemas import (
-    EgressPolicyUpdate,
-    EgressPolicyResponse,
-    EgressPolicyAuditResponse,
-    UsagePolicyUpdate,
-    UsagePolicyResponse,
-)
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
+from app.kernel.contracts.context import RequestContext
+from app.modules.security.application.schemas import (
+    EgressPolicyAuditResponse,
+    EgressPolicyResponse,
+    EgressPolicyUpdate,
+    UsagePolicyResponse,
+    UsagePolicyUpdate,
+)
+from app.modules.security.application.service import SecurityService
 
 
 class SecurityHandlers:
@@ -72,8 +71,8 @@ class SecurityHandlers:
     async def list_audits(
         self,
         ctx: RequestContext,
-        scope: Optional[str],
-        page_token: Optional[str],
+        scope: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[EgressPolicyAuditResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)

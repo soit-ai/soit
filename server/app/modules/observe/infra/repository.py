@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.contracts.status import ApprovalStatus
+from app.kernel.runtime.tasks.status import ApprovalStatus
 from app.modules.observe.domain.models import ApprovalRequest, RunFeedback
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_approved_outbox,
@@ -38,7 +36,7 @@ class ApprovalRepository:
         self,
         approval: ApprovalRequest,
         *,
-        emit_resolution_event: Optional[str] = None,
+        emit_resolution_event: str | None = None,
     ) -> ApprovalRequest:
         approval.updated_at = utc_now()
         self.db.add(approval)
@@ -51,7 +49,7 @@ class ApprovalRepository:
         self.db.refresh(approval)
         return approval
 
-    def get_by_id(self, approval_id: str) -> Optional[ApprovalRequest]:
+    def get_by_id(self, approval_id: str) -> ApprovalRequest | None:
         query = select(ApprovalRequest).where(
             and_(
                 ApprovalRequest.id == approval_id,
@@ -66,9 +64,9 @@ class ApprovalRepository:
         *,
         limit: int,
         offset: int,
-        status: Optional[str] = None,
-        run_id: Optional[str] = None,
-        task_id: Optional[str] = None,
+        status: str | None = None,
+        run_id: str | None = None,
+        task_id: str | None = None,
     ) -> list[ApprovalRequest]:
         filters = [
             ApprovalRequest.tenant_id == self.ctx.tenant_id,
@@ -109,9 +107,9 @@ class FeedbackRepository:
         *,
         limit: int,
         offset: int,
-        run_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        thread_id: Optional[str] = None,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
     ) -> list[RunFeedback]:
         filters = [
             RunFeedback.tenant_id == self.ctx.tenant_id,

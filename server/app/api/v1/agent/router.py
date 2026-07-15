@@ -5,34 +5,39 @@ Agent API routes (FastAPI).
 
 import asyncio
 import json
-from typing import Optional
-from fastapi import APIRouter, Depends, Body, status
+
+from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import StreamingResponse
 
+from app.api.v1.agent.dependencies import (
+    get_agent_application_service,
+    get_agent_service,
+)
+from app.api.v1.agent.handlers import AgentAppHandlers, AgentHandlers
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
+from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
-from app.api.v1.permissions import require_workspace_write_ctx, require_workspace_read_ctx
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
+    AgentBindingResponse,
+    AgentCapabilityResponse,
+    AgentCreate,
+    AgentPublishRequest,
+    AgentReleaseResponse,
+    AgentResponse,
+    AgentRollbackRequest,
     AgentRunRequest,
     AgentRunResponse,
-    AgentCreate,
     AgentUpdate,
-    AgentResponse,
-    AgentCapabilityResponse,
     AgentVersionCreate,
     AgentVersionResponse,
-    AgentReleaseResponse,
-    AgentBindingResponse,
     AgentWorkbenchItemsResponse,
     AgentWorkbenchResponse,
-    AgentPublishRequest,
-    AgentRollbackRequest,
 )
 from app.modules.agent.application.service import AgentService
-from app.modules.agent.application.application_service import AgentApplicationService
-from app.api.v1.agent.dependencies import get_agent_service, get_agent_application_service
-from app.api.v1.agent.handlers import AgentHandlers, AgentAppHandlers
-from app.infra.db.pagination import PaginatedResponse
-
 
 router = APIRouter()
 
@@ -59,7 +64,7 @@ async def create_agent(
 
 @router.get("", response_model=PaginatedResponse[AgentResponse])
 async def list_agents(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -70,7 +75,7 @@ async def list_agents(
 
 @router.get("/workbench", response_model=AgentWorkbenchResponse)
 async def get_agent_workbench(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -81,9 +86,9 @@ async def get_agent_workbench(
 
 @router.get("/workbench/items", response_model=AgentWorkbenchItemsResponse)
 async def list_agent_workbench_items(
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    page_token: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -100,9 +105,9 @@ async def list_agent_workbench_items(
 
 @router.get("/capabilities", response_model=PaginatedResponse[AgentCapabilityResponse])
 async def list_agent_capabilities(
-    kind: Optional[str] = None,
-    source_kind: Optional[str] = None,
-    page_token: Optional[str] = None,
+    kind: str | None = None,
+    source_kind: str | None = None,
+    page_token: str | None = None,
     page_size: int = 200,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -162,7 +167,7 @@ async def create_version(
 @router.get("/{agent_id}/versions", response_model=PaginatedResponse[AgentVersionResponse])
 async def list_versions(
     agent_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -174,7 +179,7 @@ async def list_versions(
 @router.get("/{agent_id}/releases", response_model=PaginatedResponse[AgentReleaseResponse])
 async def list_releases(
     agent_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
@@ -186,7 +191,7 @@ async def list_releases(
 @router.get("/{agent_id}/bindings", response_model=list[AgentBindingResponse])
 async def list_bindings(
     agent_id: str,
-    version_id: Optional[str] = None,
+    version_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentApplicationService = Depends(get_agent_application_service),
 ):
@@ -237,6 +242,7 @@ async def stream_agent(
     """Stream agent execution events via SSE."""
     from app.modules.agent.runtime.emitter import QueueEmitter
 
+    _ = ctx
     emitter = QueueEmitter()
 
     async def run_agent():

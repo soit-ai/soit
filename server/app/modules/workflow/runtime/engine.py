@@ -3,23 +3,24 @@
 Execution engine core entry.
 """
 
-from typing import Dict, Any
 import asyncio
 import json
+from typing import Any
+
 from sqlalchemy.orm import Session
 
+from app.kernel.commons.ids import generate_run_id
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
-from app.kernel.responses.service import ResponseService
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.execution.state_machine import StateMachine, RunStatus
-from app.kernel.commons.ids import generate_run_id
+from app.kernel.execution.state_machine import RunStatus, StateMachine
+from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.writer import TraceWriter
 
 
 class ExecutionEngine:
     """Unified execution engine for chat/agent/workflow."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -28,7 +29,7 @@ class ExecutionEngine:
         response_service: ResponseService | None = None,
     ):
         """Initialize execution engine.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
@@ -56,8 +57,8 @@ class ExecutionEngine:
         model: str | None,
         finish_reason: str | None = None,
         iterations: int | None = None,
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "text": text,
             "model": model,
         }
@@ -73,7 +74,7 @@ class ExecutionEngine:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         tool_calls: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "prompt_tokens": int(prompt_tokens or 0),
             "completion_tokens": int(completion_tokens or 0),
@@ -85,13 +86,13 @@ class ExecutionEngine:
     def _tool_metrics(
         *,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         status: str,
-        result: Dict[str, Any] | None = None,
-        metadata: Dict[str, Any] | None = None,
+        result: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "tool_call": {
                 "tool_name": tool_ref,
@@ -105,13 +106,13 @@ class ExecutionEngine:
                 "error_message": error_message,
             }
         }
-    
-    async def execute(self, plan: ExecutionPlan) -> Dict[str, Any]:
+
+    async def execute(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute an execution plan.
-        
+
         Args:
             plan: Execution plan.
-            
+
         Returns:
             Execution result.
         """
@@ -133,11 +134,11 @@ class ExecutionEngine:
             input_summary=input_summary,
             run_id=plan.run_id,
         )
-        
+
         # Transition to running
         self.state_machine.transition_run(run, RunStatus.RUNNING.value)
         self.trace_writer.update_run_status(run.id, run.status)
-        
+
         try:
             # Execute based on mode
             if plan.mode == "chat":
@@ -148,7 +149,7 @@ class ExecutionEngine:
                 result = await self._execute_agent(plan)
             else:
                 raise ValueError(f"Unsupported mode: {plan.mode}")
-            
+
             # Transition to succeeded (metrics are recorded in trace_writer)
             self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
             self.trace_writer.update_run_status(
@@ -156,7 +157,7 @@ class ExecutionEngine:
                 run.status,
                 output_summary=str(result)[:8192] if result else None,
             )
-            
+
             return result
         except asyncio.CancelledError:
             # Transition to canceled
@@ -172,29 +173,29 @@ class ExecutionEngine:
                 run.status,
                 output_summary=error_message[:8192],
             )
-            
+
             # Re-raise the exception to propagate error
             raise
-    
-    async def _execute_chat(self, plan: ExecutionPlan) -> Dict[str, Any]:
+
+    async def _execute_chat(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute chat mode.
-        
+
         Args:
             plan: Execution plan.
-            
+
         Returns:
             Chat result.
         """
-        from app.kernel.ports.llm.interface import LLMPort, ChatMessage
+        from app.kernel.ports.llm.interface import ChatMessage, LLMPort
         from app.wiring import get_container
-        
+
         # Get LLM port from container
         container = get_container()
         llm_port: LLMPort = container.get_llm_port(
             ctx=self.ctx,
             trace_writer=self.trace_writer,
         )
-        
+
         # Extract inputs
         messages_data = plan.inputs.get("messages", [])
         model = plan.inputs.get("model", "model:openai:gpt-5.1")
@@ -207,7 +208,7 @@ class ExecutionEngine:
             ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
             for msg in messages_data
         ]
-        
+
         if not all_messages:
             raise ValueError("No messages provided for chat execution")
         step = self.trace_writer.create_step(
@@ -314,13 +315,13 @@ class ExecutionEngine:
                     source="execution_engine",
                 )
             raise
-    
-    async def _execute_workflow(self, plan: ExecutionPlan) -> Dict[str, Any]:
+
+    async def _execute_workflow(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute workflow mode.
-        
+
         Args:
             plan: Execution plan.
-            
+
         Returns:
             Workflow result.
         """
@@ -402,20 +403,20 @@ class ExecutionEngine:
         self.db.commit()
 
         return result
-    
-    async def _execute_agent(self, plan: ExecutionPlan) -> Dict[str, Any]:
+
+    async def _execute_agent(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute agent mode.
-        
+
         Args:
             plan: Execution plan.
-            
+
         Returns:
             Agent result.
         """
-        from app.kernel.ports.llm.interface import LLMPort, ChatMessage
+        from app.kernel.ports.llm.interface import ChatMessage, LLMPort
         from app.kernel.ports.tools.interface import ToolPort
         from app.wiring import get_container
-        
+
         # Get ports from container
         container = get_container()
         llm_port: LLMPort = container.get_llm_port(
@@ -426,7 +427,7 @@ class ExecutionEngine:
             ctx=self.ctx,
             trace_writer=self.trace_writer,
         )
-        
+
         # Extract inputs
         messages_data = plan.inputs.get("messages", [])
         model = plan.inputs.get("model", "model:openai:gpt-4")
@@ -449,13 +450,13 @@ class ExecutionEngine:
                 metadata_json={"source": "execution_engine.agent"},
             )
             linked_response = self.response_service.mark_in_progress(linked_response)
-        
+
         # Convert messages to ChatMessage format
         messages = [
             ChatMessage(role=msg.get("role", "user"), content=msg.get("content", ""))
             for msg in messages_data
         ]
-        
+
         # Add system message for agent behavior
         system_message = ChatMessage(
             role="system",
@@ -464,7 +465,7 @@ class ExecutionEngine:
                    "with 'tool_ref' and 'parameters' fields. Otherwise, respond normally."
         )
         messages = [system_message] + messages
-        
+
         # Agent planning loop
         iteration = 0
         final_response = None
@@ -472,21 +473,21 @@ class ExecutionEngine:
         total_completion_tokens = 0
         tool_call_count = 0
         finish_reason = None
-        
+
         while iteration < max_iterations:
             iteration += 1
-            
+
             # Create step for agent iteration
             step = self.trace_writer.create_step(
                 run_id=plan.run_id,
                 step_type="agent_plan",
                 input_summary=f"Agent iteration {iteration}",
             )
-            
+
             # Transition step to running
             self.state_machine.transition_step(step, "running")
             self.trace_writer.update_step_status(step.id, step.status)
-            
+
             try:
                 # Call LLM to get response or tool call
                 response = await llm_port.chat(
@@ -495,12 +496,12 @@ class ExecutionEngine:
                     temperature=temperature,
                     run_id=plan.run_id,
                 )
-                
+
                 response_text = response.text
                 total_prompt_tokens += int(response.tokens_prompt or 0)
                 total_completion_tokens += int(response.tokens_completion or 0)
                 finish_reason = response.finish_reason or finish_reason
-                
+
                 # Check if response contains tool call
                 tool_call = None
                 try:
@@ -518,15 +519,15 @@ class ExecutionEngine:
                 except Exception:
                     # Not a tool call, treat as final response
                     pass
-                
+
                 # Add assistant message to history
                 messages.append(ChatMessage(role="assistant", content=response_text))
-                
+
                 if tool_call and tools:
                     # Execute tool call
                     tool_ref = tool_call.get("tool_ref")
                     parameters = tool_call.get("parameters", {})
-                    
+
                     if tool_ref and tool_ref in [t.get("ref") or t.get("name") for t in tools]:
                         tool_call_count += 1
                         # Create step for tool execution
@@ -535,7 +536,7 @@ class ExecutionEngine:
                             step_type="tool",
                             input_summary=f"Tool: {tool_ref}",
                         )
-                        
+
                         self.state_machine.transition_step(tool_step, "running")
                         self.trace_writer.update_step_status(tool_step.id, tool_step.status)
                         if linked_response:
@@ -577,7 +578,7 @@ class ExecutionEngine:
                                 metadata={"source": "execution_engine.agent", "iteration": iteration},
                             ),
                         )
-                        
+
                         try:
                             # Invoke tool
                             tool_response = await tool_port.invoke(
@@ -586,14 +587,14 @@ class ExecutionEngine:
                                 run_id=plan.run_id,
                                 ctx=self.ctx,
                             )
-                            
+
                             # Add tool result to messages
                             tool_result_message = ChatMessage(
                                 role="user",
                                 content=f"Tool {tool_ref} result: {json.dumps(tool_response.result) if tool_response.success else tool_response.error}"
                             )
                             messages.append(tool_result_message)
-                            
+
                             # Update tool step status
                             self.state_machine.transition_step(tool_step, "succeeded")
                             self.trace_writer.update_step_status(
@@ -678,7 +679,7 @@ class ExecutionEngine:
                     # No tool call, this is the final response
                     final_response = response_text
                     break
-                
+
                 # Update planning step status
                 self.state_machine.transition_step(step, "succeeded")
                 self.trace_writer.update_step_status(
@@ -686,7 +687,7 @@ class ExecutionEngine:
                     "succeeded",
                     output_summary=f"Iteration {iteration} completed",
                 )
-                
+
             except Exception as e:
                 # Planning iteration failed
                 error_message = str(e)
@@ -698,7 +699,7 @@ class ExecutionEngine:
                     error_message=error_message[:1024],
                 )
                 raise
-        
+
         if not final_response:
             final_response = "Agent reached maximum iterations without completing task."
 
@@ -733,7 +734,7 @@ class ExecutionEngine:
                     "tool_calls": tool_call_count,
                 },
             )
-        
+
         return {
             "output": final_response,
             "iterations": iteration,

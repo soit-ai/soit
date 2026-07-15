@@ -4,27 +4,32 @@ Agent domain service.
 """
 
 import time
-from typing import Optional, Dict, Any, List
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.errors import ValidationError
 from app.kernel.commons.ids import generate_run_id
-from app.kernel.responses.service import ResponseService
-from app.kernel.trace.writer import TraceWriter
-from app.kernel.ports.common.rate_limiter import RateLimiter
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolCall
-from app.kernel.ports.tools.interface import ToolPort
-from app.settings.settings import settings
-from app.modules.agent.application.schemas import AgentRunRequest
-from app.modules.agent.runtime.planner import AgentPlanner
-from app.modules.agent.runtime.executor import AgentExecutor
-from app.modules.agent.runtime.verifier import AgentVerifier
-from app.modules.agent.runtime.emitter import EventEmitter, noop_emitter
-from app.adapters.tools.resolver import ToolResolver
-from app.modules.memory.application.service import MemoryService
+from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
+from app.kernel.ports.common.rate_limiter import RateLimiter
+from app.kernel.ports.llm.interface import ChatMessage, LLMPort, ToolDefinition
+from app.kernel.ports.tools.interface import ToolPort
+from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.tools.resolver import ToolResolver
+from app.modules.agent.application.contracts import (
+    AgentCapabilityCatalogPort,
+    EmptyAgentCapabilityCatalog,
+)
+from app.modules.agent.application.schemas import AgentRuntimeRequest
+from app.modules.agent.runtime.emitter import EventEmitter, noop_emitter
+from app.modules.agent.runtime.executor import AgentExecutor
+from app.modules.agent.runtime.planner import AgentPlanner
+from app.modules.agent.runtime.verifier import AgentVerifier
+from app.modules.memory.application.service import MemoryService
+from app.settings.settings import settings
 
 
 class AgentService:
@@ -36,11 +41,13 @@ class AgentService:
         ctx: RequestContext,
         llm_port: LLMPort,
         tool_port: ToolPort,
-        tool_resolver: Optional[ToolResolver] = None,
-        memory_service: Optional[MemoryService] = None,
-        response_service: Optional[ResponseService] = None,
-        trace_writer: Optional[TraceWriter] = None,
-        rate_limiter: Optional[RateLimiter] = None,
+        tool_resolver: ToolResolver | None = None,
+        memory_service: MemoryService | None = None,
+        response_service: ResponseService | None = None,
+        trace_writer: TraceWriter | None = None,
+        rate_limiter: RateLimiter | None = None,
+        workflow_executor: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
+        capability_catalog: AgentCapabilityCatalogPort | None = None,
     ):
         self.db = db
         self.ctx = ctx
@@ -51,6 +58,8 @@ class AgentService:
         self.response_service = response_service
         self.trace_writer = trace_writer
         self.rate_limiter = rate_limiter or RateLimiter()
+        self.workflow_executor = workflow_executor
+        self.capability_catalog = capability_catalog or EmptyAgentCapabilityCatalog()
         self.planner = AgentPlanner(llm_port)
         self.executor = AgentExecutor(tool_port)
         self.verifier = AgentVerifier(llm_port)
@@ -58,16 +67,52 @@ class AgentService:
     def _resolve_agent_trace_subject(self) -> tuple[str, str]:
         return self.ctx.workspace_id, "agent-runtime:v1"
 
+    @staticmethod
+    def _attachment_context(metadata: dict[str, Any] | None) -> str:
+        attachments = (metadata or {}).get("attachments")
+        if not isinstance(attachments, list):
+            return ""
+        blocks: list[str] = []
+        for index, attachment in enumerate(attachments, start=1):
+            if not isinstance(attachment, dict):
+                continue
+            name = attachment.get("name") or attachment.get("filename") or f"attachment-{index}"
+            content = attachment.get("content")
+            lines: list[str] = []
+            if isinstance(content, str):
+                lines.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    text = part.get("text") or part.get("content")
+                    if isinstance(text, str) and text.strip():
+                        lines.append(text)
+            if lines:
+                blocks.append(f"[{name}]\n" + "\n".join(lines))
+        if not blocks:
+            return ""
+        return "Attached context:\n" + "\n\n".join(blocks)
+
+    @classmethod
+    def _message_content_with_attachments(cls, content: str, metadata: dict[str, Any] | None) -> str:
+        attachment_context = cls._attachment_context(metadata)
+        if not attachment_context:
+            return content
+        return f"{content}\n\n{attachment_context}" if content else attachment_context
+
     @workspace_guard("write")
     async def run(
         self,
-        data: AgentRunRequest,
+        data: AgentRuntimeRequest,
         *,
-        existing_run_id: Optional[str] = None,
-        response_id: Optional[str] = None,
-        event_emitter: Optional[EventEmitter] = None,
-    ) -> Dict[str, Any]:
+        existing_run_id: str | None = None,
+        response_id: str | None = None,
+        event_emitter: EventEmitter | None = None,
+    ) -> dict[str, Any]:
         """Run agent loop."""
+        if not isinstance(data, AgentRuntimeRequest):
+            raise TypeError("AgentService.run requires AgentRuntimeRequest")
         emit = event_emitter or noop_emitter
         run_id = existing_run_id or generate_run_id()
         if settings.agent_rate_limit_per_minute:
@@ -92,7 +137,13 @@ class AgentService:
                 run_id = run.id
                 self.trace_writer.update_run_status(run_id, "running")
 
-        messages = [ChatMessage(role=m.role, content=m.content) for m in data.messages]
+        messages = [
+            ChatMessage(
+                role=m.role,
+                content=self._message_content_with_attachments(m.content, m.metadata),
+            )
+            for m in data.messages
+        ]
         messages = self._apply_context_window(
             messages,
             max_messages=data.context_window_messages,
@@ -100,11 +151,11 @@ class AgentService:
         )
         memory_context = None
 
-        if self.memory_service:
+        if self.memory_service and (data.memory_strategy or data.memory_query or data.memory_top_k):
             query_text = data.memory_query or data.messages[-1].content
             try:
                 results = await self.memory_service.query_memory(
-                    self._build_memory_query(query_text=query_text, top_k=data.memory_top_k),
+                    self._build_memory_query(query_text=query_text, top_k=data.memory_top_k or 5),
                     run_id=run_id,
                 )
                 memory_lines = []
@@ -123,9 +174,10 @@ class AgentService:
 
         # RAG retrieval from knowledge bases
         rag_context = None
+        rag_citations: list[dict[str, Any]] = []
         if data.knowledge_refs:
             query_text = data.messages[-1].content
-            rag_context = await self._retrieve_rag_context(
+            rag_context, rag_citations = await self._retrieve_rag_context(
                 knowledge_refs=data.knowledge_refs,
                 query=query_text,
                 top_k=data.rag_top_k,
@@ -136,13 +188,14 @@ class AgentService:
             messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}")] + messages
             rag_context = None
 
-        model = data.model or "model:openai:gpt-5.1"
+        model = data.model_ref
         iterations = 0
         final_response = ""
         tokens_prompt = 0
         tokens_completion = 0
         finish_reason = None
         tool_calls = 0
+        tool_call_details: list[dict[str, Any]] = []
         llm_calls = 0
         failures = 0
         budget_exceeded = False
@@ -193,18 +246,19 @@ class AgentService:
         def build_tool_metrics(
             *,
             tool_ref: str,
-            parameters: Dict[str, Any],
+            parameters: dict[str, Any],
             status: str,
-            result: Optional[Dict[str, Any]] = None,
-            metadata: Optional[Dict[str, Any]] = None,
-            error_code: Optional[str] = None,
-            error_message: Optional[str] = None,
-        ) -> Dict[str, Any]:
+            tool_type: str = "builtin",
+            result: dict[str, Any] | None = None,
+            metadata: dict[str, Any] | None = None,
+            error_code: str | None = None,
+            error_message: str | None = None,
+        ) -> dict[str, Any]:
             return {
                 "tool_call": {
                     "tool_name": tool_ref,
                     "tool_ref": tool_ref,
-                    "tool_type": "builtin",
+                    "tool_type": tool_type,
                     "status": status,
                     "arguments": parameters or {},
                     "result": result or {},
@@ -215,9 +269,20 @@ class AgentService:
             }
 
         # Resolve tool definitions for function calling
+        resolved_tool_refs = list(data.tool_refs or [])
         tool_definitions = None
-        if self.tool_resolver and data.tool_refs:
-            tool_definitions = await self.tool_resolver.resolve(data.tool_refs, self.ctx)
+        if self.tool_resolver and resolved_tool_refs:
+            tool_definitions = await self.tool_resolver.resolve(resolved_tool_refs, self.ctx)
+        if data.workflow_refs:
+            workflow_definitions = [
+                ToolDefinition(
+                    name=ref,
+                    description=f"Execute bound workflow {ref}",
+                    parameters=self._workflow_tool_parameters(ref),
+                )
+                for ref in data.workflow_refs
+            ]
+            tool_definitions = [*(tool_definitions or []), *workflow_definitions]
 
         try:
             await emit("agent.run.started", {"run_id": run_id})
@@ -239,6 +304,7 @@ class AgentService:
                     self.trace_writer.update_step_status(plan_step_id, "running")
 
                 await emit("agent.plan.started", {"iteration": iterations})
+                llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
                 try:
                     plan = await self.planner.plan(
                         messages=messages,
@@ -262,6 +328,24 @@ class AgentService:
                 tokens_completion += plan.tokens_completion
                 finish_reason = plan.finish_reason or finish_reason
                 await emit("agent.plan.completed", {"action": plan.action, "iteration": iterations})
+                if (
+                    self.trace_writer
+                    and plan_step_id
+                    and (plan.tokens_prompt or plan.tokens_completion)
+                    and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
+                ):
+                    self.trace_writer.record_cost(
+                        run_id=run_id,
+                        step_id=plan_step_id,
+                        unit="tokens",
+                        quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
+                        currency=data.cost_currency,
+                        amount=0,
+                        model_ref=model,
+                        prompt_tokens=plan.tokens_prompt,
+                        completion_tokens=plan.tokens_completion,
+                        total_tokens=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
+                    )
                 if check_cost_budget():
                     break
 
@@ -305,8 +389,16 @@ class AgentService:
 
                     tool_failed_break = False
                     for tc in plan.tool_calls:
-                        if data.tool_refs and tc.name not in data.tool_refs:
+                        allowed_refs = [*resolved_tool_refs, *(data.workflow_refs or [])]
+                        if allowed_refs and tc.name not in allowed_refs:
                             raise ValidationError(f"Tool not allowed: {tc.name}")
+                        is_workflow_call = tc.name in (data.workflow_refs or [])
+                        tool_type = "workflow" if is_workflow_call else "builtin"
+                        tool_arguments = (
+                            self._workflow_arguments_with_defaults(tc.arguments or {}, data)
+                            if is_workflow_call
+                            else (tc.arguments or {})
+                        )
 
                         tool_step_id = None
                         if self.trace_writer:
@@ -326,8 +418,9 @@ class AgentService:
                                 tool_step_id,
                                 build_tool_metrics(
                                     tool_ref=tc.name,
-                                    parameters=tc.arguments,
+                                    parameters=tool_arguments,
                                     status="started",
+                                    tool_type=tool_type,
                                     metadata={"source": "agent.tool", "iteration": iterations},
                                 ),
                             )
@@ -341,10 +434,10 @@ class AgentService:
                                     "run_id": run_id,
                                     "tool_call_id": tc.id,
                                     "tool_name": tc.name,
-                                    "tool_type": "builtin",
+                                    "tool_type": tool_type,
                                     "step_id": tool_step_id,
                                     "status": "requested",
-                                    "arguments": tc.arguments,
+                                    "arguments": tool_arguments,
                                 },
                                 source="agent",
                             )
@@ -356,19 +449,43 @@ class AgentService:
                                     "run_id": run_id,
                                     "tool_call_id": tc.id,
                                     "tool_name": tc.name,
-                                    "tool_type": "builtin",
+                                    "tool_type": tool_type,
                                     "step_id": tool_step_id,
                                     "status": "started",
                                 },
                                 source="agent",
                             )
                         try:
-                            tool_response = await self.executor.execute_tool(
-                                tool_ref=tc.name,
-                                parameters=tc.arguments,
-                                ctx=self.ctx,
-                                run_id=run_id,
-                            )
+                            if is_workflow_call:
+                                if not self.workflow_executor:
+                                    raise ValidationError(f"Workflow execution is not configured: {tc.name}")
+                                workflow_result = await self.workflow_executor(tc.name, tool_arguments)
+                                workflow_run_id = workflow_result.get("run_id")
+                                tool_response = type(
+                                    "WorkflowToolResponse",
+                                    (),
+                                    {
+                                        "success": True,
+                                        "result": {
+                                            "workflow_ref": tc.name,
+                                            "workflow_run_id": workflow_run_id,
+                                            "output": workflow_result.get("output"),
+                                        },
+                                        "error": None,
+                                        "metadata": {
+                                            "source": "agent.workflow",
+                                            "workflow_ref": tc.name,
+                                            "workflow_run_id": workflow_run_id,
+                                        },
+                                    },
+                                )()
+                            else:
+                                tool_response = await self.executor.execute_tool(
+                                    tool_ref=tc.name,
+                                    parameters=tool_arguments,
+                                    ctx=self.ctx,
+                                    run_id=run_id,
+                                )
                         except Exception as exc:
                             if self.trace_writer and tool_step_id:
                                 self.trace_writer.update_step_status(
@@ -376,8 +493,9 @@ class AgentService:
                                     "failed",
                                     metrics=build_tool_metrics(
                                         tool_ref=tc.name,
-                                        parameters=tc.arguments,
+                                        parameters=tool_arguments,
                                         status="failed",
+                                        tool_type=tool_type,
                                         metadata={"source": "agent.tool", "iteration": iterations},
                                         error_code="tool_execution_failed",
                                         error_message=str(exc),
@@ -394,7 +512,7 @@ class AgentService:
                                         "run_id": run_id,
                                         "tool_call_id": tc.id,
                                         "tool_name": tc.name,
-                                        "tool_type": "builtin",
+                                        "tool_type": tool_type,
                                         "step_id": tool_step_id,
                                         "status": "failed",
                                         "error": {"code": "tool_execution_failed", "message": str(exc)},
@@ -413,7 +531,38 @@ class AgentService:
                             tool_call_id=tc.id,
                             name=tc.name,
                         ))
-                        await emit("agent.tool.completed", {"tool_ref": tc.name, "success": tool_response.success})
+                        response_metadata = tool_response.metadata or {}
+                        effective_tool_type = str(response_metadata.get("source_kind") or tool_type)
+                        await emit(
+                            "agent.tool.completed",
+                            {
+                                "tool_ref": tc.name,
+                                "tool_type": effective_tool_type,
+                                "tool_call_id": tc.id,
+                                "success": tool_response.success,
+                                "result": {"result": tool_response.result} if tool_response.success else {},
+                                "metadata": response_metadata,
+                                "error": None if tool_response.success else {
+                                    "code": "tool_execution_failed",
+                                    "message": tool_response.error,
+                                },
+                            },
+                        )
+                        tool_call_details.append(
+                            {
+                                "tool_call_id": tc.id,
+                                "tool_name": tc.name,
+                                "tool_type": effective_tool_type,
+                                "status": "completed" if tool_response.success else "failed",
+                                "arguments_json": tc.arguments or {},
+                                "result_json": {"result": tool_response.result} if tool_response.success else {},
+                                "metadata_json": response_metadata,
+                                "error": None if tool_response.success else {
+                                    "code": "tool_execution_failed",
+                                    "message": tool_response.error,
+                                },
+                            }
+                        )
 
                         if self.trace_writer and tool_step_id:
                             status = "succeeded" if tool_response.success else "failed"
@@ -422,13 +571,14 @@ class AgentService:
                                 status,
                                 output_summary=tool_content[:8192],
                                 metrics={
-                                    **(tool_response.metadata or {}),
+                                    **response_metadata,
                                     **build_tool_metrics(
                                         tool_ref=tc.name,
                                         parameters=tc.arguments,
                                         status="completed" if tool_response.success else "failed",
+                                        tool_type=effective_tool_type,
                                         result={"result": tool_response.result} if tool_response.success else {},
-                                        metadata={"source": "agent.tool", "iteration": iterations, **(tool_response.metadata or {})},
+                                        metadata={"source": "agent.tool", "iteration": iterations, **response_metadata},
                                         error_code=None if tool_response.success else "tool_execution_failed",
                                         error_message=None if tool_response.success else tool_response.error,
                                     ),
@@ -445,11 +595,11 @@ class AgentService:
                                     "run_id": run_id,
                                     "tool_call_id": tc.id,
                                     "tool_name": tc.name,
-                                    "tool_type": "builtin",
+                                    "tool_type": effective_tool_type,
                                     "step_id": tool_step_id,
                                     "status": "completed" if tool_response.success else "failed",
                                     "result": {"result": tool_response.result} if tool_response.success else {},
-                                    "metadata": tool_response.metadata or {},
+                                    "metadata": response_metadata,
                                     "error": None if tool_response.success else {
                                         "code": "tool_execution_failed",
                                         "message": tool_response.error,
@@ -504,6 +654,7 @@ class AgentService:
                         self.trace_writer.update_step_status(verify_step_id, "running")
 
                     try:
+                        llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
                         verify_result = await self.verifier.verify(
                             messages,
                             final_response,
@@ -522,6 +673,24 @@ class AgentService:
                     tokens_prompt += verify_result.tokens_prompt
                     tokens_completion += verify_result.tokens_completion
                     finish_reason = verify_result.finish_reason or finish_reason
+                    if (
+                        self.trace_writer
+                        and verify_step_id
+                        and (verify_result.tokens_prompt or verify_result.tokens_completion)
+                        and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
+                    ):
+                        self.trace_writer.record_cost(
+                            run_id=run_id,
+                            step_id=verify_step_id,
+                            unit="tokens",
+                            quantity=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
+                            currency=data.cost_currency,
+                            amount=0,
+                            model_ref=model,
+                            prompt_tokens=verify_result.tokens_prompt,
+                            completion_tokens=verify_result.tokens_completion,
+                            total_tokens=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
+                        )
                     check_cost_budget()
 
                     if data.max_tokens_total is not None:
@@ -575,17 +744,20 @@ class AgentService:
             "tokens_completion": tokens_completion,
             "finish_reason": finish_reason,
             "tool_calls": tool_calls,
+            "tool_call_details": tool_call_details,
             "llm_calls": llm_calls,
             "failures": failures,
             "budget_exceeded": budget_exceeded,
             "budget_reason": budget_reason,
             "cost_total": cost_total,
+            "citations": rag_citations,
         }
 
     def _get_cost_total(self, run_id: str, currency: str) -> float:
         """Get total cost for a run."""
-        from app.kernel.trace.models import RunCostEntry
-        from sqlalchemy import select, func, and_
+        from sqlalchemy import and_, func, select
+
+        from app.kernel.runtime.db.models.runs import RunCostEntry
 
         query = select(func.coalesce(func.sum(RunCostEntry.amount), 0)).where(
             and_(
@@ -596,26 +768,83 @@ class AgentService:
             )
         )
         result = self.db.exec(query).one()
-        if isinstance(result, (list, tuple)):
-            value = result[0]
-        else:
-            value = result
+        value = self._scalar_value(result)
         return float(value or 0)
+
+    def _count_llm_token_cost_entries(self, run_id: str) -> int:
+        """Count LLM token cost entries already written for this run."""
+        if not self.trace_writer:
+            return 0
+        from sqlalchemy import and_, func, select
+
+        from app.kernel.runtime.db.models.runs import RunCostEntry
+
+        query = select(func.count(RunCostEntry.id)).where(
+            and_(
+                RunCostEntry.run_id == run_id,
+                RunCostEntry.tenant_id == self.ctx.tenant_id,
+                RunCostEntry.workspace_id == self.ctx.workspace_id,
+                RunCostEntry.unit == "tokens",
+                RunCostEntry.model_ref.is_not(None),
+            )
+        )
+        result = self.db.exec(query).one()
+        value = self._scalar_value(result)
+        return int(value or 0)
+
+    @staticmethod
+    def _scalar_value(result: Any) -> Any:
+        """Extract a scalar from SQLModel/SQLAlchemy scalar, tuple, or Row results."""
+        if isinstance(result, list | tuple):
+            return result[0]
+        try:
+            return result[0]
+        except Exception:
+            return result
+
+    def _workflow_tool_parameters(self, workflow_ref: str) -> dict[str, Any]:
+        return self.capability_catalog.workflow_input_schema(workflow_ref)
+
+    def _workflow_arguments_with_defaults(
+        self,
+        arguments: dict[str, Any],
+        data: AgentRuntimeRequest,
+    ) -> dict[str, Any]:
+        merged = dict(arguments or {})
+        merged.setdefault("model_ref", data.model_ref)
+        if data.knowledge_refs:
+            defaults = self.capability_catalog.knowledge_runtime_defaults(
+                data.knowledge_refs[0]
+            )
+            for key, value in defaults.items():
+                merged.setdefault(key, value)
+        return merged
 
     async def _retrieve_rag_context(
         self,
-        knowledge_refs: List[str],
+        knowledge_refs: list[str],
         query: str,
         top_k: int = 5,
-        run_id: Optional[str] = None,
-    ) -> Optional[str]:
+        run_id: str | None = None,
+    ) -> tuple[str | None, list[dict[str, Any]]]:
         """Retrieve context from knowledge bases for RAG injection."""
         from app.modules.knowledge.application.tools import knowledge_query
 
-        chunks: List[str] = []
+        chunks: list[str] = []
+        citations: list[dict[str, Any]] = []
         for ref in knowledge_refs:
             # knowledge_refs are in format "knowledge:kb_id" or just "kb_id"
             kb_id = ref.split(":")[-1] if ":" in ref else ref
+            step_id = None
+            if self.trace_writer and run_id:
+                step = self.trace_writer.create_step(
+                    run_id=run_id,
+                    step_type="retrieval",
+                    step_id=f"rag:{kb_id}",
+                    node_id=kb_id,
+                    input_summary=query,
+                )
+                step_id = step.id
             try:
                 response = await knowledge_query(
                     knowledge_id=kb_id,
@@ -625,18 +854,61 @@ class AgentService:
                         "tenant_id": self.ctx.tenant_id,
                         "workspace_id": self.ctx.workspace_id,
                         "user_id": self.ctx.user_id,
+                        "tenant_role": self.ctx.tenant_role,
+                        "workspace_role": self.ctx.workspace_role,
                     },
                 )
+                results = response.get("results") or []
+                response_citations = response.get("citations") or []
+                score_values = [
+                    float(result["score"])
+                    for result in results
+                    if isinstance(result, dict)
+                    and isinstance(result.get("score"), int | float)
+                    and not isinstance(result.get("score"), bool)
+                ]
                 for result in response.get("results") or []:
                     text = result.get("text") or result.get("content") or ""
                     if text:
                         chunks.append(text)
+                for citation in response_citations:
+                    if isinstance(citation, dict):
+                        citations.append({**citation, "knowledge_id": citation.get("knowledge_id") or kb_id})
+                if self.trace_writer and step_id:
+                    self.trace_writer.update_step_status(
+                        step_id,
+                        "succeeded",
+                        output_summary=f"{len(results)} result(s), {len(response_citations)} citation(s)",
+                        metrics={
+                            "knowledge_id": kb_id,
+                            "query": query,
+                            "top_k": top_k,
+                            "result_count": len(results),
+                            "citation_count": len(response_citations),
+                            "avg_score": (sum(score_values) / len(score_values)) if score_values else None,
+                        },
+                    )
             except Exception:
+                if self.trace_writer and step_id:
+                    self.trace_writer.update_step_status(
+                        step_id,
+                        "failed",
+                        output_summary="RAG retrieval failed",
+                        metrics={
+                            "knowledge_id": kb_id,
+                            "query": query,
+                            "top_k": top_k,
+                            "result_count": 0,
+                            "citation_count": 0,
+                        },
+                        error_code="rag_retrieval_failed",
+                        error_message=f"RAG retrieval failed for {kb_id}",
+                    )
                 continue
 
         if not chunks:
-            return None
-        return "\n---\n".join(chunks)
+            return None, citations
+        return "\n---\n".join(chunks), citations
 
     def _build_memory_query(self, query_text: str, top_k: int):
         """Build memory query request."""
@@ -645,11 +917,11 @@ class AgentService:
 
     def _apply_context_window(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         *,
-        max_messages: Optional[int],
-        max_chars: Optional[int],
-    ) -> List[ChatMessage]:
+        max_messages: int | None,
+        max_chars: int | None,
+    ) -> list[ChatMessage]:
         """Trim messages to the configured context window."""
         trimmed = list(messages)
         if max_messages is not None:

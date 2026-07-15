@@ -1,7 +1,8 @@
 import React from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { MessageSquare, Cpu, Wrench, Database, BotMessageSquare, Workflow } from 'lucide-react'
+import { MessageSquare, Cpu, Wrench, Database, BotMessageSquare, Workflow, TicketCheck } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { nodeCategories, nodeTypeInfo } from './nodes'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
@@ -9,11 +10,15 @@ import type { TranslationKey } from '@/i18n/types'
 interface NodeLibraryPanelProps {
   onDragStart: (event: React.DragEvent<HTMLDivElement>, nodeType: string, nodeLabel: string) => void
   addNewNode: (type: string, label: string) => void
+  onCreateTicketTemplate?: () => void
+  creatingTicketTemplate?: boolean
 }
 
 const NodeLibraryPanel: React.FC<NodeLibraryPanelProps> = ({
   onDragStart,
-  addNewNode
+  addNewNode,
+  onCreateTicketTemplate,
+  creatingTicketTemplate = false,
 }) => {
   const { t } = useTranslation()
   const getIconComponent = (iconName: string) => {
@@ -95,8 +100,20 @@ const NodeLibraryPanel: React.FC<NodeLibraryPanelProps> = ({
           </ScrollArea>
         </TabsContent>
         <TabsContent value="templates" className="mt-2">
-          <div className="p-4 text-center text-muted-foreground">
-            {t('workflow.nodeLibrary.templatesComingSoon')}
+          <div className="space-y-2 p-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full justify-start gap-3 rounded-md border bg-card p-3 text-left shadow-none"
+              disabled={!onCreateTicketTemplate || creatingTicketTemplate}
+              onClick={onCreateTicketTemplate}
+            >
+              <TicketCheck className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{t('workflow.nodeLibrary.templates.ticketTriage.title')}</span>
+                <span className="block whitespace-normal text-xs text-muted-foreground">{t('workflow.nodeLibrary.templates.ticketTriage.description')}</span>
+              </span>
+            </Button>
           </div>
         </TabsContent>
       </Tabs>

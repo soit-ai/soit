@@ -4,38 +4,42 @@ Base node executor interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Set
+from typing import Any
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import LLMPort
+from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.ports.vector.interface import VectorPort
-from app.kernel.ports.plugins.interface import PluginRuntimePort
-from app.kernel.responses.service import ResponseService
-from app.kernel.trace.writer import TraceWriter
+from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.application.variable_resolver import VariableResolver
 
 
 class ExecutionContext:
     """Execution context for node executors."""
-    
+
     def __init__(
         self,
         run_id: str,
         step_id: str,
         ctx: RequestContext,
         trace_writer: TraceWriter,
-        llm_port: Optional[LLMPort] = None,
-        tool_port: Optional[ToolPort] = None,
-        vector_port: Optional[VectorPort] = None,
-        plugin_runtime_port: Optional[PluginRuntimePort] = None,
-        response_service: Optional[ResponseService] = None,
-        workflow_policy: Optional[Dict[str, Any]] = None,
-        steps_outputs: Optional[Dict[str, Dict[str, Any]]] = None,
-        workflow_run_id: Optional[str] = None,
+        llm_port: LLMPort | None = None,
+        tool_port: ToolPort | None = None,
+        vector_port: VectorPort | None = None,
+        plugin_runtime_port: PluginRuntimePort | None = None,
+        response_service: ResponseService | None = None,
+        workflow_policy: dict[str, Any] | None = None,
+        steps_outputs: dict[str, dict[str, Any]] | None = None,
+        workflow_run_id: str | None = None,
+        approval_checkpoint_gateway: Any | None = None,
+        task_id: str | None = None,
+        thread_id: str | None = None,
+        agent_id: str | None = None,
     ):
         """Initialize execution context.
-        
+
         Args:
             run_id: Run ID.
             step_id: Step ID.
@@ -47,6 +51,10 @@ class ExecutionContext:
             workflow_policy: Optional workflow policy object.
             steps_outputs: Dictionary of step outputs.
             workflow_run_id: Optional aggregate id for workflow_runs outbox (B3).
+            approval_checkpoint_gateway: Optional Enterprise approval checkpoint gateway.
+            task_id: Optional runtime task id for checkpoint pause integration.
+            thread_id: Optional runtime thread id for checkpoint context.
+            agent_id: Optional agent id for checkpoint context.
         """
         self.run_id = run_id
         self.step_id = step_id
@@ -60,45 +68,49 @@ class ExecutionContext:
         self.workflow_policy = workflow_policy or {}
         self.steps_outputs = steps_outputs or {}
         self.workflow_run_id = workflow_run_id
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.task_id = task_id
+        self.thread_id = thread_id
+        self.agent_id = agent_id
 
 
 class NodeExecutor(ABC):
     """Base class for node executors."""
-    
+
     @abstractmethod
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute a workflow node.
-        
+
         Args:
             node: Node definition from WorkflowSpec.
             context: Execution context.
             inputs: Resolved node inputs.
-            
+
         Returns:
             Node output dictionary.
         """
         pass
-    
+
     def resolve_inputs(
         self,
-        node: Dict[str, Any],
-        workflow_inputs: Dict[str, Any],
-        steps_outputs: Dict[str, Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-        skipped_steps: Optional[Set[str]] = None,
-    ) -> Dict[str, Any]:
+        node: dict[str, Any],
+        workflow_inputs: dict[str, Any],
+        steps_outputs: dict[str, dict[str, Any]],
+        context: dict[str, Any] | None = None,
+        skipped_steps: set[str] | None = None,
+    ) -> dict[str, Any]:
         """Resolve node inputs using variable resolver.
-        
+
         Args:
             node: Node definition.
             workflow_inputs: Workflow inputs.
             steps_outputs: Step outputs.
-            
+
         Returns:
             Resolved inputs dictionary.
         """

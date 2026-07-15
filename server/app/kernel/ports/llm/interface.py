@@ -27,6 +27,28 @@ class ToolCall:
     arguments: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ToolCallDelta:
+    """One streaming fragment of an LLM tool call."""
+
+    index: int
+    id: str | None = None
+    name: str | None = None
+    arguments_delta: str = ""
+
+
+@dataclass(frozen=True)
+class LLMRuntimeTarget:
+    """Resolved SOIT identity for one model invocation."""
+
+    provider_id: str | None
+    provider_slug: str
+    provider_kind: str
+    adapter_backend: str
+    model_ref: str
+    model_id: str
+
+
 class ChatMessage:
     """Chat message for LLM."""
 
@@ -65,6 +87,7 @@ class ChatResponse:
         tokens_completion: int = 0,
         model: str | None = None,
         finish_reason: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
         tool_calls: list[ToolCall] | None = None,
     ):
         """Initialize chat response.
@@ -82,6 +105,7 @@ class ChatResponse:
         self.tokens_completion = tokens_completion
         self.model = model
         self.finish_reason = finish_reason
+        self.runtime_target = runtime_target
         self.tool_calls = tool_calls
 
 
@@ -95,7 +119,10 @@ class ChatStreamChunk:
         tokens_prompt: int = 0,
         tokens_completion: int = 0,
         model: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
         finish_reason: str | None = None,
+        tool_call_deltas: list[ToolCallDelta] | None = None,
+        tool_calls: list[ToolCall] | None = None,
     ):
         """Initialize stream chunk."""
         self.delta = delta
@@ -103,7 +130,10 @@ class ChatStreamChunk:
         self.tokens_prompt = tokens_prompt
         self.tokens_completion = tokens_completion
         self.model = model
+        self.runtime_target = runtime_target
         self.finish_reason = finish_reason
+        self.tool_call_deltas = tool_call_deltas
+        self.tool_calls = tool_calls
 
 
 class EmbeddingResponse:
@@ -114,6 +144,7 @@ class EmbeddingResponse:
         embeddings: list[list[float]],
         tokens_used: int = 0,
         model: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
     ):
         """Initialize embedding response.
 
@@ -125,6 +156,7 @@ class EmbeddingResponse:
         self.embeddings = embeddings
         self.tokens_used = tokens_used
         self.model = model
+        self.runtime_target = runtime_target
 
 
 class RerankResponse:
@@ -135,6 +167,7 @@ class RerankResponse:
         results: list[dict[str, Any]],
         tokens_used: int = 0,
         model: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
     ):
         """Initialize rerank response.
 
@@ -146,6 +179,7 @@ class RerankResponse:
         self.results = results
         self.tokens_used = tokens_used
         self.model = model
+        self.runtime_target = runtime_target
 
 
 class LLMPort(ABC):
@@ -185,9 +219,14 @@ class LLMPort(ABC):
         model: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        *,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
         """Stream chat completion."""
+        if False:
+            yield ChatStreamChunk()
         raise NotImplementedError("stream_chat not implemented")
 
     @abstractmethod

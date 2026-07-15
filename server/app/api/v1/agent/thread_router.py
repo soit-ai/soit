@@ -1,18 +1,27 @@
 """Agent thread API routes."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
-from app.api.v1.agent.thread_dependencies import get_thread_query_service, get_thread_runtime_service
+from app.api.v1.agent.thread_dependencies import (
+    get_thread_query_service,
+    get_thread_runtime_service,
+)
 from app.api.v1.agent.thread_handlers import ThreadHandlers
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.threads.schemas import (
+    ThreadCreateRequest,
+    ThreadDetailResponse,
+    ThreadResponse,
+    ThreadUpdateRequest,
+)
 from app.kernel.runtime.threads.service import ThreadService
-from app.kernel.runtime.threads.schemas import ThreadCreateRequest, ThreadDetailResponse, ThreadResponse, ThreadUpdateRequest
 from app.modules.agent.application.thread_query_service import AgentThreadQueryService
-
 
 router = APIRouter()
 
@@ -32,10 +41,10 @@ async def create_thread(
 
 @router.get("", response_model=PaginatedResponse[ThreadResponse])
 async def list_threads(
-    status: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    search: Optional[str] = None,
-    page_token: Optional[str] = None,
+    status: str | None = None,
+    agent_id: str | None = None,
+    search: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: AgentThreadQueryService = Depends(get_thread_query_service),

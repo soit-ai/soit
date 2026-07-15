@@ -3,26 +3,27 @@
 Output node executor.
 """
 
-from typing import Dict, Any
-from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
+from typing import Any
+
+from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
 class OutputNodeExecutor(NodeExecutor):
     """Executor for output nodes."""
-    
+
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute output node.
-        
+
         Args:
             node: Node definition.
             context: Execution context.
             inputs: Resolved inputs.
-            
+
         Returns:
             Final output dictionary.
         """

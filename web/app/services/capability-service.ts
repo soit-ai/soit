@@ -1,12 +1,9 @@
 import { get } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
-export interface CapabilityRegistryItem {
+export interface AgentCapabilityItem {
   ref: string
   kind: string
   name: string
@@ -16,24 +13,38 @@ export interface CapabilityRegistryItem {
   metadata_json?: Record<string, unknown> | null
 }
 
-export interface CapabilityRegistryListParams {
+export interface AgentCapabilityListParams {
   kind?: string
   source_kind?: string
   page_token?: string
   page_size?: number
 }
 
-export const listCapabilityRegistry = (
-  params?: CapabilityRegistryListParams
-): Promise<PaginatedResponse<CapabilityRegistryItem>> => {
-  return get<PaginatedResponse<CapabilityRegistryItem>>('/capabilities', params).then((response) => response.data)
+const sourceLabelMap: Record<string, string> = {
+  builtin: 'Builtin',
+  native: 'Native',
+  mcp: 'MCP',
+  plugin: 'Plugin',
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+export const listAgentCapabilities = (
+  params?: AgentCapabilityListParams
+): Promise<PaginatedResponse<AgentCapabilityItem>> => {
+  return get<PaginatedResponse<AgentCapabilityItem>>('/agents/capabilities', params)
 }
 
 export const listCapabilitiesByKind = (
   kind: string,
-  params?: Omit<CapabilityRegistryListParams, 'kind'>
-): Promise<PaginatedResponse<CapabilityRegistryItem>> => {
-  return listCapabilityRegistry({
+  params?: Omit<AgentCapabilityListParams, 'kind'>
+): Promise<PaginatedResponse<AgentCapabilityItem>> => {
+  return listAgentCapabilities({
     ...params,
     kind,
   })
@@ -56,8 +67,24 @@ export const formatCapabilityMetadataValue = (value: unknown): string => {
   return String(value)
 }
 
+export const getCapabilitySourceLabel = (item: AgentCapabilityItem): string => {
+  return sourceLabelMap[item.source_kind?.toLowerCase()] || item.source_kind || 'Native'
+}
+
+export const getCapabilityPluginSourceLabel = (item: AgentCapabilityItem): string | null => {
+  const metadata = item.metadata_json || {}
+  const plugin = asRecord(metadata.plugin)
+  const pluginName = typeof plugin?.name === 'string' ? plugin.name : item.source_kind === 'plugin' ? item.source_id : null
+  const pluginVersion = typeof plugin?.version === 'string' ? plugin.version : item.source_kind === 'plugin' ? item.source_version : null
+
+  if (pluginName && pluginVersion) {
+    return `${pluginName}@${pluginVersion}`
+  }
+  return pluginName || null
+}
+
 export const getCapabilityMetadataEntries = (
-  item: CapabilityRegistryItem,
+  item: AgentCapabilityItem,
   limit = 4
 ): Array<{ key: string; value: string }> => {
   const metadata = item.metadata_json || {}

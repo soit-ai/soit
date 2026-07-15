@@ -1,0 +1,70 @@
+{
+  "release": "v1.1.0",
+  "release_tag": "v1.1.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "release_notes": "docs/releases/v1.1.0.md",
+  "clean_worktree_at_tag": true,
+  "governance_demo": {
+    "scenario": "governance_demo_20_min",
+    "command": "uv run python scripts/verify_governance_demo.py --json-output ../docs/deployment/governance-demo-report.example.json",
+    "exit_code": 0,
+    "passed": true,
+    "report_path": "docs/deployment/governance-demo-report.example.json",
+    "sections": [
+      "permissions",
+      "secrets",
+      "call_audit",
+      "cost_attribution",
+      "replay",
+      "regression"
+    ]
+  },
+  "quality_gates": [
+    {
+      "command": "uv run pytest tests/integration/test_governance_demo_verifier.py tests/integration/test_support_ticket_regression_evaluator.py -q",
+      "exit_code": 0,
+      "stdout_excerpt": "passed"
+    },
+    {
+      "command": "uv run pytest tests/entrypoints/test_observe_api.py tests/entrypoints/test_evaluation_api.py tests/entrypoints/test_plugin_unified_lifecycle_api.py -q",
+      "exit_code": 0,
+      "stdout_excerpt": "passed"
+    },
+    {
+      "command": "uv run ruff check app tests scripts --select F,E402,I",
+      "exit_code": 0,
+      "stdout_excerpt": "All checks passed"
+    }
+  ],
+  "builds": [
+    {
+      "command": "npm run typecheck",
+      "exit_code": 0,
+      "stdout_excerpt": "typecheck passed"
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "stdout_excerpt": "build completed"
+    }
+  ],
+  "release_commands": [
+    {
+      "name": "git_tag",
+      "command": "git tag v1.1.0 0123456789abcdef0123456789abcdef01234567",
+      "passed": true,
+      "tag": "v1.1.0",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "evidence_ref": "evidence/releases/v1.1.0-tag.log",
+      "stdout_excerpt": "tag created"
+    },
+    {
+      "name": "release_notes_publication",
+      "command": "publish release notes from docs/releases/v1.1.0.md",
+      "passed": true,
+      "release_url": "https://github.com/soit-ai/soit/releases/tag/v1.1.0",
+      "evidence_ref": "evidence/releases/v1.1.0-release-notes.log",
+      "stdout_excerpt": "release notes published"
+    }
+  ]
+}

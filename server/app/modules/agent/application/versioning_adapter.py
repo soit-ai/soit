@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from app.kernel.commons.time import utc_now
 from app.modules.agent.domain.models import AgentPublish, AgentVersion
@@ -51,8 +52,8 @@ class AgentVersioningAdapter(VersioningAdapter):
         version_no: int,
         spec_schema: str,
         spec_json: dict[str, Any],
-        based_on_version_id: Optional[str],
-        metadata: Optional[dict[str, Any]],
+        based_on_version_id: str | None,
+        metadata: dict[str, Any] | None,
     ) -> AgentVersion:
         payload = metadata or {}
         return self.version_repo.create(
@@ -93,9 +94,9 @@ class AgentVersioningAdapter(VersioningAdapter):
         *,
         scope: str,
         status: str,
-        notes: Optional[str],
-        previous_live_version_id: Optional[str],
-        rollback_of_publish_id: Optional[str] = None,
+        notes: str | None,
+        previous_live_version_id: str | None,
+        rollback_of_publish_id: str | None = None,
     ) -> Any:
         return self.publish_repo.create(
             AgentPublish(

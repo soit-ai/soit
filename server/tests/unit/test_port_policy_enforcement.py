@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.kernel.commons.errors import ForbiddenError, TimeoutError
+from app.kernel.commons.errors import ForbiddenError, TimeoutError, ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
+from app.kernel.ports.llm.interface import ChatMessage, ChatResponse, ChatStreamChunk
 from app.kernel.ports.llm.policy import LLMPolicyGateway
 from app.kernel.ports.tools.interface import ToolResponse
 from app.kernel.ports.tools.policy import ToolPolicyGateway
@@ -177,6 +177,102 @@ async def test_retry_on_failure(request_ctx, mock_trace_writer):
     result = await policy.chat(model="gpt-4", messages=[ChatMessage("user", "test")], run_id="run_retry")
     assert result.text == "success"
     assert call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_max_retries_counts_additional_attempts(request_ctx):
+    port = AsyncMock()
+    port.chat = AsyncMock(side_effect=ConnectionError("upstream unavailable"))
+    policy = LLMPolicyGateway(
+        gateway=port,
+        ctx=request_ctx,
+        max_retries=2,
+        retry_backoff_base_seconds=0,
+    )
+
+    with pytest.raises(ConnectionError, match="upstream unavailable"):
+        await policy.chat(model="gpt-4", messages=[ChatMessage("user", "test")])
+
+    assert port.chat.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_validation_errors_are_not_retried(request_ctx):
+    port = AsyncMock()
+    port.chat = AsyncMock(side_effect=ValidationError("invalid model parameters"))
+    policy = LLMPolicyGateway(
+        gateway=port,
+        ctx=request_ctx,
+        max_retries=3,
+        retry_backoff_base_seconds=0,
+    )
+
+    with pytest.raises(ValidationError, match="invalid model parameters"):
+        await policy.chat(model="gpt-4", messages=[ChatMessage("user", "test")])
+
+    assert port.chat.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_retries_only_before_first_chunk(request_ctx):
+    attempts = 0
+
+    class FlakyStreamPort:
+        async def stream_chat(self, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise ConnectionError("failed before first chunk")
+            yield ChatStreamChunk(delta="ok")
+            yield ChatStreamChunk(done=True, finish_reason="stop")
+
+    policy = LLMPolicyGateway(
+        gateway=FlakyStreamPort(),
+        ctx=request_ctx,
+        max_retries=1,
+        retry_backoff_base_seconds=0,
+    )
+
+    chunks = [
+        chunk
+        async for chunk in policy.stream_chat(
+            model="gpt-4",
+            messages=[ChatMessage("user", "test")],
+        )
+    ]
+
+    assert attempts == 2
+    assert "".join(chunk.delta for chunk in chunks) == "ok"
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_retry_after_first_chunk(request_ctx):
+    attempts = 0
+
+    class MidStreamFailurePort:
+        async def stream_chat(self, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            yield ChatStreamChunk(delta="partial")
+            raise ConnectionError("failed after first chunk")
+
+    policy = LLMPolicyGateway(
+        gateway=MidStreamFailurePort(),
+        ctx=request_ctx,
+        max_retries=3,
+        retry_backoff_base_seconds=0,
+    )
+
+    with pytest.raises(ConnectionError, match="failed after first chunk"):
+        _ = [
+            chunk
+            async for chunk in policy.stream_chat(
+                model="gpt-4",
+                messages=[ChatMessage("user", "test")],
+            )
+        ]
+
+    assert attempts == 1
 
 
 @pytest.mark.asyncio

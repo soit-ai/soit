@@ -3,17 +3,17 @@
 Knowledge repositories using scope-aware base.
 """
 
-from typing import Optional, List
 from datetime import datetime
+
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, func
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
 from app.modules.knowledge.domain.models import (
     Knowledge,
-    KnowledgeDocument,
     KnowledgeChunk,
+    KnowledgeDocument,
     KnowledgeIndex,
     KnowledgeIngestTask,
 )
@@ -21,17 +21,17 @@ from app.modules.knowledge.domain.models import (
 
 class KnowledgeRepository(Repository[Knowledge]):
     """Repository for Knowledge model."""
-    
+
     def __init__(self, db: Session, ctx: RequestContext):
         """Initialize knowledge repository.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
         """
         super().__init__(Knowledge, db, ctx)
 
-    def get_by_id(self, knowledge_id: str) -> Optional[Knowledge]:
+    def get_by_id(self, knowledge_id: str) -> Knowledge | None:
         """Get knowledge by ID.
 
         Args:
@@ -50,14 +50,14 @@ class KnowledgeRepository(Repository[Knowledge]):
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
-    def get_by_name(self, name: str) -> Optional[Knowledge]:
+
+    def get_by_name(self, name: str) -> Knowledge | None:
         """Get knowledge by name.
-        
+
         Args:
             ctx: Request context.
             name: Knowledge name.
-            
+
         Returns:
             Knowledge instance or None if not found.
         """
@@ -71,18 +71,18 @@ class KnowledgeRepository(Repository[Knowledge]):
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
+
     def list(
         self,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[Knowledge]:
+    ) -> list[Knowledge]:
         """List knowledge bases.
-        
+
         Args:
             limit: Maximum number of knowledge bases.
             offset: Offset for pagination.
-            
+
         Returns:
             List of Knowledge instances.
         """
@@ -95,38 +95,38 @@ class KnowledgeRepository(Repository[Knowledge]):
         ).order_by(Knowledge.created_at.desc()).offset(offset).limit(limit)
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
-    
+
     def update_stats(
         self,
         knowledge_id: str,
-        doc_count: Optional[int] = None,
-        chunk_count: Optional[int] = None,
-        last_indexed_at: Optional[datetime] = None,
+        doc_count: int | None = None,
+        chunk_count: int | None = None,
+        last_indexed_at: datetime | None = None,
     ) -> Knowledge:
         """Update knowledge statistics.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             doc_count: Optional document count to set.
             chunk_count: Optional chunk count to set.
-            
+
         Returns:
             Updated Knowledge instance.
         """
         knowledge = self.get_by_id(knowledge_id)
         if not knowledge:
             raise ValueError(f"Knowledge not found: {knowledge_id}")
-        
+
         if doc_count is not None:
             knowledge.doc_count = doc_count
         if chunk_count is not None:
             knowledge.chunk_count = chunk_count
         if last_indexed_at is not None:
             knowledge.last_indexed_at = last_indexed_at
-        
+
         from app.kernel.commons.time import utc_now
         knowledge.updated_at = utc_now()
-        
+
         self.db.commit()
         self.db.refresh(knowledge)
         return knowledge
@@ -134,17 +134,17 @@ class KnowledgeRepository(Repository[Knowledge]):
 
 class DocumentRepository(Repository[KnowledgeDocument]):
     """Repository for KnowledgeDocument model."""
-    
+
     def __init__(self, db: Session, ctx: RequestContext):
         """Initialize document repository.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
         """
         super().__init__(KnowledgeDocument, db, ctx)
 
-    def get_by_id(self, document_id: str) -> Optional[KnowledgeDocument]:
+    def get_by_id(self, document_id: str) -> KnowledgeDocument | None:
         """Get document by ID.
 
         Args:
@@ -163,21 +163,21 @@ class DocumentRepository(Repository[KnowledgeDocument]):
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
+
     def get_by_key(
         self,
         knowledge_id: str,
         doc_key: str,
-        version: Optional[int] = None,
-    ) -> Optional[KnowledgeDocument]:
+        version: int | None = None,
+    ) -> KnowledgeDocument | None:
         """Get document by key and optional version.
-        
+
         Args:
             ctx: Request context.
             knowledge_id: Knowledge ID.
             doc_key: Document key.
             version: Optional version number (if None, get latest).
-            
+
         Returns:
             KnowledgeDocument instance or None if not found.
         """
@@ -190,30 +190,30 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.deleted_at.is_(None),
             )
         )
-        
+
         if version:
             query = query.where(KnowledgeDocument.version == version)
         else:
-            query = query.where(KnowledgeDocument.is_latest == True)
-        
+            query = query.where(KnowledgeDocument.is_latest.is_(True))
+
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
+
     def list_by_knowledge(
         self,
         knowledge_id: str,
         is_latest_only: bool = True,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeDocument]:
+    ) -> list[KnowledgeDocument]:
         """List documents in knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             is_latest_only: Only return latest versions.
             limit: Maximum number of documents.
             offset: Offset for pagination.
-            
+
         Returns:
             List of KnowledgeDocument instances.
         """
@@ -225,22 +225,22 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.deleted_at.is_(None),
             )
         )
-        
+
         if is_latest_only:
-            query = query.where(KnowledgeDocument.is_latest == True)
-        
+            query = query.where(KnowledgeDocument.is_latest.is_(True))
+
         query = query.order_by(KnowledgeDocument.created_at.desc()).offset(offset).limit(limit)
-        
+
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
-    
+
     def get_next_version(self, knowledge_id: str, doc_key: str) -> int:
         """Get next version number for document key.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             doc_key: Document key.
-            
+
         Returns:
             Next version number.
         """
@@ -253,16 +253,16 @@ class DocumentRepository(Repository[KnowledgeDocument]):
             )
         )
         max_version = self.db.exec(query).one()
-        if isinstance(max_version, (list, tuple)) or hasattr(max_version, "_mapping"):
+        if isinstance(max_version, list | tuple) or hasattr(max_version, "_mapping"):
             max_version = max_version[0]
         return (max_version or 0) + 1
-    
+
     def count_by_knowledge(self, knowledge_id: str) -> int:
         """Count documents in knowledge (latest versions only).
-        
+
         Args:
             knowledge_id: Knowledge ID.
-            
+
         Returns:
             Document count.
         """
@@ -271,41 +271,41 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.tenant_id == self.ctx.tenant_id,
                 KnowledgeDocument.workspace_id == self.ctx.workspace_id,
                 KnowledgeDocument.knowledge_id == knowledge_id,
-                KnowledgeDocument.is_latest == True,
+                KnowledgeDocument.is_latest.is_(True),
                 KnowledgeDocument.deleted_at.is_(None),
             )
         )
         result = self.db.exec(query).one()
-        if isinstance(result, (list, tuple)) or hasattr(result, "_mapping"):
+        if isinstance(result, list | tuple) or hasattr(result, "_mapping"):
             return int(result[0] or 0)
         return int(result or 0)
 
 
 class ChunkRepository(Repository[KnowledgeChunk]):
     """Repository for KnowledgeChunk model."""
-    
+
     def __init__(self, db: Session, ctx: RequestContext):
         """Initialize chunk repository.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
         """
         super().__init__(KnowledgeChunk, db, ctx)
-    
+
     def list_by_document(
         self,
         document_id: str,
         limit: int = 1000,
         offset: int = 0,
-    ) -> List[KnowledgeChunk]:
+    ) -> list[KnowledgeChunk]:
         """List chunks for a document.
-        
+
         Args:
             document_id: Document ID.
             limit: Maximum number of chunks.
             offset: Offset for pagination.
-            
+
         Returns:
             List of KnowledgeChunk instances.
         """
@@ -318,22 +318,22 @@ class ChunkRepository(Repository[KnowledgeChunk]):
         ).order_by(KnowledgeChunk.chunk_no).offset(offset).limit(limit)
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
-    
+
     def list_by_knowledge(
         self,
         knowledge_id: str,
-        index_status: Optional[str] = None,
+        index_status: str | None = None,
         limit: int = 1000,
         offset: int = 0,
-    ) -> List[KnowledgeChunk]:
+    ) -> list[KnowledgeChunk]:
         """List chunks in knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             index_status: Optional filter by index_status.
             limit: Maximum number of chunks.
             offset: Offset for pagination.
-            
+
         Returns:
             List of KnowledgeChunk instances.
         """
@@ -344,21 +344,21 @@ class ChunkRepository(Repository[KnowledgeChunk]):
                 KnowledgeChunk.knowledge_id == knowledge_id,
             )
         )
-        
+
         if index_status:
             query = query.where(KnowledgeChunk.index_status == index_status)
-        
+
         query = query.order_by(KnowledgeChunk.created_at.desc()).offset(offset).limit(limit)
-        
+
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
-    
+
     def count_by_knowledge(self, knowledge_id: str) -> int:
         """Count chunks in knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
-            
+
         Returns:
             Chunk count.
         """
@@ -370,24 +370,24 @@ class ChunkRepository(Repository[KnowledgeChunk]):
             )
         )
         result = self.db.exec(query).one()
-        if isinstance(result, (list, tuple)) or hasattr(result, "_mapping"):
+        if isinstance(result, list | tuple) or hasattr(result, "_mapping"):
             return int(result[0] or 0)
         return int(result or 0)
 
 
 class IndexRepository(Repository[KnowledgeIndex]):
     """Repository for KnowledgeIndex model."""
-    
+
     def __init__(self, db: Session, ctx: RequestContext):
         """Initialize index repository.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
         """
         super().__init__(KnowledgeIndex, db, ctx)
 
-    def get_by_id(self, index_id: str) -> Optional[KnowledgeIndex]:
+    def get_by_id(self, index_id: str) -> KnowledgeIndex | None:
         """Get index by ID.
 
         Args:
@@ -406,14 +406,14 @@ class IndexRepository(Repository[KnowledgeIndex]):
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
-    def get_by_name(self, knowledge_id: str, name: str) -> Optional[KnowledgeIndex]:
+
+    def get_by_name(self, knowledge_id: str, name: str) -> KnowledgeIndex | None:
         """Get index by name.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             name: Index name.
-            
+
         Returns:
             KnowledgeIndex instance or None if not found.
         """
@@ -428,13 +428,13 @@ class IndexRepository(Repository[KnowledgeIndex]):
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
-    def get_primary(self, knowledge_id: str) -> Optional[KnowledgeIndex]:
+
+    def get_primary(self, knowledge_id: str) -> KnowledgeIndex | None:
         """Get primary index for knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
-            
+
         Returns:
             Primary KnowledgeIndex instance or None if not found.
         """
@@ -443,26 +443,26 @@ class IndexRepository(Repository[KnowledgeIndex]):
                 KnowledgeIndex.tenant_id == self.ctx.tenant_id,
                 KnowledgeIndex.workspace_id == self.ctx.workspace_id,
                 KnowledgeIndex.knowledge_id == knowledge_id,
-                KnowledgeIndex.is_primary == True,
+                KnowledgeIndex.is_primary.is_(True),
                 KnowledgeIndex.deleted_at.is_(None),
             )
         )
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
-    
+
     def list_by_knowledge(
         self,
         knowledge_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeIndex]:
+    ) -> list[KnowledgeIndex]:
         """List indexes for knowledge.
-        
+
         Args:
             knowledge_id: Knowledge ID.
             limit: Maximum number of indexes.
             offset: Offset for pagination.
-            
+
         Returns:
             List of KnowledgeIndex instances.
         """
@@ -497,7 +497,7 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         self.db.refresh(task)
         return task
 
-    def get_by_id(self, task_id: str) -> Optional[KnowledgeIngestTask]:
+    def get_by_id(self, task_id: str) -> KnowledgeIngestTask | None:
         """Get task by ID."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -509,7 +509,7 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         result = self.db.exec(query).first()
         return self._unwrap_result(result)
 
-    def list_pending(self, limit: int = 20) -> List[KnowledgeIngestTask]:
+    def list_pending(self, limit: int = 20) -> list[KnowledgeIngestTask]:
         """List queued tasks."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -524,10 +524,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
     def list_by_knowledge(
         self,
         knowledge_id: str,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[KnowledgeIngestTask]:
+    ) -> list[KnowledgeIngestTask]:
         """List tasks by knowledge."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -542,7 +542,7 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
 
-    def claim_next(self) -> Optional[KnowledgeIngestTask]:
+    def claim_next(self) -> KnowledgeIngestTask | None:
         """Claim the next queued task."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -569,10 +569,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         task: KnowledgeIngestTask,
         status: str,
         *,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-        run_id: Optional[str] = None,
-        retry_count: Optional[int] = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        run_id: str | None = None,
+        retry_count: int | None = None,
     ) -> KnowledgeIngestTask:
         """Update task status and metadata."""
         from app.kernel.commons.time import utc_now

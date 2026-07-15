@@ -7,7 +7,7 @@ used by the Agent-centered architecture.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
@@ -47,22 +47,22 @@ class Workflow(SQLModel, table=True):
     tenant_id: str = Field(index=True)
     workspace_id: str = Field(index=True)
     name: str = Field(index=True)
-    description: Optional[str] = Field(default=None, nullable=True)
-    summary: Optional[str] = Field(default=None, nullable=True)
+    description: str | None = Field(default=None, nullable=True)
+    summary: str | None = Field(default=None, nullable=True)
     status: str = Field(default="active", index=True)
     visibility: str = Field(default="private", index=True)
-    icon_url: Optional[str] = Field(default=None, nullable=True)
-    category: Optional[str] = Field(default=None, nullable=True)
-    tags: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
-    owner_user_id: Optional[str] = Field(default=None, nullable=True)
+    icon_url: str | None = Field(default=None, nullable=True)
+    category: str | None = Field(default=None, nullable=True)
+    tags: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    owner_user_id: str | None = Field(default=None, nullable=True)
     metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    current_version_id: Optional[str] = Field(default=None, nullable=True, index=True)
-    published_version_id: Optional[str] = Field(default=None, nullable=True, index=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
-    updated_by: Optional[str] = Field(default=None, nullable=True)
+    current_version_id: str | None = Field(default=None, nullable=True, index=True)
+    published_version_id: str | None = Field(default=None, nullable=True, index=True)
+    created_by: str | None = Field(default=None, nullable=True)
+    updated_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-    deleted_at: Optional[datetime] = Field(default=None, nullable=True)
+    deleted_at: datetime | None = Field(default=None, nullable=True)
 
 
 class WorkflowVersion(SQLModel, table=True):
@@ -82,8 +82,8 @@ class WorkflowVersion(SQLModel, table=True):
     status: str = Field(default="draft", index=True)
     spec_schema: str = Field(default="workflow.v1")
     spec_json: dict[str, Any] = Field(sa_column=Column(JSON))
-    created_from_version_id: Optional[str] = Field(default=None, nullable=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
+    created_from_version_id: str | None = Field(default=None, nullable=True)
+    created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
@@ -104,11 +104,11 @@ class WorkflowPublish(SQLModel, table=True):
     action: str = Field(default="publish")
     scope: str = Field(default="workspace")
     status: str = Field(default="published")
-    from_version_id: Optional[str] = Field(default=None, nullable=True)
-    to_version_id: Optional[str] = Field(default=None, nullable=True)
-    notes: Optional[str] = Field(default=None, nullable=True)
-    rollback_of_publish_id: Optional[str] = Field(default=None, nullable=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
+    from_version_id: str | None = Field(default=None, nullable=True)
+    to_version_id: str | None = Field(default=None, nullable=True)
+    notes: str | None = Field(default=None, nullable=True)
+    rollback_of_publish_id: str | None = Field(default=None, nullable=True)
+    created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

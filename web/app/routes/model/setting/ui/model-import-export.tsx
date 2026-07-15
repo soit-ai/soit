@@ -29,16 +29,16 @@ export function ModelImportExport({
 
   const handleExport = async () => {
     toast({
-      title: t('system.model.importExport.unavailableTitle'),
-      description: t('system.model.importExport.unavailableDescription'),
+      title: t('model.importExport.unavailableTitle'),
+      description: t('model.importExport.unavailableDescription'),
       type: 'error',
     })
   }
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     toast({
-      title: t('system.model.importExport.unavailableTitle'),
-      description: t('system.model.importExport.unavailableDescription'),
+      title: t('model.importExport.unavailableTitle'),
+      description: t('model.importExport.unavailableDescription'),
       type: 'error',
     })
     event.target.value = ''
@@ -47,16 +47,16 @@ export function ModelImportExport({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('system.model.importExport.title')}</CardTitle>
+        <CardTitle>{t('model.importExport.title')}</CardTitle>
         <CardDescription>
-          {t('system.model.importExport.description', { modelName })}
+          {t('model.importExport.description', { modelName })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t('system.model.importExport.errorTitle')}</AlertTitle>
+            <AlertTitle>{t('model.importExport.errorTitle')}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
@@ -73,7 +73,7 @@ export function ModelImportExport({
               ) : (
                 <Download className="w-4 h-4 mr-2" />
               )}
-              {t('system.model.importExport.export')}
+              {t('model.importExport.export')}
             </Button>
           </div>
           <div>
@@ -96,17 +96,17 @@ export function ModelImportExport({
               ) : (
                 <Upload className="w-4 h-4 mr-2" />
               )}
-              {t('system.model.importExport.import')}
+              {t('model.importExport.import')}
             </Button>
           </div>
         </div>
       </CardContent>
       <CardFooter className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
-        <p>{t('system.model.importExport.notes.support')}</p>
+        <p>{t('model.importExport.notes.support')}</p>
         <ul className="list-disc list-inside space-y-1">
-          <li>{t('system.model.importExport.notes.sizeLimit')}</li>
-          <li>{t('system.model.importExport.notes.format')}</li>
-          <li>{t('system.model.importExport.notes.validate')}</li>
+          <li>{t('model.importExport.notes.sizeLimit')}</li>
+          <li>{t('model.importExport.notes.format')}</li>
+          <li>{t('model.importExport.notes.validate')}</li>
         </ul>
       </CardFooter>
     </Card>

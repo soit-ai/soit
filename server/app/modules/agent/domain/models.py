@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
@@ -51,30 +51,30 @@ class Agent(SQLModel, table=True):
     tenant_id: str = Field(index=True)
     workspace_id: str = Field(index=True)
     name: str = Field(index=True)
-    description: Optional[str] = Field(default=None, nullable=True)
+    description: str | None = Field(default=None, nullable=True)
     status: str = Field(default="active", index=True)
     visibility: str = Field(default="private", index=True)
-    icon_url: Optional[str] = Field(default=None, nullable=True)
-    category: Optional[str] = Field(default=None, nullable=True)
+    icon_url: str | None = Field(default=None, nullable=True)
+    category: str | None = Field(default=None, nullable=True)
     is_public: bool = Field(default=False)
     featured: bool = Field(default=False)
     downloads_count: int = Field(default=0)
-    rating: Optional[float] = Field(default=None, nullable=True)
+    rating: float | None = Field(default=None, nullable=True)
     reviews_count: int = Field(default=0)
-    published_at: Optional[datetime] = Field(default=None, nullable=True)
-    tags: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
+    published_at: datetime | None = Field(default=None, nullable=True)
+    tags: list[str] | None = Field(default=None, sa_column=Column(JSON))
     profile_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     instructions_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     execution_policy_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     runtime_config_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    default_model_ref: Optional[str] = Field(default=None, nullable=True)
-    current_version_id: Optional[str] = Field(default=None, nullable=True, index=True)
-    published_version_id: Optional[str] = Field(default=None, nullable=True, index=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
-    updated_by: Optional[str] = Field(default=None, nullable=True)
+    default_model_ref: str | None = Field(default=None, nullable=True)
+    current_version_id: str | None = Field(default=None, nullable=True, index=True)
+    published_version_id: str | None = Field(default=None, nullable=True, index=True)
+    created_by: str | None = Field(default=None, nullable=True)
+    updated_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
-    deleted_at: Optional[datetime] = Field(default=None, nullable=True)
+    deleted_at: datetime | None = Field(default=None, nullable=True)
 
 
 class AgentVersion(SQLModel, table=True):
@@ -95,10 +95,10 @@ class AgentVersion(SQLModel, table=True):
     status: str = Field(default="draft", index=True)
     spec_schema: str = Field()
     spec_json: dict[str, Any] = Field(sa_column=Column(JSON))
-    checksum: Optional[str] = Field(default=None, nullable=True)
-    created_from_version_id: Optional[str] = Field(default=None, nullable=True)
-    changelog: Optional[str] = Field(default=None, nullable=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
+    checksum: str | None = Field(default=None, nullable=True)
+    created_from_version_id: str | None = Field(default=None, nullable=True)
+    changelog: str | None = Field(default=None, nullable=True)
+    created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
@@ -125,8 +125,8 @@ class AgentBinding(SQLModel, table=True):
     agent_id: str = Field()
     agent_version_id: str = Field()
     binding_type: str = Field()
-    target_id: Optional[str] = Field(default=None, nullable=True)
-    target_key: Optional[str] = Field(default=None, nullable=True)
+    target_id: str | None = Field(default=None, nullable=True)
+    target_key: str | None = Field(default=None, nullable=True)
     config_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     sort_order: int = Field(default=0)
     created_at: datetime = Field(default_factory=utc_now)
@@ -150,8 +150,8 @@ class AgentPublish(SQLModel, table=True):
     agent_version_id: str = Field()
     scope: str = Field(default="workspace")
     status: str = Field(default="published")
-    notes: Optional[str] = Field(default=None, nullable=True)
-    rollback_of_publish_id: Optional[str] = Field(default=None, nullable=True)
-    created_by: Optional[str] = Field(default=None, nullable=True)
+    notes: str | None = Field(default=None, nullable=True)
+    rollback_of_publish_id: str | None = Field(default=None, nullable=True)
+    created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

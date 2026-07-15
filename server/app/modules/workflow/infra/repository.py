@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.time import utc_now
-from app.modules.workflow.domain.models import Workflow, WorkflowPublish, WorkflowVersion
+from app.kernel.contracts.context import RequestContext
+from app.modules.workflow.domain.models import (
+    Workflow,
+    WorkflowPublish,
+    WorkflowVersion,
+)
 
 
 class WorkflowRepository:
@@ -35,7 +37,7 @@ class WorkflowRepository:
         self.db.refresh(workflow)
         return workflow
 
-    def get_by_id(self, workflow_id: str) -> Optional[Workflow]:
+    def get_by_id(self, workflow_id: str) -> Workflow | None:
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_id,
@@ -46,7 +48,7 @@ class WorkflowRepository:
         )
         return self.db.execute(query).scalars().first()
 
-    def get_by_name(self, name: str) -> Optional[Workflow]:
+    def get_by_name(self, name: str) -> Workflow | None:
         query = select(Workflow).where(
             and_(
                 Workflow.name == name,
@@ -106,7 +108,7 @@ class WorkflowVersionRepository:
         self.db.refresh(version)
         return version
 
-    def get_by_id(self, version_id: str) -> Optional[WorkflowVersion]:
+    def get_by_id(self, version_id: str) -> WorkflowVersion | None:
         query = select(WorkflowVersion).where(
             and_(
                 WorkflowVersion.id == version_id,

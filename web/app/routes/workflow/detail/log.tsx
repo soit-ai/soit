@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
-import { ChevronDown, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ChevronDown, RefreshCw, XCircle } from 'lucide-react'
 import { useTranslation } from '@/i18n'
 import { listRuns, listRunSteps, type RunResponse, type RunStepResponse } from '@/services/run-service'
-import { pauseRun, replayRun, resumeRun, retryRun } from '@/services/workflow-service'
+import { cancelRun, failRun, pauseRun, replayRun, resumeRun, retryRun } from '@/services/workflow-service'
 import { toast } from 'sonner'
 import { useNavigate } from '@/hooks/use-navigate'
 
@@ -18,7 +18,7 @@ type StepFilters = {
   stepType: string
 }
 
-type RunAction = 'pause' | 'resume' | 'retry' | 'replay'
+type RunAction = 'pause' | 'resume' | 'cancel' | 'fail' | 'retry' | 'replay'
 
 const createDefaultFilters = (): StepFilters => ({
   status: 'all',
@@ -53,7 +53,8 @@ function Page() {
     try {
       setLoadingRuns(true)
       const data = await listRuns({
-        workflow_id: workflowId,
+        subject_kind: 'workflow',
+        subject_id: workflowId,
         mode: 'workflow',
         page_size: 50,
       })
@@ -140,7 +141,7 @@ function Page() {
     if (!workflowId || !selectedRun) {
       return
     }
-    if ((action === 'retry' || action === 'replay') && !window.confirm(t(`workflow.detail.log.confirm.${action}`))) {
+    if ((action === 'cancel' || action === 'fail' || action === 'retry' || action === 'replay') && !window.confirm(t(`workflow.detail.log.confirm.${action}`))) {
       return
     }
     try {
@@ -149,6 +150,13 @@ function Page() {
         await pauseRun(workflowId, selectedRun.id)
       } else if (action === 'resume') {
         await resumeRun(workflowId, selectedRun.id)
+      } else if (action === 'cancel') {
+        await cancelRun(workflowId, selectedRun.id, { reason: t('workflow.detail.log.controlReasons.cancel') })
+      } else if (action === 'fail') {
+        await failRun(workflowId, selectedRun.id, {
+          error_code: 'workflow_run_failed_by_user',
+          error_message: t('workflow.detail.log.controlReasons.fail'),
+        })
       } else if (action === 'retry') {
         await retryRun(workflowId, selectedRun.id)
       } else {
@@ -167,7 +175,9 @@ function Page() {
 
   const canPause = selectedRunStatus === 'running'
   const canResume = selectedRunStatus === 'paused'
-  const canRetry = selectedRunStatus === 'failed'
+  const canCancel = selectedRunStatus === 'queued' || selectedRunStatus === 'running' || selectedRunStatus === 'paused'
+  const canFail = canCancel
+  const canRetry = selectedRunStatus === 'failed' || selectedRunStatus === 'canceled'
   const canReplay = selectedRunStatus === 'failed' || selectedRunStatus === 'succeeded'
   const disableRunActions = loadingRuns || loadingSteps || !selectedRun
 
@@ -242,6 +252,26 @@ function Page() {
               {runActionLoading === 'resume'
                 ? t('workflow.detail.log.actions.resuming')
                 : t('workflow.detail.log.actions.resume')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleRunAction('cancel')}
+              disabled={disableRunActions || !canCancel || runActionLoading !== null}
+            >
+              <XCircle className="mr-2 h-4 w-4" />
+              {runActionLoading === 'cancel'
+                ? t('workflow.detail.log.actions.canceling')
+                : t('workflow.detail.log.actions.cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleRunAction('fail')}
+              disabled={disableRunActions || !canFail || runActionLoading !== null}
+            >
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              {runActionLoading === 'fail'
+                ? t('workflow.detail.log.actions.failing')
+                : t('workflow.detail.log.actions.fail')}
             </Button>
             <Button
               variant="outline"
@@ -339,7 +369,7 @@ function Page() {
                 <div className="text-sm font-medium">{step.step_type}</div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">{step.status}</span>
-                  <Button size="sm" variant="ghost" onClick={() => navigate(`/observability/runs/${step.run_id}`)}>
+                  <Button size="sm" variant="ghost" onClick={() => navigate(`/observe/runs/${step.run_id}`)}>
                     {t('workflow.detail.log.actions.viewRun')}
                   </Button>
                 </div>

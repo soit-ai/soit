@@ -1,17 +1,18 @@
 """Runtime task API routes."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.api.v1.task.dependencies import get_task_runtime_service, get_task_service
 from app.api.v1.task.handlers import TaskHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.runtime.query_service import RuntimeQueryService
-from app.kernel.runtime.schemas import (
+from app.kernel.runtime.tasks.query_service import TaskQueryService
+from app.kernel.runtime.tasks.schemas import (
     TaskControlResponse,
     TaskDetailResponse,
     TaskHandlingResponse,
@@ -19,21 +20,21 @@ from app.kernel.runtime.schemas import (
     TaskWorkbenchItemsResponse,
     TaskWorkbenchResponse,
 )
-
+from app.kernel.runtime.tasks.service import TaskService
 
 router = APIRouter()
 
 
 @router.get("", response_model=PaginatedResponse[TaskResponse])
 async def list_tasks(
-    status: Optional[str] = None,
-    task_type: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    thread_id: Optional[str] = None,
-    page_token: Optional[str] = None,
+    status: str | None = None,
+    task_type: str | None = None,
+    agent_id: str | None = None,
+    thread_id: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
+    service: TaskQueryService = Depends(get_task_service),
 ):
     """List runtime tasks."""
 
@@ -51,10 +52,10 @@ async def list_tasks(
 
 @router.get("/workbench", response_model=TaskWorkbenchResponse)
 async def get_task_workbench(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
+    service: TaskQueryService = Depends(get_task_service),
 ):
     """Get runtime task workbench metrics and rows."""
 
@@ -64,15 +65,15 @@ async def get_task_workbench(
 
 @router.get("/workbench/items", response_model=TaskWorkbenchItemsResponse)
 async def get_task_workbench_items(
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    status: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    page_token: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
+    service: TaskQueryService = Depends(get_task_service),
 ):
     """Get filtered runtime task workbench rows."""
 
@@ -93,7 +94,7 @@ async def get_task_workbench_items(
 async def get_task_handling(
     task_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
+    service: TaskQueryService = Depends(get_task_service),
 ):
     """Get task handling drawer read model."""
 
@@ -105,7 +106,7 @@ async def get_task_handling(
 async def get_task(
     task_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
+    service: TaskQueryService = Depends(get_task_service),
 ):
     """Get task detail."""
 
@@ -117,8 +118,8 @@ async def get_task(
 async def cancel_task(
     task_id: str,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
-    runtime_service: RuntimeCoreService = Depends(get_task_runtime_service),
+    service: TaskQueryService = Depends(get_task_service),
+    runtime_service: TaskService = Depends(get_task_runtime_service),
 ):
     """Cancel a task."""
 
@@ -130,8 +131,8 @@ async def cancel_task(
 async def resume_task(
     task_id: str,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
-    runtime_service: RuntimeCoreService = Depends(get_task_runtime_service),
+    service: TaskQueryService = Depends(get_task_service),
+    runtime_service: TaskService = Depends(get_task_runtime_service),
 ):
     """Resume a paused or waiting task."""
 
@@ -143,8 +144,8 @@ async def resume_task(
 async def retry_task(
     task_id: str,
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    service: RuntimeQueryService = Depends(get_task_service),
-    runtime_service: RuntimeCoreService = Depends(get_task_runtime_service),
+    service: TaskQueryService = Depends(get_task_service),
+    runtime_service: TaskService = Depends(get_task_runtime_service),
 ):
     """Retry a failed task."""
 

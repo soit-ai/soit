@@ -3,13 +3,12 @@
 Identity domain DB models (users/tenants/workspaces/memberships).
 """
 
-from typing import Optional
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Column, UniqueConstraint, Index, JSON
-from sqlalchemy import Text
 
-from app.kernel.commons.time import utc_now
+from sqlmodel import JSON, Column, Field, Index, SQLModel, UniqueConstraint
+
 from app.kernel.commons.ids import generate_ulid
+from app.kernel.commons.time import utc_now
 
 
 def generate_user_id() -> str:
@@ -34,45 +33,45 @@ def generate_resource_grant_id() -> str:
 
 class User(SQLModel, table=True):
     """User model - global user account."""
-    
+
     __tablename__ = "users"
-    
+
     id: str = Field(primary_key=True, default_factory=generate_user_id)
     """User ID."""
-    
+
     email: str = Field(unique=True, index=True)
     """User email (unique)."""
-    
+
     password_hash: str = Field()
     """Hashed password."""
-    
-    name: Optional[str] = Field(default=None)
+
+    name: str | None = Field(default=None)
     """User display name."""
 
     profile_json: dict = Field(default_factory=dict, sa_column=Column(JSON))
     """User profile metadata (avatar, phone, company, etc.)."""
-    
+
     is_active: bool = Field(default=True)
     """Whether user account is active."""
-    
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
-    
+
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
 
 
 class Tenant(SQLModel, table=True):
     """Tenant model - organization/company."""
-    
+
     __tablename__ = "tenants"
-    
+
     id: str = Field(primary_key=True, default_factory=generate_tenant_id)
     """Tenant ID."""
-    
+
     name: str = Field()
     """Tenant name."""
-    
+
     plan: str = Field(default="free")
     """Tenant plan (free/pro/enterprise)."""
 
@@ -82,45 +81,45 @@ class Tenant(SQLModel, table=True):
     egress_blocklist: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     """Tenant-level egress blocklist."""
 
-    llm_rate_limit_per_minute: Optional[int] = Field(default=None)
+    llm_rate_limit_per_minute: int | None = Field(default=None)
     """Tenant-level LLM rate limit (requests per minute)."""
 
-    tool_rate_limit_per_minute: Optional[int] = Field(default=None)
+    tool_rate_limit_per_minute: int | None = Field(default=None)
     """Tenant-level tool rate limit (requests per minute)."""
 
-    llm_daily_quota: Optional[int] = Field(default=None)
+    llm_daily_quota: int | None = Field(default=None)
     """Tenant-level LLM daily request quota."""
 
-    tool_daily_quota: Optional[int] = Field(default=None)
+    tool_daily_quota: int | None = Field(default=None)
     """Tenant-level tool daily request quota."""
-    
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
-    
+
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
 
 
 class Workspace(SQLModel, table=True):
     """Workspace model - workspace within a tenant."""
-    
+
     __tablename__ = "workspaces"
-    
+
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_workspace_tenant_name"),
         Index("idx_workspace_tenant_created", "tenant_id", "created_at"),
     )
-    
+
     id: str = Field(primary_key=True, default_factory=generate_workspace_id)
     """Workspace ID."""
-    
+
     tenant_id: str = Field(index=True)
     """Tenant ID (FK to tenants.id)."""
-    
+
     name: str = Field()
     """Workspace name."""
-    
-    description: Optional[str] = Field(default=None)
+
+    description: str | None = Field(default=None)
     """Workspace description."""
 
     metadata_json: dict = Field(default_factory=dict, sa_column=Column(JSON))
@@ -132,68 +131,68 @@ class Workspace(SQLModel, table=True):
     egress_blocklist: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     """Workspace-level egress blocklist."""
 
-    llm_rate_limit_per_minute: Optional[int] = Field(default=None)
+    llm_rate_limit_per_minute: int | None = Field(default=None)
     """Workspace-level LLM rate limit (requests per minute)."""
 
-    tool_rate_limit_per_minute: Optional[int] = Field(default=None)
+    tool_rate_limit_per_minute: int | None = Field(default=None)
     """Workspace-level tool rate limit (requests per minute)."""
 
-    llm_daily_quota: Optional[int] = Field(default=None)
+    llm_daily_quota: int | None = Field(default=None)
     """Workspace-level LLM daily request quota."""
 
-    tool_daily_quota: Optional[int] = Field(default=None)
+    tool_daily_quota: int | None = Field(default=None)
     """Workspace-level tool daily request quota."""
-    
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
-    
+
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
 
 
 class TenantMembership(SQLModel, table=True):
     """Tenant membership - user's role in a tenant."""
-    
+
     __tablename__ = "tenant_memberships"
-    
+
     __table_args__ = (
         UniqueConstraint("tenant_id", "user_id", name="uq_tenant_membership"),
     )
-    
+
     tenant_id: str = Field(primary_key=True)
     """Tenant ID."""
-    
+
     user_id: str = Field(primary_key=True)
     """User ID."""
-    
+
     role: str = Field()
     """Role (Owner/Admin/Dev/Viewer)."""
-    
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 
 
 class WorkspaceMembership(SQLModel, table=True):
     """Workspace membership - user's role in a workspace."""
-    
+
     __tablename__ = "workspace_memberships"
-    
+
     __table_args__ = (
         UniqueConstraint("tenant_id", "workspace_id", "user_id", name="uq_workspace_membership"),
     )
-    
+
     tenant_id: str = Field(primary_key=True)
     """Tenant ID."""
-    
+
     workspace_id: str = Field(primary_key=True)
     """Workspace ID."""
-    
+
     user_id: str = Field(primary_key=True)
     """User ID."""
-    
+
     role: str = Field()
     """Role (Owner/Admin/Dev/Viewer)."""
-    
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 
@@ -227,10 +226,10 @@ class ApiKey(SQLModel, table=True):
     status: str = Field(default="active")
     """Status: active, revoked."""
 
-    last_used_at: Optional[datetime] = Field(default=None)
+    last_used_at: datetime | None = Field(default=None)
     """Last used timestamp."""
 
-    revoked_at: Optional[datetime] = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
     """Revoked timestamp."""
 
     created_at: datetime = Field(default_factory=utc_now)
@@ -288,7 +287,7 @@ class ResourceGrant(SQLModel, table=True):
     actions: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     """Allowed actions."""
 
-    created_by: Optional[str] = Field(default=None)
+    created_by: str | None = Field(default=None)
     """User ID that created the grant."""
 
     created_at: datetime = Field(default_factory=utc_now)

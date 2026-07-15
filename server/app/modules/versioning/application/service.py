@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from app.kernel.commons.errors import NotFoundError
+from app.kernel.commons.errors import NotFoundError, ValidationError
 
 
 class VersioningAdapter:
@@ -31,8 +31,8 @@ class VersioningAdapter:
         version_no: int,
         spec_schema: str,
         spec_json: dict[str, Any],
-        based_on_version_id: Optional[str],
-        metadata: Optional[dict[str, Any]],
+        based_on_version_id: str | None,
+        metadata: dict[str, Any] | None,
     ) -> Any:
         raise NotImplementedError
 
@@ -52,9 +52,9 @@ class VersioningAdapter:
         *,
         scope: str,
         status: str,
-        notes: Optional[str],
-        previous_live_version_id: Optional[str],
-        rollback_of_publish_id: Optional[str] = None,
+        notes: str | None,
+        previous_live_version_id: str | None,
+        rollback_of_publish_id: str | None = None,
     ) -> Any:
         raise NotImplementedError
 
@@ -73,7 +73,7 @@ class VersioningAdapter:
         *,
         spec_schema: str,
         spec_json: dict[str, Any],
-        metadata: Optional[dict[str, Any]],
+        metadata: dict[str, Any] | None,
     ) -> None:
         return None
 
@@ -96,8 +96,61 @@ class VersioningAdapter:
 class VersionControlService:
     """Shared orchestration for draft, publish, rollback, and version lookup."""
 
-    def __init__(self, adapter: VersioningAdapter) -> None:
+    def __init__(
+        self,
+        adapter: VersioningAdapter,
+        *,
+        ctx: Any | None = None,
+        approval_checkpoint_gateway: Any | None = None,
+    ) -> None:
         self.adapter = adapter
+        self.ctx = ctx
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
+
+    def _require_publish_approval_if_needed(
+        self,
+        *,
+        action: str,
+        subject_id: str,
+        version: Any,
+        scope: str,
+        notes: str | None,
+    ) -> None:
+        if self.ctx is None or self.approval_checkpoint_gateway is None:
+            return
+
+        request = {
+            "action": action,
+            "resource_type": self.adapter.subject_kind,
+            "resource_ref": f"{self.adapter.subject_kind}:{subject_id}",
+            "risk_level": "high",
+            "run_id": None,
+            "task_id": None,
+            "thread_id": None,
+            "agent_id": subject_id if self.adapter.subject_kind == "agent" else None,
+            "title": f"Approve {action}: {self.adapter.subject_kind} {subject_id}",
+            "details": {
+                "subject_kind": self.adapter.subject_kind,
+                "subject_id": subject_id,
+                "version_id": getattr(version, "id", None),
+                "version": getattr(version, "version", None),
+                "scope": scope,
+                "notes": notes,
+            },
+        }
+        decision = self.approval_checkpoint_gateway.evaluate(self.ctx, request)
+        if not bool(getattr(decision, "requires_approval", False)):
+            return
+        raise ValidationError(
+            f"Approval required before {action}",
+            details={
+                "status": str(getattr(decision, "task_status", None) or "waiting_approval"),
+                "reason": str(getattr(decision, "reason", "approval_required")),
+                "policy_ref": getattr(decision, "policy_ref", None),
+                "approval": dict(getattr(decision, "approval_payload", None) or {}),
+                "request": request,
+            },
+        )
 
     def _get_subject(self, subject_id: str) -> Any:
         subject = self.adapter.get_subject(subject_id)
@@ -118,8 +171,8 @@ class VersionControlService:
         *,
         spec_schema: str,
         spec_json: dict[str, Any],
-        based_on_version_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        based_on_version_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Any:
         subject = self._get_subject(subject_id)
         resolved_based_on = based_on_version_id
@@ -150,9 +203,16 @@ class VersionControlService:
         version_id: str,
         *,
         scope: str = "workspace",
-        notes: Optional[str] = None,
+        notes: str | None = None,
     ) -> Any:
         subject, version = self._get_version_for_subject(subject_id, version_id)
+        self._require_publish_approval_if_needed(
+            action="publish",
+            subject_id=subject_id,
+            version=version,
+            scope=scope,
+            notes=notes,
+        )
         self.adapter.validate_for_publish(subject, version)
         version.status = "published"
         self.adapter.update_version(version)
@@ -174,10 +234,17 @@ class VersionControlService:
         version_id: str,
         *,
         scope: str = "workspace",
-        notes: Optional[str] = None,
-        rollback_of_publish_id: Optional[str] = None,
+        notes: str | None = None,
+        rollback_of_publish_id: str | None = None,
     ) -> Any:
         subject, version = self._get_version_for_subject(subject_id, version_id)
+        self._require_publish_approval_if_needed(
+            action="rollback",
+            subject_id=subject_id,
+            version=version,
+            scope=scope,
+            notes=notes,
+        )
         self.adapter.validate_for_rollback(subject, version)
         version.status = "published"
         self.adapter.update_version(version)

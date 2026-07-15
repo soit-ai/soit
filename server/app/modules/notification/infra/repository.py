@@ -3,16 +3,26 @@
 Notification domain repository.
 """
 
-from typing import Optional, List
+from __future__ import annotations
 
-from sqlalchemy import select, and_, desc, func, update
+import builtins
+
+from sqlalchemy import and_, desc, func, select, update
 from sqlalchemy.orm import Session
 
 from app.infra.db.repository import Repository
-from app.kernel.contracts.context import RequestContext
-from app.modules.notification.domain.models import Notification
 from app.kernel.commons.time import utc_now
-from app.kernel.contracts.notification import NOTIFICATION_STATUS_READ, NOTIFICATION_STATUS_ARCHIVED
+from app.kernel.contracts.context import RequestContext
+from app.kernel.contracts.notification import (
+    NOTIFICATION_STATUS_ARCHIVED,
+    NOTIFICATION_STATUS_READ,
+)
+from app.modules.notification.domain.models import (
+    Notification,
+    NotificationDelivery,
+    NotificationEndpoint,
+    NotificationPreference,
+)
 
 
 class NotificationRepository(Repository[Notification]):
@@ -21,7 +31,7 @@ class NotificationRepository(Repository[Notification]):
     def __init__(self, db: Session, ctx: RequestContext):
         super().__init__(Notification, db, ctx)
 
-    def get_by_id(self, id: str) -> Optional[Notification]:
+    def get_by_id(self, id: str) -> Notification | None:
         query = select(Notification).where(
             and_(
                 Notification.id == id,
@@ -36,12 +46,12 @@ class NotificationRepository(Repository[Notification]):
         self,
         limit: int = 20,
         offset: int = 0,
-        status: Optional[str] = None,
-        type: Optional[str] = None,
-        severity: Optional[str] = None,
-        source_module: Optional[str] = None,
+        status: str | None = None,
+        type: str | None = None,
+        severity: str | None = None,
+        source_module: str | None = None,
         include_archived: bool = False,
-    ) -> List[Notification]:
+    ) -> list[Notification]:
         query = select(Notification).where(
             and_(
                 Notification.user_id == self.ctx.user_id,
@@ -75,13 +85,13 @@ class NotificationRepository(Repository[Notification]):
         )
         query = self._apply_scope(query)
         result = self.db.exec(query).one()
-        if isinstance(result, (list, tuple)):
+        if isinstance(result, list | tuple):
             return int(result[0])
         if hasattr(result, "_mapping"):
             return int(result[0])
         return int(result)
 
-    def mark_read(self, notification_id: str) -> Optional[Notification]:
+    def mark_read(self, notification_id: str) -> Notification | None:
         notification = self.get_by_id(notification_id)
         if not notification:
             return None
@@ -95,7 +105,7 @@ class NotificationRepository(Repository[Notification]):
             self.db.refresh(notification)
         return notification
 
-    def mark_read_bulk(self, ids: List[str]) -> int:
+    def mark_read_bulk(self, ids: builtins.list[str]) -> int:
         if not ids:
             return 0
         now = utc_now()
@@ -133,7 +143,7 @@ class NotificationRepository(Repository[Notification]):
         self.db.commit()
         return result.rowcount or 0
 
-    def archive(self, notification_id: str) -> Optional[Notification]:
+    def archive(self, notification_id: str) -> Notification | None:
         notification = self.get_by_id(notification_id)
         if not notification:
             return None
@@ -146,3 +156,61 @@ class NotificationRepository(Repository[Notification]):
             self.db.commit()
             self.db.refresh(notification)
         return notification
+
+    def get_preference(self, user_id: str) -> NotificationPreference | None:
+        query = select(NotificationPreference).where(
+            and_(
+                NotificationPreference.tenant_id == self.ctx.tenant_id,
+                NotificationPreference.workspace_id == self.ctx.workspace_id,
+                NotificationPreference.user_id == user_id,
+            )
+        )
+        result = self.db.exec(query).first()
+        if isinstance(result, NotificationPreference):
+            return result
+        if isinstance(result, tuple) or hasattr(result, "_mapping"):
+            return result[0]
+        return result
+
+    def list_endpoints(
+        self, user_id: str, *, active_only: bool = False
+    ) -> builtins.list[NotificationEndpoint]:
+        query = select(NotificationEndpoint).where(
+            and_(
+                NotificationEndpoint.tenant_id == self.ctx.tenant_id,
+                NotificationEndpoint.workspace_id == self.ctx.workspace_id,
+                NotificationEndpoint.user_id == user_id,
+            )
+        )
+        if active_only:
+            query = query.where(NotificationEndpoint.status == "active")
+        results = list(self.db.exec(query.order_by(desc(NotificationEndpoint.created_at))).all())
+        return [item if isinstance(item, NotificationEndpoint) else item[0] for item in results]
+
+    def get_endpoint(self, endpoint_id: str, user_id: str | None = None) -> NotificationEndpoint | None:
+        query = select(NotificationEndpoint).where(
+            and_(
+                NotificationEndpoint.id == endpoint_id,
+                NotificationEndpoint.tenant_id == self.ctx.tenant_id,
+                NotificationEndpoint.workspace_id == self.ctx.workspace_id,
+                NotificationEndpoint.user_id == (user_id or self.ctx.user_id),
+            )
+        )
+        result = self.db.exec(query).first()
+        if result is None or isinstance(result, NotificationEndpoint):
+            return result
+        return result[0]
+
+    def list_deliveries(
+        self, notification_id: str, user_id: str
+    ) -> builtins.list[NotificationDelivery]:
+        query = select(NotificationDelivery).where(
+            and_(
+                NotificationDelivery.tenant_id == self.ctx.tenant_id,
+                NotificationDelivery.workspace_id == self.ctx.workspace_id,
+                NotificationDelivery.user_id == user_id,
+                NotificationDelivery.notification_id == notification_id,
+            )
+        )
+        results = list(self.db.exec(query.order_by(desc(NotificationDelivery.created_at))).all())
+        return [item if isinstance(item, NotificationDelivery) else item[0] for item in results]

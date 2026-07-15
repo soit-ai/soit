@@ -3,9 +3,11 @@
 Memory domain repository.
 """
 
-from typing import Optional, List
+
+import builtins
+
+from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
@@ -18,7 +20,7 @@ class MemoryRepository(Repository[MemoryItem]):
     def __init__(self, db: Session, ctx: RequestContext):
         super().__init__(MemoryItem, db, ctx)
 
-    def list(self, limit: int = 20, offset: int = 0) -> List[MemoryItem]:
+    def list(self, limit: int = 20, offset: int = 0) -> list[MemoryItem]:
         query = select(MemoryItem).where(
             and_(
                 MemoryItem.tenant_id == self.ctx.tenant_id,
@@ -29,7 +31,7 @@ class MemoryRepository(Repository[MemoryItem]):
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
 
-    def list_by_ids(self, ids: List[str]) -> List[MemoryItem]:
+    def list_by_ids(self, ids: builtins.list[str]) -> builtins.list[MemoryItem]:
         if not ids:
             return []
         query = select(MemoryItem).where(

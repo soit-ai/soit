@@ -1,0 +1,109 @@
+{
+  "featureKey": "phase1.manual_acceptance",
+  "acceptanceId": "phase1-manual-acceptance-20260611",
+  "release": "v1.0.0-rc",
+  "environment": "local-docker",
+  "reviewer": "release-owner",
+  "startedAt": "2026-06-11T07:00:00Z",
+  "finishedAt": "2026-06-11T07:30:00Z",
+  "owner_ui_spotcheck": {
+    "checklistRef": "docs/quickstart.md#manual-acceptance",
+    "signedRecordRef": "evidence/phase1/owner-ui-spotcheck-signed.md",
+    "result": "Pass",
+    "routeResults": [
+      {
+        "path": "/",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-dashboard.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-dashboard-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-dashboard-mobile.png"}
+        ]
+      },
+      {
+        "path": "/models",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-models.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-models-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-models-mobile.png"}
+        ]
+      },
+      {
+        "path": "/knowledge",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-knowledge.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-knowledge-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-knowledge-mobile.png"}
+        ]
+      },
+      {
+        "path": "/agents",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-agents.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-agents-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-agents-mobile.png"}
+        ]
+      },
+      {
+        "path": "/chat",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-chat.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-chat-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-chat-mobile.png"}
+        ]
+      },
+      {
+        "path": "/observe/runs",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-runs.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-runs-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-runs-mobile.png"}
+        ]
+      },
+      {
+        "path": "/workflow",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-workflow.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-workflow-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-workflow-mobile.png"}
+        ]
+      },
+      {
+        "path": "/tasks",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-tasks.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-tasks-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-tasks-mobile.png"}
+        ]
+      },
+      {
+        "path": "/settings",
+        "status": "passed",
+        "evidenceRef": "evidence/phase1/ui-settings.png",
+        "viewports": [
+          {"name": "desktop", "status": "passed", "evidenceRef": "evidence/phase1/ui-settings-desktop.png"},
+          {"name": "mobile", "status": "passed", "evidenceRef": "evidence/phase1/ui-settings-mobile.png"}
+        ]
+      }
+    ]
+  },
+  "chainResults": [
+    {
+      "name": "chain_a",
+      "status": "passed",
+      "evidenceRef": "evidence/phase1/chain-a-manual-acceptance.log"
+    },
+    {
+      "name": "chain_b",
+      "status": "passed",
+      "evidenceRef": "evidence/phase1/chain-b-manual-acceptance.log"
+    }
+  ]
+}

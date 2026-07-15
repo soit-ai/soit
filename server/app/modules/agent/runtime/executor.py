@@ -3,7 +3,7 @@
 Agent executor.
 """
 
-from typing import Dict, Any
+from typing import Any
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -18,7 +18,7 @@ class AgentExecutor:
     async def execute_tool(
         self,
         tool_ref: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         ctx: RequestContext,
         run_id: str,
     ) -> ToolResponse:

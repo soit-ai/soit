@@ -5,9 +5,7 @@ Secrets application service.
 
 from __future__ import annotations
 
-from typing import List, Optional
-
-from app.kernel.commons.errors import KernelError, ValidationError, NotFoundError
+from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.secrets.interface import SecretsPort
@@ -30,7 +28,7 @@ class SecretsService:
         self.secrets_port = secrets_port
 
     @workspace_guard("read")
-    async def list_secrets(self, limit: int = 50, offset: int = 0) -> List[Secret]:
+    async def list_secrets(self, limit: int = 50, offset: int = 0) -> list[Secret]:
         """List secrets for workspace."""
         return self.repo.list(limit=limit, offset=offset)
 

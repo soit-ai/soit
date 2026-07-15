@@ -3,9 +3,10 @@
 HTTP node executor.
 """
 
-from typing import Dict, Any
-from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
+from typing import Any
+
 from app.kernel.commons.errors import ValidationError
+from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
 class HttpNodeExecutor(NodeExecutor):
@@ -13,10 +14,10 @@ class HttpNodeExecutor(NodeExecutor):
 
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute HTTP node."""
         if not context.tool_port:
             raise ValidationError("Tool port not available")

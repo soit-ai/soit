@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",
+    "budget": "node ./scripts/check-bundle-budget.mjs",
     "start": "node ./scripts/serve-client.mjs",
     "start:ssr": "react-router-serve ./build/server/index.js",
     "preview": "vite preview",

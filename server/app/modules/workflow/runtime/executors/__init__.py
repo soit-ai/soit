@@ -3,26 +3,24 @@
 Workflow node executors.
 """
 
-from typing import Dict, Type
 from app.modules.workflow.runtime.executors.base import NodeExecutor
-from app.modules.workflow.runtime.executors.llm import LLMNodeExecutor
-from app.modules.workflow.runtime.executors.retrieve import RetrieveNodeExecutor
-from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
 from app.modules.workflow.runtime.executors.condition import ConditionNodeExecutor
-from app.modules.workflow.runtime.executors.transform import TransformNodeExecutor
-from app.modules.workflow.runtime.executors.output import OutputNodeExecutor
 from app.modules.workflow.runtime.executors.http import HttpNodeExecutor
-from app.modules.workflow.runtime.executors.set_var import SetVarNodeExecutor
+from app.modules.workflow.runtime.executors.llm import LLMNodeExecutor
 from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
-
+from app.modules.workflow.runtime.executors.output import OutputNodeExecutor
+from app.modules.workflow.runtime.executors.retrieve import RetrieveNodeExecutor
+from app.modules.workflow.runtime.executors.set_var import SetVarNodeExecutor
+from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
+from app.modules.workflow.runtime.executors.transform import TransformNodeExecutor
 
 # Registry for node executors
-_executor_registry: Dict[str, Type[NodeExecutor]] = {}
+_executor_registry: dict[str, type[NodeExecutor]] = {}
 
 
-def register_executor(node_type: str, executor_class: Type[NodeExecutor]) -> None:
+def register_executor(node_type: str, executor_class: type[NodeExecutor]) -> None:
     """Register a node executor.
-    
+
     Args:
         node_type: Node type (e.g., "llm", "retrieve").
         executor_class: Executor class.
@@ -30,15 +28,15 @@ def register_executor(node_type: str, executor_class: Type[NodeExecutor]) -> Non
     _executor_registry[node_type] = executor_class
 
 
-def get_executor(node_type: str) -> Type[NodeExecutor]:
+def get_executor(node_type: str) -> type[NodeExecutor]:
     """Get executor class for node type.
-    
+
     Args:
         node_type: Node type.
-        
+
     Returns:
         Executor class.
-        
+
     Raises:
         ValueError: If executor not found.
     """

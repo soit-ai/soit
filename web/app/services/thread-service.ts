@@ -1,10 +1,7 @@
 import { del, get, patch, post } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface Thread {
   id: string
@@ -98,7 +95,7 @@ export const createThread = (data?: {
   owner_user_id?: string
   metadata_json?: Record<string, any>
 }): Promise<Thread> => {
-  return post<Thread>('/threads', data || {}).then((response) => response.data)
+  return post<Thread>('/threads', data || {})
 }
 
 export const listThreads = (params?: {
@@ -108,11 +105,11 @@ export const listThreads = (params?: {
   agent_id?: string
   search?: string
 }): Promise<PaginatedResponse<Thread>> => {
-  return get<PaginatedResponse<Thread>>('/threads', params).then((response) => response.data)
+  return get<PaginatedResponse<Thread>>('/threads', params)
 }
 
 export const getThread = (threadId: string): Promise<ThreadDetail> => {
-  return get<ThreadDetail>(`/threads/${threadId}`).then((response) => response.data)
+  return get<ThreadDetail>(`/threads/${threadId}`)
 }
 
 export const updateThread = (
@@ -137,9 +134,9 @@ export const updateThread = (
     metadata_json?: Record<string, any>
   }
 ): Promise<Thread> => {
-  return patch<Thread>(`/threads/${threadId}`, data).then((response) => response.data)
+  return patch<Thread>(`/threads/${threadId}`, data)
 }
 
 export const deleteThread = (threadId: string): Promise<void> => {
-  return del(`/threads/${threadId}`).then((response) => response.data)
+  return del(`/threads/${threadId}`)
 }

@@ -2,9 +2,23 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi import status
 
+from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.llm.interface import (
+    ChatResponse,
+    EmbeddingResponse,
+    LLMPort,
+    RerankResponse,
+)
+from app.modules.modelhub.application.schemas import (
+    ModelTestChatRequest,
+    ModelTestEmbeddingRequest,
+    ProviderCreate,
+    ProviderUpdate,
+)
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.modelhub.domain.models import Provider, ProviderModel
 from app.modules.modelhub.infra.repository import (
@@ -62,7 +76,15 @@ class _ModelTestCatalog:
         }
 
 
-def _modelhub_service(db, ctx: RequestContext, *, catalog=None) -> ModelHubService:
+def _modelhub_service(
+    db,
+    ctx: RequestContext,
+    *,
+    catalog=None,
+    litellm_factory=None,
+    provider_cache_invalidator=None,
+    litellm_runtime_available=None,
+) -> ModelHubService:
     return ModelHubService(
         db,
         ctx,
@@ -72,11 +94,204 @@ def _modelhub_service(db, ctx: RequestContext, *, catalog=None) -> ModelHubServi
         SyncJobRepository(db, ctx),
         _TestSecrets(),
         catalog or _ModelTestCatalog(),
+        litellm_port_factory=litellm_factory,
+        provider_cache_invalidator=provider_cache_invalidator,
+        litellm_runtime_available=litellm_runtime_available,
     )
+
+
+class _TestLiteLLMPort(LLMPort):
+    def __init__(self):
+        self.calls = []
+
+    async def chat(self, messages, model, **kwargs):
+        self.calls.append(("chat", model))
+        return ChatResponse(text="litellm chat", tokens_prompt=4, tokens_completion=2, model=model)
+
+    async def embed(self, texts, model, **kwargs):
+        self.calls.append(("embed", model))
+        return EmbeddingResponse(embeddings=[[0.1, 0.2]], tokens_used=3, model=model)
+
+    async def rerank(self, query, documents, model, top_n=None, **kwargs):
+        return RerankResponse(results=[], model=model)
+
+
+class _FlakyLiteLLMPort(_TestLiteLLMPort):
+    def __init__(self):
+        super().__init__()
+        self.chat_attempts = 0
+
+    async def chat(self, messages, model, **kwargs):
+        self.chat_attempts += 1
+        if self.chat_attempts == 1:
+            raise RuntimeError("temporary provider failure")
+        return await super().chat(messages, model, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="team-litellm",
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        name="Team LiteLLM",
+        base_url="https://llm.example.com/v1",
+        credential_ref="secret:litellm",
+        auth_config_json={
+            "secret_bindings": {"azure_ad_token": "secret:azure-token"}
+        },
+        status="active",
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    port = _TestLiteLLMPort()
+    captured = {}
+
+    def build_port(_configured, credentials):
+        captured["credentials"] = credentials
+        return port
+
+    service = _modelhub_service(db, ctx, litellm_factory=build_port)
+
+    chat = await service.test_chat(
+        ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
+    )
+    embedding = await service.test_embeddings(
+        ModelTestEmbeddingRequest(provider_id=provider.id, model_id="embed-test", input="hello")
+    )
+
+    assert chat["success"] is True
+    assert chat["response"] == "litellm chat"
+    assert embedding["success"] is True
+    assert embedding["response"] == "[0.1, 0.2]"
+    assert port.calls == [
+        ("chat", "model:team-litellm:gpt-test"),
+        ("embed", "model:team-litellm:embed-test"),
+    ]
+    assert captured["credentials"] == {
+        "api_key": "test-key",
+        "azure_ad_token": "test-key",
+    }
+
+
+@pytest.mark.asyncio
+async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="local-ollama",
+        kind="ollama",
+        adapter_backend="litellm",
+        name="Local Ollama",
+        base_url="http://localhost:11434",
+        credential_ref=None,
+        status="active",
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    port = _TestLiteLLMPort()
+    captured = {}
+
+    def build_port(_configured, credentials):
+        captured["credentials"] = credentials
+        return port
+
+    service = _modelhub_service(db, ctx, litellm_factory=build_port)
+
+    result = await service.test_chat(
+        ModelTestChatRequest(provider_id=provider.id, model_id="llama3.2", input="hello")
+    )
+
+    assert result["success"] is True
+    assert captured["credentials"] == {}
+
+
+@pytest.mark.asyncio
+async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(db, ctx):
+    provider = Provider(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        slug="retry-litellm",
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        name="Retry LiteLLM",
+        base_url="https://llm.example.com/v1",
+        credential_ref="secret:litellm",
+        status="active",
+        connection_config_json={
+            "timeout_ms": 1000,
+            "retry_policy": {"max_retries": 1, "backoff": "none"},
+        },
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    port = _FlakyLiteLLMPort()
+    service = _modelhub_service(db, ctx, litellm_factory=lambda configured, key: port)
+
+    result = await service.test_chat(
+        ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
+    )
+
+    assert result["success"] is True
+    assert port.chat_attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_provider_mutations_invalidate_runtime_provider_cache(db, ctx):
+    invalidated: list[str] = []
+
+    async def invalidate(request_ctx, slug):
+        assert request_ctx is ctx
+        invalidated.append(slug)
+
+    service = _modelhub_service(db, ctx, provider_cache_invalidator=invalidate)
+    provider = await service.create_provider(
+        ProviderCreate(
+            slug="cache-provider",
+            kind="openai_compatible",
+            name="Cache Provider",
+            credential_ref="secret:cache-provider",
+        )
+    )
+    provider = await service.update_provider(
+        provider.id,
+        ProviderUpdate(slug="renamed-provider"),
+    )
+    await service.healthcheck_provider(provider.id)
+    await service.delete_provider(provider.id)
+
+    assert invalidated == [
+        "cache-provider",
+        "cache-provider",
+        "renamed-provider",
+        "renamed-provider",
+        "renamed-provider",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_provider_create_rejects_unavailable_litellm_runtime(db, ctx):
+    service = _modelhub_service(db, ctx, litellm_runtime_available=False)
+
+    with pytest.raises(ValidationError, match="llm-litellm optional dependency"):
+        await service.create_provider(
+            ProviderCreate(
+                slug="missing-litellm",
+                kind="openai_compatible",
+                adapter_backend="litellm",
+                name="Missing LiteLLM",
+            )
+        )
 
 
 def test_create_provider_persists_slug_and_configuration_json(client):
     payload = {
+        "adapter_backend": "litellm",
         "slug": "deepseek-main",
         "kind": "deepseek",
         "name": "DeepSeek Main",
@@ -117,11 +332,67 @@ def test_create_provider_persists_slug_and_configuration_json(client):
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()["data"]
     assert data["slug"] == "deepseek-main"
+    assert data["adapter_backend"] == "litellm"
     assert data["connection_config_json"] == payload["connection_config_json"]
     assert data["auth_config_json"] == payload["auth_config_json"]
     assert data["runtime_config_json"] == payload["runtime_config_json"]
     assert data["governance_config_json"] == payload["governance_config_json"]
     assert data["sync_policy_json"]["catalog_supported"] is True
+
+
+def test_create_litellm_preset_provider_validates_runtime_configuration(client):
+    response = client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "adapter_backend": "litellm",
+            "slug": "azure-main",
+            "kind": "azure_openai",
+            "name": "Azure OpenAI Main",
+            "base_url": "https://example.openai.azure.com",
+            "credential_ref": "secret:azure-api-key",
+            "connection_config_json": {"api_version": "2026-01-01"},
+            "runtime_config_json": {
+                "litellm_provider": "azure",
+                "litellm_params": {"organization": "org-1"},
+            },
+            "auth_config_json": {
+                "secret_bindings": {"azure_ad_token": "secret:azure-ad-token"}
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["data"]["kind"] == "azure_openai"
+
+    invalid_response = client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "adapter_backend": "litellm",
+            "slug": "invalid-litellm",
+            "kind": "openrouter",
+            "name": "Invalid LiteLLM",
+            "runtime_config_json": {"litellm_params": {"model": "forbidden"}},
+        },
+    )
+
+    assert invalid_response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "reserved LiteLLM parameter" in str(invalid_response.json())
+
+    invalid_backend_response = client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "adapter_backend": "native",
+            "slug": "invalid-bedrock",
+            "kind": "bedrock",
+            "name": "Invalid Bedrock",
+        },
+    )
+
+    assert invalid_backend_response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "does not support native adapter" in str(invalid_backend_response.json())
 
 
 def test_create_openai_compatible_provider_persists_all_configuration_groups(client):
@@ -199,6 +470,17 @@ def test_provider_slug_must_be_unique_within_workspace(client):
     )
     assert first_response.status_code == status.HTTP_201_CREATED
     assert second_response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_provider_adapter_backend_defaults_to_native(client):
+    response = client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={"slug": "native-default", "kind": "openai", "name": "Native Default"},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["data"]["adapter_backend"] == "native"
 
 
 def test_provider_slug_lookup_is_workspace_scoped(db):
@@ -468,7 +750,22 @@ def test_create_provider_model_persists_split_configuration_json(client):
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()["data"]
     assert data["architecture_json"] == payload["architecture_json"]
-    assert data["capability_matrix_json"] == payload["capability_matrix_json"]
+    assert data["capability_matrix_json"] == {
+        "chat": {
+            "catalog": True,
+            "diagnostics": True,
+            "runtime": True,
+            "merged": True,
+            "user_override": "auto",
+        },
+        "reasoning": {
+            "catalog": True,
+            "diagnostics": False,
+            "runtime": True,
+            "merged": False,
+            "user_override": "enable_after_diagnostics",
+        },
+    }
     assert data["parameter_config_json"] == payload["parameter_config_json"]
     assert data["pricing_json"] == payload["pricing_json"]
     assert data["diagnostics_json"] == payload["diagnostics_json"]
@@ -476,6 +773,7 @@ def test_create_provider_model_persists_split_configuration_json(client):
     assert data["source"] == "catalog"
     assert data["platform_model_id"] == "plm_gpt_54_mini"
     assert data["last_synced_at"].startswith("2026-06-08T08:00:00")
+    assert data["model_ref"] == "model:openai-model-config:gpt-5.4-mini"
 
 
 def test_update_provider_model_persists_split_configuration_json_and_marks_overrides(client, db):
@@ -527,7 +825,15 @@ def test_update_provider_model_persists_split_configuration_json_and_marks_overr
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]
     assert data["architecture_json"] == payload["architecture_json"]
-    assert data["capability_matrix_json"] == payload["capability_matrix_json"]
+    assert data["capability_matrix_json"] == {
+        "chat": {
+            "catalog": None,
+            "diagnostics": None,
+            "runtime": None,
+            "merged": True,
+            "user_override": "force_on",
+        }
+    }
     assert data["parameter_config_json"] == payload["parameter_config_json"]
     assert data["pricing_json"] == payload["pricing_json"]
     assert data["diagnostics_json"] == payload["diagnostics_json"]
@@ -659,7 +965,20 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]
     by_kind = {item["provider_kind"]: item for item in data["providers"]}
-    assert set(by_kind) == {"openai", "deepseek", "openai_compatible", "anthropic", "gemini"}
+    by_adapter = {item["adapter_backend"]: item for item in data["adapter_backends"]}
+    presets = {item["provider_kind"]: item for item in data["provider_presets"]}
+    assert set(by_kind) == {
+        "openai",
+        "deepseek",
+        "openai_compatible",
+        "anthropic",
+        "gemini",
+        "azure_openai",
+        "bedrock",
+        "openrouter",
+        "ollama",
+        "dashscope",
+    }
     assert by_kind["openai"]["support_status"] == "supported"
     assert by_kind["openai"]["configured"] is True
     assert by_kind["openai"]["configured_provider_ids"] == [openai_provider.id]
@@ -671,7 +990,16 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
     assert by_kind["anthropic"]["chat_supported"] is True
     assert by_kind["anthropic"]["embeddings_supported"] is False
     assert by_kind["anthropic"]["catalog_supported"] is True
-    assert by_kind["gemini"]["support_status"] == "unsupported"
+    assert by_kind["gemini"]["support_status"] == "unavailable"
+    assert by_adapter["native"]["available"] is True
+    assert isinstance(by_adapter["litellm"]["available"], bool)
+    assert by_adapter["litellm"]["install_hint"] == "uv sync --extra llm-litellm"
+    assert presets["azure_openai"]["litellm_provider"] == "azure"
+    assert presets["bedrock"]["litellm_provider"] == "bedrock"
+    assert presets["openrouter"]["litellm_provider"] == "openrouter"
+    assert presets["ollama"]["litellm_provider"] == "ollama_chat"
+    assert presets["ollama"]["credential_optional"] is True
+    assert presets["dashscope"]["litellm_provider"] == "dashscope"
 
 
 def test_delete_platform_provider_model_marks_removed_and_hides_by_default(client, db):

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
@@ -22,7 +20,7 @@ def enqueue_workflow_node_completed(
     run_id: str,
     node_id: str,
     step_pk: str,
-    next_node_id: Optional[str] = None,
+    next_node_id: str | None = None,
 ) -> None:
     """Stage workflow.node.completed (B3)."""
     event_id = f"evt_wf_node_completed_{workflow_run_id}_{step_pk}"
@@ -37,6 +35,7 @@ def enqueue_workflow_node_completed(
         event_id=event_id,
         event_type=WorkflowEventType.NODE_COMPLETED,
         tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
         subject_type="workflow_run",
         subject_id=workflow_run_id,
         run_id=run_id,
@@ -57,8 +56,8 @@ def enqueue_workflow_node_failed(
     run_id: str,
     node_id: str,
     step_pk: str,
-    error_code: Optional[str] = None,
-    error_message: Optional[str] = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
 ) -> None:
     """Stage workflow.node.failed (B3)."""
     event_id = f"evt_wf_node_failed_{workflow_run_id}_{step_pk}"
@@ -66,6 +65,7 @@ def enqueue_workflow_node_failed(
         event_id=event_id,
         event_type=WorkflowEventType.NODE_FAILED,
         tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
         subject_type="workflow_run",
         subject_id=workflow_run_id,
         run_id=run_id,

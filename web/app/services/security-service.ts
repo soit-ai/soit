@@ -1,11 +1,7 @@
 import { get, put } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-  has_next?: boolean
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface EgressPolicy {
   scope: string
@@ -32,11 +28,11 @@ export interface UsagePolicy {
 }
 
 export const getWorkspaceEgressPolicy = (): Promise<EgressPolicy> => {
-  return get<EgressPolicy>('/security/egress/workspace').then(response => response.data)
+  return get<EgressPolicy>('/security/egress/workspace')
 }
 
 export const updateWorkspaceEgressPolicy = async (data: Pick<EgressPolicy, 'allowlist' | 'blocklist'>): Promise<EgressPolicy> => {
-  return put<EgressPolicy>('/security/egress/workspace', data).then(response => response.data)
+  return put<EgressPolicy>('/security/egress/workspace', data)
 }
 
 export const listEgressPolicyAudits = (params?: {
@@ -44,13 +40,13 @@ export const listEgressPolicyAudits = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<EgressPolicyAudit>> => {
-  return get<PaginatedResponse<EgressPolicyAudit>>('/security/egress/audits', params).then(response => response.data)
+  return get<PaginatedResponse<EgressPolicyAudit>>('/security/egress/audits', params)
 }
 
 export const getWorkspaceUsagePolicy = (): Promise<UsagePolicy> => {
-  return get<UsagePolicy>('/security/limits/workspace').then(response => response.data)
+  return get<UsagePolicy>('/security/limits/workspace')
 }
 
 export const updateWorkspaceUsagePolicy = async (data: UsagePolicy): Promise<UsagePolicy> => {
-  return put<UsagePolicy>('/security/limits/workspace', data).then(response => response.data)
+  return put<UsagePolicy>('/security/limits/workspace', data)
 }

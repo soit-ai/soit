@@ -51,7 +51,7 @@ def test_create_llm_port_registers_anthropic_provider(monkeypatch) -> None:
     assert "openai" not in port.providers
 
 
-def test_create_llm_port_fails_closed_in_production_without_provider_keys(
+def test_create_llm_port_allows_database_backed_providers_without_environment_keys(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
@@ -61,8 +61,27 @@ def test_create_llm_port_fails_closed_in_production_without_provider_keys(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr("app.wiring.container.settings.environment", "production")
 
-    with pytest.raises(RuntimeError, match="LLM provider"):
-        Container()._create_llm_port()
+    port = Container()._create_llm_port()
+
+    assert isinstance(port, LLMRouterPort)
+    assert port.providers == {}
+    assert port.provider_resolver is not None
+    assert port.secrets_resolver is not None
+
+
+def test_container_shares_provider_resolver_with_llm_router(monkeypatch) -> None:
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("SOIT_TESTING", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    container = Container()
+
+    resolver = container.get("llm_provider_resolver")
+    port = container._create_llm_port()
+
+    assert isinstance(port, LLMRouterPort)
+    assert port.provider_resolver is resolver
 
 
 def test_create_secrets_port_fails_closed_in_production_without_vault(

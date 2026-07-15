@@ -419,6 +419,60 @@ test('agent create form accepts current agent semantics', async ({ page }) => {
 
 test('agent detail binds plugin-exported tools as tool refs', async ({ page }) => {
   let createVersionPayload: any
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          summary: {
+            total_models: 1,
+            available_models: 1,
+            total_providers: 1,
+            online_providers: 1,
+            month_calls: 0,
+            month_tokens: 0,
+            month_cost_amount: 0,
+            abnormal_models: 0,
+            updated_at: '2026-02-16T10:00:00.000Z',
+          },
+          tabs: {
+            all: 1,
+            text: 1,
+            embedding: 0,
+            multimodal: 0,
+            rerank: 0,
+            disabled: 0,
+            abnormal: 0,
+          },
+          items: [
+            {
+              id: 'model-1',
+              provider_id: 'provider-1',
+              provider_name: 'Test Provider',
+              provider_kind: 'test',
+              model_id: 'model:test:primary',
+              display_name: 'Test Primary',
+              model_type: 'llm',
+              status: 'available',
+              sync_status: 'in_sync',
+              source: 'platform',
+              month_calls: 0,
+              today_calls: 0,
+              month_tokens: 0,
+              month_cost_amount: 0,
+              recent_exception_count: 0,
+              action_enabled: true,
+              updated_at: '2026-02-16T10:00:00.000Z',
+            },
+          ],
+          page_size: 200,
+          next_page_token: null,
+        },
+      }),
+    })
+  })
   await page.route('**/api/v1/agents/agent-1/versions', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.fallback()

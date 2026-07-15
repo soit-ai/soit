@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.kernel.commons.time import utc_now
-from app.modules.agent.domain.models import Agent, AgentBinding, AgentPublish, AgentVersion
+from app.kernel.contracts.context import RequestContext
+from app.modules.agent.domain.models import (
+    Agent,
+    AgentBinding,
+    AgentPublish,
+    AgentVersion,
+)
 
 
 class AgentRepository:
@@ -29,7 +32,7 @@ class AgentRepository:
         self.db.refresh(agent)
         return agent
 
-    def get_by_id(self, agent_id: str) -> Optional[Agent]:
+    def get_by_id(self, agent_id: str) -> Agent | None:
         query = select(Agent).where(
             and_(
                 Agent.id == agent_id,
@@ -41,7 +44,7 @@ class AgentRepository:
         result = self.db.exec(query).first()
         return result if isinstance(result, Agent) else result[0] if result else None
 
-    def get_by_name(self, name: str) -> Optional[Agent]:
+    def get_by_name(self, name: str) -> Agent | None:
         query = select(Agent).where(
             and_(
                 Agent.name == name,
@@ -110,7 +113,7 @@ class AgentVersionRepository:
         self.db.refresh(version)
         return version
 
-    def get_by_id(self, version_id: str) -> Optional[AgentVersion]:
+    def get_by_id(self, version_id: str) -> AgentVersion | None:
         query = select(AgentVersion).where(
             and_(
                 AgentVersion.id == version_id,

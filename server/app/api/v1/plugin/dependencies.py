@@ -1,5 +1,3 @@
-"""plugin entry dependencies."""
-
 """Plugin entry dependencies."""
 
 from typing import Annotated

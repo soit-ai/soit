@@ -6,6 +6,7 @@ import pytest
 
 from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.llm.runtime_config import normalize_capability_matrix
 from app.modules.modelhub.application.schemas import SyncFromPlatformRequest
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.modelhub.domain.models import PlatformModel, Provider, ProviderModel
@@ -234,11 +235,9 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
         "generation": "4.8",
         "provider": "anthropic",
     }
-    assert model.capability_matrix_json == {
-        "chat": True,
-        "vision": True,
-        "embeddings": False,
-    }
+    assert model.capability_matrix_json == normalize_capability_matrix(
+        {"chat": True, "vision": True, "embeddings": False}
+    )
     assert model.parameter_config_json["limits"]["max_output_tokens"] == 128_000
     assert model.pricing_json == {
         "currency": "USD",

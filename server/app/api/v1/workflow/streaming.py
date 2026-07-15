@@ -1,9 +1,9 @@
 """Workflow streaming handlers."""
 
-from typing import AsyncGenerator
-import logging
-import json
 import asyncio
+import json
+import logging
+from collections.abc import AsyncGenerator
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.workflow.application.service import WorkflowService
@@ -27,7 +27,7 @@ class SSEHandlers:
 
     def __init__(self, workflow_service: WorkflowService):
         """Initialize SSE handlers.
-        
+
         Args:
             workflow_service: WorkflowService instance.
         """
@@ -38,7 +38,7 @@ class SSEHandlers:
         """Compile workflow from the new workflow domain."""
 
         return await self.workflow_service.compile_workflow(workflow_id, inputs, run_id)
-    
+
     async def stream_execution(
         self,
         ctx: RequestContext,
@@ -46,25 +46,26 @@ class SSEHandlers:
         inputs: dict,
     ) -> AsyncGenerator[str, None]:
         """Stream workflow execution updates (SSE).
-        
+
         Args:
             ctx: Request context.
             workflow_id: Workflow ID.
             inputs: Workflow inputs.
-            
+
         Yields:
             SSE formatted data chunks.
         """
+        from sqlalchemy import and_, select
+
         from app.kernel.commons.ids import generate_run_id
-        from app.kernel.trace.models import RunStep, Run
-        from sqlalchemy import select, and_
-        
+        from app.kernel.runtime.db.models.runs import Run, RunStep
+
         run_id = generate_run_id()
-        
+
         # Send initial event
-        yield f"event: start\n"
+        yield "event: start\n"
         yield f"data: {json.dumps({'run_id': run_id, 'status': 'started', 'request_id': ctx.request_id})}\n\n"
-        
+
         execution_task = None
         subscription_id = None
         event_bus = None
@@ -133,10 +134,10 @@ class SSEHandlers:
         try:
             # Compile workflow
             execution_plan = await self._compile_execution_plan(workflow_id, inputs, run_id)
-            
-            yield f"event: compiled\n"
+
+            yield "event: compiled\n"
             yield f"data: {json.dumps({'run_id': run_id, 'status': 'compiled'})}\n\n"
-            
+
             # Reuse the workflow service engine so SSE execution matches normal runtime wiring.
             db = self.workflow_service.db
             container = get_container()
@@ -168,7 +169,7 @@ class SSEHandlers:
                 timeout = max(0.1, next_fallback_at - now)
                 try:
                     event = await asyncio.wait_for(event_queue.get(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     steps_query = select(RunStep).where(
                         and_(
                             RunStep.run_id == run_id,
@@ -219,18 +220,18 @@ class SSEHandlers:
 
             # Wait for execution to complete
             try:
-                result = await execution_task
+                await execution_task
             except Exception as exec_error:
                 # Execution failed
-                yield f"event: error\n"
+                yield "event: error\n"
                 yield f"data: {json.dumps({'run_id': run_id, 'error': str(exec_error)})}\n\n"
                 return
-            
+
             # Get final run status
             run = _unwrap_model(db.get(Run, run_id))
-            
+
             if run:
-                yield f"event: complete\n"
+                yield "event: complete\n"
                 payload = {
                     "run_id": run_id,
                     "status": run.status,
@@ -238,14 +239,14 @@ class SSEHandlers:
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
             else:
-                yield f"event: complete\n"
+                yield "event: complete\n"
                 yield f"data: {json.dumps({'run_id': run_id, 'status': terminal_status or 'completed'})}\n\n"
-            
+
         except asyncio.CancelledError:
             self.logger.info("sse.cancelled", extra={"run_id": run_id})
             raise
         except Exception as e:
-            yield f"event: error\n"
+            yield "event: error\n"
             yield f"data: {json.dumps({'run_id': run_id, 'error': str(e)})}\n\n"
         finally:
             if subscription_id and event_bus:
@@ -263,8 +264,9 @@ class SSEHandlers:
         last_event_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream run events and replay missed steps when possible."""
-        from app.kernel.trace.models import RunStep, Run
-        from sqlalchemy import select, and_
+        from sqlalchemy import and_, select
+
+        from app.kernel.runtime.db.models.runs import Run, RunStep
 
         db = self.workflow_service.db
         event_queue: asyncio.Queue = asyncio.Queue()
@@ -431,7 +433,7 @@ class SSEHandlers:
                 timeout = max(0.1, next_fallback_at - now)
                 try:
                     event = await asyncio.wait_for(event_queue.get(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     steps_query = select(RunStep).where(
                         and_(
                             RunStep.run_id == run_id,

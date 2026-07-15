@@ -8,18 +8,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional, Callable
+from collections.abc import Callable
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.infra.db.session import get_db_sync
 from app.kernel.commons.errors import KernelError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.infra.db.session import get_db_sync
-from app.wiring.services import build_knowledge_service
 from app.modules.knowledge.application.service import KnowledgeService
 from app.modules.knowledge.domain.models import KnowledgeIngestTask
+from app.wiring.services import build_knowledge_service
 
 
 class KnowledgeIngestWorker:
@@ -35,7 +35,7 @@ class KnowledgeIngestWorker:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
         self.service = service
 
-    async def run_once(self) -> Optional[KnowledgeIngestTask]:
+    async def run_once(self) -> KnowledgeIngestTask | None:
         """Claim and process one task."""
         task = self.service.ingest_task_repo.claim_next()
         if not task:
@@ -49,7 +49,7 @@ class KnowledgeIngestWorker:
     async def run_loop(
         self,
         poll_interval: float = 1.0,
-        max_tasks: Optional[int] = None,
+        max_tasks: int | None = None,
         concurrency: int = 1,
         heartbeat_interval: float = 30.0,
     ) -> int:
@@ -59,7 +59,7 @@ class KnowledgeIngestWorker:
         heartbeat_interval = max(1.0, float(heartbeat_interval or 0))
         logger = logging.getLogger(__name__)
         last_log = time.monotonic()
-        last_completed_at: Optional[str] = None
+        last_completed_at: str | None = None
         while True:
             batch = [asyncio.create_task(self.run_once()) for _ in range(concurrency)]
             results = await asyncio.gather(*batch, return_exceptions=True)
@@ -103,7 +103,7 @@ class GlobalKnowledgeIngestWorker:
         """
         self.db_factory = db_factory
 
-    def _claim_next_task(self, db: Session) -> Optional[KnowledgeIngestTask]:
+    def _claim_next_task(self, db: Session) -> KnowledgeIngestTask | None:
         """Claim the next queued task without tenant/workspace scoping."""
         query = select(KnowledgeIngestTask).where(
             KnowledgeIngestTask.status == "queued"
@@ -125,7 +125,7 @@ class GlobalKnowledgeIngestWorker:
         db.refresh(task)
         return task
 
-    async def run_once(self) -> Optional[KnowledgeIngestTask]:
+    async def run_once(self) -> KnowledgeIngestTask | None:
         """Claim and process one task across tenants."""
         db = self.db_factory()
         try:
@@ -148,7 +148,7 @@ class GlobalKnowledgeIngestWorker:
     async def run_loop(
         self,
         poll_interval: float = 1.0,
-        max_tasks: Optional[int] = None,
+        max_tasks: int | None = None,
         concurrency: int = 1,
         heartbeat_interval: float = 30.0,
     ) -> int:
@@ -158,7 +158,7 @@ class GlobalKnowledgeIngestWorker:
         heartbeat_interval = max(1.0, float(heartbeat_interval or 0))
         logger = logging.getLogger(__name__)
         last_log = time.monotonic()
-        last_completed_at: Optional[str] = None
+        last_completed_at: str | None = None
         while True:
             batch = [asyncio.create_task(self.run_once()) for _ in range(concurrency)]
             results = await asyncio.gather(*batch, return_exceptions=True)

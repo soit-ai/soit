@@ -119,6 +119,25 @@ const translation = {
       totalMs: 'Total Latency',
       storageBytes: 'Storage Bytes',
     },
+    governance: {
+      title: 'Governance Evidence',
+      description: 'Machine-readable evidence matrix for replay, audit, scope, and policy decisions',
+      empty: 'No governance evidence matrix recorded',
+      counts: {
+        pass: 'Passed {{count}}',
+        warning: 'Warning {{count}}',
+        fail: 'Failed {{count}}',
+        not_applicable: 'N/A {{count}}',
+      },
+      status: {
+        pass: 'pass',
+        warning: 'warning',
+        fail: 'fail',
+        not_applicable: 'N/A',
+      },
+      refs: 'Refs: {{refs}}',
+      missing: 'Missing: {{missing}}',
+    },
     failure: {
       title: 'Failure and retry status',
       description: 'Current outcome and failed-step evidence',

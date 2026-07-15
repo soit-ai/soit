@@ -23,7 +23,7 @@ export function BoxPageHeader({
           <p className="text-wrap break-words text-sm font-medium leading-5 text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
+      {action ? <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">{action}</div> : null}
     </div>
   )
 }

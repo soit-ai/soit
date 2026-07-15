@@ -29,10 +29,12 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useQuery } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
+import { getAgentWorkbench } from '@/services/agent-service'
 
 interface AgentSidebarItem {
   id: string
@@ -57,7 +59,7 @@ const primaryItems = [
   {
     id: 'runs',
     labelKey: 'agent.sidebar.menu.runs',
-    url: '/observability/runs?mode=agent',
+    url: '/observe/runs?mode=agent',
     icon: Clock3,
   },
   {
@@ -164,19 +166,23 @@ export function AgentBoxSidebar({
   const navigate = useNavigate()
   const { setOpen } = useSidebar()
   const [searchParams] = useSearchParams()
-  const [isRefreshing, setIsRefreshing] = React.useState(false)
   const resolvedActiveTab = searchParams.get('view') || activeTab
+  const { data: workbench, isFetching, refetch } = useQuery({
+    queryKey: ['agents', 'workbench', 'sidebar'],
+    queryFn: () => getAgentWorkbench({ page_size: 1 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
 
   const handleNavigate = (item: AgentSidebarItem) => {
     onTabChange?.(item.id)
     navigate(item.url)
-    setOpen(false)
   }
 
-  const refreshStats = () => {
-    setIsRefreshing(true)
-    window.setTimeout(() => setIsRefreshing(false), 480)
-  }
+  const summary = workbench?.summary
+  const successRate = summary?.success_rate ?? 0
 
   return (
     <Sidebar className="hidden flex-1 md:flex" {...props}>
@@ -235,21 +241,21 @@ export function AgentBoxSidebar({
                   aria-label={t('agent.sidebar.stats.refresh')}
                   title={t('agent.sidebar.stats.refresh')}
                   className="h-7 w-7"
-                  onClick={refreshStats}
-                  disabled={isRefreshing}
+                  onClick={() => refetch()}
+                  disabled={isFetching}
                 >
-                  <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+                  <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
                 </Button>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('agent.sidebar.stats.totalAgents')}</span>
-                  <span className="font-semibold text-foreground">24</span>
+                  <span className="font-semibold text-foreground">{summary?.total_agents ?? 0}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground">{t('agent.sidebar.stats.onlineAgents')}</span>
-                  <span className="font-semibold text-foreground">16</span>
+                  <span className="font-semibold text-foreground">{summary?.running_agents ?? 0}</span>
                 </div>
               </div>
 
@@ -257,7 +263,7 @@ export function AgentBoxSidebar({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs text-muted-foreground">{t('agent.sidebar.stats.todayCalls')}</div>
-                    <div className="text-sm font-semibold text-foreground">8,750</div>
+                    <div className="text-sm font-semibold text-foreground">{(summary?.today_calls ?? 0).toLocaleString()}</div>
                   </div>
                   <MiniSparkline values={[5, 7, 6, 8, 11, 9, 13, 7, 10, 9]} className="text-blue-500 dark:text-blue-300" />
                 </div>
@@ -267,15 +273,15 @@ export function AgentBoxSidebar({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs text-muted-foreground">{t('agent.sidebar.stats.successRate')}</div>
-                    <div className="text-sm font-semibold text-foreground">98.6%</div>
+                    <div className="text-sm font-semibold text-foreground">{successRate.toFixed(successRate % 1 === 0 ? 0 : 1)}%</div>
                   </div>
                   <MiniSparkline values={[8, 9, 8, 11, 10, 13, 9, 12, 11, 14]} className="text-emerald-500 dark:text-emerald-300" />
                 </div>
-                <Progress value={98.6} className="mt-2 h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
+                <Progress value={successRate} className="mt-2 h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
               </div>
 
               <div className="border-t border-border pt-3 text-xs text-muted-foreground">
-                {t('agent.sidebar.stats.updatedAt', { timestamp: '2025-06-01 20:45' })}
+                {t('agent.sidebar.stats.updatedAt', { timestamp: summary?.updated_at ? new Date(summary.updated_at).toLocaleString() : '-' })}
               </div>
 
               <div className="flex justify-between border-t border-border pt-2 text-xs">

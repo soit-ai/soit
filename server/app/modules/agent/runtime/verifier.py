@@ -4,10 +4,8 @@ Agent verifier using structured output via function calling.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 
-from app.kernel.ports.llm.interface import LLMPort, ChatMessage, ToolDefinition
-
+from app.kernel.ports.llm.interface import ChatMessage, LLMPort, ToolDefinition
 
 VERIFY_TOOL = ToolDefinition(
     name="verify_response",
@@ -28,21 +26,21 @@ class VerifierResult:
     """Verifier result payload."""
 
     ok: bool
-    reason: Optional[str]
+    reason: str | None
     tokens_prompt: int
     tokens_completion: int
-    finish_reason: Optional[str]
+    finish_reason: str | None
 
 
 class AgentVerifier:
     """Verify agent response using structured output."""
 
-    def __init__(self, llm_port: Optional[LLMPort] = None):
+    def __init__(self, llm_port: LLMPort | None = None):
         self.llm_port = llm_port
 
     async def verify(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         response: str,
         model: str,
         run_id: str,

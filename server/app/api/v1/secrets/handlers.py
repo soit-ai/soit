@@ -3,16 +3,15 @@
 Secrets request handlers.
 """
 
-from typing import Optional, List
 
 from app.kernel.contracts.context import RequestContext
-from app.modules.secrets.application.service import SecretsService
 from app.modules.secrets.application.schemas import (
     SecretCreate,
-    SecretUpdate,
     SecretResponse,
     SecretTestResponse,
+    SecretUpdate,
 )
+from app.modules.secrets.application.service import SecretsService
 
 
 class SecretHandlers:
@@ -27,7 +26,7 @@ class SecretHandlers:
         *,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[SecretResponse]:
+    ) -> list[SecretResponse]:
         secrets = await self.service.list_secrets(limit=limit, offset=offset)
         return [SecretResponse.model_validate(item) for item in secrets]
 

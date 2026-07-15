@@ -266,7 +266,7 @@ class RegistryToolRouterPort(ToolPort):
         self,
         ctx: RequestContext,
         url: str | None,
-        allowlist: list | None,
+        allowlist: list[Any] | None,
         tool_ref: str,
     ) -> None:
         """Enforce tool-level egress allowlist if provided."""
@@ -302,6 +302,9 @@ class RegistryToolRouterPort(ToolPort):
     async def invoke(self, tool_ref: str, parameters: dict[str, Any], **kwargs: Any) -> ToolResponse:
         # Route mcp_tool:* refs directly to MCP adapter
         if tool_ref.startswith("mcp_tool:"):
+            mcp_ctx = kwargs.get("ctx")
+            if mcp_ctx is not None and self.secrets_port_factory and "secrets_port" not in kwargs:
+                kwargs["secrets_port"] = self.secrets_port_factory(mcp_ctx)
             return await self.mcp_adapter.invoke(tool_ref, parameters, **kwargs)
 
         strict_registry: bool = bool(kwargs.get("strict_registry", False))
@@ -311,7 +314,11 @@ class RegistryToolRouterPort(ToolPort):
             tenant_id = kwargs.get("tenant_id")
             workspace_id = kwargs.get("workspace_id")
             if tenant_id and workspace_id:
-                ctx = RequestContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=kwargs.get("user_id"))
+                ctx = RequestContext(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    user_id=str(kwargs.get("user_id") or "system"),
+                )
             else:
                 # No ctx: in strict mode we refuse to run unscoped tools
                 if strict_registry:

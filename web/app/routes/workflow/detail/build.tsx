@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import useDialog from '@/hooks/use-dialog'
 import {
+  createTicketTriageWorkflow,
   createWorkflowVersion,
   getCurrentWorkflowVersion,
   getWorkflow,
@@ -272,6 +273,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null)
   const [pageLoading, setPageLoading] = useState(false)
   const [savingWorkflow, setSavingWorkflow] = useState(false)
+  const [creatingTemplate, setCreatingTemplate] = useState(false)
 
   // State management.
   const [workflowName, setWorkflowName] = useState(() => t('workflow.detail.build.defaultName'))
@@ -450,7 +452,6 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       edges,
     }
 
-    console.log('Saving workflow:', workflow)
     toast.success(t('workflow.detail.build.toast.saved'))
   }, [id, workflowName, workflowDescription, nodes, edges, t])
 
@@ -752,6 +753,20 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     fileInput.click()
   }, [dialog, t])
 
+  const handleCreateTicketTemplate = useCallback(async () => {
+    try {
+      setCreatingTemplate(true)
+      const workflow = await createTicketTriageWorkflow({ name: 'Ticket triage' })
+      toast.success(t('workflow.nodeLibrary.templates.ticketTriage.created'))
+      navigate(`/workflow/${workflow.id}/build`)
+    } catch (error) {
+      toast.error(t('workflow.nodeLibrary.templates.ticketTriage.createError'))
+      console.error('Failed to create ticket triage workflow:', error)
+    } finally {
+      setCreatingTemplate(false)
+    }
+  }, [navigate, t])
+
   useEffect(() => {
     loadWorkflow()
   }, [loadWorkflow])
@@ -775,6 +790,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
                 <NodeLibraryPanel
                   onDragStart={onDragStart}
                   addNewNode={addNewNode}
+                  onCreateTicketTemplate={handleCreateTicketTemplate}
+                  creatingTicketTemplate={creatingTemplate}
                 />
               </ScrollArea>
             </div>

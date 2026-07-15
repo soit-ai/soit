@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
-from app.kernel.trace.schemas import (
+from app.kernel.runtime.runs.schemas import (
     RunCostByModeResponse,
     RunCostSummaryResponse,
     RunResponse,
 )
-from app.modules.knowledge.application.runtime_schemas import KnowledgeCreate, KnowledgeUpdate
+from app.modules.knowledge.application.runtime_schemas import (
+    KnowledgeCreate,
+    KnowledgeUpdate,
+)
 from app.modules.knowledge.application.schemas import (
-    KnowledgeUsageResponse,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeCreateRequest,
@@ -27,6 +27,7 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryResponse,
     KnowledgeResponse,
     KnowledgeUpdateRequest,
+    KnowledgeUsageResponse,
     KnowledgeWorkbenchItemsResponse,
     KnowledgeWorkbenchResponse,
 )
@@ -99,7 +100,7 @@ class KnowledgeHandlers:
     async def list_knowledge(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[KnowledgeResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -117,7 +118,7 @@ class KnowledgeHandlers:
     async def get_workbench(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> KnowledgeWorkbenchResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -127,10 +128,10 @@ class KnowledgeHandlers:
     async def get_workbench_items(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
-        tab: Optional[str],
-        keyword: Optional[str],
+        tab: str | None,
+        keyword: str | None,
     ) -> KnowledgeWorkbenchItemsResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
@@ -159,7 +160,7 @@ class KnowledgeHandlers:
         knowledge_id: str,
         limit: int,
         offset: int,
-    ) -> list[DocumentResponse]:
+    ) -> list[KnowledgeDocumentResponse]:
         documents = await self.service.list_documents(knowledge_id, include_content=True, limit=limit, offset=offset)
         return [KnowledgeDocumentResponse.model_validate(item) for item in documents]
 
@@ -167,7 +168,7 @@ class KnowledgeHandlers:
         self,
         ctx: RequestContext,
         knowledge_id: str,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[RunResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -293,7 +294,7 @@ class KnowledgeHandlers:
         self,
         ctx: RequestContext,
         knowledge_id: str,
-        status: Optional[str],
+        status: str | None,
         limit: int,
         offset: int,
     ) -> list[KnowledgeIngestTaskResponse]:

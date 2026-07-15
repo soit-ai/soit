@@ -3,26 +3,33 @@
 Security domain service.
 """
 
-from typing import Optional, List
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
 
-from app.kernel.contracts.context import RequestContext
+from sqlalchemy import and_, desc, select
+from sqlalchemy.orm import Session
+
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
-from app.modules.identity.infra.repository import TenantRepository, WorkspaceRepository
-from app.modules.security.domain.models import EgressPolicyAudit
-from app.modules.security.application.schemas import EgressPolicyUpdate, UsagePolicyUpdate
+from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.audit import AuditEvent
+from app.modules.identity.application.contracts import IdentityPolicyScopePort
+from app.modules.security.application.schemas import (
+    EgressPolicyUpdate,
+    UsagePolicyUpdate,
+)
 
 
 class SecurityService:
     """Security service for egress policy management."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(
+        self,
+        db: Session,
+        ctx: RequestContext,
+        identity_policy_scope: IdentityPolicyScopePort,
+    ):
         self.db = db
         self.ctx = ctx
-        self.tenant_repo = TenantRepository(db)
-        self.workspace_repo = WorkspaceRepository(db, ctx)
+        self.identity_policy_scope = identity_policy_scope
 
     @staticmethod
     def _unwrap_all(results):
@@ -30,12 +37,12 @@ class SecurityService:
         if not results:
             return []
         first = results[0]
-        if isinstance(first, (list, tuple)) or hasattr(first, "_mapping"):
+        if isinstance(first, list | tuple) or hasattr(first, "_mapping"):
             return [item[0] for item in results]
         return results
 
     def get_tenant_policy(self):
-        tenant = self.tenant_repo.get_by_id(self.ctx.tenant_id)
+        tenant = self.identity_policy_scope.get_tenant(self.ctx.tenant_id)
         if not tenant:
             raise NotFoundError(f"Tenant not found: {self.ctx.tenant_id}")
         return tenant
@@ -45,7 +52,7 @@ class SecurityService:
         tenant.egress_allowlist = list(data.allowlist or [])
         tenant.egress_blocklist = list(data.blocklist or [])
         tenant.updated_at = utc_now()
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(tenant)
         self._log_audit(
             scope="tenant",
@@ -56,7 +63,7 @@ class SecurityService:
         return tenant
 
     def get_workspace_policy(self):
-        workspace = self.workspace_repo.get_by_id(self.ctx.workspace_id)
+        workspace = self.identity_policy_scope.get_workspace(self.ctx.workspace_id)
         if not workspace:
             raise NotFoundError(f"Workspace not found: {self.ctx.workspace_id}")
         return workspace
@@ -66,7 +73,7 @@ class SecurityService:
         workspace.egress_allowlist = list(data.allowlist or [])
         workspace.egress_blocklist = list(data.blocklist or [])
         workspace.updated_at = utc_now()
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(workspace)
         self._log_audit(
             scope="workspace",
@@ -79,20 +86,24 @@ class SecurityService:
     def list_audits(
         self,
         *,
-        scope: Optional[str] = None,
+        scope: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[EgressPolicyAudit]:
-        clauses = [EgressPolicyAudit.tenant_id == self.ctx.tenant_id]
+    ) -> list[AuditEvent]:
+        clauses = [
+            AuditEvent.tenant_id == self.ctx.tenant_id,
+            AuditEvent.event_type == "security.egress_policy.updated",
+            AuditEvent.resource_type == "egress_policy",
+        ]
         if scope:
-            clauses.append(EgressPolicyAudit.scope == scope)
+            clauses.append(AuditEvent.scope == scope)
         if scope == "workspace":
-            clauses.append(EgressPolicyAudit.workspace_id == self.ctx.workspace_id)
+            clauses.append(AuditEvent.workspace_id == self.ctx.workspace_id)
 
         query = (
-            select(EgressPolicyAudit)
+            select(AuditEvent)
             .where(and_(*clauses))
-            .order_by(desc(EgressPolicyAudit.created_at))
+            .order_by(desc(AuditEvent.created_at))
             .offset(offset)
             .limit(limit)
         )
@@ -103,20 +114,23 @@ class SecurityService:
         self,
         *,
         scope: str,
-        workspace_id: Optional[str],
+        workspace_id: str | None,
         allowlist: list[str],
         blocklist: list[str],
     ) -> None:
-        audit = EgressPolicyAudit(
+        audit = AuditEvent(
             tenant_id=self.ctx.tenant_id,
             workspace_id=workspace_id,
+            event_type="security.egress_policy.updated",
+            resource_type="egress_policy",
+            resource_id=scope,
+            operation="update",
+            actor_user_id=self.ctx.user_id,
             scope=scope,
-            allowlist=allowlist,
-            blocklist=blocklist,
-            created_by=self.ctx.user_id,
+            payload_json={"allowlist": allowlist, "blocklist": blocklist},
         )
         self.db.add(audit)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(audit)
 
     def get_tenant_usage_policy(self):
@@ -129,7 +143,7 @@ class SecurityService:
         for key, value in updates.items():
             setattr(tenant, key, value)
         tenant.updated_at = utc_now()
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(tenant)
         return tenant
 
@@ -143,6 +157,6 @@ class SecurityService:
         for key, value in updates.items():
             setattr(workspace, key, value)
         workspace.updated_at = utc_now()
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(workspace)
         return workspace

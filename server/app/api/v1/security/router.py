@@ -3,27 +3,26 @@
 Security API routes (FastAPI).
 """
 
-from typing import Optional
+
 from fastapi import APIRouter, Depends
 
-from app.kernel.contracts.context import RequestContext
 from app.api.v1.permissions import (
+    require_tenant_admin_ctx,
     require_workspace_read_ctx,
     require_workspace_write_ctx,
-    require_tenant_admin_ctx,
 )
-from app.modules.security.application.schemas import (
-    EgressPolicyUpdate,
-    EgressPolicyResponse,
-    EgressPolicyAuditResponse,
-    UsagePolicyUpdate,
-    UsagePolicyResponse,
-)
-from app.modules.security.application.service import SecurityService
 from app.api.v1.security.dependencies import get_security_service
 from app.api.v1.security.handlers import SecurityHandlers
 from app.infra.db.pagination import PaginatedResponse
-
+from app.kernel.contracts.context import RequestContext
+from app.modules.security.application.schemas import (
+    EgressPolicyAuditResponse,
+    EgressPolicyResponse,
+    EgressPolicyUpdate,
+    UsagePolicyResponse,
+    UsagePolicyUpdate,
+)
+from app.modules.security.application.service import SecurityService
 
 router = APIRouter()
 
@@ -72,8 +71,8 @@ async def update_workspace_policy(
 
 @router.get("/egress/audits", response_model=PaginatedResponse[EgressPolicyAuditResponse])
 async def list_egress_audits(
-    scope: Optional[str] = None,
-    page_token: Optional[str] = None,
+    scope: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: SecurityService = Depends(get_security_service),

@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -35,6 +35,9 @@ export function IngestTasksDialog({ open, onOpenChange, tasks, loading, onRefres
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('knowledge.document.tasks.title')}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Review document ingest tasks and retry or cancel active work.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted-foreground">{t('knowledge.document.tasks.count', { count: tasks.length })}</div>

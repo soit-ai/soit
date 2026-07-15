@@ -1,5 +1,5 @@
-import { type ComponentType, useMemo } from 'react'
-import { useSearchParams } from 'react-router'
+import { type ComponentType, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import {
   Activity,
   AlertTriangle,
@@ -21,7 +21,6 @@ import {
   CartesianGrid,
   Line,
   LineChart as ReLineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -29,7 +28,7 @@ import {
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DropdownMenu,
@@ -85,9 +84,39 @@ const asNumber = (value: unknown) => (typeof value === 'number' ? value : 0)
 const asString = (value: unknown) => (typeof value === 'string' ? value : value == null ? '-' : String(value))
 const formatPercent = (value: unknown) => `${Math.round(asNumber(value) * 1000) / 10}%`
 const formatMs = (value: unknown) => `${Math.round(asNumber(value))}ms`
+const formatDurationShort = (value?: number | null) => {
+  if (value === null || value === undefined) return '-'
+  if (value >= 1000) return `${Math.round(value / 10) / 100}s`
+  return `${Math.round(value)}ms`
+}
+const formatRunSubject = (run: { mode?: string | null; subject_id?: string | null; subject_kind?: string | null; kind?: string | null }) => {
+  const subject = run.subject_id || run.subject_kind || run.kind || 'run'
+  return `${run.mode || run.kind || 'run'} · ${subject}`
+}
 const cardChrome = 'rounded-lg border-border/80 bg-panel/95 py-0 shadow-[0_8px_22px_rgba(15,23,42,0.04)] backdrop-blur-none dark:bg-panel/88 dark:shadow-none'
 const dangerSurface = 'border-red-200 bg-red-50/85 text-red-700 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-200'
 const infoIconSurface = 'bg-blue-50 text-blue-600 dark:bg-blue-400/12 dark:text-blue-300'
+
+function useMeasuredChartWidth() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element) return
+
+    const updateWidth = () => {
+      setWidth(Math.max(1, Math.floor(element.getBoundingClientRect().width)))
+    }
+    updateWidth()
+
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, width }
+}
 
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   if (!values.length) return null
@@ -109,11 +138,33 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   )
 }
 
-function MetricTile({ item }: { item: MetricCard }) {
+function MetricTile({ item, onOpenRun }: { item: MetricCard; onOpenRun?: (url: string) => void }) {
   const tone = toneClasses[item.tone] || toneClasses.blue
   const Icon = metricIcons[item.id as keyof typeof metricIcons] || Gauge
+  const detailUrl = typeof item.detail_url === 'string' && item.detail_url ? item.detail_url : null
+  const openDetail = () => {
+    if (detailUrl) onOpenRun?.(detailUrl)
+  }
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!detailUrl) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openDetail()
+    }
+  }
   return (
-    <Card className={cn('min-w-0 overflow-hidden', cardChrome)}>
+    <Card
+      className={cn(
+        'min-w-0 overflow-hidden',
+        cardChrome,
+        detailUrl ? 'cursor-pointer transition hover:border-blue-300 hover:shadow-[0_10px_26px_rgba(37,99,235,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
+      )}
+      role={detailUrl ? 'button' : undefined}
+      tabIndex={detailUrl ? 0 : undefined}
+      aria-label={detailUrl ? `打开运行详情：${item.label}` : undefined}
+      onClick={openDetail}
+      onKeyDown={handleKeyDown}
+    >
       <CardContent className="relative flex min-h-[94px] items-center gap-4 p-4">
         <div className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full', tone.icon)}>
           <Icon className="h-5 w-5" />
@@ -122,6 +173,7 @@ function MetricTile({ item }: { item: MetricCard }) {
           <div className="truncate text-[13px] font-semibold text-muted-foreground">{item.label}</div>
           <div className="mt-1 truncate text-[26px] font-semibold leading-none text-foreground">{item.value}</div>
           {item.delta ? <div className="mt-2 text-xs text-muted-foreground">较昨日 <span className={tone.delta}>{item.delta}</span></div> : null}
+          {item.run_id ? <div className="mt-1 truncate text-xs font-medium text-muted-foreground">{item.run_id}</div> : null}
         </div>
         <div className="absolute bottom-4 right-4 hidden xl:block">
           <Sparkline values={item.trend || []} color={tone.line} />
@@ -190,11 +242,15 @@ function EmptyState({ section }: { section: DashboardSection }) {
       <Database className="h-8 w-8 text-muted-foreground" />
       <div className="mt-3 text-base font-semibold">{section.empty_state.title}</div>
       <div className="mt-1 max-w-md text-sm text-muted-foreground">{section.empty_state.description}</div>
+      <Link to="/observe/runs?include_observe_summary=true" className="mt-4 text-sm font-medium text-blue-600 hover:underline dark:text-blue-300">
+        打开 Run Explorer
+      </Link>
     </div>
   )
 }
 
 function TrendChart({ data, tab }: { data: TrendPoint[]; tab: ObserveTabId }) {
+  const { ref, width } = useMeasuredChartWidth()
   const lines = tab === 'tool_reliability'
     ? [
         { key: 'tool_count', color: '#2563eb', name: '调用数' },
@@ -211,9 +267,9 @@ function TrendChart({ data, tab }: { data: TrendPoint[]; tab: ObserveTabId }) {
           { key: 'success_rate', color: '#06b6d4', name: '成功率' },
         ]
   return (
-    <div className="h-[220px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <ReLineChart data={data}>
+    <div ref={ref} className="h-[220px] min-w-[1px] w-full overflow-hidden">
+      {width > 0 ? (
+        <ReLineChart data={data} width={width} height={220}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="bucket" tickFormatter={(value) => String(value).slice(11, 16)} minTickGap={24} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={{ stroke: 'hsl(var(--border))' }} tickLine={{ stroke: 'hsl(var(--border))' }} />
           <YAxis tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} width={42} axisLine={{ stroke: 'hsl(var(--border))' }} tickLine={{ stroke: 'hsl(var(--border))' }} />
@@ -230,7 +286,7 @@ function TrendChart({ data, tab }: { data: TrendPoint[]; tab: ObserveTabId }) {
             <Line key={line.key} type="monotone" dataKey={line.key} name={line.name} stroke={line.color} strokeWidth={2} dot={false} />
           ))}
         </ReLineChart>
-      </ResponsiveContainer>
+      ) : null}
     </div>
   )
 }
@@ -468,7 +524,7 @@ function ObservePage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = TAB_IDS.includes(searchParams.get('tab') as ObserveTabId) ? searchParams.get('tab') as ObserveTabId : 'agent_health'
-  const range = RANGES.includes(searchParams.get('range') as ObserveRange) ? searchParams.get('range') as ObserveRange : '1h'
+  const range = RANGES.includes(searchParams.get('range') as ObserveRange) ? searchParams.get('range') as ObserveRange : '24h'
   const bucket = BUCKETS.includes(searchParams.get('bucket') as ObserveBucket) ? searchParams.get('bucket') as ObserveBucket : '10m'
   const q = searchParams.get('q') || ''
   const pageToken = searchParams.get('page_token') || undefined
@@ -490,7 +546,15 @@ function ObservePage() {
     setSearchParams(next)
   }
 
+  const openRunDetail = (url?: string | null) => {
+    if (url) navigate(url)
+  }
+
   const openRuns = (row?: Record<string, unknown>) => {
+    if (typeof row?.detail_url === 'string' && row.detail_url) {
+      navigate(row.detail_url)
+      return
+    }
     const next = new URLSearchParams()
     if (row?.id) next.set('subject_id', String(row.id))
     navigate(`/observe/runs${next.toString() ? `?${next.toString()}` : ''}`)
@@ -501,6 +565,9 @@ function ObservePage() {
     else if (tab === 'knowledge_quality') navigate(`/knowledge/${encodeURIComponent(String(row.id))}`)
     else openRuns(row)
   }
+  const runExplorerUrl = searchParams.get('nosider')
+    ? '/observe/runs?include_observe_summary=true&nosider=true'
+    : '/observe/runs?include_observe_summary=true'
 
   return (
     <main className="flex w-full max-w-[calc(100vw-var(--root-sidebar-width)-1px)] min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -515,13 +582,20 @@ function ObservePage() {
               <RefreshCw className="h-4 w-4" />
               刷新
             </Button>
-            <Button className="h-10 rounded-lg px-5 shadow-sm" type="button" onClick={(event) => {
-              event.preventDefault()
-              openRuns()
-            }}>
+            <Button asChild variant="outline" className="h-10 rounded-lg bg-panel/90">
+              <Link to="/observe/audits" aria-label="打开 Audit Explorer">
+                Audit Explorer
+                <ShieldCheck className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Link
+              to={runExplorerUrl}
+              aria-label="打开 Run Explorer"
+              className={cn(buttonVariants(), 'h-10 rounded-lg px-5 shadow-sm')}
+            >
               打开 Run Explorer
               <ArrowRight className="h-4 w-4" />
-            </Button>
+            </Link>
           </div>
         </div>
 
@@ -567,8 +641,53 @@ function ObservePage() {
             </section>
 
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-5">
-              {dashboard.metric_cards.map((item) => <MetricTile key={item.id} item={item} />)}
+              {dashboard.metric_cards.map((item) => <MetricTile key={item.id} item={item} onOpenRun={openRunDetail} />)}
             </div>
+
+            {dashboard.recent_runs.length ? (
+              <section className="overflow-hidden rounded-lg border border-border/80 bg-panel/95 px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[15px] font-semibold">最近应用运行</div>
+                  <Link to="/observe/runs?include_observe_summary=true" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-300">查看全部运行</Link>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {dashboard.recent_runs.slice(0, 6).map((run) => (
+                    <Button
+                      key={run.run_id}
+                      variant="outline"
+                      className="h-auto min-w-[260px] justify-start rounded-lg bg-panel px-3 py-2 text-left"
+                      type="button"
+                      aria-label={`打开运行详情：${run.run_id}`}
+                      onClick={() => openRunDetail(run.detail_url)}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={statusBadge(run.status)}>{run.status}</Badge>
+                          <span className="truncate text-sm font-semibold">{run.run_id}</span>
+                        </div>
+                        <div className="mt-1 truncate text-xs text-muted-foreground">
+                          {formatRunSubject(run)} · {formatDurationShort(run.duration_ms)} · ${run.cost_usd.toFixed(2)}
+                        </div>
+                        {run.observe_summary ? (
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground">
+                            <span>步骤 {run.observe_summary.step_count}</span>
+                            <span>工具 {run.observe_summary.tool_call_count}</span>
+                            <span>引用 {run.observe_summary.citation_count}</span>
+                            <span>审计 {run.observe_summary.audit_count}</span>
+                          </div>
+                        ) : null}
+                        {run.failure_reason ? <div className="mt-1 truncate text-xs text-red-600 dark:text-red-300">{run.failure_reason}</div> : null}
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-lg border border-dashed bg-panel px-4 py-5 text-sm text-muted-foreground">
+                当前 24h 内没有应用运行数据。质量门禁命令不会自动写入 Observe；请通过企业 MVP demo 或应用操作产生 Agent、Workflow、Knowledge 运行后再查看。
+                <Link to="/observe/runs?include_observe_summary=true" className="ml-2 font-medium text-blue-600 hover:underline dark:text-blue-300">打开 Run Explorer</Link>
+              </section>
+            )}
 
             {dashboard.priority_alert ? (
               <div className={cn('flex min-h-9 flex-col gap-2 rounded-lg px-4 py-2 text-sm lg:flex-row lg:items-center lg:justify-between', dangerSurface)}>
@@ -596,10 +715,10 @@ function ObservePage() {
                         <Input value={q} onChange={(event) => updateParams({ q: event.target.value, page_token: undefined })} placeholder="搜索名称" className="h-9 rounded-lg bg-panel pl-9" />
                       </div>
                       <Button variant="outline" className="h-9 rounded-lg bg-panel" type="button"><SlidersHorizontal className="h-4 w-4" />筛选</Button>
-                      <select className="h-9 rounded-lg border bg-panel px-3 text-sm" value={range} onChange={(event) => updateParams({ range: event.target.value, page_token: undefined })}>
+                      <select aria-label="时间范围" className="h-9 rounded-lg border bg-panel px-3 text-sm" value={range} onChange={(event) => updateParams({ range: event.target.value, page_token: undefined })}>
                         {RANGES.map((item) => <option key={item} value={item}>{item}</option>)}
                       </select>
-                      <select className="h-9 rounded-lg border bg-panel px-3 text-sm" value={bucket} onChange={(event) => updateParams({ bucket: event.target.value, page_token: undefined })}>
+                      <select aria-label="聚合粒度" className="h-9 rounded-lg border bg-panel px-3 text-sm" value={bucket} onChange={(event) => updateParams({ bucket: event.target.value, page_token: undefined })}>
                         {BUCKETS.map((item) => <option key={item} value={item}>{item}</option>)}
                       </select>
                       <Button variant="outline" size="icon" className="h-9 w-9 rounded-lg bg-panel" aria-label="刷新当前视图" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
@@ -615,7 +734,7 @@ function ObservePage() {
                     <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-1 text-sm text-muted-foreground">
                       <span>共 {dashboard.section.page.total_count} 条</span>
                       <div className="flex flex-wrap items-center gap-2">
-                        <select className="h-8 rounded-lg border bg-panel px-3 text-xs" value={pageSize} onChange={(event) => updateParams({ page_size: event.target.value, page_token: undefined })}>
+                        <select aria-label="每页条数" className="h-8 rounded-lg border bg-panel px-3 text-xs" value={pageSize} onChange={(event) => updateParams({ page_size: event.target.value, page_token: undefined })}>
                           <option value="10">10 条/页</option>
                           <option value="20">20 条/页</option>
                           <option value="50">50 条/页</option>

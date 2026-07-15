@@ -1,0 +1,29 @@
+{
+  "featureKey": "modelhub.provider_spotcheck",
+  "spotcheckId": "model-provider-spotcheck-20260611",
+  "release": "v1.0.0-rc",
+  "environment": "local-docker",
+  "operator": "release-owner",
+  "startedAt": "2026-06-11T08:00:00Z",
+  "finishedAt": "2026-06-11T08:20:00Z",
+  "providers": [
+    {
+      "providerKey": "openai",
+      "status": "passed",
+      "credentialRef": "env:OPENAI_API_KEY",
+      "modelRef": "gpt-4.1-mini",
+      "diagnosticsEvidenceRef": "evidence/modelhub/openai-diagnostics.log",
+      "chatCompletionEvidenceRef": "evidence/modelhub/openai-chat-completion.log",
+      "costAttributionEvidenceRef": "evidence/modelhub/openai-cost-attribution.log"
+    },
+    {
+      "providerKey": "anthropic",
+      "status": "passed",
+      "credentialRef": "env:ANTHROPIC_API_KEY",
+      "modelRef": "claude-sonnet-4",
+      "diagnosticsEvidenceRef": "evidence/modelhub/anthropic-diagnostics.log",
+      "chatCompletionEvidenceRef": "evidence/modelhub/anthropic-chat-completion.log",
+      "costAttributionEvidenceRef": "evidence/modelhub/anthropic-cost-attribution.log"
+    }
+  ]
+}

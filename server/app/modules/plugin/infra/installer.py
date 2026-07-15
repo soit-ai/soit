@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import io
 import json
-import os
+import logging
 import shutil
-import zipfile
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
-import logging
+from typing import Any
 
 try:
     import tomllib  # py3.11+
@@ -51,7 +50,7 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
     zf.extractall(dest)
 
 
-def _load_manifest_from_dir(install_dir: Path) -> Dict[str, Any]:
+def _load_manifest_from_dir(install_dir: Path) -> dict[str, Any]:
     """Load manifest from an extracted plugin directory."""
     # priority: plugin.json -> plugin.toml
     json_path = install_dir / "plugin.json"
@@ -77,7 +76,7 @@ class PluginInstaller:
     def _root(self) -> Path:
         return Path(self.settings.plugins_dir).resolve()
 
-    def _check_integrity(self, *, spec: Dict[str, Any], digest: str) -> None:
+    def _check_integrity(self, *, spec: dict[str, Any], digest: str) -> None:
         integrity = spec.get("integrity") or {}
         expected = (integrity.get("digest") or "").strip()
         if expected and self.settings.plugin_integrity_required:
@@ -104,7 +103,7 @@ class PluginInstaller:
         elif self.settings.plugin_signature_required:
             raise ValidationError("Plugin package signature required.")
 
-    def inspect_package(self, package_bytes: bytes) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def inspect_package(self, package_bytes: bytes) -> tuple[dict[str, Any], dict[str, Any]]:
         """Inspect plugin package and return manifest/spec without installing."""
         digest = sha256_hex(package_bytes)
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -113,7 +112,7 @@ class PluginInstaller:
                 _safe_extract_zip(zf, tmp_dir)
 
             extracted_root = tmp_dir
-            children = [p for p in tmp_dir.iterdir()]
+            children = list(tmp_dir.iterdir())
             if len(children) == 1 and children[0].is_dir():
                 extracted_root = children[0]
 
@@ -143,7 +142,7 @@ class PluginInstaller:
         plugin_name: str,
         version: str,
         package_bytes: bytes,
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> InstalledPluginPaths:
         """Install a plugin package (zip bytes) into filesystem and register it."""
 
@@ -174,7 +173,7 @@ class PluginInstaller:
 
         # allow package to contain a single top folder
         extracted_root = tmp_dir
-        children = [p for p in tmp_dir.iterdir()]
+        children = list(tmp_dir.iterdir())
         if len(children) == 1 and children[0].is_dir():
             extracted_root = children[0]
 

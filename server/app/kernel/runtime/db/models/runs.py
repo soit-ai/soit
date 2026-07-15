@@ -223,8 +223,20 @@ class RunCostEntry(SQLModel, table=True):
     provider: str | None = Field(default=None)
     """Provider (e.g., openai, http)."""
 
+    provider_id: str | None = Field(default=None, index=True)
+    """Workspace provider ID when the call used a ModelHub provider."""
+
+    provider_slug: str | None = Field(default=None, index=True)
+    """Workspace provider slug used by the canonical model reference."""
+
+    provider_kind: str | None = Field(default=None, index=True)
+    """Provider implementation kind (for example openai or anthropic)."""
+
     model_ref: str | None = Field(default=None)
     """Model reference if applicable."""
+
+    upstream_model: str | None = Field(default=None)
+    """Provider-native model name returned by the upstream service."""
 
     tool_ref: str | None = Field(default=None)
     """Tool reference if applicable."""

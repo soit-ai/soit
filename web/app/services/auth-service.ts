@@ -20,10 +20,10 @@ export interface RegisterRequest {
 }
 
 export const authLogin = (data: LoginRequest): Promise<TokenResponse> => {
-  return post<TokenResponse>(`/login`, data).then(response => response.data)
+  return post<TokenResponse>(`/login`, data)
 }
 
 export const authRegister = (data: RegisterRequest): Promise<TokenResponse> => {
   const { tenant_name, ...payload } = data
-  return post<TokenResponse>(`/register`, payload, tenant_name ? { params: { tenant_name } } : undefined).then(response => response.data)
+  return post<TokenResponse>(`/register`, payload, tenant_name ? { params: { tenant_name } } : undefined)
 }

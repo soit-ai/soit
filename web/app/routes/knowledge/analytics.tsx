@@ -158,7 +158,7 @@ function KnowledgeAnalyticsPage() {
                         <Badge variant="outline">{run.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => navigate(`/observability/runs/${run.id}`)}>
+                        <Button variant="ghost" size="icon" onClick={() => navigate(`/observe/runs/${run.id}`)}>
                           <ArrowRight className="h-4 w-4" />
                         </Button>
                       </TableCell>

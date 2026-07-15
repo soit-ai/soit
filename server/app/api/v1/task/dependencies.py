@@ -7,24 +7,24 @@ from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.core.service import RuntimeCoreService
-from app.kernel.runtime.query_service import RuntimeQueryService
+from app.kernel.runtime.tasks.query_service import TaskQueryService
+from app.kernel.runtime.tasks.service import TaskService
 from app.middleware.auth import get_current_context
 
 
 def get_task_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
     db: Annotated[Session, Depends(get_db)],
-) -> RuntimeQueryService:
+) -> TaskQueryService:
     """Resolve runtime task query service."""
 
-    return RuntimeQueryService(db=db, ctx=ctx)
+    return TaskQueryService(db=db, ctx=ctx)
 
 
 def get_task_runtime_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
     db: Annotated[Session, Depends(get_db)],
-) -> RuntimeCoreService:
+) -> TaskService:
     """Resolve runtime task write service."""
 
-    return RuntimeCoreService(db=db, ctx=ctx)
+    return TaskService(db=db, ctx=ctx)

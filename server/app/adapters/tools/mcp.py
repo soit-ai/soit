@@ -1,58 +1,103 @@
-"""mcp
-
-MCP tool adapter implementation.
-
-Invokes tools on remote MCP servers using the MCP protocol over HTTP.
-Parses mcp_tool:{server_name}:{tool_name} refs, resolves the server
-endpoint from the DB, and sends a tools/call JSON-RPC request.
-"""
+"""Official MCP SDK tool adapter."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import and_, select
 
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.modules.plugin.domain.models import PluginInstalledArtifact
 
 logger = logging.getLogger(__name__)
 
 
-def parse_mcp_tool_ref(tool_ref: str) -> tuple[str, str]:
-    """Parse mcp_tool:{server}:{tool} into (server_key, tool_name).
+class MCPSession(Protocol):
+    async def initialize(self) -> Any: ...
 
-    Raises ValueError if the ref is not in the expected format.
-    """
+    async def list_tools(self) -> Any: ...
+
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any: ...
+
+
+SessionFactory = Callable[..., AbstractAsyncContextManager[MCPSession]]
+
+
+def parse_mcp_tool_ref(tool_ref: str) -> tuple[str, str]:
+    """Parse ``mcp_tool:{server}:{tool}`` into server and tool names."""
     parts = tool_ref.split(":", 2)
-    if len(parts) != 3 or parts[0] != "mcp_tool":
+    if len(parts) != 3 or parts[0] != "mcp_tool" or not parts[1] or not parts[2]:
         raise ValueError(f"Invalid MCP tool ref format: {tool_ref}")
     return parts[1], parts[2]
 
 
+@asynccontextmanager
+async def _official_session_factory(
+    *, endpoint: str, headers: dict[str, str], timeout: float
+) -> AsyncIterator[ClientSession]:
+    """Create one official streamable HTTP MCP session per invocation."""
+    async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
+        async with streamable_http_client(endpoint, http_client=http_client) as streams:
+            read_stream, write_stream, _ = streams
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=timeout),
+            ) as session:
+                yield session
+
+
+def _dump_content_item(item: Any) -> dict[str, Any]:
+    if hasattr(item, "model_dump"):
+        return item.model_dump(by_alias=True, exclude_none=True)
+    if isinstance(item, dict):
+        return item
+    data = vars(item) if hasattr(item, "__dict__") else {"value": str(item)}
+    return {key: value for key, value in data.items() if value is not None}
+
+
+def _content_result(call_result: Any) -> tuple[Any, str | None]:
+    structured = getattr(call_result, "structuredContent", None)
+    if structured is not None:
+        return structured, None
+
+    content = list(getattr(call_result, "content", None) or [])
+    serialized = [_dump_content_item(item) for item in content]
+    text = "\n".join(
+        str(item.get("text", ""))
+        for item in serialized
+        if item.get("type") == "text" and item.get("text") is not None
+    )
+    result: Any = {"content": serialized}
+    if text:
+        result["text"] = text
+    error = text or "MCP tool returned an error"
+    return result, error
+
+
 class MCPToolAdapter(ToolPort):
-    """Invoke tools on remote MCP servers via HTTP JSON-RPC."""
+    """Invoke remote tools through the official MCP Python SDK."""
 
     def __init__(
         self,
         *,
         timeout: float = 30.0,
-        client: httpx.AsyncClient | None = None,
-    ):
+        session_factory: SessionFactory | None = None,
+    ) -> None:
         self._timeout = timeout
-        self._client = client or httpx.AsyncClient(timeout=timeout)
+        self._session_factory = session_factory or _official_session_factory
 
-    def _resolve_server(
-        self,
-        server_key: str,
-        db: Any,
-        ctx: RequestContext,
-    ):
-        """Resolve an MCP server from plugin-owned artifact metadata."""
+    def _resolve_server(self, server_key: str, db: Any, ctx: RequestContext) -> Any | None:
         artifact_ref = f"mcp_server:{server_key}"
         query = select(PluginInstalledArtifact).where(
             and_(
@@ -63,9 +108,12 @@ class MCPToolAdapter(ToolPort):
                 PluginInstalledArtifact.state == "enabled",
             )
         )
-        rows = list(db.exec(query).all())
-        for row in rows:
-            artifact = row[0] if hasattr(row, "__getitem__") and not isinstance(row, PluginInstalledArtifact) else row
+        for raw_row in db.exec(query).all():
+            artifact = (
+                raw_row[0]
+                if hasattr(raw_row, "__getitem__") and not isinstance(raw_row, PluginInstalledArtifact)
+                else raw_row
+            )
             metadata = artifact.metadata_json or {}
             server = metadata.get("mcp_server") or {}
             name = str(server.get("name") or artifact.artifact_ref.split(":", 1)[-1])
@@ -75,30 +123,44 @@ class MCPToolAdapter(ToolPort):
                 id=artifact.artifact_id or artifact.artifact_ref,
                 name=name,
                 endpoint=server.get("endpoint"),
-                enabled=artifact.enabled,
-                status="active" if artifact.enabled and artifact.state == "enabled" else "disabled",
-                auth_config_json=server.get("auth_config_json") or server.get("auth_config") or {},
-                capabilities_json=server.get("capabilities_json") or {},
+                transport=server.get("transport"),
+                auth_config=server.get("auth_config") or server.get("auth_config_json") or {},
             )
         return None
 
-    def _build_auth_headers(self, server) -> dict[str, str]:
-        """Build authentication headers from server config."""
-        headers: dict[str, str] = {}
-        auth_cfg = server.auth_config_json or {}
-        auth_type = auth_cfg.get("type")
+    async def _build_auth_headers(
+        self,
+        auth_config: dict[str, Any],
+        secrets_port: SecretsPort | None,
+    ) -> dict[str, str]:
+        if not auth_config:
+            return {}
+        auth_type = auth_config.get("type")
+        if auth_type not in {"bearer", "api_key"}:
+            raise ValueError(f"Unsupported MCP authentication type: {auth_type}")
+        if "token" in auth_config or "value" in auth_config:
+            raise ValueError("MCP credentials must use secret_ref")
+
         if auth_type == "bearer":
-            token = auth_cfg.get("token")
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-        elif auth_type == "api_key":
-            api_key_cfg = auth_cfg.get("api_key") or {}
-            key_name = api_key_cfg.get("name", "X-API-Key")
-            key_value = api_key_cfg.get("value")
-            key_in = api_key_cfg.get("in", "header")
-            if key_value and key_in == "header":
-                headers[key_name] = key_value
-        return headers
+            secret_ref = auth_config.get("secret_ref")
+            header_name = "Authorization"
+            prefix = "Bearer "
+        else:
+            api_key = auth_config.get("api_key") or {}
+            if "value" in api_key:
+                raise ValueError("MCP credentials must use secret_ref")
+            if api_key.get("in", "header") != "header":
+                raise ValueError("MCP API keys are supported only in headers")
+            secret_ref = api_key.get("secret_ref")
+            header_name = str(api_key.get("name") or "X-API-Key")
+            prefix = ""
+
+        if not secret_ref:
+            raise ValueError("MCP authentication requires secret_ref")
+        if secrets_port is None:
+            raise ValueError("MCP authentication requires a secrets port")
+        secret = await secrets_port.get_secret(secret_ref=str(secret_ref))
+        return {header_name: f"{prefix}{secret}"}
 
     async def invoke(
         self,
@@ -106,132 +168,53 @@ class MCPToolAdapter(ToolPort):
         parameters: dict[str, Any],
         **kwargs: Any,
     ) -> ToolResponse:
-        """Invoke an MCP tool on a remote server.
-
-        Args:
-            tool_ref: MCP tool reference (mcp_tool:{server}:{tool}).
-            parameters: Tool input arguments.
-            **kwargs: Must include 'db' and 'ctx' for server resolution.
-
-        Returns:
-            ToolResponse with the tool result or error.
-        """
         db = kwargs.get("db")
         ctx: RequestContext | None = kwargs.get("ctx")
-        if not db or not ctx:
-            return ToolResponse(
-                result=None,
-                success=False,
-                error="MCP tool invocation requires db and ctx",
-            )
+        if db is None or ctx is None:
+            return ToolResponse(result=None, success=False, error="MCP tool invocation requires db and ctx")
 
         try:
             server_key, tool_name = parse_mcp_tool_ref(tool_ref)
-        except ValueError as exc:
-            return ToolResponse(result=None, success=False, error=str(exc))
+            server = self._resolve_server(server_key, db, ctx)
+            if server is None:
+                raise ValueError(f"MCP server not found: {server_key}")
+            if server.transport != "streamable_http":
+                raise ValueError(
+                    f"MCP server {server_key} must use transport streamable_http"
+                )
+            if not server.endpoint:
+                raise ValueError(f"MCP server endpoint missing: {server_key}")
 
-        server = self._resolve_server(server_key, db, ctx)
-        if not server:
-            return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP server not found: {server_key}",
+            timeout = float(kwargs.get("timeout_s", self._timeout))
+            headers = await self._build_auth_headers(
+                server.auth_config,
+                kwargs.get("secrets_port"),
             )
+            async with self._session_factory(
+                endpoint=str(server.endpoint).rstrip("/"),
+                headers=headers,
+                timeout=timeout,
+            ) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+                if tool_name not in {tool.name for tool in tools_result.tools}:
+                    raise ValueError(f"MCP tool not found: {tool_name}")
+                call_result = await session.call_tool(tool_name, arguments=parameters)
 
-        if not server.enabled or server.status != "active":
+            result, error_text = _content_result(call_result)
+            is_error = bool(getattr(call_result, "isError", False))
             return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP server is not active: {server_key}",
-            )
-
-        if not server.endpoint:
-            return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP server endpoint missing: {server_key}",
-            )
-
-        endpoint = server.endpoint.rstrip("/")
-        auth_headers = self._build_auth_headers(server)
-
-        # MCP protocol: JSON-RPC style tools/call
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": parameters,
-            },
-            "id": kwargs.get("call_id", "1"),
-        }
-
-        try:
-            response = await self._client.post(
-                endpoint,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    **auth_headers,
+                result=None if is_error else result,
+                success=not is_error,
+                error=error_text if is_error else None,
+                metadata={
+                    "server_id": server.id,
+                    "server_name": server.name,
+                    "tool_name": tool_name,
+                    "transport": "streamable_http",
+                    "content": result.get("content", []) if isinstance(result, dict) else [],
                 },
-                timeout=kwargs.get("timeout_s", self._timeout),
             )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP server returned {exc.response.status_code}: {exc.response.text[:500]}",
-                metadata={"http_status": exc.response.status_code},
-            )
-        except httpx.HTTPError as exc:
-            return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP server connection error: {exc}",
-            )
-
-        try:
-            body = response.json()
-        except Exception:
-            return ToolResponse(
-                result=response.text,
-                success=True,
-                metadata={"http_status": response.status_code, "raw": True},
-            )
-
-        # Handle JSON-RPC error
-        if "error" in body:
-            error_obj = body["error"]
-            error_msg = error_obj.get("message", str(error_obj)) if isinstance(error_obj, dict) else str(error_obj)
-            return ToolResponse(
-                result=None,
-                success=False,
-                error=f"MCP tool error: {error_msg}",
-                metadata={"http_status": response.status_code},
-            )
-
-        # Extract result from JSON-RPC response
-        result = body.get("result", body)
-
-        # MCP content array format: extract text content
-        if isinstance(result, dict) and "content" in result:
-            content_items = result["content"]
-            if isinstance(content_items, list):
-                text_parts = []
-                for item in content_items:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        text_parts.append(item.get("text", ""))
-                if text_parts:
-                    result = {"text": "\n".join(text_parts), "content": content_items}
-
-        return ToolResponse(
-            result=result,
-            success=True,
-            metadata={
-                "http_status": response.status_code,
-                "server_id": server.id,
-                "server_name": server.name,
-                "tool_name": tool_name,
-            },
-        )
+        except Exception as exc:
+            logger.warning("MCP tool invocation failed for %s: %s", tool_ref, type(exc).__name__)
+            return ToolResponse(result=None, success=False, error=str(exc))

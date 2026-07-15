@@ -3,10 +3,10 @@
 Agent domain schemas.
 """
 
-from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
+from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentCreate(BaseModel):
@@ -15,16 +15,16 @@ class AgentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     """Agent name."""
 
-    description: Optional[str] = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=2000)
     """Agent description."""
 
     visibility: str = Field(default="private", pattern="^(private|workspace|tenant|public)$")
     """Agent visibility."""
 
-    icon_url: Optional[str] = Field(default=None, max_length=2000)
+    icon_url: str | None = Field(default=None, max_length=2000)
     """Agent icon URL."""
 
-    category: Optional[str] = Field(default=None, max_length=128)
+    category: str | None = Field(default=None, max_length=128)
     """Agent category."""
 
     is_public: bool = False
@@ -33,38 +33,38 @@ class AgentCreate(BaseModel):
     featured: bool = False
     """Whether the agent is featured in listings."""
 
-    tags: Optional[List[str]] = None
+    tags: list[str] | None = None
     """Agent tags."""
 
 
 class AgentUpdate(BaseModel):
     """Schema for updating an agent."""
 
-    name: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    name: str | None = Field(default=None, min_length=1, max_length=256)
     """Agent name."""
 
-    description: Optional[str] = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=2000)
     """Agent description."""
 
-    status: Optional[str] = Field(default=None, pattern="^(active|archived|disabled)$")
+    status: str | None = Field(default=None, pattern="^(active|archived|disabled)$")
     """Agent status."""
 
-    visibility: Optional[str] = Field(default=None, pattern="^(private|workspace|tenant|public)$")
+    visibility: str | None = Field(default=None, pattern="^(private|workspace|tenant|public)$")
     """Agent visibility."""
 
-    icon_url: Optional[str] = Field(default=None, max_length=2000)
+    icon_url: str | None = Field(default=None, max_length=2000)
     """Agent icon URL."""
 
-    category: Optional[str] = Field(default=None, max_length=128)
+    category: str | None = Field(default=None, max_length=128)
     """Agent category."""
 
-    is_public: Optional[bool] = None
+    is_public: bool | None = None
     """Whether the agent is publicly discoverable."""
 
-    featured: Optional[bool] = None
+    featured: bool | None = None
     """Whether the agent is featured in listings."""
 
-    tags: Optional[List[str]] = None
+    tags: list[str] | None = None
     """Agent tags."""
 
 
@@ -75,25 +75,25 @@ class AgentResponse(BaseModel):
     tenant_id: str
     workspace_id: str
     name: str
-    description: Optional[str]
+    description: str | None
     status: str
     visibility: str
-    icon_url: Optional[str]
-    category: Optional[str]
+    icon_url: str | None
+    category: str | None
     is_public: bool
     featured: bool
     downloads_count: int
-    rating: Optional[float]
+    rating: float | None
     reviews_count: int
-    published_at: Optional[datetime]
-    tags: Optional[List[str]]
-    current_version_id: Optional[str]
-    published_version_id: Optional[str]
-    created_by: Optional[str]
-    updated_by: Optional[str]
+    published_at: datetime | None
+    tags: list[str] | None
+    current_version_id: str | None
+    published_version_id: str | None
+    created_by: str | None
+    updated_by: str | None
     created_at: datetime
     updated_at: datetime
-    deleted_at: Optional[datetime]
+    deleted_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,11 +104,10 @@ class AgentCapabilityBindings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model_ref: str
-    knowledge_refs: Optional[List[str]] = None
-    tool_refs: Optional[List[str]] = None
-    workflow_refs: Optional[List[str]] = None
-    skill_refs: Optional[List[str]] = None
-    plugin_refs: Optional[List[str]] = None
+    knowledge_refs: list[str] | None = None
+    tool_refs: list[str] | None = None
+    workflow_refs: list[str] | None = None
+    skill_refs: list[str] | None = None
 
 
 class AgentVersionCreate(BaseModel):
@@ -116,52 +115,52 @@ class AgentVersionCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    system_prompt: Optional[str] = Field(default=None, max_length=8000)
+    system_prompt: str | None = Field(default=None, max_length=8000)
     """System prompt."""
 
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     """Temperature."""
 
-    max_iterations: Optional[int] = Field(default=None, ge=1, le=50)
+    max_iterations: int | None = Field(default=None, ge=1, le=50)
     """Max planning iterations."""
 
-    max_tool_calls: Optional[int] = Field(default=None, ge=0, le=100)
+    max_tool_calls: int | None = Field(default=None, ge=0, le=100)
     """Max tool calls allowed."""
 
-    max_llm_calls: Optional[int] = Field(default=None, ge=1, le=200)
+    max_llm_calls: int | None = Field(default=None, ge=1, le=200)
     """Max LLM calls allowed."""
 
-    max_failures: Optional[int] = Field(default=None, ge=0, le=10)
+    max_failures: int | None = Field(default=None, ge=0, le=10)
     """Max failures before stopping."""
 
-    max_runtime_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
+    max_runtime_seconds: int | None = Field(default=None, ge=1, le=3600)
     """Max runtime budget in seconds."""
 
-    max_tokens_total: Optional[int] = Field(default=None, ge=1)
+    max_tokens_total: int | None = Field(default=None, ge=1)
     """Max total tokens across LLM calls."""
 
-    max_cost: Optional[float] = Field(default=None, ge=0.0)
+    max_cost: float | None = Field(default=None, ge=0.0)
     """Max total cost across tool/LLM calls."""
 
-    cost_currency: Optional[str] = None
+    cost_currency: str | None = None
     """Currency for max cost budget."""
 
     bindings: AgentCapabilityBindings
     """Unified capability binding input."""
 
-    memory_strategy: Optional[str] = Field(
+    memory_strategy: str | None = Field(
         default=None,
         pattern="^(planner_only|system_message|user_message)$",
     )
     """Memory injection strategy."""
 
-    memory_top_k: Optional[int] = Field(default=None, ge=1, le=50)
+    memory_top_k: int | None = Field(default=None, ge=1, le=50)
     """Number of memory items to fetch."""
 
-    verify: Optional[bool] = None
+    verify: bool | None = None
     """Enable response verification."""
 
-    failure_strategy: Optional[str] = Field(
+    failure_strategy: str | None = Field(
         default=None,
         pattern="^(respond|abort|continue)$",
     )
@@ -176,9 +175,9 @@ class AgentVersionResponse(BaseModel):
     version: int
     status: str
     spec_schema: str
-    spec_json: Dict[str, Any]
-    checksum: Optional[str]
-    created_by: Optional[str]
+    spec_json: dict[str, Any]
+    checksum: str | None
+    created_by: str | None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -193,11 +192,11 @@ class AgentReleaseResponse(BaseModel):
     action: str
     scope: str
     status: str
-    from_version_id: Optional[str]
+    from_version_id: str | None
     to_version_id: str
-    notes: Optional[str]
-    rollback_of_publish_id: Optional[str]
-    created_by: Optional[str]
+    notes: str | None
+    rollback_of_publish_id: str | None
+    created_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -209,14 +208,96 @@ class AgentBindingResponse(BaseModel):
 
     id: str
     agent_id: str
-    agent_version_id: Optional[str]
+    agent_version_id: str | None
     binding_type: str
-    target_id: Optional[str]
-    target_key: Optional[str]
-    config_json: Dict[str, Any]
+    target_id: str | None
+    target_key: str | None
+    config_json: dict[str, Any]
     sort_order: int
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentWorkbenchSummary(BaseModel):
+    """Agent workbench aggregate metrics."""
+
+    total_agents: int
+    configured_agents: int
+    running_agents: int
+    today_calls: int
+    avg_latency_ms: int | None
+    success_rate: float | None
+    pending_exceptions: int
+    updated_at: datetime
+
+
+class AgentWorkbenchTabs(BaseModel):
+    """Counts for Agent workbench filter tabs."""
+
+    all: int
+    high_calls: int
+    low_success: int
+    long_latency: int
+    unconfigured: int
+
+
+class AgentWorkbenchCapability(BaseModel):
+    """Capability binding displayed in the Agent workbench table."""
+
+    type: str
+    target_id: str | None = None
+    target_key: str | None = None
+    label: str
+
+
+class AgentWorkbenchRow(BaseModel):
+    """Agent row with runtime health for the workbench."""
+
+    id: str
+    name: str
+    description: str | None
+    status: str
+    capabilities: list[AgentWorkbenchCapability] = Field(default_factory=list)
+    today_calls: int
+    avg_latency_ms: int | None
+    success_rate: float | None
+    recent_exception_count: int
+    owner: str | None
+    last_run_at: datetime | None
+    action_enabled: bool
+    updated_at: datetime
+
+
+class AgentWorkbenchResponse(BaseModel):
+    """Full Agent workbench response."""
+
+    summary: AgentWorkbenchSummary
+    tabs: AgentWorkbenchTabs
+    items: list[AgentWorkbenchRow]
+    next_page_token: str | None = None
+    page_size: int
+
+
+class AgentWorkbenchItemsResponse(BaseModel):
+    """Paginated Agent workbench table rows."""
+
+    items: list[AgentWorkbenchRow]
+    next_page_token: str | None = None
+    page_size: int
+
+
+class AgentCapabilityResponse(BaseModel):
+    """Runtime capability item available for Agent assembly."""
+
+    ref: str
+    kind: str
+    name: str
+    source_kind: str
+    source_id: str | None = None
+    source_version: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -227,7 +308,7 @@ class AgentPublishRequest(BaseModel):
     version_id: str
     """Version ID to publish."""
 
-    notes: Optional[str] = Field(default=None, max_length=2000)
+    notes: str | None = Field(default=None, max_length=2000)
     """Optional publish notes."""
 
 
@@ -237,7 +318,7 @@ class AgentRollbackRequest(BaseModel):
     version_id: str
     """Version ID to roll back to."""
 
-    notes: Optional[str] = Field(default=None, max_length=2000)
+    notes: str | None = Field(default=None, max_length=2000)
     """Optional rollback notes."""
 
 
@@ -250,20 +331,22 @@ class ChatMessageInput(BaseModel):
     content: str = Field(..., min_length=1)
     """Message content."""
 
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
     """Optional message metadata."""
 
 
 class AgentRunRequest(BaseModel):
     """Run agent request."""
 
-    messages: List[ChatMessageInput] = Field(..., min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    messages: list[ChatMessageInput] = Field(..., min_length=1)
     """Conversation messages."""
 
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     """Existing thread ID to append messages into."""
 
-    thread_title: Optional[str] = Field(default=None, max_length=512)
+    thread_title: str | None = Field(default=None, max_length=512)
     """Optional title used when a new thread is created."""
 
     max_iterations: int = Field(default=8, ge=1, le=50)
@@ -278,13 +361,13 @@ class AgentRunRequest(BaseModel):
     max_failures: int = Field(default=2, ge=0, le=10)
     """Max failures before stopping."""
 
-    max_runtime_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
+    max_runtime_seconds: int | None = Field(default=None, ge=1, le=3600)
     """Max runtime budget in seconds."""
 
-    max_tokens_total: Optional[int] = Field(default=None, ge=1)
+    max_tokens_total: int | None = Field(default=None, ge=1)
     """Max total tokens across LLM calls."""
 
-    max_cost: Optional[float] = Field(default=None, ge=0.0)
+    max_cost: float | None = Field(default=None, ge=0.0)
     """Max total cost across tool/LLM calls."""
 
     cost_currency: str = Field(default="USD")
@@ -299,22 +382,22 @@ class AgentRunRequest(BaseModel):
     )
     """How to inject RAG context: system_message prepends, planner_context passes to planner."""
 
-    memory_query: Optional[str] = None
+    memory_query: str | None = None
     """Override memory query."""
 
-    memory_strategy: str = Field(
-        default="planner_only",
+    memory_strategy: str | None = Field(
+        default=None,
         pattern="^(planner_only|system_message|user_message)$",
     )
     """Memory injection strategy."""
 
-    memory_top_k: int = Field(default=5, ge=1, le=50)
+    memory_top_k: int | None = Field(default=None, ge=1, le=50)
     """Number of memory items to fetch."""
 
-    context_window_messages: Optional[int] = Field(default=None, ge=1, le=200)
+    context_window_messages: int | None = Field(default=None, ge=1, le=200)
     """Max number of recent messages to keep in context."""
 
-    context_window_chars: Optional[int] = Field(default=None, ge=1, le=200000)
+    context_window_chars: int | None = Field(default=None, ge=1, le=200000)
     """Max total characters kept across messages."""
 
     verify: bool = True
@@ -327,22 +410,48 @@ class AgentRunRequest(BaseModel):
     """Failure handling strategy when max_failures is exceeded."""
 
 
+class AgentRuntimeRequest(AgentRunRequest):
+    """Internal runtime request resolved from a published agent version."""
+
+    model_ref: str
+    """Resolved model reference from the published agent version."""
+
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    """Resolved model temperature from the published agent version."""
+
+    knowledge_refs: list[str] = Field(default_factory=list)
+    """Resolved knowledge bindings from the published agent version."""
+
+    tool_refs: list[str] = Field(default_factory=list)
+    """Resolved tool bindings from the published agent version."""
+
+    workflow_refs: list[str] = Field(default_factory=list)
+    """Resolved workflow bindings from the published agent version."""
+
+    skill_refs: list[str] = Field(default_factory=list)
+    """Resolved skill bindings from the published agent version."""
+
+    system_prompt: str | None = Field(default=None, max_length=8000)
+    """Resolved system prompt from the published agent version."""
+
+
 class AgentRunResponse(BaseModel):
     """Run agent response."""
 
     run_id: str
-    response_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    task_id: Optional[str] = None
+    response_id: str | None = None
+    thread_id: str | None = None
+    task_id: str | None = None
     output: str
     model: str
     iterations: int
     tokens_prompt: int = 0
     tokens_completion: int = 0
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
     tool_calls: int = 0
     llm_calls: int = 0
     failures: int = 0
     budget_exceeded: bool = False
-    budget_reason: Optional[str] = None
+    budget_reason: str | None = None
     cost_total: float = 0.0
+    citations: list[dict[str, Any]] = Field(default_factory=list)

@@ -1,18 +1,23 @@
 """Routes for the northbound Responses resource and semantic event API."""
 
 import json
-from typing import Optional
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
-from app.api.v1.responses.dependencies import get_response_projection_coordinator, get_response_service
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
+from app.api.v1.responses.dependencies import (
+    get_response_projection_coordinator,
+    get_response_service,
+)
 from app.api.v1.responses.handlers import ResponseHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
-from app.kernel.responses.orchestrator import ResponseProjectionCoordinator
-from app.kernel.responses.schemas import (
+from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
+from app.kernel.runtime.responses.schemas import (
     ResponseCancelResult,
     ResponseCreateRequest,
     ResponseDetailRead,
@@ -20,8 +25,7 @@ from app.kernel.responses.schemas import (
     ResponseRead,
     RunResponseTimelineRead,
 )
-from app.kernel.responses.service import ResponseService
-
+from app.kernel.runtime.responses.service import ResponseService
 
 router = APIRouter()
 
@@ -98,7 +102,7 @@ async def get_response_detail(
 @router.get("/{response_id}/events", response_model=PaginatedResponse[ResponseEventRead])
 async def list_response_events(
     response_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 100,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ResponseService = Depends(get_response_service),
@@ -114,7 +118,17 @@ async def list_response_events(
     )
 
 
-@router.get("/{response_id}/stream")
+@router.get(
+    "/{response_id}/stream",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "text/event-stream": {"schema": {"type": "string"}},
+            }
+        }
+    },
+)
 async def stream_response_events(
     response_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),

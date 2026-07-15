@@ -2,5 +2,8 @@
 
 Product logic built on top of kernel.
 
-- `domains/`: business domains (models, repos, services)
-- `api/`: API layer lives in `app/api/v1/*` (routers/controllers), thin orchestration
+- `<domain>/domain/`: domain models and business entities.
+- `<domain>/application/`: application services, schemas, and public contracts.
+- `<domain>/infra/`: repositories and infrastructure-facing implementations.
+- `<domain>/runtime/`: optional domain execution components.
+- HTTP entrypoints live in `app/api/v1/*` and remain thin.

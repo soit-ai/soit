@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
   version          INT  NOT NULL,
   is_latest        BOOLEAN NOT NULL DEFAULT TRUE,
 
-  source_type      TEXT NOT NULL,
+  source_kind      TEXT NOT NULL,
   source_uri       TEXT,
   external_id      TEXT,
   file_id          TEXT,

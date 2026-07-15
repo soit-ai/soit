@@ -267,11 +267,14 @@ services:
   knowledge-ingest-worker:
     build:
       context: ../server
+      target: knowledge-worker
     env_file:
       - path: ../.env
         required: false
     environment:
       <<: *server_environment
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     depends_on:
       bootstrap:
         condition: service_completed_successfully

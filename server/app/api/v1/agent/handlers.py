@@ -3,7 +3,6 @@
 Agent handlers (thin orchestration).
 """
 
-from typing import Optional
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
@@ -89,7 +88,7 @@ class AgentAppHandlers:
             created_at=version.created_at,
         )
 
-    def _as_release_response(self, release, *, from_version_id: Optional[str]) -> AgentReleaseResponse:
+    def _as_release_response(self, release, *, from_version_id: str | None) -> AgentReleaseResponse:
         return AgentReleaseResponse(
             id=release.id,
             agent_id=release.agent_id,
@@ -121,7 +120,7 @@ class AgentAppHandlers:
     async def list_agents(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[AgentResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -136,9 +135,9 @@ class AgentAppHandlers:
         self,
         ctx: RequestContext,
         *,
-        kind: Optional[str],
-        source_kind: Optional[str],
-        page_token: Optional[str],
+        kind: str | None,
+        source_kind: str | None,
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[AgentCapabilityResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -157,7 +156,7 @@ class AgentAppHandlers:
     async def get_workbench(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> AgentWorkbenchResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -167,10 +166,10 @@ class AgentAppHandlers:
     async def get_workbench_items(
         self,
         ctx: RequestContext,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
-        tab: Optional[str],
-        keyword: Optional[str],
+        tab: str | None,
+        keyword: str | None,
     ) -> AgentWorkbenchItemsResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
@@ -197,7 +196,7 @@ class AgentAppHandlers:
         self,
         ctx: RequestContext,
         agent_id: str,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[AgentVersionResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -212,7 +211,7 @@ class AgentAppHandlers:
         self,
         ctx: RequestContext,
         agent_id: str,
-        page_token: Optional[str],
+        page_token: str | None,
         page_size: int,
     ) -> PaginatedResponse[AgentReleaseResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -255,7 +254,7 @@ class AgentAppHandlers:
         self,
         ctx: RequestContext,
         agent_id: str,
-        version_id: Optional[str],
+        version_id: str | None,
     ) -> list[AgentBindingResponse]:
         bindings = await self.service.list_bindings(agent_id, version_id)
         return [AgentBindingResponse.model_validate(binding) for binding in bindings]

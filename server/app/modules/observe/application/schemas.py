@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.kernel.trace.schemas import (
+from app.kernel.runtime.runs.schemas import (
     RunArtifactResponse,
     RunCostEntryResponse,
     RunResponse,
@@ -16,36 +16,36 @@ from app.kernel.trace.schemas import (
 
 
 class ApprovalCreate(BaseModel):
-    run_id: Optional[str] = None
-    task_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    run_id: str | None = None
+    task_id: str | None = None
+    thread_id: str | None = None
+    agent_id: str | None = None
     title: str = Field(..., min_length=1, max_length=255)
-    policy_ref: Optional[str] = None
+    policy_ref: str | None = None
     details_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class ApprovalResolve(BaseModel):
     status: str = Field(..., pattern="^(approved|rejected|canceled)$")
-    resolution_note: Optional[str] = Field(default=None, max_length=1000)
+    resolution_note: str | None = Field(default=None, max_length=1000)
 
 
 class ApprovalResponse(BaseModel):
     id: str
     tenant_id: str
     workspace_id: str
-    run_id: Optional[str]
-    task_id: Optional[str]
-    thread_id: Optional[str]
-    agent_id: Optional[str]
+    run_id: str | None
+    task_id: str | None
+    thread_id: str | None
+    agent_id: str | None
     title: str
-    policy_ref: Optional[str]
+    policy_ref: str | None
     status: str
     details_json: dict[str, Any]
-    requested_by: Optional[str]
-    resolved_by: Optional[str]
-    resolution_note: Optional[str]
-    resolved_at: Optional[datetime]
+    requested_by: str | None
+    resolved_by: str | None
+    resolution_note: str | None
+    resolved_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -53,13 +53,13 @@ class ApprovalResponse(BaseModel):
 
 
 class FeedbackCreate(BaseModel):
-    run_id: Optional[str] = None
-    task_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    run_id: str | None = None
+    task_id: str | None = None
+    thread_id: str | None = None
+    agent_id: str | None = None
     rating: int = Field(..., ge=1, le=5)
     category: str = Field(default="general", min_length=1, max_length=64)
-    comment: Optional[str] = Field(default=None, max_length=2000)
+    comment: str | None = Field(default=None, max_length=2000)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -67,15 +67,15 @@ class FeedbackResponse(BaseModel):
     id: str
     tenant_id: str
     workspace_id: str
-    run_id: Optional[str]
-    task_id: Optional[str]
-    thread_id: Optional[str]
-    agent_id: Optional[str]
+    run_id: str | None
+    task_id: str | None
+    thread_id: str | None
+    agent_id: str | None
     rating: int
     category: str
-    comment: Optional[str]
+    comment: str | None
     metadata_json: dict[str, Any]
-    created_by: Optional[str]
+    created_by: str | None
     created_at: datetime
     updated_at: datetime
 

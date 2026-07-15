@@ -3,29 +3,34 @@
 Document processing pipeline orchestration.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from sqlalchemy.orm import Session
 
+from app.kernel.commons.errors import KernelError
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
-from app.kernel.trace.writer import TraceWriter
-from app.modules.knowledge.domain.models import KnowledgeDocument, KnowledgeChunk, Knowledge
-from app.modules.knowledge.infra.repository import (
-    KnowledgeRepository,
-    DocumentRepository,
-    ChunkRepository,
+from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.knowledge.application.chunker import TextChunker
+from app.modules.knowledge.domain.models import (
+    Knowledge,
+    KnowledgeChunk,
+    KnowledgeDocument,
 )
 from app.modules.knowledge.infra.parsers import get_parser
-from app.modules.knowledge.application.chunker import TextChunker
+from app.modules.knowledge.infra.repository import (
+    ChunkRepository,
+    DocumentRepository,
+    KnowledgeRepository,
+)
 from app.modules.knowledge.runtime.embedding import EmbeddingService
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
-from app.kernel.commons.time import utc_now
-from app.kernel.commons.errors import KernelError
 
 
 class DocumentPipeline:
     """Document processing pipeline."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -36,7 +41,7 @@ class DocumentPipeline:
         index_builder: IndexBuilder,
     ):
         """Initialize document pipeline.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
@@ -54,24 +59,25 @@ class DocumentPipeline:
         self.knowledge_repo = KnowledgeRepository(db, ctx)
         self.document_repo = DocumentRepository(db, ctx)
         self.chunk_repo = ChunkRepository(db, ctx)
-    
+
     async def process_document(
         self,
         document: KnowledgeDocument,
         knowledge: Knowledge,
-        file_content: Optional[bytes] = None,
-        run_id: Optional[str] = None,
+        file_content: bytes | None = None,
+        run_id: str | None = None,
     ) -> KnowledgeDocument:
         """Process document through pipeline.
-        
+
         Args:
             document: Document to process.
             knowledge: Knowledge instance.
             file_content: Optional file content (if None, load from storage).
-            
+
         Returns:
             Updated document.
         """
+        active_step_id = None
         try:
             # Step 1: Parse document
             document.status = "parsing"
@@ -87,6 +93,7 @@ class DocumentPipeline:
                     input_summary=f"document_id={document.id}",
                 )
                 parse_step_id = parse_step.id
+                active_step_id = parse_step_id
                 self.trace_writer.update_step_status(parse_step_id, "running")
 
             parsed_doc = await self._parse_document(document, file_content, run_id=run_id)
@@ -102,7 +109,8 @@ class DocumentPipeline:
                     "succeeded",
                     output_summary=f"chars={len(parsed_doc.text)}",
                 )
-            
+                active_step_id = None
+
             # Step 2: Chunk document
             document.status = "chunking"
             document.updated_at = utc_now()
@@ -117,6 +125,7 @@ class DocumentPipeline:
                     input_summary=f"document_id={document.id}",
                 )
                 chunk_step_id = chunk_step.id
+                active_step_id = chunk_step_id
                 self.trace_writer.update_step_status(chunk_step_id, "running")
 
             chunks = await self._chunk_document(document, knowledge, parsed_doc.text, run_id=run_id)
@@ -131,7 +140,8 @@ class DocumentPipeline:
                     "succeeded",
                     output_summary=f"chunks={len(chunks)}",
                 )
-            
+                active_step_id = None
+
             # Step 3: Generate embeddings and index
             document.status = "indexing"
             document.updated_at = utc_now()
@@ -146,6 +156,7 @@ class DocumentPipeline:
                     input_summary=f"document_id={document.id}",
                 )
                 index_step_id = index_step.id
+                active_step_id = index_step_id
                 self.trace_writer.update_step_status(index_step_id, "running")
 
             await self._index_chunks(document, knowledge, chunks, run_id=run_id)
@@ -160,13 +171,22 @@ class DocumentPipeline:
                     "succeeded",
                     output_summary=f"vectors={len(chunks)}",
                 )
-            
+                active_step_id = None
+
             # Update knowledge statistics
             self._update_knowledge_stats(knowledge)
-            
+
             return document
-            
+
         except Exception as e:
+            if active_step_id:
+                self.trace_writer.update_step_status(
+                    active_step_id,
+                    "failed",
+                    output_summary=str(e),
+                    error_code="PIPELINE_ERROR",
+                    error_message=str(e),
+                )
             # Mark document as failed
             document.status = "failed"
             document.error_code = "PIPELINE_ERROR"
@@ -175,19 +195,19 @@ class DocumentPipeline:
             document.updated_at = utc_now()
             self.db.commit()
             raise
-    
+
     async def _parse_document(
         self,
         document: KnowledgeDocument,
-        file_content: Optional[bytes],
-        run_id: Optional[str] = None,
+        file_content: bytes | None,
+        run_id: str | None = None,
     ) -> Any:
         """Parse document.
-        
+
         Args:
             document: Document instance.
             file_content: Optional file content.
-            
+
         Returns:
             ParsedDocument instance.
         """
@@ -195,7 +215,7 @@ class DocumentPipeline:
         if file_content is None:
             if not document.file_id:
                 raise KernelError("NO_FILE", "Document has no file_id")
-            
+
             # Load from storage gateway
             try:
                 file_content = await self.storage_port.get(
@@ -204,28 +224,28 @@ class DocumentPipeline:
                 )
             except Exception as e:
                 raise KernelError("STORAGE_ERROR", f"Failed to load file from storage: {str(e)}")
-        
+
         # Get parser
         mime_type = document.mime_type or "text/plain"
         parser_class = get_parser(mime_type)
         if not parser_class:
             from app.modules.knowledge.infra.parsers.text import TextParser
             parser_class = TextParser
-        
+
         parser = parser_class()
         parsed_doc = await parser.parse(
             content=file_content,
             mime_type=mime_type,
             filename=document.filename,
         )
-        
+
         # Save parsed text to storage
         if parsed_doc.text:
             try:
                 # Generate storage key for parsed text
                 from app.kernel.commons.ids import generate_ulid
                 storage_key = f"knowledge/{document.knowledge_id}/documents/{document.id}/parsed_{generate_ulid()}.txt"
-                
+
                 # Save to object storage
                 await self.storage_port.put(
                     key=storage_key,
@@ -233,7 +253,7 @@ class DocumentPipeline:
                     content_type="text/plain",
                     run_id=run_id,
                 )
-                
+
                 # Set artifact key
                 document.raw_text_artifact_key = storage_key
             except Exception as e:
@@ -241,11 +261,12 @@ class DocumentPipeline:
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to save parsed text to storage: {str(e)}")
-        
+
         if parsed_doc.structured_data:
             try:
-                from app.kernel.commons.ids import generate_ulid
                 import json
+
+                from app.kernel.commons.ids import generate_ulid
                 storage_key = f"knowledge/{document.knowledge_id}/documents/{document.id}/parsed_{generate_ulid()}.json"
                 await self.storage_port.put(
                     key=storage_key,
@@ -263,21 +284,21 @@ class DocumentPipeline:
             document.title = parsed_doc.metadata["title"]
 
         return parsed_doc
-    
+
     async def _chunk_document(
         self,
         document: KnowledgeDocument,
         knowledge: Knowledge,
         text: str,
-        run_id: Optional[str] = None,
-    ) -> List[KnowledgeChunk]:
+        run_id: str | None = None,
+    ) -> list[KnowledgeChunk]:
         """Chunk document text.
-        
+
         Args:
             document: Document instance.
             knowledge: Knowledge instance.
             text: Document text.
-            
+
         Returns:
             List of KnowledgeChunk instances.
         """
@@ -287,17 +308,17 @@ class DocumentPipeline:
         chunk_size = chunking_config.get("chunk_size", 1000)
         chunk_overlap = chunking_config.get("chunk_overlap", 200)
         separators = chunking_config.get("separators", None)
-        
+
         # Create chunker
         chunker = TextChunker(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             separators=separators,
         )
-        
+
         # Chunk text
         chunks = chunker.chunk(text)
-        
+
         # Create KnowledgeChunk instances
         knowledge_chunks = []
         for chunk in chunks:
@@ -307,7 +328,7 @@ class DocumentPipeline:
                 chunk.chunk_no,
             )
             content_hash = TextChunker.compute_content_hash(chunk.text)
-            
+
             knowledge_chunk = KnowledgeChunk(
                 tenant_id=self.ctx.tenant_id,
                 workspace_id=self.ctx.workspace_id,
@@ -326,13 +347,13 @@ class DocumentPipeline:
                 token_count=len(chunk.text.split()),
                 index_status="pending",
             )
-            
+
             # Save chunk text to storage
             try:
                 # Generate storage key for chunk text
                 from app.kernel.commons.ids import generate_ulid
                 storage_key = f"knowledge/{document.knowledge_id}/documents/{document.id}/chunks/{chunk.chunk_no}_{generate_ulid()}.txt"
-                
+
                 # Save to object storage
                 await self.storage_port.put(
                     key=storage_key,
@@ -340,7 +361,7 @@ class DocumentPipeline:
                     content_type="text/plain",
                     run_id=run_id,
                 )
-                
+
                 # Set artifact key
                 knowledge_chunk.text_artifact_key = storage_key
             except Exception as e:
@@ -348,23 +369,23 @@ class DocumentPipeline:
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to save chunk text to storage: {str(e)}")
-            
+
             knowledge_chunks.append(knowledge_chunk)
             self.db.add(knowledge_chunk)
-        
+
         self.db.commit()
-        
+
         return knowledge_chunks
-    
+
     async def _index_chunks(
         self,
         document: KnowledgeDocument,
         knowledge: Knowledge,
-        chunks: List[KnowledgeChunk],
-        run_id: Optional[str] = None,
+        chunks: list[KnowledgeChunk],
+        run_id: str | None = None,
     ) -> None:
         """Index chunks in vector database.
-        
+
         Args:
             document: Document instance.
             knowledge: Knowledge instance.
@@ -380,14 +401,14 @@ class DocumentPipeline:
             if not index:
                 raise KernelError("NO_INDEX", "Knowledge has no index configured")
             index_id = index.id
-        
+
         # Get index
         from app.modules.knowledge.infra.repository import IndexRepository
         index_repo = IndexRepository(self.db, self.ctx)
         index = index_repo.get_by_id(index_id)
         if not index:
             raise KernelError("INDEX_NOT_FOUND", f"Index {index_id} not found")
-        
+
         # Build index with these chunks
         await self.index_builder.build_index(
             index,
@@ -395,24 +416,24 @@ class DocumentPipeline:
             incremental=True,
             run_id=run_id,
         )
-        
+
         # Update document index metadata
         document.index_meta_json = {
             "index_id": index_id,
             "chunk_count": len(chunks),
             "indexed_at": utc_now().isoformat(),
         }
-    
+
     def _update_knowledge_stats(self, knowledge: Knowledge) -> None:
         """Update knowledge statistics.
-        
+
         Args:
             knowledge: Knowledge instance.
         """
         # Count documents and chunks
         doc_count = self.document_repo.count_by_knowledge(knowledge.id)
         chunk_count = self.chunk_repo.count_by_knowledge(knowledge.id)
-        
+
         # Update knowledge
         self.knowledge_repo.update_stats(
             knowledge.id,

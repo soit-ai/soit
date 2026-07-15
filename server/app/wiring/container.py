@@ -85,6 +85,11 @@ class Container:
         """Setup default factory functions."""
         self._setup_kernel_providers()
 
+        self.register_factory(
+            "llm_provider_resolver",
+            lambda: self._create_llm_provider_resolver(),
+        )
+
         # LLM Gateway factory
         self.register_factory(
             "llm_port",
@@ -398,24 +403,22 @@ class Container:
                 base_url=os.getenv("ANTHROPIC_BASE_URL") or settings.anthropic_base_url,
             )
 
-        if not providers:
-            if self._allows_in_memory_adapters():
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    "No LLM provider is configured; using the development in-memory adapter"
-                )
-                from app.adapters.llm.memory import InMemoryLLMPort
-
-                return InMemoryLLMPort()
-            raise RuntimeError(
-                "Production requires at least one configured LLM provider"
-            )
-
         if self._allows_in_memory_adapters():
             from app.adapters.llm.memory import InMemoryLLMPort
 
             providers["test"] = InMemoryLLMPort()
-        return LLMRouterPort(providers=providers)
+        return LLMRouterPort(
+            providers=providers,
+            provider_resolver=self.get("llm_provider_resolver"),
+            secrets_resolver=lambda ctx: self.get_secrets_port(ctx),
+        )
+
+    @staticmethod
+    def _create_llm_provider_resolver():
+        """Create the shared workspace provider resolver."""
+        from app.adapters.llm.provider_resolver import DatabaseProviderResolver
+
+        return DatabaseProviderResolver()
 
     def _create_tool_port(self) -> ToolPort:
         """Create Tool gateway instance.

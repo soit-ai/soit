@@ -1,4 +1,5 @@
 import { get } from '@/utils/request'
+import type { RunObserveSummary } from '@/services/run-service'
 
 export type ObserveTabId =
   | 'agent_health'
@@ -91,6 +92,11 @@ export interface MetricCard {
   delta?: string | null
   trend: number[]
   tone: 'blue' | 'green' | 'amber' | 'red' | 'cyan' | string
+  run_id?: string | null
+  detail_url?: string | null
+  status?: HealthStatus | string | null
+  cost_usd?: number | null
+  failure_reason?: string | null
 }
 
 export interface PriorityAlert {
@@ -100,6 +106,21 @@ export interface PriorityAlert {
   scope: string
   affected_agents: number
   duration_label: string
+  detail_url: string
+}
+
+export interface RecentRun {
+  run_id: string
+  mode?: string | null
+  kind?: string | null
+  subject_kind?: string | null
+  subject_id?: string | null
+  status: string
+  cost_usd: number
+  failure_reason?: string | null
+  started_at?: string | null
+  duration_ms?: number | null
+  observe_summary?: RunObserveSummary | null
   detail_url: string
 }
 
@@ -154,6 +175,7 @@ export interface WorkspaceObserveDashboard {
   tool_health: ToolHealthSummary[]
   knowledge_quality: KnowledgeQualitySummary[]
   approvals_summary: ApprovalsSummary
+  recent_runs: RecentRun[]
 }
 
 const defaultWorkspaceSummary: WorkspaceSummary = {
@@ -180,7 +202,7 @@ const tabLabels: Record<ObserveTabId, string> = {
 
 const emptyState: EmptyState = {
   title: '暂无数据',
-  description: '当前时间范围内没有可展示的观测数据。',
+  description: '当前时间范围内没有对应应用观测数据。',
 }
 
 const knownTabs = Object.keys(tabLabels) as ObserveTabId[]
@@ -432,6 +454,7 @@ const normalizeObserveDashboard = (
   const toolHealth = source.tool_health || []
   const knowledgeQuality = source.knowledge_quality || []
   const approvalsSummary = { ...defaultApprovalsSummary, ...(source.approvals_summary || {}) }
+  const recentRuns = source.recent_runs || []
 
   return {
     overview: source.overview || buildOverview(workspaceSummary),
@@ -452,6 +475,7 @@ const normalizeObserveDashboard = (
     tool_health: toolHealth,
     knowledge_quality: knowledgeQuality,
     approvals_summary: approvalsSummary,
+    recent_runs: recentRuns,
   }
 }
 
@@ -459,5 +483,5 @@ export const getObserveDashboard = (
   params: ObserveDashboardParams = {},
 ): Promise<WorkspaceObserveDashboard> => {
   return get<Partial<WorkspaceObserveDashboard>>('/observe/dashboard', params)
-    .then((response) => normalizeObserveDashboard(response.data, params))
+    .then((response) => normalizeObserveDashboard(response, params))
 }

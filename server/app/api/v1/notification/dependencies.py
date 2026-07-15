@@ -8,8 +8,8 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.kernel.contracts.context import RequestContext
 from app.infra.db.session import get_db
+from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
 from app.modules.notification.application.service import NotificationService
 from app.wiring.services import build_notification_service

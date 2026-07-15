@@ -57,6 +57,7 @@ export default [
 
     ...prefix('/observe', [
       index('./routes/observe/index.tsx'),
+      route('audits', './routes/run/audits.tsx'),
       route('runs', './routes/run/index.tsx'),
       route('runs/:runId', './routes/run/detail.tsx'),
       route('feedback', './routes/system/feedback.tsx'),

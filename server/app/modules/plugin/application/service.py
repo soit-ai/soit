@@ -1,40 +1,56 @@
 """Plugin application service."""
 
-import json
-import shutil
 import hashlib
-from typing import Optional, List, Dict, Any, Tuple, Set
-from pathlib import Path
-from urllib.parse import urlparse
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+import json
 import logging
+import shutil
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.commons.errors import NotFoundError, ValidationError
-from app.kernel.commons.ids import generate_ulid
+from sqlalchemy.orm import Session
+
+from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
-from app.settings.settings import settings
-from app.kernel.registry.deps import get_registry
-from app.modules.plugin.runtime.loader import PluginRuntimeLoader
-from app.modules.plugin.application.projectors import PluginProjectionContext, PluginProjectorRegistry
-from app.modules.plugin.domain.models import Plugin, PluginInstallation, PluginInstalledArtifact, PluginRelease, PluginVersion
-from app.modules.plugin.application.ports import PluginRepositoryPort, PluginInstallationRepositoryPort, PluginInstallerPort
-from app.modules.plugin.application.schemas import PluginCreate, PluginUpdate, PluginInstallRequest, PluginVersionCreate
-from app.modules.plugin.infra.repository import (
-    PluginInstalledArtifactRepository,
-    PluginReleaseRepository,
-    PluginVersionRepository,
-)
+from app.kernel.contracts.context import RequestContext
+from app.kernel.entitlements.features import FeatureRegistry, resolve_enabled_features
 from app.kernel.identity.guard import rbac_guard, workspace_guard
 from app.kernel.identity.permissions import RESOURCE_PLUGIN
-from app.modules.workflow.domain.models import Workflow, WorkflowVersion
+from app.kernel.registry.deps import get_registry
+from app.modules.plugin.application.ports import (
+    PluginInstallationRepositoryPort,
+    PluginInstallerPort,
+    PluginProjectionRepositoryPort,
+    PluginReleaseRepositoryPort,
+    PluginRepositoryPort,
+    PluginVersionRepositoryPort,
+)
+from app.modules.plugin.application.projectors import (
+    PluginProjectionContext,
+    PluginProjectorRegistry,
+)
+from app.modules.plugin.application.schemas import (
+    PluginCreate,
+    PluginInstallRequest,
+    PluginUpdate,
+    PluginVersionCreate,
+)
+from app.modules.plugin.domain.models import (
+    Plugin,
+    PluginInstallation,
+    PluginInstalledArtifact,
+    PluginRelease,
+    PluginVersion,
+)
+from app.modules.plugin.runtime.loader import PluginRuntimeLoader
+from app.modules.workflow.application.contracts import PublishedWorkflowUsagePort
+from app.settings.settings import settings
 
 logger = logging.getLogger(__name__)
 
 class PluginService:
     """Plugin installation service."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -42,9 +58,14 @@ class PluginService:
         plugin_repo: PluginRepositoryPort,
         installation_repo: PluginInstallationRepositoryPort,
         installer: PluginInstallerPort,
+        version_repo: PluginVersionRepositoryPort,
+        release_repo: PluginReleaseRepositoryPort,
+        artifact_repo: PluginProjectionRepositoryPort,
+        workflow_usage: PublishedWorkflowUsagePort,
+        approval_checkpoint_gateway: Any | None = None,
     ):
         """Initialize plugin market service.
-        
+
         Args:
             db: Database session.
             ctx: Request context.
@@ -55,9 +76,11 @@ class PluginService:
         self.installation_repo = installation_repo
         self.installer = installer
         self.settings = settings
-        self.version_repo = PluginVersionRepository(db, ctx)
-        self.release_repo = PluginReleaseRepository(db, ctx)
-        self.artifact_repo = PluginInstalledArtifactRepository(db, ctx)
+        self.version_repo = version_repo
+        self.release_repo = release_repo
+        self.artifact_repo = artifact_repo
+        self.workflow_usage = workflow_usage
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.projectors = PluginProjectorRegistry()
 
     @staticmethod
@@ -65,7 +88,7 @@ class PluginService:
         return plugin.publish_status
 
     @staticmethod
-    def normalize_publish_status(publish_status: Optional[str], *, current: str = "draft") -> str:
+    def normalize_publish_status(publish_status: str | None, *, current: str = "draft") -> str:
         if publish_status is not None:
             normalized = publish_status.strip().lower()
             if normalized not in {"draft", "published", "archived"}:
@@ -77,7 +100,7 @@ class PluginService:
         """Resolve plugin id for create RBAC checks."""
         return plugin_in.name or f"new:{self.ctx.workspace_id}"
 
-    def _infer_plugin_type(self, spec: Dict[str, Any], explicit: Optional[str] = None) -> str:
+    def _infer_plugin_type(self, spec: dict[str, Any], explicit: str | None = None) -> str:
         value = (spec or {}).get("plugin_type")
         if value:
             return str(value)
@@ -106,7 +129,53 @@ class PluginService:
             return mapping[kinds[0]]
         return "tool"
 
-    def _artifact_summary(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+    def _require_publish_approval_if_needed(
+        self,
+        *,
+        action: str,
+        plugin: Plugin,
+        version: PluginVersion,
+        notes: str | None,
+    ) -> None:
+        if self.approval_checkpoint_gateway is None:
+            return
+
+        request = {
+            "action": action,
+            "resource_type": "plugin",
+            "resource_ref": f"plugin:{plugin.id}",
+            "risk_level": "high",
+            "run_id": None,
+            "task_id": None,
+            "thread_id": None,
+            "agent_id": None,
+            "title": f"Approve {action}: plugin {plugin.name}",
+            "details": {
+                "subject_kind": "plugin",
+                "subject_id": plugin.id,
+                "plugin_name": plugin.name,
+                "version_id": version.id,
+                "version": version.version,
+                "package_version": version.package_version,
+                "scope": "workspace",
+                "notes": notes,
+            },
+        }
+        decision = self.approval_checkpoint_gateway.evaluate(self.ctx, request)
+        if not bool(getattr(decision, "requires_approval", False)):
+            return
+        raise ValidationError(
+            f"Approval required before {action}",
+            details={
+                "status": str(getattr(decision, "task_status", None) or "waiting_approval"),
+                "reason": str(getattr(decision, "reason", "approval_required")),
+                "policy_ref": getattr(decision, "policy_ref", None),
+                "approval": dict(getattr(decision, "approval_payload", None) or {}),
+                "request": request,
+            },
+        )
+
+    def _artifact_summary(self, spec: dict[str, Any]) -> dict[str, Any]:
         exports = (spec or {}).get("exports") or {}
         return {
             "tools": list(exports.get("tools") or []),
@@ -120,10 +189,10 @@ class PluginService:
         plugin: Plugin,
         *,
         package_version: str,
-        spec: Dict[str, Any],
-        manifest: Dict[str, Any],
-        package_sha256: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        spec: dict[str, Any],
+        manifest: dict[str, Any],
+        package_sha256: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> PluginVersion:
         version = PluginVersion(
             plugin_id=plugin.id,
@@ -148,7 +217,7 @@ class PluginService:
         self.db.refresh(plugin)
         return version
 
-    def _get_plugin_version(self, version_id: Optional[str]) -> Optional[PluginVersion]:
+    def _get_plugin_version(self, version_id: str | None) -> PluginVersion | None:
         if not version_id:
             return None
         return self.version_repo.get_by_id(version_id)
@@ -157,8 +226,8 @@ class PluginService:
         self,
         *,
         plugin: Plugin,
-        installation: Optional[PluginInstallation] = None,
-        version: Optional[PluginVersion] = None,
+        installation: PluginInstallation | None = None,
+        version: PluginVersion | None = None,
     ) -> PluginProjectionContext:
         resolved_version = version or self._get_plugin_version(
             installation.plugin_version_id if installation else plugin.current_version_id
@@ -175,11 +244,11 @@ class PluginService:
             spec=spec,
         )
 
-    def get_installation_for_plugin(self, plugin_id: str) -> Optional[PluginInstallation]:
+    def get_installation_for_plugin(self, plugin_id: str) -> PluginInstallation | None:
         """Return installation info for a plugin in this workspace."""
         return self.installation_repo.get_by_plugin(plugin_id)
 
-    def list_installations_for_plugin(self, plugin_id: str) -> List[PluginInstallation]:
+    def list_installations_for_plugin(self, plugin_id: str) -> list[PluginInstallation]:
         return list(self.installation_repo.list_by_plugin(plugin_id))
 
 
@@ -224,7 +293,7 @@ class PluginService:
             self._sync_manifest_enabled(plugin_name=plugin.name, version=version.package_version, enabled=False)
             self._sync_registry_for_plugin(plugin_name=plugin.name, version=version.package_version, enabled=False)
 
-    def _parse_version(self, value: Optional[str]) -> Optional[Tuple[int, int, int]]:
+    def _parse_version(self, value: str | None) -> tuple[int, int, int] | None:
         if not value:
             return None
         parts = value.split(".")
@@ -244,7 +313,7 @@ class PluginService:
             numbers.append(0)
         return tuple(numbers[:3])
 
-    def _collect_export_refs(self, spec: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
+    def _collect_export_refs(self, spec: dict[str, Any]) -> tuple[set[str], set[str]]:
         if not isinstance(spec, dict):
             try:
                 spec = json.loads(spec)
@@ -253,17 +322,17 @@ class PluginService:
         exports = spec.get("exports") or {}
         tools = exports.get("tools") or []
         nodes = exports.get("workflow_nodes") or []
-        return set([str(item) for item in tools if item]), set([str(item) for item in nodes if item])
+        return {str(item) for item in tools if item}, {str(item) for item in nodes if item}
 
     def _detect_registry_conflicts(
         self,
         *,
-        tool_refs: Set[str],
-        node_refs: Set[str],
+        tool_refs: set[str],
+        node_refs: set[str],
         plugin_name: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         reg = get_registry()
-        conflicts: List[Dict[str, Any]] = []
+        conflicts: list[dict[str, Any]] = []
 
         for tool_ref in sorted(tool_refs):
             found = reg.get_latest(
@@ -309,7 +378,7 @@ class PluginService:
 
         return conflicts
 
-    def _check_conflicts(self, *, spec: Dict[str, Any], plugin_name: str) -> None:
+    def _check_conflicts(self, *, spec: dict[str, Any], plugin_name: str) -> None:
         tool_refs, node_refs = self._collect_export_refs(spec)
         conflicts = self._detect_registry_conflicts(
             tool_refs=tool_refs,
@@ -322,9 +391,9 @@ class PluginService:
                 {"conflicts": conflicts},
             )
 
-    def _extract_workflow_refs(self, graph: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
-        tool_refs: Set[str] = set()
-        node_refs: Set[str] = set()
+    def _extract_workflow_refs(self, graph: dict[str, Any]) -> tuple[set[str], set[str]]:
+        tool_refs: set[str] = set()
+        node_refs: set[str] = set()
         if not isinstance(graph, dict):
             try:
                 graph = json.loads(graph)
@@ -351,61 +420,16 @@ class PluginService:
                     node_refs.add(str(node_ref))
         return tool_refs, node_refs
 
-    def _unwrap_db_result(self, result: Any) -> Any:
-        if result is None:
-            return None
-        if isinstance(result, (list, tuple)):
-            return result[0] if result else None
-        if hasattr(result, "_mapping"):
-            try:
-                return result[0]
-            except Exception:
-                return None
-        return result
-
-    def _collect_published_workflow_refs(self) -> Tuple[Set[str], Set[str]]:
-        tool_refs: Set[str] = set()
-        node_refs: Set[str] = set()
-        version_ids: Set[str] = set()
-
-        workflow_query = select(Workflow).where(
-            and_(
-                Workflow.tenant_id == self.ctx.tenant_id,
-                Workflow.workspace_id == self.ctx.workspace_id,
-                Workflow.published_version_id != None,  # noqa: E711
-            )
-        )
-        workflows = list(self.db.exec(workflow_query).all())
-        for workflow in workflows:
-            workflow_obj = self._unwrap_db_result(workflow)
-            if not workflow_obj:
-                continue
-            version_id = getattr(workflow_obj, "published_version_id", None)
-            if version_id:
-                version_ids.add(str(version_id))
-
-        for version_id in version_ids:
-            version = self.db.exec(
-                select(WorkflowVersion).where(
-                    and_(
-                        WorkflowVersion.id == version_id,
-                        WorkflowVersion.tenant_id == self.ctx.tenant_id,
-                        WorkflowVersion.workspace_id == self.ctx.workspace_id,
-                    )
-                )
-            ).first()
-            version_obj = self._unwrap_db_result(version)
-            if not version_obj:
-                continue
-            if getattr(version_obj, "spec_schema", None) != "workflow.v1":
-                continue
-            graph_json = getattr(version_obj, "spec_json", None) or {}
-            wf_tools, wf_nodes = self._extract_workflow_refs(graph_json)
+    def _collect_published_workflow_refs(self) -> tuple[set[str], set[str]]:
+        tool_refs: set[str] = set()
+        node_refs: set[str] = set()
+        for spec in self.workflow_usage.list_published_specs():
+            wf_tools, wf_nodes = self._extract_workflow_refs(spec)
             tool_refs.update(wf_tools)
             node_refs.update(wf_nodes)
         return tool_refs, node_refs
 
-    def _check_upgrade_compat(self, *, plugin: Plugin, next_spec: Dict[str, Any]) -> None:
+    def _check_upgrade_compat(self, *, plugin: Plugin, next_spec: dict[str, Any]) -> None:
         current_spec = plugin.spec_json or {}
         current_tools, current_nodes = self._collect_export_refs(current_spec)
         if not current_tools and not current_nodes:
@@ -424,7 +448,7 @@ class PluginService:
                 },
             )
 
-    def _check_compatibility(self, spec: Dict[str, Any]) -> None:
+    def _check_compatibility(self, spec: dict[str, Any]) -> None:
         compat = spec.get("compatibility") or {}
         min_v = self._parse_version(compat.get("min_platform_version"))
         max_v = self._parse_version(compat.get("max_platform_version"))
@@ -437,7 +461,21 @@ class PluginService:
             raise ValidationError("Plugin requires an older platform version")
         required_features = compat.get("requires_features") or []
         if required_features:
-            platform_features = set([str(item) for item in (self.settings.platform_features or [])])
+            try:
+                feature_registry = FeatureRegistry.default()
+                required_features = _normalize_feature_keys(feature_registry, required_features)
+                platform_features = set(
+                    resolve_enabled_features(
+                        edition=self.settings.platform_edition,
+                        entitlement_keys=[
+                            *(self.settings.platform_entitlements or []),
+                            *(self.settings.platform_features or []),
+                        ],
+                        registry=feature_registry,
+                    )
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             missing = [feature for feature in required_features if feature not in platform_features]
             if missing:
                 raise ValidationError(
@@ -450,7 +488,7 @@ class PluginService:
         digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()
         return int(digest[:8], 16) % 100
 
-    def _check_release_gate(self, *, spec: Dict[str, Any], plugin_name: str) -> None:
+    def _check_release_gate(self, *, spec: dict[str, Any], plugin_name: str) -> None:
         release = spec.get("release") or {}
         channel = (release.get("channel") or "stable").lower()
         rollout = release.get("rollout_percent")
@@ -474,7 +512,7 @@ class PluginService:
                 {"channel": channel, "rollout_percent": rollout_value},
             )
 
-    def _validate_runtime_manifest(self, manifest: Dict[str, Any]) -> None:
+    def _validate_runtime_manifest(self, manifest: dict[str, Any]) -> None:
         runtime = (manifest or {}).get("runtime") or {}
         if not runtime:
             return
@@ -548,13 +586,13 @@ class PluginService:
     @rbac_guard(RESOURCE_PLUGIN, "create", resource_id_resolver=_resolve_plugin_create_id)
     async def create_plugin(self, plugin_in: PluginCreate) -> Plugin:
         """Create a new plugin.
-        
+
         Args:
             plugin_in: Plugin creation schema.
-            
+
         Returns:
             Created Plugin instance.
-            
+
         Raises:
             ValidationError: If plugin name and version combination already exists.
         """
@@ -564,7 +602,7 @@ class PluginService:
             raise ValidationError(
                 f"Plugin '{plugin_in.name}' version '{plugin_in.version}' already exists"
             )
-        
+
         plugin = Plugin(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
@@ -580,7 +618,7 @@ class PluginService:
             publish_status="draft",
             created_by=self.ctx.user_id,
         )
-        
+
         plugin = self.plugin_repo.create(plugin)
         version = self._create_plugin_version(
             plugin,
@@ -602,17 +640,17 @@ class PluginService:
             },
         )
         return plugin
-    
+
     @rbac_guard(RESOURCE_PLUGIN, "read", resource_id_arg="plugin_id")
     async def get_plugin(self, plugin_id: str) -> Plugin:
         """Get plugin by ID.
-        
+
         Args:
             plugin_id: Plugin ID.
-            
+
         Returns:
             Plugin instance.
-            
+
         Raises:
             NotFoundError: If plugin not found.
         """
@@ -620,24 +658,24 @@ class PluginService:
         if not plugin:
             raise NotFoundError(f"Plugin not found: {plugin_id}")
         return plugin
-    
+
 
 
     @workspace_guard("read")
     async def list_plugins(
         self,
         published_only: bool = False,
-        plugin_type: Optional[str] = None,
+        plugin_type: str | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[Plugin]:
+    ) -> list[Plugin]:
         """List plugins.
-        
+
         Args:
             published_only: Only return published plugins.
             limit: Maximum number of plugins.
             offset: Offset for pagination.
-            
+
         Returns:
             List of Plugin instances.
         """
@@ -647,23 +685,23 @@ class PluginService:
             limit=limit,
             offset=offset,
         )
-    
+
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
     async def update_plugin(self, plugin_id: str, plugin_in: PluginUpdate) -> Plugin:
         """Update plugin.
-        
+
         Args:
             plugin_id: Plugin ID.
             plugin_in: Plugin update schema.
-            
+
         Returns:
             Updated Plugin instance.
-            
+
         Raises:
             NotFoundError: If plugin not found.
         """
         plugin = await self.get_plugin(plugin_id)
-        
+
         if plugin_in.description is not None:
             plugin.description = plugin_in.description
 
@@ -672,23 +710,23 @@ class PluginService:
 
         if plugin_in.status is not None:
             plugin.status = plugin_in.status
-        
+
         if plugin_in.spec_json is not None:
             plugin.spec_json = plugin_in.spec_json
-        
+
         if plugin_in.manifest_json is not None:
             plugin.manifest_json = plugin_in.manifest_json
-        
+
         if plugin_in.metadata_json is not None:
             plugin.metadata_json = plugin_in.metadata_json
-        
+
         plugin.publish_status = self.normalize_publish_status(
             plugin_in.publish_status,
             current=plugin.publish_status,
         )
 
         plugin.updated_at = utc_now()
-        
+
         self.db.commit()
         self.db.refresh(plugin)
         logger.info(
@@ -718,21 +756,27 @@ class PluginService:
         return version
 
     @rbac_guard(RESOURCE_PLUGIN, "read", resource_id_arg="plugin_id")
-    async def list_versions(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> List[PluginVersion]:
+    async def list_versions(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginVersion]:
         await self.get_plugin(plugin_id)
         return self.version_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_PLUGIN, "read", resource_id_arg="plugin_id")
-    async def list_releases(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> List[PluginRelease]:
+    async def list_releases(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginRelease]:
         await self.get_plugin(plugin_id)
         return self.release_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
-    async def publish_version(self, plugin_id: str, version_id: str, *, notes: Optional[str] = None) -> Plugin:
+    async def publish_version(self, plugin_id: str, version_id: str, *, notes: str | None = None) -> Plugin:
         plugin = await self.get_plugin(plugin_id)
         version = self.version_repo.get_by_id(version_id)
         if not version or version.plugin_id != plugin.id:
             raise NotFoundError(f"Plugin version not found: {version_id}")
+        self._require_publish_approval_if_needed(
+            action="publish",
+            plugin=plugin,
+            version=version,
+            notes=notes,
+        )
         previous = plugin.published_version_id
         previous_version = self._get_plugin_version(previous)
         version.status = "published"
@@ -774,11 +818,17 @@ class PluginService:
         return plugin
 
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
-    async def rollback_version(self, plugin_id: str, version_id: str, *, notes: Optional[str] = None) -> Plugin:
+    async def rollback_version(self, plugin_id: str, version_id: str, *, notes: str | None = None) -> Plugin:
         plugin = await self.get_plugin(plugin_id)
         version = self.version_repo.get_by_id(version_id)
         if not version or version.plugin_id != plugin.id:
             raise NotFoundError(f"Plugin version not found: {version_id}")
+        self._require_publish_approval_if_needed(
+            action="rollback",
+            plugin=plugin,
+            version=version,
+            notes=notes,
+        )
         previous = plugin.published_version_id
         previous_version = self._get_plugin_version(previous)
         release = PluginRelease(
@@ -816,25 +866,25 @@ class PluginService:
             )
             self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
         return plugin
-    
+
     @rbac_guard(RESOURCE_PLUGIN, "delete", resource_id_arg="plugin_id")
     async def delete_plugin(self, plugin_id: str) -> None:
         """Delete plugin.
-        
+
         Args:
             plugin_id: Plugin ID.
-            
+
         Raises:
             NotFoundError: If plugin not found.
         """
         plugin = await self.get_plugin(plugin_id)
-        
+
         # Delete associated installations
         installations = self.installation_repo.list_by_workspace(limit=1000, offset=0)
         for installation in installations:
             if installation.plugin_id == plugin_id:
                 self.db.delete(installation)
-        
+
         self.db.delete(plugin)
         self.db.commit()
         logger.info(
@@ -845,29 +895,29 @@ class PluginService:
                 "workspace_id": self.ctx.workspace_id,
             },
         )
-    
+
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
     async def install_plugin(self, plugin_id: str, install_request: PluginInstallRequest) -> PluginInstallation:
         """Install a plugin.
-        
+
         Args:
             plugin_id: Plugin ID.
             install_request: Installation request.
-            
+
         Returns:
             Created PluginInstallation instance.
-            
+
         Raises:
             NotFoundError: If plugin not found.
             ValidationError: If plugin is already installed.
         """
         plugin = await self.get_plugin(plugin_id)
-        
+
         # Check if already installed
         existing = self.installation_repo.get_by_plugin(plugin_id)
         if existing:
             raise ValidationError(f"Plugin '{plugin.name}' is already installed")
-        
+
         # Create installation
         installation = PluginInstallation(
             tenant_id=self.ctx.tenant_id,
@@ -879,9 +929,9 @@ class PluginService:
             enabled=True,
             state="installed",
         )
-        
+
         installation = self.installation_repo.create(installation)
-        
+
         # Update plugin installed_count
         plugin.installed_count += 1
         self.db.commit()
@@ -895,7 +945,7 @@ class PluginService:
                 "workspace_id": self.ctx.workspace_id,
             },
         )
-        
+
         return installation
 
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
@@ -904,7 +954,7 @@ class PluginService:
         plugin_id: str,
         package_bytes: bytes,
         *,
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> dict:
         """Install plugin package bytes into filesystem and register into runtime registry.
 
@@ -967,7 +1017,7 @@ class PluginService:
             self.db.refresh(plugin)
         else:
             cfg = existing.config_json or {}
-            cfg.setdefault("enabled", True)
+            cfg["enabled"] = True
             existing.config_json = cfg
             existing.plugin_version_id = version.id
             existing.enabled = True
@@ -996,6 +1046,85 @@ class PluginService:
             "manifest_path": str(paths.manifest_path),
             "spec_path": str(paths.spec_path),
         }
+
+    @workspace_guard("write")
+    async def upload_plugin_package(
+        self,
+        package_bytes: bytes,
+        *,
+        mode: str = "auto",
+        expected_sha256: str | None = None,
+    ) -> dict:
+        """Create, upgrade, or reinstall a plugin from package bytes."""
+        normalized_mode = (mode or "auto").strip().lower()
+        if normalized_mode not in {"auto", "reinstall"}:
+            raise ValidationError("Invalid plugin package upload mode")
+
+        manifest, spec = self.installer.inspect_package(package_bytes)
+        package_name = str(spec.get("name") or "").strip()
+        package_version = str(spec.get("version") or "").strip()
+        if not package_name:
+            raise ValidationError("Plugin package missing name")
+        if not package_version:
+            raise ValidationError("Plugin package missing version")
+
+        self._check_compatibility(spec)
+        self._check_release_gate(spec=spec, plugin_name=package_name)
+        self._validate_runtime_manifest(manifest)
+        self._check_conflicts(spec=spec, plugin_name=package_name)
+
+        existing = self.plugin_repo.get_by_name(package_name)
+        if existing:
+            if existing.version == package_version:
+                if normalized_mode != "reinstall":
+                    raise ConflictError(
+                        "Plugin package version already exists",
+                        details={
+                            "reason": "same_version_exists",
+                            "plugin_id": existing.id,
+                            "name": package_name,
+                            "version": package_version,
+                        },
+                    )
+                install_result = await self.install_plugin_package(
+                    existing.id,
+                    package_bytes,
+                    expected_sha256=expected_sha256,
+                )
+                action = "reinstalled"
+            else:
+                install_result = await self.upgrade_plugin_package(
+                    existing.id,
+                    package_bytes,
+                    expected_sha256=expected_sha256,
+                )
+                action = "upgraded"
+            plugin = await self.get_plugin(existing.id)
+            return {"action": action, "plugin": plugin, "install": install_result}
+
+        plugin = Plugin(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            name=package_name,
+            version=package_version,
+            publisher=str(spec.get("publisher") or "soit"),
+            plugin_type=self._infer_plugin_type(spec, spec.get("plugin_type")),
+            status="active",
+            description=spec.get("description") if isinstance(spec.get("description"), str) else None,
+            spec_json=spec,
+            manifest_json=manifest,
+            metadata_json={"package_sha256": hashlib.sha256(package_bytes).hexdigest()},
+            publish_status="published",
+            created_by=self.ctx.user_id,
+        )
+        plugin = self.plugin_repo.create(plugin)
+        install_result = await self.install_plugin_package(
+            plugin.id,
+            package_bytes,
+            expected_sha256=expected_sha256,
+        )
+        plugin = await self.get_plugin(plugin.id)
+        return {"action": "created", "plugin": plugin, "install": install_result}
 
     @rbac_guard(RESOURCE_PLUGIN, "delete", resource_id_arg="plugin_id")
     async def uninstall_plugin(self, plugin_id: str) -> None:
@@ -1032,7 +1161,7 @@ class PluginService:
         plugin_id: str,
         package_bytes: bytes,
         *,
-        expected_sha256: Optional[str] = None,
+        expected_sha256: str | None = None,
     ) -> dict:
         """Upgrade an installed plugin by replacing its package/version."""
         plugin = await self.get_plugin(plugin_id)
@@ -1077,6 +1206,9 @@ class PluginService:
         )
         installation = self.installation_repo.get_by_plugin(plugin_id)
         if installation:
+            cfg = installation.config_json or {}
+            cfg["enabled"] = True
+            installation.config_json = cfg
             installation.plugin_version_id = version.id
             installation.enabled = True
             installation.state = "installed"
@@ -1164,12 +1296,12 @@ class PluginService:
         self,
         *,
         plugin: Plugin,
-        version: Optional[PluginVersion],
-        installation: Optional[PluginInstallation],
+        version: PluginVersion | None,
+        installation: PluginInstallation | None,
     ) -> None:
         reg = get_registry()
-        tools: List[str] = []
-        nodes: List[str] = []
+        tools: list[str] = []
+        nodes: list[str] = []
         if installation and installation.enabled:
             artifacts = self.artifact_repo.list_by_installation(installation.id)
             for artifact in artifacts:
@@ -1208,12 +1340,12 @@ class PluginService:
     async def list_artifacts(
         self,
         *,
-        plugin_id: Optional[str] = None,
-        artifact_kind: Optional[str] = None,
-        enabled: Optional[bool] = None,
+        plugin_id: str | None = None,
+        artifact_kind: str | None = None,
+        enabled: bool | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> List[PluginInstalledArtifact]:
+    ) -> list[PluginInstalledArtifact]:
         if plugin_id:
             await self.get_plugin(plugin_id)
         return self.artifact_repo.list(
@@ -1228,19 +1360,19 @@ class PluginService:
     async def list_capabilities(
         self,
         *,
-        kind: Optional[str] = None,
+        kind: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         artifacts = self.artifact_repo.list(enabled=True, limit=1_000, offset=0)
-        capabilities: List[Dict[str, Any]] = []
+        capabilities: list[dict[str, Any]] = []
         for artifact in artifacts:
             capabilities.extend(self._capabilities_for_artifact(artifact))
         if kind:
             capabilities = [item for item in capabilities if item["kind"] == kind]
         return capabilities[offset : offset + limit]
 
-    def _capabilities_for_artifact(self, artifact: PluginInstalledArtifact) -> List[Dict[str, Any]]:
+    def _capabilities_for_artifact(self, artifact: PluginInstalledArtifact) -> list[dict[str, Any]]:
         base = {
             "source_kind": "plugin",
             "source_id": artifact.plugin_id,
@@ -1285,7 +1417,7 @@ class PluginService:
         if artifact.artifact_kind == "mcp_server":
             mcp = (artifact.metadata_json or {}).get("mcp_server") or {}
             server_name = mcp.get("name") or artifact.artifact_ref.split(":", 1)[-1]
-            items: List[Dict[str, Any]] = [
+            items: list[dict[str, Any]] = [
                 {
                     **base,
                     "ref": artifact.artifact_ref,
@@ -1323,3 +1455,16 @@ class PluginService:
                         )
             return items
         return []
+
+
+def _normalize_feature_keys(registry: FeatureRegistry, keys: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        value = str(key).strip()
+        if not value or value in seen:
+            continue
+        registry.get(value)
+        normalized.append(value)
+        seen.add(value)
+    return normalized

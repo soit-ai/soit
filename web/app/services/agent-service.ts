@@ -1,11 +1,8 @@
 import { del, get, post, put, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
 import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
+import type { PaginatedResponse } from '@/types/api'
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  next_page_token?: string | null
-  page_size: number
-}
+export type { PaginatedResponse } from '@/types/api'
 
 export interface Agent {
   id: string
@@ -82,7 +79,6 @@ export interface AgentVersionCreateRequest {
     tool_refs?: string[]
     workflow_refs?: string[]
     skill_refs?: string[]
-    plugin_refs?: string[]
   }
 }
 
@@ -97,6 +93,62 @@ export interface AgentBinding {
   sort_order: number
   created_at: string
   updated_at: string
+}
+
+export interface AgentWorkbenchSummary {
+  total_agents: number
+  configured_agents: number
+  running_agents: number
+  today_calls: number
+  avg_latency_ms?: number | null
+  success_rate?: number | null
+  pending_exceptions: number
+  updated_at: string
+}
+
+export interface AgentWorkbenchTabs {
+  all: number
+  high_calls: number
+  low_success: number
+  long_latency: number
+  unconfigured: number
+}
+
+export interface AgentWorkbenchCapability {
+  type: string
+  target_id?: string | null
+  target_key?: string | null
+  label: string
+}
+
+export interface AgentWorkbenchRow {
+  id: string
+  name: string
+  description?: string | null
+  status: 'running' | 'configuring' | 'abnormal' | 'unconfigured'
+  capabilities: AgentWorkbenchCapability[]
+  today_calls: number
+  avg_latency_ms?: number | null
+  success_rate?: number | null
+  recent_exception_count: number
+  owner?: string | null
+  last_run_at?: string | null
+  action_enabled: boolean
+  updated_at: string
+}
+
+export interface AgentWorkbenchResponse {
+  summary: AgentWorkbenchSummary
+  tabs: AgentWorkbenchTabs
+  items: AgentWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
+}
+
+export interface AgentWorkbenchItemsResponse {
+  items: AgentWorkbenchRow[]
+  next_page_token?: string | null
+  page_size: number
 }
 
 export interface AgentCreateRequest {
@@ -147,23 +199,39 @@ export const listAgents = (params?: {
   page_token?: string
   page_size?: number
 }): Promise<PaginatedResponse<Agent>> => {
-  return get<PaginatedResponse<Agent>>('/agents', params).then((response) => response.data)
+  return get<PaginatedResponse<Agent>>('/agents', params)
 }
 
 export const getAgent = (agentId: string): Promise<Agent> => {
-  return get<Agent>(`/agents/${agentId}`).then((response) => response.data)
+  return get<Agent>(`/agents/${agentId}`)
+}
+
+export const getAgentWorkbench = (params?: {
+  page_token?: string
+  page_size?: number
+}): Promise<AgentWorkbenchResponse> => {
+  return get<AgentWorkbenchResponse>('/agents/workbench', params)
+}
+
+export const getAgentWorkbenchItems = (params?: {
+  tab?: string
+  keyword?: string
+  page_token?: string
+  page_size?: number
+}): Promise<AgentWorkbenchItemsResponse> => {
+  return get<AgentWorkbenchItemsResponse>('/agents/workbench/items', params)
 }
 
 export const createAgent = (data: AgentCreateRequest): Promise<Agent> => {
-  return post<Agent>('/agents', data).then((response) => response.data)
+  return post<Agent>('/agents', data)
 }
 
 export const updateAgent = (agentId: string, data: AgentUpdateRequest): Promise<Agent> => {
-  return put<Agent>(`/agents/${agentId}`, data).then((response) => response.data)
+  return put<Agent>(`/agents/${agentId}`, data)
 }
 
 export const deleteAgent = (agentId: string): Promise<void> => {
-  return del(`/agents/${agentId}`).then((response) => response.data)
+  return del(`/agents/${agentId}`)
 }
 
 export const listAgentVersions = (
@@ -173,14 +241,14 @@ export const listAgentVersions = (
     page_size?: number
   }
 ): Promise<PaginatedResponse<AgentVersion>> => {
-  return get<PaginatedResponse<AgentVersion>>(`/agents/${agentId}/versions`, params).then((response) => response.data)
+  return get<PaginatedResponse<AgentVersion>>(`/agents/${agentId}/versions`, params)
 }
 
 export const createAgentVersion = (
   agentId: string,
   data: AgentVersionCreateRequest
 ): Promise<AgentVersion> => {
-  return post<AgentVersion>(`/agents/${agentId}/versions`, data).then((response) => response.data)
+  return post<AgentVersion>(`/agents/${agentId}/versions`, data)
 }
 
 export const listAgentReleases = (
@@ -190,7 +258,7 @@ export const listAgentReleases = (
     page_size?: number
   }
 ): Promise<PaginatedResponse<AgentRelease>> => {
-  return get<PaginatedResponse<AgentRelease>>(`/agents/${agentId}/releases`, params).then((response) => response.data)
+  return get<PaginatedResponse<AgentRelease>>(`/agents/${agentId}/releases`, params)
 }
 
 export const listAgentBindings = (
@@ -199,14 +267,14 @@ export const listAgentBindings = (
     version_id?: string
   }
 ): Promise<AgentBinding[]> => {
-  return get<AgentBinding[]>(`/agents/${agentId}/bindings`, params).then((response) => response.data)
+  return get<AgentBinding[]>(`/agents/${agentId}/bindings`, params)
 }
 
 export const publishAgentVersion = (
   agentId: string,
   data: AgentPublishRequest
 ): Promise<Agent> => {
-  return post<Agent>(`/agents/${agentId}/publish`, data).then((response) => response.data)
+  return post<Agent>(`/agents/${agentId}/publish`, data)
 }
 
 export const streamAgentExecution = (

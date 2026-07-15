@@ -34,7 +34,7 @@ type ChecklistState = Record<string, boolean>
 const checklistItems: ChecklistItem[] = [
   { key: 'acceptance_end_to_end', labelKey: 'workflow.detail.publish.checklist.acceptance.endToEnd', group: 'acceptance' },
   { key: 'acceptance_tests', labelKey: 'workflow.detail.publish.checklist.acceptance.tests', group: 'acceptance' },
-  { key: 'acceptance_observability', labelKey: 'workflow.detail.publish.checklist.acceptance.observability', group: 'acceptance' },
+  { key: 'acceptance_observe', labelKey: 'workflow.detail.publish.checklist.acceptance.observe', group: 'acceptance' },
   { key: 'acceptance_docs', labelKey: 'workflow.detail.publish.checklist.acceptance.docs', group: 'acceptance' },
   { key: 'release_migrations', labelKey: 'workflow.detail.publish.checklist.release.migrations', group: 'release' },
   { key: 'release_env', labelKey: 'workflow.detail.publish.checklist.release.env', group: 'release' },
@@ -107,7 +107,8 @@ function Page() {
     try {
       const data = await listRuns({
         mode: 'workflow',
-        workflow_id: workflowId,
+        subject_kind: 'workflow',
+        subject_id: workflowId,
         page_size: 5,
       })
       setRuns(data.items || [])

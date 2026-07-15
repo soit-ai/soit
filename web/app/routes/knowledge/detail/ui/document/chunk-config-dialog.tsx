@@ -1,5 +1,5 @@
 import { useTranslation } from '@/i18n'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +32,9 @@ export function ChunkConfigDialog({ open, onOpenChange, config, onConfigChange }
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('knowledge.document.chunk.config.title')}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure document chunk size, overlap, and separator.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">

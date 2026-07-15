@@ -3,30 +3,31 @@
 Memory domain schemas.
 """
 
-from typing import Optional, Dict, Any, List
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemoryCreate(BaseModel):
     """Create memory request."""
 
-    content: Dict[str, Any]
+    content: dict[str, Any]
     """Memory content."""
 
     memory_type: str = Field(default="long", pattern="^(short|long)$")
     """Memory type."""
 
-    user_id: Optional[str] = None
+    user_id: str | None = None
     """Optional owner user_id."""
 
-    content_summary: Optional[str] = Field(default=None, max_length=2048)
+    content_summary: str | None = Field(default=None, max_length=2048)
     """Optional summary."""
 
-    metadata_json: Optional[Dict[str, Any]] = None
+    metadata_json: dict[str, Any] | None = None
     """Optional metadata."""
 
-    tags: Optional[List[str]] = None
+    tags: list[str] | None = None
     """Tags."""
 
 
@@ -39,10 +40,10 @@ class MemoryQuery(BaseModel):
     top_k: int = Field(default=5, ge=1, le=50)
     """Top results."""
 
-    memory_type: Optional[str] = Field(default=None, pattern="^(short|long)$")
+    memory_type: str | None = Field(default=None, pattern="^(short|long)$")
     """Memory type filter."""
 
-    user_id: Optional[str] = None
+    user_id: str | None = None
     """Optional owner filter."""
 
 
@@ -52,15 +53,15 @@ class MemoryResponse(BaseModel):
     id: str
     tenant_id: str
     workspace_id: str
-    user_id: Optional[str]
+    user_id: str | None
     memory_type: str
-    content: Dict[str, Any]
-    content_summary: Optional[str]
-    metadata_json: Optional[Dict[str, Any]]
-    tags: Optional[List[str]]
+    content: dict[str, Any]
+    content_summary: str | None
+    metadata_json: dict[str, Any] | None
+    tags: list[str] | None
     created_at: datetime
     updated_at: datetime
-    deleted_at: Optional[datetime]
+    deleted_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
 

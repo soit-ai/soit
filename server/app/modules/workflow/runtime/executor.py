@@ -5,17 +5,17 @@ DAG execution engine for workflows.
 
 import asyncio
 import time
-from dataclasses import asdict
-from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict, deque
+from dataclasses import asdict
+from typing import Any
 
+from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.execution_plan import ExecutionPlan
+from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executors import get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
-from app.modules.workflow.application.variable_resolver import VariableResolver
-from app.kernel.commons.errors import ValidationError
-from app.kernel.trace.models import Run, RunStep
 from app.modules.workflow.runtime.workflow_outbox_emit import (
     enqueue_workflow_node_completed,
     enqueue_workflow_node_failed,
@@ -27,7 +27,7 @@ def _emit_workflow_node_completed_outbox(
     *,
     node_id: str,
     run_step: RunStep,
-    next_node_id: Optional[str] = None,
+    next_node_id: str | None = None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -53,8 +53,8 @@ def _emit_workflow_node_failed_outbox(
     *,
     node_id: str,
     run_step: RunStep,
-    error_code: Optional[str],
-    error_message: Optional[str],
+    error_code: str | None,
+    error_message: str | None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -78,26 +78,26 @@ def _emit_workflow_node_failed_outbox(
 
 class WorkflowExecutor:
     """DAG execution engine for workflows."""
-    
+
     def __init__(self, execution_engine: ExecutionEngine):
         """Initialize workflow executor.
-        
+
         Args:
             execution_engine: Execution engine instance.
         """
         self.execution_engine = execution_engine
-    
+
     async def execute(
         self,
         plan: ExecutionPlan,
         context: ExecutionContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute workflow DAG.
-        
+
         Args:
             plan: Execution plan.
             context: Execution context.
-            
+
         Returns:
             Final output dictionary.
         """
@@ -107,29 +107,29 @@ class WorkflowExecutor:
         semantics = plan.plan_data.get("semantics", {})
         policy = plan.plan_data.get("policy", {})
         context_payload = asdict(context.ctx) if context.ctx else {}
-        
+
         # Build graph for dependency tracking
         edge_map = self._build_edge_map(edges)
         reverse_edge_map = self._build_reverse_edge_map(edges)
-        
+
         # Track node states and outputs
-        node_states: Dict[str, str] = {}  # node_id -> status
-        node_outputs: Dict[str, Dict[str, Any]] = {}  # node_id -> output
+        node_states: dict[str, str] = {}  # node_id -> status
+        node_outputs: dict[str, dict[str, Any]] = {}  # node_id -> output
         in_degree = {node_id: len(reverse_edge_map.get(node_id, [])) for node_id in nodes}
-        incoming_active = {node_id: 0 for node_id in nodes}
+        incoming_active = dict.fromkeys(nodes, 0)
         has_incoming = {node_id: in_degree[node_id] > 0 for node_id in nodes}
-        
+
         # Execution queue (nodes ready to execute)
         ready_queue = deque([node_id for node_id, degree in in_degree.items() if degree == 0])
-        queued_nodes: Set[str] = set(ready_queue)
-        
+        queued_nodes: set[str] = set(ready_queue)
+
         class CompensationRequested(Exception):
             def __init__(self, node_id: str, error_message: str):
                 super().__init__(error_message)
                 self.node_id = node_id
                 self.error_message = error_message
 
-        def _strip_control_keys(payload: Dict[str, Any]) -> Dict[str, Any]:
+        def _strip_control_keys(payload: dict[str, Any]) -> dict[str, Any]:
             if not payload:
                 return {}
             cleaned = dict(payload)
@@ -141,8 +141,8 @@ class WorkflowExecutor:
         concurrency = semantics.get("concurrency", 1)
         semaphore = asyncio.Semaphore(concurrency)
         compensation_requested = False
-        compensation_error: Optional[CompensationRequested] = None
-        
+        compensation_error: CompensationRequested | None = None
+
         def resolve_edge_condition(condition: Any) -> bool:
             if condition is None:
                 return True
@@ -202,18 +202,18 @@ class WorkflowExecutor:
                 wait_started = time.monotonic()
                 await self._wait_for_resume(context.run_id, semantics)
                 pause_wait_ms = int((time.monotonic() - wait_started) * 1000)
-                
+
                 # Get executor
                 executor_class = get_executor(node_type)
                 executor = executor_class()
-                
+
                 # Resolve inputs
                 # Build steps_outputs mapping: node_id -> output
                 steps_outputs_map = {}
                 for nid in execution_order:
                     if nid in node_outputs:
                         steps_outputs_map[nid] = node_outputs[nid]
-                
+
                 skipped_steps = {nid for nid, state in node_states.items() if state == "skipped"}
                 resolver = VariableResolver(
                     plan.inputs,
@@ -222,7 +222,7 @@ class WorkflowExecutor:
                     skipped_steps=skipped_steps,
                 )
                 inputs = _strip_control_keys(resolver.resolve(node.get("input", {})))
-                
+
                 def create_attempt_step(attempt: int):
                     """Create a run step for this attempt."""
                     step_key = step_id_base if attempt == 1 else f"{step_id_base}_retry{attempt}"
@@ -238,7 +238,7 @@ class WorkflowExecutor:
                         status="running",
                     )
                     return run_step
-                
+
                 attempt = 1
                 attempts = 0
                 run_step = create_attempt_step(attempt)
@@ -257,6 +257,10 @@ class WorkflowExecutor:
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
                     workflow_run_id=context.workflow_run_id,
+                    approval_checkpoint_gateway=context.approval_checkpoint_gateway,
+                    task_id=context.task_id,
+                    thread_id=context.thread_id,
+                    agent_id=context.agent_id,
                 )
                 final_error_recorded = False
                 try:
@@ -316,7 +320,7 @@ class WorkflowExecutor:
 
                     node_outputs[node_id] = output
                     node_states[node_id] = "succeeded"
-                    
+
                     # Update step status to succeeded
                     elapsed_ms = int((time.monotonic() - exec_started) * 1000)
                     metrics = {
@@ -338,7 +342,7 @@ class WorkflowExecutor:
                     _emit_workflow_node_completed_outbox(context, node_id=node_id, run_step=run_step)
 
                     resolve_outgoing_edges(node_id, allow_edges=True)
-                
+
                 except asyncio.CancelledError:
                     node_states[node_id] = "canceled"
                     elapsed_ms = int((time.monotonic() - exec_started) * 1000)
@@ -360,7 +364,7 @@ class WorkflowExecutor:
                     raise
                 except Exception as e:
                     node_states[node_id] = "failed"
-                    
+
                     # Update step status to failed
                     error_message = str(e)
                     elapsed_ms = int((time.monotonic() - exec_started) * 1000)
@@ -399,7 +403,7 @@ class WorkflowExecutor:
                     )
 
                     error_strategy = semantics.get("on_error", "fail_fast")
-                    
+
                     if error_strategy == "fail_fast":
                         raise ValidationError(f"Node {node_id} failed: {error_message}")
                     elif error_strategy == "continue":
@@ -409,10 +413,10 @@ class WorkflowExecutor:
                     elif error_strategy == "compensate":
                         raise CompensationRequested(node_id=node_id, error_message=error_message)
                     # other strategies: ignore
-        
-        def _collect_compensation_nodes() -> List[str]:
-            compensation_nodes: List[str] = []
-            seen: Set[str] = set()
+
+        def _collect_compensation_nodes() -> list[str]:
+            compensation_nodes: list[str] = []
+            seen: set[str] = set()
             for node_id in reversed(execution_order):
                 if node_states.get(node_id) != "succeeded":
                     continue
@@ -467,6 +471,10 @@ class WorkflowExecutor:
                     workflow_policy=context.workflow_policy,
                     steps_outputs=node_outputs,
                     workflow_run_id=context.workflow_run_id,
+                    approval_checkpoint_gateway=context.approval_checkpoint_gateway,
+                    task_id=context.task_id,
+                    thread_id=context.thread_id,
+                    agent_id=context.agent_id,
                 )
                 try:
                     output = await executor.execute(node, step_context, inputs)
@@ -507,12 +515,12 @@ class WorkflowExecutor:
                 node_id = ready_queue.popleft()
                 queued_nodes.discard(node_id)
                 tasks.append(asyncio.create_task(execute_node(node_id)))
-            
+
             # Wait for at least one task to complete
             if tasks:
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 tasks = list(pending)
-                
+
                 # Check for exceptions
                 for task in done:
                     try:
@@ -531,7 +539,7 @@ class WorkflowExecutor:
                         break
                     except Exception:
                         # If fail_fast, propagate exception
-                        if semantics.get("on_error") == "fail_fast":
+                        if semantics.get("on_error", "fail_fast") == "fail_fast":
                             raise
                         # Otherwise, continue
 
@@ -542,24 +550,24 @@ class WorkflowExecutor:
             await _execute_compensation_nodes()
             error_message = compensation_error.error_message if compensation_error else "Compensation triggered"
             raise ValidationError(f"Workflow compensated after failure: {error_message}")
-        
+
         # Find output node
         output_node_id = None
         for node_id, node in nodes.items():
             if node["type"] == "output":
                 output_node_id = node_id
                 break
-        
+
         if output_node_id and output_node_id in node_outputs:
             return node_outputs[output_node_id]
-        
+
         # If no output node, return last node's output
         if execution_order and execution_order[-1] in node_outputs:
             return node_outputs[execution_order[-1]]
-        
+
         return {}
 
-    async def _wait_for_resume(self, run_id: str, semantics: Dict[str, Any]) -> None:
+    async def _wait_for_resume(self, run_id: str, semantics: dict[str, Any]) -> None:
         """Block execution while run is paused."""
         poll_ms = semantics.get("pause_poll_ms", 500)
         while True:
@@ -571,40 +579,40 @@ class WorkflowExecutor:
             if status == "canceled":
                 raise asyncio.CancelledError()
             return
-    
-    def _build_graph(self, edges: List[Dict[str, str]]) -> Dict[str, List[str]]:
+
+    def _build_graph(self, edges: list[dict[str, str]]) -> dict[str, list[str]]:
         """Build forward graph (from -> to)."""
         graph = defaultdict(list)
         for edge in edges:
             graph[edge["from"]].append(edge["to"])
         return dict(graph)
-    
-    def _build_reverse_graph(self, edges: List[Dict[str, str]]) -> Dict[str, List[str]]:
+
+    def _build_reverse_graph(self, edges: list[dict[str, str]]) -> dict[str, list[str]]:
         """Build reverse graph (to -> from)."""
         graph = defaultdict(list)
         for edge in edges:
             graph[edge["to"]].append(edge["from"])
         return dict(graph)
 
-    def _build_edge_map(self, edges: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    def _build_edge_map(self, edges: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         """Build forward edge map (from -> edges)."""
         graph = defaultdict(list)
         for edge in edges:
             graph[edge["from"]].append(edge)
         return dict(graph)
 
-    def _build_reverse_edge_map(self, edges: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    def _build_reverse_edge_map(self, edges: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         """Build reverse edge map (to -> edges)."""
         graph = defaultdict(list)
         for edge in edges:
             graph[edge["to"]].append(edge)
         return dict(graph)
 
-    def _evaluate_condition(self, condition: Any, inputs: Dict[str, Any]) -> bool:
+    def _evaluate_condition(self, condition: Any, inputs: dict[str, Any]) -> bool:
         """Evaluate condition expression for edge routing."""
         if isinstance(condition, bool):
             return condition
-        if isinstance(condition, (int, float)):
+        if isinstance(condition, int | float):
             return bool(condition)
         if isinstance(condition, str):
             trimmed = condition.strip()
@@ -634,7 +642,7 @@ class WorkflowExecutor:
             return bool(value)
         return bool(condition)
 
-    def _get_condition_value(self, expr: str, inputs: Dict[str, Any]) -> Any:
+    def _get_condition_value(self, expr: str, inputs: dict[str, Any]) -> Any:
         expr = expr.strip().strip('"').strip("'")
         if expr in inputs:
             return inputs[expr]

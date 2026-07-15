@@ -3,12 +3,12 @@
 Registry-backed workflow node executor.
 """
 
-from typing import Dict, Any
+from typing import Any
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.registry.deps import get_registry
 from app.kernel.specs.validator import validate_spec
-from app.modules.workflow.runtime.executors.base import NodeExecutor, ExecutionContext
+from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
 class RegistryNodeExecutor(NodeExecutor):
@@ -16,10 +16,10 @@ class RegistryNodeExecutor(NodeExecutor):
 
     async def execute(
         self,
-        node: Dict[str, Any],
+        node: dict[str, Any],
         context: ExecutionContext,
-        inputs: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute registry-backed node."""
         if not context.tool_port:
             raise ValidationError("Tool port not available")

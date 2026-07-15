@@ -8,11 +8,11 @@ It rebuilds the in-process registry on process start or on-demand.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
-import logging
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.registry.deps import get_registry
@@ -28,20 +28,20 @@ class LoadedPlugin:
     name: str
     version: str
     install_dir: Path
-    tool_refs: List[str]
-    node_refs: List[str]
+    tool_refs: list[str]
+    node_refs: list[str]
 
 
 class PluginRuntimeLoader:
     """Load installed plugins from filesystem into registry."""
 
-    def __init__(self, *, validator: Optional[SpecValidator] = None):
+    def __init__(self, *, validator: SpecValidator | None = None):
         self.validator = validator or SpecValidator()
 
     def _root(self) -> Path:
         return Path(settings.plugins_dir).resolve() / "installed"
 
-    def _runtime_allowed(self, manifest: Dict[str, Any]) -> bool:
+    def _runtime_allowed(self, manifest: dict[str, Any]) -> bool:
         runtime = (manifest or {}).get("runtime") or {}
         runtime_type = runtime.get("type") or "http"
         if runtime_type != "http":
@@ -55,12 +55,12 @@ class PluginRuntimeLoader:
             return False
         return True
 
-    def load_all(self) -> List[LoadedPlugin]:
+    def load_all(self) -> list[LoadedPlugin]:
         root = self._root()
         if not root.exists():
             return []
 
-        loaded: List[LoadedPlugin] = []
+        loaded: list[LoadedPlugin] = []
         reg = get_registry()
 
         # expected layout:
@@ -95,7 +95,7 @@ class PluginRuntimeLoader:
 
                 # load exported tools
                 files_dir = install_dir / "files"
-                tool_refs: List[str] = []
+                tool_refs: list[str] = []
                 exported_tools = (spec.get("exports") or {}).get("tools") or []
                 for tool_ref in exported_tools:
                     tool_spec_path = files_dir / "tools" / f"{tool_ref.split(':',2)[2]}.json"
@@ -122,7 +122,7 @@ class PluginRuntimeLoader:
                     tool_refs.append(tool_ref)
 
                 # load exported workflow nodes
-                node_refs: List[str] = []
+                node_refs: list[str] = []
                 exported_nodes = (spec.get("exports") or {}).get("workflow_nodes") or []
                 node_artifacts = (spec.get("artifacts") or {}).get("workflow_nodes") or {}
                 for node_ref in exported_nodes:

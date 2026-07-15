@@ -339,9 +339,14 @@ test('chat page shows a retryable error when bootstrap data fails', async ({ pag
     })
   })
 
-  await page.goto('/chat/default', { waitUntil: 'domcontentloaded' })
+  const modelBootstrapFailure = page.waitForResponse((response) => {
+    return response.url().includes('/api/v1/modelhub/workbench/models') && response.status() === 500
+  })
 
-  await expect(page.getByRole('alert')).toContainText('Failed to load chat workspace')
+  await page.goto('/chat/default', { waitUntil: 'domcontentloaded' })
+  await modelBootstrapFailure
+
+  await expect(page.getByRole('alert')).toContainText('Failed to load chat workspace', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 

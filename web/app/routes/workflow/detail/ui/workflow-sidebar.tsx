@@ -24,6 +24,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLocation } from 'react-router'
 import type { TranslationKey } from '@/i18n/types'
+import { getWorkflow, type Workflow } from '@/services/workflow-service'
+import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 
 export interface NavSidebarProps extends React.ComponentProps<typeof Sidebar> {
   workflowId?: string
@@ -39,12 +41,12 @@ interface NavItem {
   badge?: number | null
 }
 
-export function NavSidebar({ ...props }: NavSidebarProps) {
-  const { workflowId = '' } = props
+export function NavSidebar({ workflowId = '', ...props }: NavSidebarProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
   const [navItems, setNavItems] = useState<NavItem[]>([])
+  const [workflow, setWorkflow] = useState<Workflow | null>(null)
 
   // Update active navigation state based on the current route.
   useEffect(() => {
@@ -97,17 +99,26 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
     setNavItems(items)
   }, [location.pathname, workflowId])
 
+  useEffect(() => {
+    if (!workflowId) return
+    getWorkflow(workflowId)
+      .then(setWorkflow)
+      .catch((error) => {
+        console.error('Failed to fetch workflow:', error)
+      })
+  }, [workflowId])
+
   const workflowInfo = {
     id: workflowId,
-    title: t('workflow.detail.sidebar.info.sample.title'),
-    subtitle: workflowId,
+    title: workflow?.name || workflowId || t('workflow.detail.sidebar.info.title'),
+    subtitle: workflow?.current_version_id || workflowId,
     icon: <BotMessageSquare color="blue" />,
     iconType: 'icon',
-    desc: t('workflow.detail.sidebar.info.sample.description'),
-    tags: ['AI', 'Research', 'NLP'],
-    version: '1.2.0',
-    lastUpdated: '2025-05-30',
-    status: t('workflow.detail.sidebar.info.status.published'),
+    desc: workflow?.description || workflow?.summary || '-',
+    tags: workflow?.tags || [],
+    version: workflow?.published_version_id || workflow?.current_version_id || '-',
+    lastUpdated: workflow?.updated_at ? formatDateTime(isoToZonedDate(workflow.updated_at)) : '-',
+    status: workflow?.status || '-',
   }
 
   const handleNavItemClick = useCallback((url: string) => {
@@ -119,7 +130,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
   }, [t])
 
   const openRunChat = useCallback(() => {
-    navigate(`/chat/${workflowId}`)
+    navigate(`/workflow/${workflowId}/monitor`)
   }, [navigate, workflowId])
 
   const goBackToWorkflowList = useCallback(() => {
@@ -241,7 +252,7 @@ export function NavSidebar({ ...props }: NavSidebarProps) {
               variant="outline"
               size="sm"
               className="flex-1 text-xs"
-              onClick={() => window.open(`/workflow/${workflowId}/share`, '_blank')}
+              onClick={() => navigate(`/workflow/${workflowId}/publish`)}
             >
               <Share2 className="h-3 w-3 mr-1" /> {t('workflow.detail.sidebar.actions.share')}
             </Button>

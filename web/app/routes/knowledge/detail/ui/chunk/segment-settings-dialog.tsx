@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,6 +25,9 @@ export function SegmentSettingsDialog({
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Chunk Settings</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure parent and child chunk settings before saving.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-4">
@@ -128,4 +131,4 @@ export function SegmentSettingsDialog({
       </DialogContent>
     </Dialog>
   )
-} 
+}

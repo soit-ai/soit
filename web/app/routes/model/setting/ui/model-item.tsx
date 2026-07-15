@@ -25,13 +25,14 @@ export function ModelItem({ model, onEdit, onDelete, onToggleActive }: ModelItem
           <Switch
             checked={model.enabled}
             onCheckedChange={(checked) => onToggleActive && onToggleActive(model.id, checked)}
-            aria-label={model.enabled ? t('system.model.list.disableAria') : t('system.model.list.enableAria')}
+            aria-label={model.enabled ? t('model.list.disableAria') : t('model.list.enableAria')}
           />
           <div className="flex items-center space-x-2">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => onDelete(model.id)}
+              aria-label={t('model.list.deleteModelAria', { name: model.displayName || model.modelId })}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -39,6 +40,7 @@ export function ModelItem({ model, onEdit, onDelete, onToggleActive }: ModelItem
               variant="ghost"
               size="icon"
               onClick={() => onEdit(model)}
+              aria-label={t('model.list.editModelAria', { name: model.displayName || model.modelId })}
             >
               <Pencil className="h-4 w-4" />
             </Button>

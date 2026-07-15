@@ -4,25 +4,26 @@ Variable resolver for template syntax ({{ inputs }}, {{ context }}, {{ steps.nod
 """
 
 import re
-from typing import Dict, Any, Optional, Union, List, Set
+from typing import Any
+
 from app.kernel.commons.errors import ValidationError
 
 
 class VariableResolver:
     """Resolve template variables in workflow node inputs."""
-    
+
     # Pattern: {{ inputs }} or {{ inputs.field }} or {{ steps.node_id.output.field }}
     VARIABLE_PATTERN = re.compile(r'\{\{\s*(\w+)(?:\.([\w.]+))?\s*\}\}')
-    
+
     def __init__(
         self,
-        inputs: Dict[str, Any],
-        steps_outputs: Optional[Dict[str, Dict[str, Any]]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        skipped_steps: Optional[Set[str]] = None,
+        inputs: dict[str, Any],
+        steps_outputs: dict[str, dict[str, Any]] | None = None,
+        context: dict[str, Any] | None = None,
+        skipped_steps: set[str] | None = None,
     ):
         """Initialize variable resolver.
-        
+
         Args:
             inputs: Workflow inputs dictionary.
             steps_outputs: Dictionary mapping step_id to output data.
@@ -33,13 +34,13 @@ class VariableResolver:
         self.steps_outputs = steps_outputs or {}
         self.context = context or {}
         self.skipped_steps = skipped_steps or set()
-    
-    def resolve(self, template: Union[str, Dict[str, Any], list]) -> Any:
+
+    def resolve(self, template: str | dict[str, Any] | list) -> Any:
         """Resolve variables in template.
-        
+
         Args:
             template: Template string, dict, or list that may contain variables.
-            
+
         Returns:
             Resolved value with variables substituted.
         """
@@ -51,13 +52,13 @@ class VariableResolver:
             return [self.resolve(item) for item in template]
         else:
             return template
-    
+
     def _resolve_string(self, template: str) -> Any:
         """Resolve variables in string template.
-        
+
         Args:
             template: String template with variables.
-            
+
         Returns:
             Resolved value.
         """
@@ -66,7 +67,7 @@ class VariableResolver:
         def replace_var(match):
             prefix = match.group(1)
             path = match.group(2)
-            
+
             if prefix == "inputs":
                 if not path:
                     value = self.inputs
@@ -87,7 +88,7 @@ class VariableResolver:
                         raise ValidationError(f"Invalid steps variable: {path}")
                     step_id = parts[0]
                     field_path = parts[2] if len(parts) > 2 else None
-                
+
                     step_output = self.steps_outputs.get(step_id)
                     if step_output is None:
                         if step_id in self.skipped_steps:
@@ -101,14 +102,14 @@ class VariableResolver:
                             value = step_output
             else:
                 raise ValidationError(f"Unknown variable prefix: {prefix}")
-            
+
             if value is None and not (prefix == "steps" and path and path.split(".", 1)[0] in self.skipped_steps):
                 raise ValidationError(f"Variable not found: {prefix}.{path or ''}".rstrip("."))
-            
+
             # Convert to string for substitution
             if value is None:
                 return ""
-            if isinstance(value, (dict, list)):
+            if isinstance(value, dict | list):
                 return str(value)
             return str(value)
 
@@ -119,7 +120,7 @@ class VariableResolver:
 
         return self.VARIABLE_PATTERN.sub(replace_var, template)
 
-    def _resolve_value(self, prefix: str, path: Optional[str]) -> Any:
+    def _resolve_value(self, prefix: str, path: str | None) -> Any:
         """Resolve a variable to its raw value."""
         if prefix == "inputs":
             if not path:
@@ -155,44 +156,44 @@ class VariableResolver:
                 return value
             return step_output
         raise ValidationError(f"Unknown variable prefix: {prefix}")
-    
+
     def _get_nested_value(self, obj: Any, path: str) -> Any:
         """Get nested value from object using dot notation.
-        
+
         Args:
             obj: Object to get value from.
             path: Dot-separated path (e.g., "field.subfield").
-            
+
         Returns:
             Value at path, or None if not found.
         """
         if not isinstance(obj, dict):
             return None
-        
+
         parts = path.split(".")
         current = obj
-        
+
         for part in parts:
             if not isinstance(current, dict):
                 return None
             current = current.get(part)
             if current is None:
                 return None
-        
+
         return current
-    
+
     @classmethod
-    def extract_variables(cls, template: Union[str, Dict[str, Any], list]) -> List[str]:
+    def extract_variables(cls, template: str | dict[str, Any] | list) -> list[str]:
         """Extract all variable references from template.
-        
+
         Args:
             template: Template to extract variables from.
-            
+
         Returns:
             List of variable references (e.g., ["inputs.query", "steps.r1.output.context"]).
         """
         variables = []
-        
+
         if isinstance(template, str):
             matches = cls.VARIABLE_PATTERN.findall(template)
             for prefix, path in matches:
@@ -206,6 +207,6 @@ class VariableResolver:
         elif isinstance(template, list):
             for item in template:
                 variables.extend(cls.extract_variables(item))
-        
+
         return list(set(variables))  # Remove duplicates
 

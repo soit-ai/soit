@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.kernel.runtime.runs.schemas import RunObserveSummaryResponse
 
 DashboardTabId = Literal[
     "agent_health",
@@ -79,6 +80,21 @@ class DashboardOverviewResponse(BaseModel):
     refreshed_at: str
 
 
+class RecentRunResponse(BaseModel):
+    run_id: str
+    mode: str | None = None
+    kind: str | None = None
+    subject_kind: str | None = None
+    subject_id: str | None = None
+    status: str
+    cost_usd: float = 0.0
+    failure_reason: str | None = None
+    started_at: str | None = None
+    duration_ms: int | None = None
+    observe_summary: RunObserveSummaryResponse | None = None
+    detail_url: str
+
+
 class MetricCardResponse(BaseModel):
     id: str
     label: str
@@ -86,6 +102,11 @@ class MetricCardResponse(BaseModel):
     delta: str | None = None
     trend: list[float] = Field(default_factory=list)
     tone: str = "blue"
+    run_id: str | None = None
+    detail_url: str | None = None
+    status: str | None = None
+    cost_usd: float | None = None
+    failure_reason: str | None = None
 
 
 class PriorityAlertResponse(BaseModel):
@@ -138,3 +159,4 @@ class WorkspaceObserveDashboard(BaseModel):
     tool_health: list[ToolHealthResponse] = Field(default_factory=list)
     knowledge_quality: list[KnowledgeQualityResponse] = Field(default_factory=list)
     approvals_summary: ApprovalsSummaryResponse
+    recent_runs: list[RecentRunResponse] = Field(default_factory=list)

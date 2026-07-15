@@ -3,59 +3,58 @@
 Identity domain business logic.
 """
 
-from typing import Optional, Callable, List
 import asyncio
 import threading
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
+from collections.abc import Callable
 
-from app.kernel.contracts.context import RequestContext
-from app.kernel.audit.models import AuditEvent
-from app.kernel.identity.auth import JWTManager
-from app.kernel.commons.errors import NotFoundError, ValidationError, UnauthorizedError
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+
+from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
 from app.kernel.commons.time import utc_now
-from app.modules.identity.domain.models import (
-    User,
-    Tenant,
-    Workspace,
-    TenantMembership,
-    WorkspaceMembership,
-    ApiKey,
-    ResourceGrant,
-)
-from app.modules.identity.application.ports import (
-    UserRepositoryPort,
-    TenantRepositoryPort,
-    TenantMembershipRepositoryPort,
-    WorkspaceRepositoryPort,
-    WorkspaceMembershipRepositoryPort,
-    ApiKeyRepositoryPort,
-    ResourceGrantRepositoryPort,
-)
-from app.modules.identity.application.schemas import (
-    UserCreate,
-    TenantCreate,
-    WorkspaceCreate,
-    MembershipCreate,
-    ApiKeyCreate,
-    ResourceGrantCreate,
-    UserProfileUpdate,
-    PasswordChange,
-    WorkspaceUpdate,
-)
+from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.rbac import (
-    TENANT_ROLE_OWNER,
     TENANT_ROLE_ADMIN,
     TENANT_ROLE_DEV,
-    TENANT_ROLE_VIEWER,
+    TENANT_ROLE_OWNER,
     TENANT_ROLES,
-    WORKSPACE_ROLE_OWNER,
     WORKSPACE_ROLE_ADMIN,
     WORKSPACE_ROLE_DEV,
+    WORKSPACE_ROLE_OWNER,
     WORKSPACE_ROLE_VIEWER,
     WORKSPACE_ROLES,
 )
-
+from app.kernel.runtime.db.models.audit import AuditEvent
+from app.modules.identity.application.ports import (
+    ApiKeyRepositoryPort,
+    ResourceGrantRepositoryPort,
+    TenantMembershipRepositoryPort,
+    TenantRepositoryPort,
+    UserRepositoryPort,
+    WorkspaceMembershipRepositoryPort,
+    WorkspaceRepositoryPort,
+)
+from app.modules.identity.application.schemas import (
+    ApiKeyCreate,
+    MembershipCreate,
+    PasswordChange,
+    ResourceGrantCreate,
+    TenantCreate,
+    UserCreate,
+    UserProfileUpdate,
+    WorkspaceCreate,
+    WorkspaceUpdate,
+)
+from app.modules.identity.domain.models import (
+    ApiKey,
+    ResourceGrant,
+    Tenant,
+    TenantMembership,
+    User,
+    Workspace,
+    WorkspaceMembership,
+)
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -63,7 +62,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class IdentityService:
     """Service for identity management."""
-    
+
     def __init__(
         self,
         db: Session,
@@ -77,7 +76,7 @@ class IdentityService:
         resource_grant_repo_factory: Callable[[RequestContext], ResourceGrantRepositoryPort],
     ):
         """Initialize identity service.
-        
+
         Args:
             db: Database session.
             jwt_manager: JWT manager instance.
@@ -116,7 +115,7 @@ class IdentityService:
             raise error["error"]
         return result.get("value")
 
-    def _normalize_actions(self, actions: List[str]) -> List[str]:
+    def _normalize_actions(self, actions: list[str]) -> list[str]:
         normalized = []
         seen = set()
         for action in actions:
@@ -129,7 +128,7 @@ class IdentityService:
             seen.add(value)
         return normalized
 
-    def _resolve_workspace_role(self, tenant_role: Optional[str]) -> str:
+    def _resolve_workspace_role(self, tenant_role: str | None) -> str:
         if tenant_role == TENANT_ROLE_OWNER:
             return WORKSPACE_ROLE_OWNER
         if tenant_role == TENANT_ROLE_ADMIN:
@@ -143,7 +142,7 @@ class IdentityService:
         *,
         tenant_id: str,
         user_id: str,
-        tenant_role: Optional[str],
+        tenant_role: str | None,
     ) -> tuple[str, str]:
         ctx = RequestContext(
             tenant_id=tenant_id,
@@ -182,17 +181,17 @@ class IdentityService:
     def register_user(
         self,
         user_data: UserCreate,
-        tenant_name: Optional[str] = None,
+        tenant_name: str | None = None,
     ) -> tuple[User, Tenant, str, str]:
         """Register a new user and create a tenant.
-        
+
         Args:
             user_data: User creation data.
             tenant_name: Optional tenant name (creates tenant if provided).
-            
+
         Returns:
             Tuple of (User, Tenant, access_token, workspace_id).
-            
+
         Raises:
             ValidationError: If user already exists or validation fails.
         """
@@ -200,7 +199,7 @@ class IdentityService:
         existing_user = self.user_repo.get_by_email(user_data.email)
         if existing_user:
             raise ValidationError("User with this email already exists")
-        
+
         # Create user
         password_hash = pwd_context.hash(user_data.password)
         user = User(
@@ -209,7 +208,7 @@ class IdentityService:
             name=user_data.name,
         )
         user = self.user_repo.create(user)
-        
+
         if not tenant_name:
             tenant_name = f"{user.id}-tenant"
         existing_tenant = self.tenant_repo.get_by_name(tenant_name)
@@ -230,7 +229,7 @@ class IdentityService:
             user_id=user.id,
             tenant_role=TENANT_ROLE_OWNER,
         )
-        
+
         # Generate access token
         access_token = self.jwt_manager.create_access_token(
             user_id=user.id,
@@ -239,36 +238,36 @@ class IdentityService:
             tenant_role=TENANT_ROLE_OWNER,
             workspace_role=workspace_role,
         )
-        
+
         return user, tenant, access_token, workspace_id
-    
+
     def authenticate_user(
         self,
         email: str,
         password: str,
     ) -> tuple[User, str, str]:
         """Authenticate a user.
-        
+
         Args:
             email: User email.
             password: User password.
-            
+
         Returns:
             Tuple of (User, access_token, workspace_id).
-            
+
         Raises:
             UnauthorizedError: If authentication fails.
         """
         user = self.user_repo.get_by_email(email)
         if not user:
             raise UnauthorizedError("Invalid email or password")
-        
+
         if not user.is_active:
             raise UnauthorizedError("User account is inactive")
-        
+
         if not pwd_context.verify(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
-        
+
         # Get user's primary tenant (first membership)
         memberships = self.tenant_membership_repo.get_by_user(user.id)
         if not memberships:
@@ -282,7 +281,7 @@ class IdentityService:
             user_id=user.id,
             tenant_role=tenant_role,
         )
-        
+
         # Generate access token
         access_token = self.jwt_manager.create_access_token(
             user_id=user.id,
@@ -291,20 +290,20 @@ class IdentityService:
             tenant_role=tenant_role,
             workspace_role=workspace_role,
         )
-        
+
         return user, access_token, workspace_id
-    
+
     def create_tenant(
         self,
         tenant_data: TenantCreate,
         user_id: str,
     ) -> Tenant:
         """Create a new tenant.
-        
+
         Args:
             tenant_data: Tenant creation data.
             user_id: User ID of the creator (becomes owner).
-            
+
         Returns:
             Created Tenant instance.
         """
@@ -312,14 +311,14 @@ class IdentityService:
         existing = self.tenant_repo.get_by_name(tenant_data.name)
         if existing:
             raise ValidationError("Tenant with this name already exists")
-        
+
         # Create tenant
         tenant = Tenant(
             name=tenant_data.name,
             plan=tenant_data.plan,
         )
         tenant = self.tenant_repo.create(tenant)
-        
+
         # Create owner membership
         membership = TenantMembership(
             tenant_id=tenant.id,
@@ -327,30 +326,30 @@ class IdentityService:
             role=TENANT_ROLE_OWNER,
         )
         self.tenant_membership_repo.create(membership)
-        
+
         return tenant
-    
+
     def create_workspace(
         self,
         workspace_data: WorkspaceCreate,
         ctx: RequestContext,
     ) -> Workspace:
         """Create a new workspace.
-        
+
         Args:
             workspace_data: Workspace creation data.
             ctx: Request context.
-            
+
         Returns:
             Created Workspace instance.
         """
         workspace_repo = self.workspace_repo_factory(ctx)
-        
+
         # Check if workspace name already exists in tenant
         existing = workspace_repo.get_by_name(workspace_data.name)
         if existing:
             raise ValidationError("Workspace with this name already exists")
-        
+
         # Create workspace
         workspace = Workspace(
             tenant_id=ctx.tenant_id,
@@ -358,7 +357,7 @@ class IdentityService:
             description=workspace_data.description,
         )
         workspace = workspace_repo.create(workspace)
-        
+
         # Create owner membership
         membership_repo = self.workspace_membership_repo_factory(ctx)
         membership = WorkspaceMembership(
@@ -368,9 +367,9 @@ class IdentityService:
             role=WORKSPACE_ROLE_OWNER,
         )
         membership_repo.create(membership)
-        
+
         return workspace
-    
+
     def add_tenant_member(
         self,
         tenant_id: str,
@@ -378,15 +377,15 @@ class IdentityService:
         ctx: RequestContext,
     ) -> TenantMembership:
         """Add a member to a tenant.
-        
+
         Args:
             tenant_id: Tenant ID.
             membership_data: Membership creation data.
             ctx: Request context.
-            
+
         Returns:
             Created TenantMembership instance.
-            
+
         Raises:
             ForbiddenError: If user doesn't have permission.
             NotFoundError: If tenant or user not found.
@@ -394,15 +393,15 @@ class IdentityService:
         # Check permission (only tenant admin/owner can add members)
         if ctx.tenant_id != tenant_id:
             raise ValidationError("Cannot add members to different tenant")
-        
+
         if not ctx.is_tenant_admin():
             raise ValidationError("Tenant admin role required")
-        
+
         # Verify tenant exists
         tenant = self.tenant_repo.get_by_id(tenant_id)
         if not tenant:
             raise NotFoundError("Tenant not found")
-        
+
         # Verify user exists
         user = self.user_repo.get_by_id(membership_data.user_id)
         if not user:
@@ -410,12 +409,12 @@ class IdentityService:
 
         if membership_data.role not in TENANT_ROLES:
             raise ValidationError("Invalid tenant role")
-        
+
         # Check if membership already exists
         existing = self.tenant_membership_repo.get(tenant_id, membership_data.user_id)
         if existing:
             raise ValidationError("User is already a member of this tenant")
-        
+
         # Create membership
         membership = TenantMembership(
             tenant_id=tenant_id,
@@ -423,7 +422,7 @@ class IdentityService:
             role=membership_data.role,
         )
         return self.tenant_membership_repo.create(membership)
-    
+
     def add_workspace_member(
         self,
         workspace_id: str,
@@ -431,15 +430,15 @@ class IdentityService:
         ctx: RequestContext,
     ) -> WorkspaceMembership:
         """Add a member to a workspace.
-        
+
         Args:
             workspace_id: Workspace ID.
             membership_data: Membership creation data.
             ctx: Request context.
-            
+
         Returns:
             Created WorkspaceMembership instance.
-            
+
         Raises:
             ForbiddenError: If user doesn't have permission.
             NotFoundError: If workspace or user not found.
@@ -449,15 +448,15 @@ class IdentityService:
         workspace = workspace_repo.get_by_id(workspace_id)
         if not workspace:
             raise NotFoundError("Workspace not found")
-        
+
         if not ctx.can_write():
             raise ValidationError("Workspace write permission required")
-        
+
         # Verify user exists
         user = self.user_repo.get_by_id(membership_data.user_id)
         if not user:
             raise NotFoundError("User not found")
-        
+
         # Verify user is member of tenant
         tenant_membership = self.tenant_membership_repo.get(ctx.tenant_id, membership_data.user_id)
         if not tenant_membership:
@@ -465,13 +464,13 @@ class IdentityService:
 
         if membership_data.role not in WORKSPACE_ROLES:
             raise ValidationError("Invalid workspace role")
-        
+
         # Check if membership already exists
         membership_repo = self.workspace_membership_repo_factory(ctx)
         existing = membership_repo.get(workspace_id, membership_data.user_id)
         if existing:
             raise ValidationError("User is already a member of this workspace")
-        
+
         # Create membership
         membership = WorkspaceMembership(
             tenant_id=ctx.tenant_id,
@@ -529,7 +528,7 @@ class IdentityService:
             raise NotFoundError(f"Tenant not found: {tenant_id}")
         return tenant
 
-    def list_workspaces(self, *, tenant_id: str, ctx: RequestContext) -> List[Workspace]:
+    def list_workspaces(self, *, tenant_id: str, ctx: RequestContext) -> list[Workspace]:
         """List workspaces in a tenant."""
         if ctx.tenant_id != tenant_id:
             raise ValidationError("tenant_id mismatch with current context")
@@ -573,7 +572,7 @@ class IdentityService:
         workspace_id: str,
         user_id: str,
         ctx: RequestContext,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get user's role in a workspace."""
         membership_repo = self.workspace_membership_repo_factory(ctx)
         membership = membership_repo.get(workspace_id, user_id)
@@ -583,7 +582,7 @@ class IdentityService:
         self,
         workspace_id: str,
         ctx: RequestContext,
-    ) -> List[WorkspaceMembership]:
+    ) -> list[WorkspaceMembership]:
         """List workspace members."""
         repo = self.workspace_membership_repo_factory(ctx)
         return repo.get_by_workspace(workspace_id)
@@ -623,7 +622,7 @@ class IdentityService:
         self,
         tenant_id: str,
         user_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get user's role in a tenant."""
         membership = self.tenant_membership_repo.get(tenant_id, user_id)
         return membership.role if membership else None
@@ -658,7 +657,7 @@ class IdentityService:
         ctx: RequestContext,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[ApiKey]:
+    ) -> list[ApiKey]:
         """List API keys for workspace."""
         return self.api_key_repo.list_by_workspace(
             tenant_id=ctx.tenant_id,
@@ -790,7 +789,7 @@ class IdentityService:
         resource_type: str,
         resource_id: str,
         ctx: RequestContext,
-    ) -> List[ResourceGrant]:
+    ) -> list[ResourceGrant]:
         """List resource grants for a resource."""
         grant_repo = self.resource_grant_repo_factory(ctx)
         return grant_repo.list_by_resource(resource_type, resource_id)
@@ -820,7 +819,7 @@ class IdentityService:
         resource_type: str,
         resource_id: str,
         user_id: str,
-        actions: List[str],
+        actions: list[str],
         operation: str,
     ) -> None:
         """Record a resource grant audit entry."""

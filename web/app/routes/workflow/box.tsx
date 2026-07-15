@@ -12,7 +12,7 @@ import {
   TrendingUp,
   Workflow,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -28,214 +28,19 @@ import {
   BoxToolbar,
   type BoxToolbarTab,
 } from '@/components/box'
+import { useNavigate } from '@/hooks/use-navigate'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
+import { getWorkflowWorkbench, getWorkflowWorkbenchItems, type WorkflowWorkbenchRow } from '@/services/workflow-service'
 
-type WorkflowStatus = 'running' | 'publishing' | 'abnormal' | 'draft'
+type WorkflowStatus = WorkflowWorkbenchRow['status']
 
-interface WorkflowRow {
-  id: string
-  name: string
-  description: string
-  icon: typeof Workflow
-  iconClassName: string
-  status: WorkflowStatus
-  agents: string[]
-  extraAgents?: number
-  todayRuns?: string
-  avgLatency?: string
-  successRate?: string
-  recentException?: string
-  owner: string
-  lastRun: string
-  action: 'play' | 'target' | 'disabled'
+type MetricDefinition = Omit<React.ComponentProps<typeof MetricStrip>['items'][number], 'label' | 'value'> & {
+  labelKey: TranslationKey
+  value: string
 }
-
-const metricDefinitions = [
-  {
-    id: 'running',
-    labelKey: 'workflow.workspaceDashboard.metrics.running',
-    value: '12',
-    delta: '+2',
-    trend: [4, 6, 5, 8, 6, 10, 5, 6, 4, 7, 5],
-    icon: Play,
-    tone: 'green',
-  },
-  {
-    id: 'today',
-    labelKey: 'workflow.workspaceDashboard.metrics.today',
-    value: '18,420',
-    delta: '+15.3%',
-    trend: [8, 7, 9, 8, 12, 10, 14, 9, 10, 8],
-    icon: TrendingUp,
-    tone: 'blue',
-  },
-  {
-    id: 'latency',
-    labelKey: 'workflow.workspaceDashboard.metrics.latency',
-    value: '1.8s',
-    delta: '-0.3s',
-    trend: [7, 8, 7, 10, 8, 9, 15, 9, 11, 10],
-    icon: Clock3,
-    tone: 'amber',
-  },
-  {
-    id: 'success',
-    labelKey: 'workflow.workspaceDashboard.metrics.success',
-    value: '97.4%',
-    delta: '+1.2%',
-    trend: [9, 8, 10, 9, 12, 13, 10, 11, 9, 13],
-    icon: ShieldCheck,
-    tone: 'green',
-  },
-  {
-    id: 'exceptions',
-    labelKey: 'workflow.workspaceDashboard.metrics.exceptions',
-    value: '3',
-    delta: '+1',
-    trend: [3, 5, 4, 8, 5, 4, 6, 3, 4, 3],
-    icon: AlertTriangle,
-    tone: 'red',
-  },
-] satisfies Array<Omit<React.ComponentProps<typeof MetricStrip>['items'][number], 'label'> & { labelKey: TranslationKey }>
-
-const tabDefinitions = [
-  { id: 'all', labelKey: 'workflow.workspaceDashboard.tabs.all', count: 32 },
-  { id: 'high', labelKey: 'workflow.workspaceDashboard.tabs.highVolume', count: 8 },
-  { id: 'publishing', labelKey: 'workflow.workspaceDashboard.tabs.publishing', count: 4 },
-  { id: 'abnormal', labelKey: 'workflow.workspaceDashboard.tabs.incidents', count: 3 },
-  { id: 'draft', labelKey: 'workflow.workspaceDashboard.tabs.drafts', count: 5 },
-] satisfies Array<Omit<BoxToolbarTab, 'label'> & { labelKey: TranslationKey }>
-
-const workflowRows: WorkflowRow[] = [
-  {
-    id: 'customer-clue',
-    name: 'Customer Lead Cleanup',
-    description: 'Clean and normalize multi-channel lead data',
-    icon: Workflow,
-    iconClassName: 'bg-emerald-500',
-    status: 'running',
-    agents: ['JD', 'AK'],
-    extraAgents: 2,
-    todayRuns: '2,548',
-    avgLatency: '1.2s',
-    successRate: '98.6%',
-    owner: 'Jude',
-    lastRun: '1 min ago',
-    action: 'play',
-  },
-  {
-    id: 'invoice-archive',
-    name: 'Invoice Recognition Archive',
-    description: 'Recognize, verify, and archive invoices',
-    icon: FileText,
-    iconClassName: 'bg-violet-500',
-    status: 'publishing',
-    agents: ['AL'],
-    extraAgents: 1,
-    todayRuns: '2,187',
-    avgLatency: '2.6s',
-    successRate: '96.8%',
-    owner: 'Alice',
-    lastRun: '2 min ago',
-    action: 'play',
-  },
-  {
-    id: 'data-sync',
-    name: 'Data Sync',
-    description: 'Synchronize systems and verify consistency',
-    icon: RotateCw,
-    iconClassName: 'bg-blue-500',
-    status: 'running',
-    agents: ['BO', 'CL'],
-    extraAgents: 3,
-    todayRuns: '3,420',
-    avgLatency: '1.5s',
-    successRate: '99.1%',
-    owner: 'Bob',
-    lastRun: '30 sec ago',
-    action: 'play',
-  },
-  {
-    id: 'content-review',
-    name: 'Content Review',
-    description: 'Review text and image compliance flows',
-    icon: CheckCircle2,
-    iconClassName: 'bg-orange-500',
-    status: 'abnormal',
-    agents: ['CH', 'AU'],
-    extraAgents: 2,
-    todayRuns: '921',
-    avgLatency: '3.4s',
-    successRate: '91.2%',
-    recentException: '2 incidents',
-    owner: 'Charlie',
-    lastRun: 'Just now',
-    action: 'play',
-  },
-  {
-    id: 'ticket-routing',
-    name: 'Ticket Routing',
-    description: 'Route tickets to the best owner',
-    icon: Workflow,
-    iconClassName: 'bg-cyan-500',
-    status: 'publishing',
-    agents: ['DV'],
-    extraAgents: 1,
-    todayRuns: '1,856',
-    avgLatency: '1.1s',
-    successRate: '97.8%',
-    owner: 'David',
-    lastRun: '3 min ago',
-    action: 'target',
-  },
-  {
-    id: 'contract-check',
-    name: 'Contract Risk Check',
-    description: 'Detect contract risks and validate clauses',
-    icon: ShieldCheck,
-    iconClassName: 'bg-amber-500',
-    status: 'running',
-    agents: ['EV', 'LI'],
-    extraAgents: 2,
-    todayRuns: '1,243',
-    avgLatency: '2.0s',
-    successRate: '96.5%',
-    owner: 'Eve',
-    lastRun: '5 min ago',
-    action: 'target',
-  },
-  {
-    id: 'notification',
-    name: 'Notification Delivery',
-    description: 'Send notifications and collect delivery receipts',
-    icon: FileText,
-    iconClassName: 'bg-blue-500',
-    status: 'draft',
-    agents: ['FR', 'NO'],
-    extraAgents: 2,
-    owner: 'Frank',
-    lastRun: '-',
-    action: 'disabled',
-  },
-  {
-    id: 'reporting',
-    name: 'Report Generation',
-    description: 'Aggregate data and generate visual reports',
-    icon: BarChart3,
-    iconClassName: 'bg-emerald-500',
-    status: 'running',
-    agents: ['GR'],
-    extraAgents: 1,
-    todayRuns: '1,122',
-    avgLatency: '1.3s',
-    successRate: '98.3%',
-    owner: 'Grace',
-    lastRun: '2 min ago',
-    action: 'play',
-  },
-]
 
 const statusConfig = {
   running: {
@@ -256,17 +61,89 @@ const statusConfig = {
   },
 } satisfies Record<WorkflowStatus, { labelKey: TranslationKey; className: string }>
 
-function WorkflowNameCell({ row, name, description }: { row: WorkflowRow; name: string; description: string }) {
-  const Icon = row.icon
+function formatNumber(value?: number | null) {
+  return typeof value === 'number' ? value.toLocaleString() : '-'
+}
+
+function formatLatency(value?: number | null) {
+  if (typeof value !== 'number') return '-'
+  return value >= 1000 ? `${Number((value / 1000).toFixed(1))}s` : `${value.toLocaleString()}ms`
+}
+
+function formatRate(value?: number | null) {
+  return typeof value === 'number' ? `${value.toFixed(value % 1 === 0 ? 0 : 1)}%` : '-'
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString()
+}
+
+function buildMetricItems(workbench?: Awaited<ReturnType<typeof getWorkflowWorkbench>>): MetricDefinition[] {
+  const summary = workbench?.summary
+  return [
+    {
+      id: 'running',
+      labelKey: 'workflow.workspaceDashboard.metrics.running',
+      value: formatNumber(summary?.running_workflows),
+      trend: [4, 6, 5, 8, 6, 10, 5, 6, 4, 7, 5],
+      icon: Play,
+      tone: 'green',
+    },
+    {
+      id: 'today',
+      labelKey: 'workflow.workspaceDashboard.metrics.today',
+      value: formatNumber(summary?.today_runs),
+      trend: [8, 7, 9, 8, 12, 10, 14, 9, 10, 8],
+      icon: TrendingUp,
+      tone: 'blue',
+    },
+    {
+      id: 'latency',
+      labelKey: 'workflow.workspaceDashboard.metrics.latency',
+      value: formatLatency(summary?.avg_latency_ms),
+      trend: [7, 8, 7, 10, 8, 9, 15, 9, 11, 10],
+      icon: Clock3,
+      tone: 'amber',
+    },
+    {
+      id: 'success',
+      labelKey: 'workflow.workspaceDashboard.metrics.success',
+      value: formatRate(summary?.success_rate),
+      trend: [9, 8, 10, 9, 12, 13, 10, 11, 9, 13],
+      icon: ShieldCheck,
+      tone: 'green',
+    },
+    {
+      id: 'exceptions',
+      labelKey: 'workflow.workspaceDashboard.metrics.exceptions',
+      value: formatNumber(summary?.recent_exceptions),
+      trend: [3, 5, 4, 8, 5, 4, 6, 3, 4, 3],
+      icon: AlertTriangle,
+      tone: 'red',
+    },
+  ]
+}
+
+function WorkflowNameCell({ row }: { row: WorkflowWorkbenchRow }) {
+  const Icon = row.status === 'draft' ? FileText : row.status === 'abnormal' ? AlertTriangle : Workflow
+  const iconClassName =
+    row.status === 'abnormal'
+      ? 'bg-red-500'
+      : row.status === 'draft'
+        ? 'bg-slate-500'
+        : row.status === 'publishing'
+          ? 'bg-blue-500'
+          : 'bg-emerald-500'
 
   return (
     <div className="flex min-w-[230px] items-center gap-3">
-      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white', row.iconClassName)}>
+      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white', iconClassName)}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <div className="truncate font-semibold text-foreground">{name}</div>
-        <div className="mt-0.5 max-w-[280px] truncate text-xs text-muted-foreground">{description}</div>
+        <div className="truncate font-semibold text-foreground">{row.name}</div>
+        <div className="mt-0.5 max-w-[280px] truncate text-xs text-muted-foreground">{row.summary || row.description || '-'}</div>
       </div>
     </div>
   )
@@ -277,36 +154,51 @@ function StatusBadge({ status, label }: { status: WorkflowStatus; label: string 
   return <Badge className={cn('rounded-md border px-2 py-1', config.className)}>{label}</Badge>
 }
 
-function AgentAvatars({ agents, extraAgents }: { agents: string[]; extraAgents?: number }) {
+function AgentAvatars({ agents, total }: { agents: string[]; total: number }) {
+  if (!agents.length && total === 0) return <span className="text-muted-foreground">-</span>
+
   return (
     <AvatarGroup>
-      {agents.map((agent, index) => (
+      {agents.slice(0, 3).map((agent, index) => (
         <Avatar key={`${agent}-${index}`} size="sm" className="border border-background bg-muted">
           <AvatarFallback className={cn('text-[10px] font-semibold text-white', index % 2 === 0 ? 'bg-slate-700 dark:bg-slate-500' : 'bg-blue-600 dark:bg-blue-500')}>
             {agent}
           </AvatarFallback>
         </Avatar>
       ))}
-      {extraAgents ? <AvatarGroupCount className="size-6 text-xs">+{extraAgents}</AvatarGroupCount> : null}
+      {total > agents.length ? <AvatarGroupCount className="size-6 text-xs">+{total - agents.length}</AvatarGroupCount> : null}
     </AvatarGroup>
   )
 }
 
-function OperationButtons({ action }: { action: WorkflowRow['action'] }) {
+function OperationButtons({ row }: { row: WorkflowWorkbenchRow }) {
+  const navigate = useNavigate()
+
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="icon-xs" className="border-border bg-panel text-foreground shadow-none">
+      <Button
+        variant="outline"
+        size="icon-xs"
+        className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/observe/runs?subject_kind=workflow&subject_id=${row.id}&mode=workflow`)}
+      >
         <BarChart3 className="h-3.5 w-3.5" />
       </Button>
       <Button
         variant="outline"
         size="icon-xs"
-        disabled={action === 'disabled'}
+        disabled={!row.action_enabled}
         className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/workflow/${row.id}/build`)}
       >
-        {action === 'target' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        {row.action_enabled ? <Play className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
       </Button>
-      <Button variant="outline" size="icon-xs" className="border-border bg-panel text-foreground shadow-none">
+      <Button
+        variant="outline"
+        size="icon-xs"
+        className="border-border bg-panel text-foreground shadow-none"
+        onClick={() => navigate(`/workflow/${row.id}/publish`)}
+      >
         <MoreHorizontal className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -315,42 +207,106 @@ function OperationButtons({ action }: { action: WorkflowRow['action'] }) {
 
 function WorkflowBoxPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('all')
   const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageTokens, setPageTokens] = useState<Array<string | undefined>>([undefined])
+  const tableKeyword = search.trim()
+  const pageToken = pageTokens[currentPage - 1]
 
-  const metrics = useMemo(() => metricDefinitions.map((item) => ({
+  const {
+    data: workbench,
+    isError: isWorkbenchError,
+    error: workbenchError,
+    refetch: refetchWorkbench,
+  } = useQuery({
+    queryKey: ['workflows', 'workbench'],
+    queryFn: () => getWorkflowWorkbench({ page_size: 1 }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const {
+    data: tableData,
+    isLoading: isTableLoading,
+    isError: isTableError,
+    error: tableError,
+    refetch: refetchTable,
+  } = useQuery({
+    queryKey: ['workflows', 'workbench', 'items', activeTab, tableKeyword, pageToken],
+    queryFn: () => getWorkflowWorkbenchItems({
+      page_size: 50,
+      page_token: pageToken,
+      tab: activeTab,
+      keyword: tableKeyword || undefined,
+    }),
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  useEffect(() => {
+    setCurrentPage(1)
+    setPageTokens([undefined])
+  }, [activeTab, tableKeyword])
+
+  const metrics = useMemo(() => buildMetricItems(workbench).map((item) => ({
     ...item,
     label: t(item.labelKey),
-  })), [t])
+  })), [t, workbench])
 
-  const tabs = useMemo(() => tabDefinitions.map((item) => ({
-    id: item.id,
-    label: t(item.labelKey),
-    count: item.count,
-  })), [t])
+  const tabs = useMemo<BoxToolbarTab[]>(() => {
+    const counts = workbench?.tabs
+    return [
+      { id: 'all', label: t('workflow.workspaceDashboard.tabs.all'), count: counts?.all ?? 0 },
+      { id: 'high', label: t('workflow.workspaceDashboard.tabs.highVolume'), count: counts?.high_volume ?? 0 },
+      { id: 'publishing', label: t('workflow.workspaceDashboard.tabs.publishing'), count: counts?.publishing ?? 0 },
+      { id: 'abnormal', label: t('workflow.workspaceDashboard.tabs.incidents'), count: counts?.abnormal ?? 0 },
+      { id: 'draft', label: t('workflow.workspaceDashboard.tabs.drafts'), count: counts?.draft ?? 0 },
+    ]
+  }, [t, workbench?.tabs])
 
-  const rows = useMemo(() => {
-    const keyword = search.trim().toLowerCase()
-    const byTab = workflowRows.filter((row) => {
-      if (activeTab === 'all') return true
-      if (activeTab === 'high') return Number((row.todayRuns || '0').replace(',', '')) > 2000
-      return row.status === activeTab
+  const rows = tableData?.items || []
+  const activeTabTotal = tabs.find((tab) => tab.id === activeTab)?.count
+  const totalRows = tableKeyword ? rows.length : typeof activeTabTotal === 'number' ? activeTabTotal : rows.length
+  const pages = useMemo(() => {
+    const values = currentPage > 1 ? [currentPage - 1, currentPage] : [currentPage]
+    if (tableData?.next_page_token) values.push(currentPage + 1)
+    return values
+  }, [currentPage, tableData?.next_page_token])
+  const goToNextPage = () => {
+    if (!tableData?.next_page_token) return
+    setPageTokens((tokens) => {
+      const nextTokens = tokens.slice(0, currentPage)
+      nextTokens[currentPage] = tableData.next_page_token || undefined
+      return nextTokens
     })
-    if (!keyword) return byTab
-    return byTab.filter((row) => [row.name, row.description, row.owner].join(' ').toLowerCase().includes(keyword))
-  }, [activeTab, search])
+    setCurrentPage((page) => page + 1)
+  }
+  const goToPreviousPage = () => {
+    if (currentPage <= 1) return
+    setCurrentPage((page) => page - 1)
+  }
+  const goToPage = (page: number) => {
+    if (page === currentPage) return
+    if (page === currentPage + 1) {
+      goToNextPage()
+      return
+    }
+    if (page === currentPage - 1) {
+      goToPreviousPage()
+    }
+  }
 
-  const columns = useMemo<BoxDataTableColumn<WorkflowRow>[]>(() => [
+  const columns = useMemo<BoxDataTableColumn<WorkflowWorkbenchRow>[]>(() => [
     {
       id: 'name',
       header: t('workflow.workspaceDashboard.columns.workflow'),
-      render: (row) => (
-        <WorkflowNameCell
-          row={row}
-          name={row.name}
-          description={row.description}
-        />
-      ),
+      render: (row) => <WorkflowNameCell row={row} />,
     },
     {
       id: 'status',
@@ -360,21 +316,21 @@ function WorkflowBoxPage() {
     {
       id: 'agents',
       header: t('workflow.workspaceDashboard.columns.linkedAgent'),
-      render: (row) => <AgentAvatars agents={row.agents} extraAgents={row.extraAgents} />,
+      render: (row) => <AgentAvatars agents={row.linked_agents} total={row.linked_agent_count} />,
     },
     {
       id: 'todayRuns',
       header: t('workflow.workspaceDashboard.columns.runsToday'),
       cellClassName: 'font-semibold text-foreground',
-      render: (row) => row.todayRuns || '-',
+      render: (row) => formatNumber(row.today_runs),
     },
     {
       id: 'avgLatency',
       header: t('workflow.workspaceDashboard.columns.avgLatency'),
       cellClassName: 'font-semibold',
       render: (row) => (
-        <span className={cn(row.status === 'abnormal' ? 'text-red-600 dark:text-red-300' : row.avgLatency === '2.6s' || row.avgLatency === '2.0s' ? 'text-orange-600 dark:text-orange-300' : 'text-emerald-600 dark:text-emerald-300')}>
-          {row.avgLatency || '-'}
+        <span className={cn(row.status === 'abnormal' ? 'text-red-600 dark:text-red-300' : row.avg_latency_ms && row.avg_latency_ms >= 2000 ? 'text-orange-600 dark:text-orange-300' : row.avg_latency_ms ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground')}>
+          {formatLatency(row.avg_latency_ms)}
         </span>
       ),
     },
@@ -383,34 +339,34 @@ function WorkflowBoxPage() {
       header: t('workflow.workspaceDashboard.columns.successRate'),
       cellClassName: 'font-semibold',
       render: (row) => (
-        <span className={cn(row.status === 'abnormal' ? 'text-orange-600 dark:text-orange-300' : row.successRate ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground')}>
-          {row.successRate || '-'}
+        <span className={cn(row.status === 'abnormal' ? 'text-orange-600 dark:text-orange-300' : row.success_rate !== null && row.success_rate !== undefined ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground')}>
+          {formatRate(row.success_rate)}
         </span>
       ),
     },
     {
       id: 'recentException',
       header: t('workflow.workspaceDashboard.columns.recentIncident'),
-      render: (row) => row.recentException ? (
-        <Badge className="rounded-md border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">{row.recentException}</Badge>
+      render: (row) => row.recent_exception_count ? (
+        <Badge className="rounded-md border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
+          {row.recent_exception_count} incidents
+        </Badge>
       ) : <span className="text-muted-foreground">-</span>,
     },
     {
       id: 'owner',
       header: t('workflow.workspaceDashboard.columns.owner'),
-      render: (row) => row.owner,
+      render: (row) => row.owner || '-',
     },
     {
       id: 'lastRun',
       header: t('workflow.workspaceDashboard.columns.lastRun'),
-      render: (row) => {
-        return <span className={row.lastRun === '-' ? 'text-muted-foreground' : 'text-foreground/80'}>{row.lastRun}</span>
-      },
+      render: (row) => <span className={row.last_run_at ? 'text-foreground/80' : 'text-muted-foreground'}>{formatTimestamp(row.last_run_at)}</span>,
     },
     {
       id: 'actions',
       header: t('workflow.workspaceDashboard.columns.actions'),
-      render: (row) => <OperationButtons action={row.action} />,
+      render: (row) => <OperationButtons row={row} />,
     },
   ], [t])
 
@@ -420,12 +376,24 @@ function WorkflowBoxPage() {
         title={t('workflow.workspaceDashboard.header.title')}
         description={t('workflow.workspaceDashboard.header.description')}
         action={(
-          <Button className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700">
+          <Button
+            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700"
+            onClick={() => navigate('/workflow/new/build')}
+          >
             <Plus className="h-4 w-4" />
             {t('workflow.workspaceDashboard.header.create')}
           </Button>
         )}
       />
+
+      {isWorkbenchError || isTableError ? (
+        <BoxAlert
+          severity="warning"
+          title={t('workflow.workspaceDashboard.table.empty')}
+          description={tableError instanceof Error ? tableError.message : workbenchError instanceof Error ? workbenchError.message : undefined}
+          action={<Button variant="outline" size="sm" onClick={() => { void refetchWorkbench(); void refetchTable() }}>{t('workflow.workspaceDashboard.toolbar.refresh')}</Button>}
+        />
+      ) : null}
 
       <MetricStrip items={metrics} deltaLabel={t('workflow.workspaceDashboard.metrics.deltaLabel')} />
 
@@ -439,15 +407,25 @@ function WorkflowBoxPage() {
         filterLabel={t('workflow.workspaceDashboard.toolbar.filter')}
         timeLabel={t('workflow.workspaceDashboard.toolbar.allTime')}
         refreshLabel={t('workflow.workspaceDashboard.toolbar.refresh')}
+        onRefresh={() => { void refetchWorkbench(); void refetchTable() }}
       />
 
-      <BoxDataTable columns={columns} rows={rows} emptyMessage={t('workflow.workspaceDashboard.table.empty')} />
+      <BoxDataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage={isTableLoading ? 'Loading workflows...' : t('workflow.workspaceDashboard.table.empty')}
+      />
 
       <BoxPagination
-        total={32}
-        pageSize={10}
-        currentPage={1}
-        pages={[1, 2, 3, 4]}
+        total={totalRows}
+        pageSize={tableData?.page_size || 50}
+        currentPage={currentPage}
+        pages={pages}
+        hasPrevious={currentPage > 1}
+        hasNext={Boolean(tableData?.next_page_token)}
+        onPrevious={goToPreviousPage}
+        onNext={goToNextPage}
+        onPageChange={goToPage}
         labels={{
           totalSuffix: t('workflow.workspaceDashboard.pagination.totalSuffix'),
           pageSizeSuffix: t('workflow.workspaceDashboard.pagination.pageSizeSuffix'),

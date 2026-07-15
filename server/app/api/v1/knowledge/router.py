@@ -1,22 +1,32 @@
 """Knowledge API routes."""
 
-from typing import Optional
-
 import json
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.api.v1.knowledge.dependencies import get_knowledge_service
 from app.api.v1.knowledge.handlers import KnowledgeHandlers
-from app.api.v1.permissions import require_workspace_read_ctx, require_workspace_write_ctx
+from app.api.v1.permissions import (
+    require_workspace_read_ctx,
+    require_workspace_write_ctx,
+)
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
-from app.kernel.trace.schemas import (
+from app.kernel.runtime.runs.schemas import (
     RunCostByModeResponse,
     RunCostSummaryResponse,
     RunResponse,
 )
 from app.modules.knowledge.application.schemas import (
-    KnowledgeUsageResponse,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeCreateRequest,
@@ -30,11 +40,11 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryResponse,
     KnowledgeResponse,
     KnowledgeUpdateRequest,
+    KnowledgeUsageResponse,
     KnowledgeWorkbenchItemsResponse,
     KnowledgeWorkbenchResponse,
 )
 from app.modules.knowledge.application.service import KnowledgeService
-
 
 router = APIRouter()
 
@@ -53,7 +63,7 @@ async def create_knowledge(
 
 @router.get("", response_model=PaginatedResponse[KnowledgeResponse])
 async def list_knowledge(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
@@ -66,7 +76,7 @@ async def list_knowledge(
 
 @router.get("/workbench", response_model=KnowledgeWorkbenchResponse)
 async def get_knowledge_workbench(
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
@@ -79,9 +89,9 @@ async def get_knowledge_workbench(
 
 @router.get("/workbench/items", response_model=KnowledgeWorkbenchItemsResponse)
 async def list_knowledge_workbench_items(
-    tab: Optional[str] = None,
-    keyword: Optional[str] = None,
-    page_token: Optional[str] = None,
+    tab: str | None = None,
+    keyword: str | None = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
@@ -152,7 +162,7 @@ async def list_knowledge_documents(
 @router.get("/{knowledge_id}/runs", response_model=PaginatedResponse[RunResponse])
 async def list_knowledge_runs(
     knowledge_id: str,
-    page_token: Optional[str] = None,
+    page_token: str | None = None,
     page_size: int = 20,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
@@ -262,19 +272,19 @@ async def upload_knowledge_document(
     knowledge_id: str,
     doc_key: str = Form(...),
     source_kind: str = Form(...),
-    source_uri: Optional[str] = Form(None),
-    file_id: Optional[str] = Form(None),
-    title: Optional[str] = Form(None),
-    language: Optional[str] = Form(None),
-    mime_type: Optional[str] = Form(None),
-    filename: Optional[str] = Form(None),
-    size_bytes: Optional[int] = Form(None),
-    checksum: Optional[str] = Form(None),
-    content_hash: Optional[str] = Form(None),
-    access_policy_json: Optional[str] = Form(None),
+    source_uri: str | None = Form(None),
+    file_id: str | None = Form(None),
+    title: str | None = Form(None),
+    language: str | None = Form(None),
+    mime_type: str | None = Form(None),
+    filename: str | None = Form(None),
+    size_bytes: int | None = Form(None),
+    checksum: str | None = Form(None),
+    content_hash: str | None = Form(None),
+    access_policy_json: str | None = Form(None),
     async_ingest: bool = Form(True),
     max_retries: int = Form(1),
-    file: Optional[UploadFile] = File(None),
+    file: UploadFile | None = File(None),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
@@ -325,6 +335,7 @@ async def get_knowledge_document(
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
+    _ = knowledge_id
     handlers = KnowledgeHandlers(service)
     return await handlers.get_document(ctx, document_id)
 
@@ -362,6 +373,7 @@ async def get_knowledge_document_content(
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
+    _ = ctx
     content, media_type = await service.get_document_content(knowledge_id, document_id)
     return Response(content=content, media_type=media_type)
 
@@ -373,6 +385,7 @@ async def download_knowledge_document(
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
+    _ = ctx
     content, media_type, filename = await service.download_document(knowledge_id, document_id)
     headers = {"Content-Disposition": f'attachment; filename=\"{filename}\"'}
     return Response(content=content, media_type=media_type, headers=headers)
@@ -408,6 +421,7 @@ async def delete_knowledge_document(
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
+    _ = knowledge_id
     handlers = KnowledgeHandlers(service)
     await handlers.delete_document(ctx, document_id)
 
@@ -415,7 +429,7 @@ async def delete_knowledge_document(
 @router.get("/{knowledge_id}/ingest-tasks", response_model=list[KnowledgeIngestTaskResponse])
 async def list_knowledge_ingest_tasks(
     knowledge_id: str,
-    status_filter: Optional[str] = None,
+    status_filter: str | None = None,
     limit: int = 20,
     offset: int = 0,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
