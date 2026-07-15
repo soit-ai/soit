@@ -20,6 +20,7 @@ class AuditEvent(SQLModel, table=True):
         Index("ix_audit_events_scope_created", "tenant_id", "workspace_id", "created_at"),
         Index("ix_audit_events_resource", "tenant_id", "workspace_id", "resource_type", "resource_id"),
         Index("ix_audit_events_event_type_created", "event_type", "created_at"),
+        Index("ix_audit_events_scope_run_created", "tenant_id", "workspace_id", "run_id", "created_at"),
     )
 
     id: str = Field(primary_key=True, default_factory=generate_ulid)
@@ -28,6 +29,11 @@ class AuditEvent(SQLModel, table=True):
     event_type: str = Field(index=True)
     resource_type: str = Field(index=True)
     resource_id: str | None = Field(default=None, nullable=True, index=True)
+    run_id: str | None = Field(default=None, nullable=True, index=True)
+    step_id: str | None = Field(default=None, nullable=True, index=True)
+    trace_id: str | None = Field(default=None, nullable=True, index=True)
+    outcome: str | None = Field(default=None, nullable=True, index=True)
+    evidence_artifact_id: str | None = Field(default=None, nullable=True, index=True)
     operation: str = Field(index=True)
     actor_user_id: str | None = Field(default=None, nullable=True, index=True)
     subject_user_id: str | None = Field(default=None, nullable=True, index=True)

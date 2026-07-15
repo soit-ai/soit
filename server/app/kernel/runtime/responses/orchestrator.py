@@ -297,7 +297,7 @@ class ResponseProjectionCoordinator:
 
     async def execute(self, payload: ResponseCreateRequest):
         response = self.response_service.create_response(payload)
-        response = self.response_service.mark_in_progress(response)
+        response = self.response_service.mark_running(response)
         if response.run_id:
             self.response_service.trace_writer.update_run_status(response.run_id, "running")
         self._touch_thread_latest_run(response)
@@ -357,7 +357,7 @@ class ResponseProjectionCoordinator:
     async def execute_stream(self, payload: ResponseCreateRequest) -> AsyncIterator[dict[str, Any]]:
         response = self.response_service.create_response(payload)
         created_events = self.response_service.list_response_events(response.id, limit=10, offset=0)
-        response = self.response_service.mark_in_progress(response)
+        response = self.response_service.mark_running(response)
         if response.run_id:
             self.response_service.trace_writer.update_run_status(response.run_id, "running")
         self._touch_thread_latest_run(response)
@@ -442,11 +442,11 @@ class ResponseProjectionCoordinator:
                 parent_message_id=assistant_parent_message_id,
             )
             yield {
-                "event": "response.output_text.completed",
+                "event": "response.output_text.done",
                 "data": {"text": output_text},
             }
             yield {
-                "event": "response.completed",
+                "event": "response.succeeded",
                 "data": {
                     "usage": usage_payload,
                     "finish_reason": finish_reason,

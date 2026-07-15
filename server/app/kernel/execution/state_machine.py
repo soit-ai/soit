@@ -3,53 +3,22 @@
 State machine for run/step lifecycle.
 """
 
-from enum import Enum
-
 from app.kernel.runtime.db.models.runs import Run, RunStep
-from app.kernel.runtime.tasks.status import ExecutionStatus
+from app.kernel.runtime.status import (
+    ExecutionStatus,
+    RuntimeTransitionError,
+    validate_run_transition,
+    validate_step_transition,
+)
+from app.kernel.runtime.status import (
+    StepStatus as StepStatus,
+)
 
-
-class RunStatus(str, Enum):
-    """Run status enum."""
-    QUEUED = ExecutionStatus.QUEUED.value
-    RUNNING = ExecutionStatus.RUNNING.value
-    PAUSED = ExecutionStatus.PAUSED.value
-    SUCCEEDED = ExecutionStatus.SUCCEEDED.value
-    FAILED = ExecutionStatus.FAILED.value
-    CANCELED = ExecutionStatus.CANCELED.value
-
-
-class StepStatus(str, Enum):
-    """Step status enum."""
-    QUEUED = ExecutionStatus.QUEUED.value
-    RUNNING = ExecutionStatus.RUNNING.value
-    SUCCEEDED = ExecutionStatus.SUCCEEDED.value
-    FAILED = ExecutionStatus.FAILED.value
-    SKIPPED = ExecutionStatus.SKIPPED.value
-    CANCELED = ExecutionStatus.CANCELED.value
+RunStatus = ExecutionStatus
 
 
 class StateMachine:
     """State machine for run/step transitions."""
-
-    # Valid transitions
-    RUN_TRANSITIONS = {
-        RunStatus.QUEUED: [RunStatus.RUNNING, RunStatus.CANCELED],
-        RunStatus.RUNNING: [RunStatus.PAUSED, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED],
-        RunStatus.PAUSED: [RunStatus.RUNNING, RunStatus.CANCELED],
-        RunStatus.SUCCEEDED: [],
-        RunStatus.FAILED: [],
-        RunStatus.CANCELED: [],
-    }
-
-    STEP_TRANSITIONS = {
-        StepStatus.QUEUED: [StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.CANCELED],
-        StepStatus.RUNNING: [StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.CANCELED],
-        StepStatus.SUCCEEDED: [],
-        StepStatus.FAILED: [],
-        StepStatus.SKIPPED: [],
-        StepStatus.CANCELED: [],
-    }
 
     @classmethod
     def can_transition_run(cls, current: str, target: str) -> bool:
@@ -62,9 +31,11 @@ class StateMachine:
         Returns:
             True if transition is valid.
         """
-        current_enum = RunStatus(current)
-        target_enum = RunStatus(target)
-        return target_enum in cls.RUN_TRANSITIONS.get(current_enum, [])
+        try:
+            validate_run_transition(current, target)
+            return current != target
+        except RuntimeTransitionError:
+            return False
 
     @classmethod
     def can_transition_step(cls, current: str, target: str) -> bool:
@@ -77,9 +48,11 @@ class StateMachine:
         Returns:
             True if transition is valid.
         """
-        current_enum = StepStatus(current)
-        target_enum = StepStatus(target)
-        return target_enum in cls.STEP_TRANSITIONS.get(current_enum, [])
+        try:
+            validate_step_transition(current, target)
+            return current != target
+        except RuntimeTransitionError:
+            return False
 
     @classmethod
     def transition_run(cls, run: Run, target_status: str) -> Run:
@@ -95,11 +68,7 @@ class StateMachine:
         Raises:
             ValueError: If transition is invalid.
         """
-        if not cls.can_transition_run(run.status, target_status):
-            raise ValueError(
-                f"Invalid transition: {run.status} -> {target_status}"
-            )
-        run.status = target_status
+        run.status = validate_run_transition(run.status, target_status)
         return run
 
     @classmethod
@@ -116,9 +85,5 @@ class StateMachine:
         Raises:
             ValueError: If transition is invalid.
         """
-        if not cls.can_transition_step(step.status, target_status):
-            raise ValueError(
-                f"Invalid transition: {step.status} -> {target_status}"
-            )
-        step.status = target_status
+        step.status = validate_step_transition(step.status, target_status)
         return step

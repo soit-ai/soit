@@ -1,8 +1,12 @@
 """Unit tests for gateway audit logging."""
 
+import json
+
 import pytest
+from sqlmodel import select
 
 from app.kernel.ports.common.audit import log_gateway_request
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.runs.writer import TraceWriter
 
@@ -27,9 +31,9 @@ async def test_log_gateway_request_inline(db, ctx):
         response_data={"success": True},
     )
 
-    refreshed = db.get(RunStep, step.id)
-    assert refreshed.metrics_json is not None
-    assert "audit_json" in refreshed.metrics_json
+    audit = db.exec(select(AuditEvent).where(AuditEvent.step_id == step.id)).one()
+    assert audit.payload_json["request"]["url"] == "https://api.example.com"
+    assert (db.get(RunStep, step.id).metrics_json or {}).get("audit_json") is None
 
 
 @pytest.mark.asyncio
@@ -53,10 +57,9 @@ async def test_log_gateway_request_truncates_without_storage(db, ctx):
         response_data={"success": True},
     )
 
-    refreshed = db.get(RunStep, step.id)
-    assert refreshed.metrics_json is not None
-    assert refreshed.metrics_json.get("audit_truncated") is True
-    assert "audit_preview" in refreshed.metrics_json
+    audit = db.exec(select(AuditEvent).where(AuditEvent.step_id == step.id)).one()
+    assert audit.payload_json["truncated"] is True
+    assert "preview" in audit.payload_json
 
 
 @pytest.mark.asyncio
@@ -84,8 +87,8 @@ async def test_log_gateway_request_redacts_sensitive_fields(db, ctx):
         response_data={"token": "supersecret"},
     )
 
-    refreshed = db.get(RunStep, step.id)
-    audit_json = (refreshed.metrics_json or {}).get("audit_json", "")
+    audit = db.exec(select(AuditEvent).where(AuditEvent.step_id == step.id)).one()
+    audit_json = json.dumps(audit.payload_json)
     assert "supersecret" not in audit_json
     assert "***REDACTED***" in audit_json
 

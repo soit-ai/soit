@@ -26,7 +26,7 @@ def test_responses_api_create_get_events_and_cancel(client):
     payload = create_response.json()["data"]
     assert payload["id"].startswith("resp_")
     assert payload["run_id"].startswith("run_")
-    assert payload["status"] == "completed"
+    assert payload["status"] == "succeeded"
     assert payload["provider"] == "openai"
     assert payload["metadata_json"]["source"] == "test"
     assert payload["output_json"]["text"] == "hello"
@@ -44,14 +44,14 @@ def test_responses_api_create_get_events_and_cancel(client):
     assert len(events_payload["items"]) == 4
     assert events_payload["items"][0]["type"] == "response.created"
     assert events_payload["items"][1]["type"] == "response.input.added"
-    assert events_payload["items"][2]["type"] == "response.output_text.completed"
-    assert events_payload["items"][3]["type"] == "response.completed"
+    assert events_payload["items"][2]["type"] == "response.output_text.done"
+    assert events_payload["items"][3]["type"] == "response.succeeded"
 
     cancel_response = client.post(f"/api/v1/responses/{response_id}/cancel", headers=headers)
     assert cancel_response.status_code == status.HTTP_200_OK
     cancel_payload = cancel_response.json()["data"]
     assert cancel_payload["action"] == "cancel"
-    assert cancel_payload["response"]["status"] == "completed"
+    assert cancel_payload["response"]["status"] == "succeeded"
 
     events_after_cancel = client.get(f"/api/v1/responses/{response_id}/events", headers=headers)
     assert events_after_cancel.status_code == status.HTTP_200_OK
@@ -59,8 +59,8 @@ def test_responses_api_create_get_events_and_cancel(client):
     assert event_types == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
 
 
@@ -83,8 +83,8 @@ def test_responses_api_stream_and_replay(client):
     assert "event: response.created" in body
     assert "event: response.input.added" in body
     assert "event: response.output_text.delta" in body
-    assert "event: response.output_text.completed" in body
-    assert "event: response.completed" in body
+    assert "event: response.output_text.done" in body
+    assert "event: response.succeeded" in body
     assert "[DONE]" in body
 
     response_id = None
@@ -105,7 +105,7 @@ def test_responses_api_stream_and_replay(client):
     replay_body = replay_response.text
     assert "event: response.created" in replay_body
     assert "event: response.output_text.delta" in replay_body
-    assert "event: response.completed" in replay_body
+    assert "event: response.succeeded" in replay_body
     assert "[DONE]" in replay_body
 
 
@@ -137,6 +137,6 @@ def test_responses_api_run_timeline(client):
     assert [event["type"] for event in item["events"]] == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]

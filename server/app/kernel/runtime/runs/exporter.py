@@ -40,6 +40,10 @@ class OpenTelemetryExporter:
             "tenant_id": run.tenant_id,
             "workspace_id": run.workspace_id,
             "trace_id": run.trace_id,
+            "request_id": run.request_id,
+            "parent_run_id": run.parent_run_id,
+            "source_run_id": run.source_run_id,
+            "attempt_no": run.attempt_no,
             "mode": run.mode,
             "kind": run.kind,
             "subject_kind": run.subject_kind,
@@ -94,6 +98,10 @@ def to_runtrace_spec(
             "tenant_id": run.tenant_id,
             "workspace_id": run.workspace_id,
             "trace_id": run.trace_id,
+            "request_id": run.request_id,
+            "parent_run_id": run.parent_run_id,
+            "source_run_id": run.source_run_id,
+            "attempt_no": run.attempt_no,
             "mode": run.mode,
             "kind": run.kind,
             "subject_kind": run.subject_kind,
@@ -128,15 +136,25 @@ def to_runtrace_spec(
         ]
 
     if cost_entries is not None:
-        summary = _summarize_entries(cost_entries)
-        spec["cost"] = summary
-        spec["costs"] = [
+        usage_entries = [entry for entry in cost_entries if entry.entry_type == "usage"]
+        charge_entries = [entry for entry in cost_entries if entry.entry_type == "charge"]
+        spec["usage_summary"] = _summarize_entries(usage_entries)
+        charge_amounts: dict[str, float] = {}
+        for entry in charge_entries:
+            if entry.currency and entry.amount is not None:
+                charge_amounts[entry.currency] = charge_amounts.get(entry.currency, 0.0) + float(entry.amount)
+        spec["charge_summary"] = {
+            "entry_count": len(charge_entries),
+            "amounts": charge_amounts,
+        }
+        spec["entries"] = [
             {
                 "cost_id": entry.id,
                 "run_id": entry.run_id,
                 "step_id": entry.step_id,
+                "entry_type": entry.entry_type,
                 "currency": entry.currency,
-                "amount": float(entry.amount),
+                "amount": float(entry.amount) if entry.amount is not None else None,
                 "unit": entry.unit,
                 "quantity": float(entry.quantity),
                 "provider": entry.provider,

@@ -451,12 +451,12 @@ async def test_workflow_llm_node_creates_linked_response_events(db: Session, ctx
     response = response_service.get_response(response_id)
     events = response_service.list_response_events(response_id, limit=20, offset=0)
     assert response.run_id == run.id
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert [event.type for event in events] == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
 
 
@@ -530,7 +530,7 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
     _, _, tool_calls = response_service.get_response_detail(response_id)
 
     assert response.run_id == run.id
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert len(tool_calls) == 1
     assert tool_calls[0]["tool_name"] == "tool:function:time_now"
     assert tool_calls[0]["status"] == "completed"
@@ -542,7 +542,7 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
         "tool.call.requested",
         "tool.call.started",
         "tool.call.completed",
-        "response.completed",
+        "response.succeeded",
     ]
 
 

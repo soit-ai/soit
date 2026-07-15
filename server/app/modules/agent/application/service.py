@@ -845,6 +845,7 @@ class AgentService:
                     input_summary=query,
                 )
                 step_id = step.id
+                self.trace_writer.update_step_status(step_id, "running")
             try:
                 response = await knowledge_query(
                     knowledge_id=kb_id,

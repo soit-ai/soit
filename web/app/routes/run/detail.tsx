@@ -160,7 +160,7 @@ function Page() {
   }
 
   const run = detail?.run
-  const costSummary = detail?.cost_summary
+  const costSummary = detail?.usage_summary
   const costs = detail?.costs ?? []
   const citations = detail?.citations ?? []
   const childRuns = detail?.child_runs ?? []

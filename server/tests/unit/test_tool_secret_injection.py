@@ -11,6 +11,7 @@ from app.kernel.commons.errors import ForbiddenError, ValidationError
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.ports.tools.policy import ToolPolicyGateway
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
@@ -54,6 +55,11 @@ def _disable_db_policy_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
         "get_db_sync",
         lambda: (_ for _ in ()).throw(RuntimeError("DB disabled in unit test")),
     )
+
+
+def _audit_payload(audit_result) -> str:
+    audit = audit_result if isinstance(audit_result, AuditEvent) else audit_result[0]
+    return str(audit.payload_json)
 
 
 @pytest.mark.asyncio
@@ -102,7 +108,14 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
             result = result[0]
     step = result
 
-    audit_json = (step.metrics_json or {}).get("audit_json", "")
+    audit = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.run_id == run.id,
+            AuditEvent.step_id == step.id,
+        )
+    ).first()
+    assert audit is not None
+    audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
     assert "secret:test_token" in audit_json
     tool_call = (step.metrics_json or {}).get("tool_call")
@@ -167,7 +180,14 @@ async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
             result = result[0]
     step = result
     assert step.status == "failed"
-    audit_json = (step.metrics_json or {}).get("audit_json", "")
+    audit = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.run_id == run.id,
+            AuditEvent.step_id == step.id,
+        )
+    ).first()
+    assert audit is not None
+    audit_json = _audit_payload(audit)
     assert "https://evil.example/api" in audit_json
     assert "ForbiddenError" in audit_json
     tool_call = (step.metrics_json or {}).get("tool_call")
@@ -238,7 +258,14 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
             result = result[0]
     step = result
     assert step.status == "succeeded"
-    audit_json = (step.metrics_json or {}).get("audit_json", "")
+    audit = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.run_id == run.id,
+            AuditEvent.step_id == step.id,
+        )
+    ).first()
+    assert audit is not None
+    audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
     assert "secret:ticket_api" in audit_json
     tool_call = (step.metrics_json or {}).get("tool_call")

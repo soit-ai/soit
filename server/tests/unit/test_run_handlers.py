@@ -101,6 +101,7 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
         subject_version_id="workflow_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="call_workflow")
+    trace_writer.update_step_status(step.id, "running")
     trace_writer.update_step_status(
         step.id,
         "succeeded",
@@ -186,6 +187,7 @@ async def test_list_runs_filters_by_observe_summary_flags(db, ctx):
     citation_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_citation")
     audit_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit")
     step = trace_writer.create_step(run_id=tool_run.id, step_type="tool", step_id="call_tool")
+    trace_writer.update_step_status(step.id, "running")
     trace_writer.update_step_status(step.id, "succeeded", metrics={"tool_call": {"tool_name": "tool.demo"}})
     audit_step = trace_writer.create_step(run_id=audit_run.id, step_type="llm", step_id="audit_llm")
     await log_gateway_request(
@@ -307,6 +309,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         subject_version_id="workflow_v1",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_ticket")
+    trace_writer.update_step_status(step.id, "running")
     trace_writer.update_step_status(
         step.id,
         "succeeded",
@@ -427,6 +430,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
         subject_version_id="workflow_version_governed",
     )
     step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_governed_tool")
+    trace_writer.update_step_status(step.id, "running")
     trace_writer.update_step_status(
         step.id,
         "succeeded",

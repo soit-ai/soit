@@ -1,11 +1,12 @@
-import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, case, desc, func, select
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.responses.schemas import ResponseEventRead, ToolCallRead
@@ -13,6 +14,7 @@ from app.kernel.runtime.runs.protocols import RunQueryRepositoryProtocol
 from app.kernel.runtime.runs.schemas import (
     RunArtifactResponse,
     RunAuditLogResponse,
+    RunChargeSummaryResponse,
     RunCostByModelResponse,
     RunCostByModeResponse,
     RunCostByProviderResponse,
@@ -135,11 +137,6 @@ class RunService:
         return citations
 
     @staticmethod
-    def _step_has_audit(step: RunStep) -> bool:
-        metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
-        return bool(metrics.get("audit_json") or metrics.get("audit_preview") or metrics.get("audit_artifact"))
-
-    @staticmethod
     def _extract_child_run_ids_from_step_metrics(metrics: dict[str, Any] | None) -> list[str]:
         if not isinstance(metrics, dict):
             return []
@@ -186,10 +183,20 @@ class RunService:
             summary.step_count += 1
             if step.step_type == "tool":
                 summary.tool_call_count += 1
-            if self._step_has_audit(step):
-                summary.audit_count += 1
             for child_run_id in self._extract_child_run_ids_from_step_metrics(step.metrics_json):
                 child_run_ids_by_run.setdefault(step.run_id, set()).add(child_run_id)
+
+        audits_query = select(AuditEvent).where(
+            and_(
+                AuditEvent.run_id.in_(unique_run_ids),
+                AuditEvent.tenant_id == self.ctx.tenant_id,
+                AuditEvent.workspace_id == self.ctx.workspace_id,
+            )
+        )
+        for audit in [self._unwrap_row(row) for row in list(self.db.exec(audits_query).all())]:
+            summary = summaries.get(audit.run_id)
+            if summary:
+                summary.audit_count += 1
 
         responses_query = select(Response).where(
             and_(
@@ -572,18 +579,18 @@ class RunService:
         return run_ids
 
     def _run_ids_for_audits(self) -> set[str]:
-        query = select(RunStep).where(
+        query = select(AuditEvent).where(
             and_(
-                RunStep.tenant_id == self.ctx.tenant_id,
-                RunStep.workspace_id == self.ctx.workspace_id,
+                AuditEvent.tenant_id == self.ctx.tenant_id,
+                AuditEvent.workspace_id == self.ctx.workspace_id,
+                AuditEvent.run_id.is_not(None),
             )
         )
-        run_ids: set[str] = set()
-        for row in list(self.db.exec(query).all()):
-            step = self._unwrap_row(row)
-            if self._step_has_audit(step):
-                run_ids.add(step.run_id)
-        return run_ids
+        return {
+            audit.run_id
+            for audit in (self._unwrap_row(row) for row in list(self.db.exec(query).all()))
+            if audit.run_id
+        }
 
     def _run_ids_matching_observe_filters(
         self,
@@ -895,7 +902,8 @@ class RunService:
 
         steps: list[RunStepResponse] = []
         artifacts: list[RunArtifactResponse] = []
-        cost_summary: RunCostSummaryResponse | None = None
+        usage_summary: RunCostSummaryResponse | None = None
+        charge_summary: RunChargeSummaryResponse | None = None
         cost_entries: list[RunCostEntryResponse] = []
 
         if include_steps:
@@ -937,7 +945,10 @@ class RunService:
             raw_entries = list(self.db.exec(entries_query).all())
             entries = [item if hasattr(item, "id") else item[0] for item in raw_entries]
             cost_entries = [RunCostEntryResponse.model_validate(item) for item in entries]
-            cost_summary = self._summarize_entries(entries)
+            usage_summary = self._summarize_entries(
+                [entry for entry in entries if entry.entry_type == "usage"]
+            )
+            charge_summary = self._summarize_charges(entries)
 
         responses = self._list_responses_for_run(run_id)
         response_events = self._list_response_events_for_run(run_id)
@@ -967,7 +978,8 @@ class RunService:
             run=RunResponse.model_validate(run),
             steps=steps,
             artifacts=artifacts,
-            cost_summary=cost_summary,
+            usage_summary=usage_summary,
+            charge_summary=charge_summary,
             costs=cost_entries,
             response_events=response_events,
             tool_calls=tool_calls,
@@ -987,73 +999,59 @@ class RunService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[RunAuditLogResponse]:
-        """List audit logs derived from run steps."""
+        """List authoritative audit events for scoped runtime executions."""
         requested_gateway_type = gateway_type
         clauses = [
-            RunStep.tenant_id == self.ctx.tenant_id,
-            RunStep.workspace_id == self.ctx.workspace_id,
+            AuditEvent.tenant_id == self.ctx.tenant_id,
+            AuditEvent.workspace_id == self.ctx.workspace_id,
+            AuditEvent.run_id.is_not(None),
         ]
         if run_id:
-            clauses.append(RunStep.run_id == run_id)
+            clauses.append(AuditEvent.run_id == run_id)
         if step_id:
-            clauses.append(RunStep.id == step_id)
-        if step_type:
-            clauses.append(RunStep.step_type == step_type)
+            clauses.append(AuditEvent.step_id == step_id)
 
         query = (
-            select(RunStep)
+            select(AuditEvent)
             .where(and_(*clauses))
-            .order_by(desc(RunStep.created_at))
+            .order_by(desc(AuditEvent.created_at))
         )
-        if not gateway_type:
+        if not gateway_type and not step_type:
             query = query.offset(offset).limit(limit)
         rows = list(self.db.exec(query).all())
-        steps = [row if hasattr(row, "id") else row[0] for row in rows]
+        audits = [row if hasattr(row, "id") else row[0] for row in rows]
 
         entries: list[RunAuditLogResponse] = []
-        for step in steps:
-            metrics = step.metrics_json or {}
-            audit_json = metrics.get("audit_json")
-            audit_preview = metrics.get("audit_preview")
-            audit_artifact = metrics.get("audit_artifact")
-            if not audit_json and not audit_preview and not audit_artifact:
+        for audit in audits:
+            payload = audit.payload_json if isinstance(audit.payload_json, dict) else {}
+            resolved_gateway_type = payload.get("gateway_type") or audit.resource_type
+            step = self.db.get(RunStep, audit.step_id) if audit.step_id else None
+            resolved_step_type = step.step_type if step else audit.resource_type
+            if requested_gateway_type and requested_gateway_type != resolved_gateway_type:
                 continue
-
-            parsed = None
-            if audit_json:
-                try:
-                    parsed = json.loads(audit_json)
-                except Exception:
-                    parsed = None
-
-            gateway_type = None
-            request_payload = None
-            response_payload = None
-            timestamp = None
-            if isinstance(parsed, dict):
-                gateway_type = parsed.get("gateway_type")
-                request_payload = parsed.get("request")
-                response_payload = parsed.get("response")
-                timestamp = parsed.get("timestamp")
-            if requested_gateway_type and requested_gateway_type != gateway_type:
+            if step_type and step_type != resolved_step_type:
                 continue
 
             entries.append(
                 RunAuditLogResponse(
-                    run_id=step.run_id,
-                    step_id=step.id,
-                    step_type=step.step_type,
-                    gateway_type=gateway_type,
-                    request=request_payload,
-                    response=response_payload,
-                    timestamp=timestamp,
-                    truncated=bool(metrics.get("audit_truncated")),
-                    preview=audit_preview,
-                    artifact_key=audit_artifact,
+                    audit_id=audit.id,
+                    run_id=audit.run_id,
+                    step_id=audit.step_id or "",
+                    step_type=resolved_step_type,
+                    trace_id=audit.trace_id,
+                    outcome=audit.outcome,
+                    evidence_artifact_id=audit.evidence_artifact_id,
+                    gateway_type=resolved_gateway_type,
+                    request=payload.get("request"),
+                    response=payload.get("response"),
+                    timestamp=payload.get("timestamp"),
+                    truncated=bool(payload.get("truncated")),
+                    preview=payload.get("preview"),
+                    artifact_key=payload.get("artifact_key"),
                 )
             )
 
-        if requested_gateway_type:
+        if requested_gateway_type or step_type:
             return entries[offset : offset + limit]
         return entries
 
@@ -1505,3 +1503,13 @@ class RunService:
             ms_total=ms_total,
             storage_bytes=storage_bytes,
         )
+
+    def _summarize_charges(self, entries: list[RunCostEntry]) -> RunChargeSummaryResponse:
+        amounts: dict[str, Decimal] = {}
+        entry_count = 0
+        for entry in entries:
+            if entry.entry_type != "charge" or not entry.currency or entry.amount is None:
+                continue
+            entry_count += 1
+            amounts[entry.currency] = amounts.get(entry.currency, Decimal("0")) + entry.amount
+        return RunChargeSummaryResponse(entry_count=entry_count, amounts=amounts)

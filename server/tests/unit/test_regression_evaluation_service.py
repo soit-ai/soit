@@ -25,6 +25,7 @@ def _create_run(
         subject_version_id="agent_version_1",
         input_summary=json.dumps(input_payload),
     )
+    trace_writer.update_run_status(run.id, status="running")
     trace_writer.update_run_status(run.id, status="succeeded", output_summary=output)
     return run.id
 

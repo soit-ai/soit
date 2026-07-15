@@ -23,8 +23,8 @@ type AssistantContentPart =
 type ResponseStreamEvent =
   | { type: 'response.created'; responseId?: string; runId?: string; threadId?: string }
   | { type: 'response.output_text.delta'; delta: string }
-  | { type: 'response.output_text.completed'; text: string }
-  | { type: 'response.completed'; responseId?: string; runId?: string; model?: string; finishReason?: string; usage?: Record<string, unknown> }
+  | { type: 'response.output_text.done'; text: string }
+  | { type: 'response.succeeded'; responseId?: string; runId?: string; model?: string; finishReason?: string; usage?: Record<string, unknown> }
   | { type: 'response.failed'; error: string }
   | { type: 'tool.call.requested' | 'tool.call.started' | 'tool.call.completed' | 'tool.call.failed'; toolCallId: string; toolName: string; argumentsText: string; resultText: string }
 
@@ -74,13 +74,13 @@ async function* parseResponseSSEStream(stream: AsyncGenerator<{ event: string; d
       yield { type: 'response.output_text.delta', delta: typeof payload.delta === 'string' ? payload.delta : '' }
       continue
     }
-    if (part.event === 'response.output_text.completed') {
-      yield { type: 'response.output_text.completed', text: typeof payload.text === 'string' ? payload.text : '' }
+    if (part.event === 'response.output_text.done') {
+      yield { type: 'response.output_text.done', text: typeof payload.text === 'string' ? payload.text : '' }
       continue
     }
-    if (part.event === 'response.completed') {
+    if (part.event === 'response.succeeded') {
       yield {
-        type: 'response.completed',
+        type: 'response.succeeded',
         responseId: typeof payload.response_id === 'string' ? payload.response_id : undefined,
         runId: typeof payload.run_id === 'string' ? payload.run_id : undefined,
         model: typeof payload.model === 'string' ? payload.model : undefined,
@@ -622,7 +622,7 @@ export const ChatAdapter: ChatModelAdapter = {
                 lastEmittedText = text
                 continue
               }
-              if (ev.type === 'response.output_text.completed') {
+              if (ev.type === 'response.output_text.done') {
                 if (ev.text) {
                   rawResponse = ev.text
                   const parsed = splitReasoningContent(ev.text)
@@ -645,7 +645,7 @@ export const ChatAdapter: ChatModelAdapter = {
                 lastEmittedText = text
                 continue
               }
-              if (ev.type === 'response.completed') {
+              if (ev.type === 'response.succeeded') {
                 if (ev.responseId) activeResponseId = ev.responseId
                 if (ev.runId) activeRunId = ev.runId
                 completionMeta = {

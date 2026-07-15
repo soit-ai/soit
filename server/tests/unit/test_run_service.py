@@ -215,8 +215,8 @@ def test_get_run_includes_steps_artifacts_costs(db):
     assert detail.steps[0].id == step_id
     assert len(detail.artifacts) == 1
     assert detail.artifacts[0].id == artifact_id
-    assert detail.cost_summary.tokens_prompt == 6
-    assert detail.cost_summary.tokens_completion == 4
+    assert detail.usage_summary.tokens_prompt == 6
+    assert detail.usage_summary.tokens_completion == 4
 
 
 def test_list_runs_filters_by_trace_id(db):

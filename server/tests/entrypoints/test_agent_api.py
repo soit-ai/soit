@@ -789,7 +789,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         }
         event_types = [item["type"] for item in detail_payload["events"]]
         assert "tool.call.completed" in event_types
-        assert "response.output_text.completed" in event_types
+        assert "response.output_text.done" in event_types
 
         run_detail = client.get(
             f"/api/v1/runs/{payload['run_id']}",
@@ -799,8 +799,8 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert run_detail.status_code == status.HTTP_200_OK
         run_payload = run_detail.json()["data"]
         assert run_payload["run"]["status"] == "succeeded"
-        assert run_payload["cost_summary"]["tokens_prompt"] >= payload["tokens_prompt"]
-        assert run_payload["cost_summary"]["tokens_completion"] >= payload["tokens_completion"]
+        assert run_payload["usage_summary"]["tokens_prompt"] >= payload["tokens_prompt"]
+        assert run_payload["usage_summary"]["tokens_completion"] >= payload["tokens_completion"]
         retrieval_steps = [step for step in run_payload["steps"] if step["step_type"] == "retrieval"]
         assert retrieval_steps
         assert retrieval_steps[0]["status"] == "succeeded"

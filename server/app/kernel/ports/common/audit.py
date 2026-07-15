@@ -3,6 +3,7 @@
 Gateway audit logging utilities.
 """
 
+import hashlib
 import json
 from typing import Any
 
@@ -59,6 +60,7 @@ async def log_gateway_request(
     request_data: dict[str, Any],
     response_data: dict[str, Any] | None = None,
     storage_port: Any | None = None,
+    outcome: str = "succeeded",
 ) -> None:
     """Log gateway request/response to audit log.
 
@@ -91,42 +93,52 @@ async def log_gateway_request(
     inline_limit = 8 * 1024
 
     if len(audit_bytes) <= inline_limit:
-        trace_writer.update_step_metrics(
-            step_id,
-            {
-                "audit_json": audit_json,
-                "audit_size": len(audit_bytes),
-            },
+        trace_writer.record_audit(
+            run_id=run_id,
+            step_id=step_id,
+            gateway_type=gateway_type,
+            outcome=outcome,
+            payload={**audit_log, "audit_size": len(audit_bytes)},
         )
         return
 
     if storage_port:
         try:
-            storage_key = f"audit/{run_id}/{step_id}.json"
+            storage_key = (
+                f"tenants/{trace_writer.ctx.tenant_id}/workspaces/{trace_writer.ctx.workspace_id}"
+                f"/runs/{run_id}/audits/{step_id}.json"
+            )
             await storage_port.put(
                 key=storage_key,
                 data=audit_bytes,
                 content_type="application/json",
                 run_id=run_id,
             )
-            trace_writer.create_artifact(
+            artifact = trace_writer.create_artifact(
                 run_id=run_id,
                 artifact_type="json",
                 storage_key=storage_key,
                 step_id=step_id,
                 mime="application/json",
                 size_bytes=len(audit_bytes),
+                sha256=hashlib.sha256(audit_bytes).hexdigest(),
                 meta={
                     "gateway_type": gateway_type,
                     "size": len(audit_bytes),
                     "mime_type": "application/json",
                 },
             )
-            trace_writer.update_step_metrics(
-                step_id,
-                {
-                    "audit_artifact": storage_key,
+            trace_writer.record_audit(
+                run_id=run_id,
+                step_id=step_id,
+                gateway_type=gateway_type,
+                outcome=outcome,
+                evidence_artifact_id=artifact.id,
+                payload={
+                    "gateway_type": gateway_type,
+                    "timestamp": audit_log["timestamp"],
                     "audit_size": len(audit_bytes),
+                    "artifact_key": storage_key,
                 },
             )
             return
@@ -135,11 +147,16 @@ async def log_gateway_request(
             pass
 
     preview = audit_json[:inline_limit]
-    trace_writer.update_step_metrics(
-        step_id,
-        {
-            "audit_preview": preview,
-            "audit_truncated": True,
+    trace_writer.record_audit(
+        run_id=run_id,
+        step_id=step_id,
+        gateway_type=gateway_type,
+        outcome=outcome,
+        payload={
+            "gateway_type": gateway_type,
+            "timestamp": audit_log["timestamp"],
+            "preview": preview,
+            "truncated": True,
             "audit_size": len(audit_bytes),
         },
     )

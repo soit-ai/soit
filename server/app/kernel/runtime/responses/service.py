@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
@@ -17,6 +17,10 @@ from app.kernel.runtime.responses.protocols import (
 )
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.status import (
+    RuntimeTransitionError,
+    validate_response_transition,
+)
 
 
 class ResponseService:
@@ -83,13 +87,67 @@ class ResponseService:
             )
         )
 
-    def mark_in_progress(self, response: Response) -> Response:
+    def _transition_response(
+        self,
+        response: Response,
+        target_status: str,
+        **values: Any,
+    ) -> Response:
+        """Atomically transition a scoped response projection."""
+
+        old_status = response.status
+        normalized = validate_response_transition(old_status, target_status)
+        if old_status == normalized:
+            return response
+
+        if self.db is None:
+            response.status = normalized
+            for key, value in values.items():
+                setattr(response, key, value)
+            response.error_code = values.get("error_code", response.error_code)
+            response.error_message = values.get("error_message", response.error_message)
+            return self.response_repo.update(response)
+
+        values.update(
+            {
+                "status": normalized,
+                "updated_at": utc_now(),
+                "updated_by": self.ctx.user_id,
+            }
+        )
+        result = self.db.execute(
+            update(Response)
+            .where(
+                Response.id == response.id,
+                Response.tenant_id == self.ctx.tenant_id,
+                Response.workspace_id == self.ctx.workspace_id,
+                Response.status == old_status,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            self.db.expire_all()
+            current = self.response_repo.require(response.id)
+            if current.status == normalized:
+                return current
+            validate_response_transition(current.status, normalized)
+            raise RuntimeTransitionError(
+                f"Concurrent response transition rejected: {old_status} -> {normalized}"
+            )
+        self.db.expire(response)
+        self.db.refresh(response)
+        return response
+
+    def mark_running(self, response: Response) -> Response:
         """Mark a response as actively executing."""
 
-        response.status = "in_progress"
-        response.error_code = None
-        response.error_message = None
-        return self.response_repo.update(response)
+        return self._transition_response(
+            response,
+            "running",
+            error_code=None,
+            error_message=None,
+        )
 
     def complete_response(
         self,
@@ -98,20 +156,22 @@ class ResponseService:
         output_json: dict[str, Any],
         usage_json: dict[str, Any] | None = None,
         source: str = "responses",
-        output_event_type: str | None = "response.output_text.completed",
+        output_event_type: str | None = "response.output_text.done",
         output_event_payload: dict[str, Any] | None = None,
-        completed_event_type: str | None = "response.completed",
+        completed_event_type: str | None = "response.succeeded",
         completed_event_payload: dict[str, Any] | None = None,
     ) -> Response:
         """Persist a completed response and append semantic completion events."""
 
-        response.output_json = output_json or {}
-        response.usage_json = usage_json or {}
-        response.status = "completed"
-        response.completed_at = utc_now()
-        response.error_code = None
-        response.error_message = None
-        response = self.response_repo.update(response)
+        response = self._transition_response(
+            response,
+            "succeeded",
+            output_json=output_json or {},
+            usage_json=usage_json or {},
+            completed_at=utc_now(),
+            error_code=None,
+            error_message=None,
+        )
         if output_event_type:
             self.append_event(
                 response=response,
@@ -152,10 +212,13 @@ class ResponseService:
     ) -> Response:
         """Persist a failed response and append a semantic failure event."""
 
-        response.status = "failed"
-        response.error_code = error_code
-        response.error_message = (error_message or "")[:8192]
-        response = self.response_repo.update(response)
+        response = self._transition_response(
+            response,
+            "failed",
+            completed_at=utc_now(),
+            error_code=error_code,
+            error_message=(error_message or "")[:8192],
+        )
         self.append_event(
             response=response,
             event_type=failed_event_type,
@@ -187,6 +250,7 @@ class ResponseService:
                 task_id=payload.task_id,
                 agent_id=payload.agent_id,
                 run_id=run.id,
+                request_id=getattr(self.ctx, "request_id", None),
                 model=payload.model,
                 provider=provider,
                 status="queued",
@@ -243,6 +307,7 @@ class ResponseService:
                 task_id=task_id,
                 agent_id=agent_id,
                 run_id=run_id,
+                request_id=getattr(self.ctx, "request_id", None),
                 model=model,
                 provider=resolved_provider,
                 status="queued",
@@ -364,14 +429,16 @@ class ResponseService:
 
     def cancel_response(self, response_id: str) -> Response:
         response = self.response_repo.require(response_id)
-        if response.status in {"completed", "failed", "canceled"}:
+        if response.status in {"succeeded", "failed", "canceled"}:
             return response
 
-        response.status = "canceled"
-        response.canceled_at = utc_now()
-        response.error_code = "response_canceled"
-        response.error_message = "Response was canceled"
-        response = self.response_repo.update(response)
+        response = self._transition_response(
+            response,
+            "canceled",
+            canceled_at=utc_now(),
+            error_code="response_canceled",
+            error_message="Response was canceled",
+        )
         if response.run_id:
             self.trace_writer.update_run_status(
                 response.run_id,

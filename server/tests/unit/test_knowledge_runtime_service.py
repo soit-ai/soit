@@ -628,6 +628,7 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
     await worker.run_once()
 
     failed_task = service.ingest_task_repo.list_by_knowledge(knowledge.id)[0]
+    failed_run_id = failed_task.run_id
     failed_document = service.document_repo.get_by_id(document.id)
     assert failed_task.status == "queued"
     assert failed_task.retry_count == 1
@@ -655,6 +656,12 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
     succeeded_document = service.document_repo.get_by_id(document.id)
     assert succeeded_task is not None
     assert succeeded_task.status == "succeeded"
+    assert succeeded_task.run_id != failed_run_id
+    retry_run = db.get(Run, succeeded_task.run_id)
+    assert retry_run is not None
+    assert retry_run.source_run_id == failed_run_id
+    assert retry_run.attempt_no == 2
+    assert retry_run.status == "succeeded"
     assert succeeded_task.retry_count == 1
     assert succeeded_document is not None
     assert succeeded_document.status == "indexed"

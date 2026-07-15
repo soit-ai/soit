@@ -99,7 +99,7 @@ class LLMNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response = context.response_service.mark_in_progress(linked_response)
+            linked_response = context.response_service.mark_running(linked_response)
 
         try:
             response: ChatResponse = await context.llm_port.chat(
@@ -148,7 +148,7 @@ class LLMNodeExecutor(NodeExecutor):
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "status": "completed",
+                    "status": "succeeded",
                     "usage": usage_payload,
                 },
             )

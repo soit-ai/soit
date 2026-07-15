@@ -22,6 +22,10 @@ class RunResponse(BaseModel):
     workspace_id: str
     user_id: str | None
     trace_id: str | None
+    request_id: str | None
+    parent_run_id: str | None
+    source_run_id: str | None
+    attempt_no: int
     mode: str
     kind: str | None
     subject_kind: str | None
@@ -105,6 +109,13 @@ class RunCostSummaryResponse(BaseModel):
     storage_bytes: int
 
 
+class RunChargeSummaryResponse(BaseModel):
+    """Aggregated monetary charges grouped by currency."""
+
+    entry_count: int = 0
+    amounts: dict[str, Decimal] = Field(default_factory=dict)
+
+
 class RunCostDailyResponse(BaseModel):
     """Aggregated cost summary by day."""
 
@@ -185,8 +196,9 @@ class RunCostEntryResponse(BaseModel):
     step_id: str | None
     tenant_id: str
     workspace_id: str
-    currency: str
-    amount: Decimal
+    entry_type: str
+    currency: str | None
+    amount: Decimal | None
     unit: str
     quantity: Decimal
     provider: str | None
@@ -221,7 +233,8 @@ class RunDetailResponse(BaseModel):
     run: RunResponse
     steps: list[RunStepResponse] = Field(default_factory=list)
     artifacts: list[RunArtifactResponse] = Field(default_factory=list)
-    cost_summary: RunCostSummaryResponse | None = None
+    usage_summary: RunCostSummaryResponse | None = None
+    charge_summary: RunChargeSummaryResponse | None = None
     costs: list[RunCostEntryResponse] = Field(default_factory=list)
     response_events: list[ResponseEventRead] = Field(default_factory=list)
     tool_calls: list[ToolCallRead] = Field(default_factory=list)
@@ -237,6 +250,10 @@ class RunAuditLogResponse(BaseModel):
     run_id: str
     step_id: str
     step_type: str
+    audit_id: str | None = None
+    trace_id: str | None = None
+    outcome: str | None = None
+    evidence_artifact_id: str | None = None
     gateway_type: str | None = None
     request: dict[str, Any] | None = None
     response: dict[str, Any] | None = None

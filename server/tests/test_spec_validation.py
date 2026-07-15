@@ -6,6 +6,8 @@ Spec validation tests - verify JSON Schema validation and $ref resolution.
 import pytest
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.runtime.runs.exporter import to_runtrace_spec
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.specs import (
     list_schemas,
     load_schema,
@@ -182,3 +184,53 @@ def test_node_spec_validation_with_refs():
         "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
     }
     assert validate_spec(node_doc, "node_spec") is True
+
+
+def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
+    writer = TraceWriter(db, ctx)
+    run = writer.create_run(
+        "response",
+        kind="response",
+        request_id="request-trace",
+        source_run_id="run_previous",
+        attempt_no=2,
+    )
+    step = writer.create_step(run.id, "llm")
+    writer.update_step_status(step.id, "running")
+    writer.update_step_status(step.id, "succeeded")
+    usage = writer.record_cost(
+        run_id=run.id,
+        step_id=step.id,
+        unit="tokens",
+        quantity=5,
+        provider_id="provider_1",
+        provider_slug="openai-primary",
+        provider_kind="openai",
+        model_ref="model:openai-primary:gpt-5.1",
+        upstream_model="gpt-5.1",
+        prompt_tokens=3,
+        completion_tokens=2,
+        total_tokens=5,
+    )
+    charge = writer.record_cost(
+        run_id=run.id,
+        step_id=step.id,
+        entry_type="charge",
+        unit="tokens",
+        quantity=5,
+        currency="USD",
+        amount="0.001",
+        provider_id="provider_1",
+        provider_slug="openai-primary",
+        provider_kind="openai",
+        model_ref="model:openai-primary:gpt-5.1",
+        upstream_model="gpt-5.1",
+    )
+
+    document = to_runtrace_spec(run, [step], cost_entries=[usage, charge])
+
+    assert document["run"]["request_id"] == "request-trace"
+    assert document["usage_summary"]["tokens_prompt"] == 3
+    assert document["charge_summary"]["amounts"] == {"USD": 0.001}
+    assert {entry["entry_type"] for entry in document["entries"]} == {"usage", "charge"}
+    assert validate_spec(document, "runtrace_spec") is True

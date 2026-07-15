@@ -237,7 +237,7 @@ class ExecutionEngine:
                     "step_id": step.id,
                 },
             )
-            linked_response = self.response_service.mark_in_progress(linked_response)
+            linked_response = self.response_service.mark_running(linked_response)
 
         try:
             response = await llm_port.chat(
@@ -285,7 +285,7 @@ class ExecutionEngine:
                     completed_event_payload={
                         "response_id": linked_response.id,
                         "run_id": linked_response.run_id,
-                        "status": "completed",
+                        "status": "succeeded",
                         "usage": usage_payload,
                     },
                 )
@@ -449,7 +449,7 @@ class ExecutionEngine:
                 },
                 metadata_json={"source": "execution_engine.agent"},
             )
-            linked_response = self.response_service.mark_in_progress(linked_response)
+            linked_response = self.response_service.mark_running(linked_response)
 
         # Convert messages to ChatMessage format
         messages = [
@@ -729,7 +729,7 @@ class ExecutionEngine:
                 completed_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
-                    "status": "completed",
+                    "status": "succeeded",
                     "usage": usage_payload,
                     "tool_calls": tool_call_count,
                 },

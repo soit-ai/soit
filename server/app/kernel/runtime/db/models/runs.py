@@ -20,6 +20,9 @@ class Run(SQLModel, table=True):
     __tablename__ = "runs"
     __table_args__ = (
         Index("ix_runs_scope_subject_started", "tenant_id", "workspace_id", "subject_kind", "subject_id", "started_at"),
+        Index("ix_runs_scope_parent_created", "tenant_id", "workspace_id", "parent_run_id", "created_at"),
+        Index("ix_runs_scope_source_created", "tenant_id", "workspace_id", "source_run_id", "created_at"),
+        Index("ix_runs_scope_request_created", "tenant_id", "workspace_id", "request_id", "created_at"),
     )
 
     id: str = Field(primary_key=True)
@@ -36,6 +39,18 @@ class Run(SQLModel, table=True):
 
     trace_id: str | None = Field(default=None, index=True)
     """Trace ID for request correlation."""
+
+    request_id: str | None = Field(default=None, index=True)
+    """Client request identity used for idempotency and correlation."""
+
+    parent_run_id: str | None = Field(default=None, index=True)
+    """Parent execution when this run is a child operation."""
+
+    source_run_id: str | None = Field(default=None, index=True)
+    """Immediate source execution for retry or replay."""
+
+    attempt_no: int = Field(default=1)
+    """One-based attempt number within a retry lineage."""
 
     mode: str = Field()
     """Execution mode (domain-specific): chat, workflow, agent, knowledge, memory, etc."""
@@ -208,11 +223,14 @@ class RunCostEntry(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
 
-    currency: str = Field(default="USD")
-    """Currency code (e.g., USD)."""
+    entry_type: str = Field(default="usage", index=True)
+    """Entry semantic: usage or charge."""
 
-    amount: Decimal = Field(default=Decimal("0"), sa_column=Column(Numeric(18, 6)))
-    """Cost amount."""
+    currency: str | None = Field(default=None, nullable=True)
+    """Currency code for charge entries."""
+
+    amount: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 6), nullable=True))
+    """Monetary amount for charge entries."""
 
     unit: str = Field()
     """Unit (tokens/requests/seconds/bytes)."""

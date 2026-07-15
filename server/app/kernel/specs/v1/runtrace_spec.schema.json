@@ -35,6 +35,19 @@
             "null"
           ]
         },
+        "request_id": {
+          "type": ["string", "null"]
+        },
+        "parent_run_id": {
+          "type": ["string", "null"]
+        },
+        "source_run_id": {
+          "type": ["string", "null"]
+        },
+        "attempt_no": {
+          "type": "integer",
+          "minimum": 1
+        },
         "mode": {
           "type": "string",
           "description": "Domain-specific execution mode (e.g., chat, knowledge_ingest)."
@@ -50,6 +63,10 @@
             "agent",
             "tool",
             "batch",
+            "response",
+            "knowledge",
+            "memory",
+            "evaluation",
             null
           ]
         },
@@ -75,10 +92,16 @@
           "type": "string",
           "enum": [
             "queued",
+            "preparing",
             "running",
+            "waiting_input",
+            "waiting_approval",
+            "paused",
+            "retrying",
             "succeeded",
             "failed",
-            "canceled"
+            "canceled",
+            "expired"
           ]
         },
         "input_summary": {
@@ -172,11 +195,17 @@
             "type": "string",
             "enum": [
               "queued",
+              "preparing",
               "running",
+              "waiting_input",
+              "waiting_approval",
+              "paused",
+              "retrying",
               "succeeded",
               "failed",
               "skipped",
-              "canceled"
+              "canceled",
+              "expired"
             ]
           },
           "input_summary": {
@@ -245,7 +274,9 @@
         "required": [
           "artifact_id",
           "type",
-          "storage_key"
+          "storage_key",
+          "size_bytes",
+          "sha256"
         ],
         "properties": {
           "artifact_id": {
@@ -276,17 +307,12 @@
             ]
           },
           "size_bytes": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "minimum": 0
           },
           "sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
           },
           "meta": {
             "type": [
@@ -298,7 +324,7 @@
         }
       }
     },
-    "costs": {
+    "entries": {
       "type": [
         "array",
         "null"
@@ -309,8 +335,7 @@
         "required": [
           "cost_id",
           "run_id",
-          "currency",
-          "amount",
+          "entry_type",
           "unit",
           "quantity"
         ],
@@ -327,11 +352,15 @@
               "null"
             ]
           },
+          "entry_type": {
+            "type": "string",
+            "enum": ["usage", "charge"]
+          },
           "currency": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "amount": {
-            "type": "number"
+            "type": ["number", "null"]
           },
           "unit": {
             "type": "string"
@@ -345,11 +374,23 @@
               "null"
             ]
           },
+          "provider_id": {
+            "type": ["string", "null"]
+          },
+          "provider_slug": {
+            "type": ["string", "null"]
+          },
+          "provider_kind": {
+            "type": ["string", "null"]
+          },
           "model_ref": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "upstream_model": {
+            "type": ["string", "null"]
           },
           "tool_ref": {
             "type": [
@@ -388,7 +429,7 @@
         }
       }
     },
-    "cost": {
+    "usage_summary": {
       "type": [
         "object",
         "null"
@@ -438,9 +479,26 @@
           "minimum": 0
         }
       }
+    },
+    "charge_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["entry_count", "amounts"],
+      "properties": {
+        "entry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "amounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      }
     }
   },
-  "description": "Unified execution trace container (run + steps + optional artifacts/cost). This container may reference artifacts stored in object storage via storage_key.",
+  "description": "Unified execution trace container with separate usage and monetary charge evidence.",
   "examples": [
     {
       "run": {
@@ -464,7 +522,7 @@
           }
         }
       ],
-      "cost": {
+      "usage_summary": {
         "tokens_prompt": 120,
         "tokens_completion": 350,
         "ms_total": 2300

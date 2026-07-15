@@ -7,10 +7,12 @@ remains best-effort only.
 """
 
 import asyncio
+import re
 from datetime import UTC
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.ids import (
@@ -30,8 +32,14 @@ from app.kernel.observe.context import (
     set_step_context,
 )
 from app.kernel.observe.event_types import ObserveEventType
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.runs.events import RunEventType
+from app.kernel.runtime.status import (
+    RuntimeTransitionError,
+    validate_run_transition,
+    validate_step_transition,
+)
 
 
 class TraceWriter:
@@ -101,6 +109,10 @@ class TraceWriter:
         subject_version_id: str | None = None,
         input_summary: str | None = None,
         run_id: str | None = None,
+        request_id: str | None = None,
+        parent_run_id: str | None = None,
+        source_run_id: str | None = None,
+        attempt_no: int = 1,
     ) -> Run:
         """Create a new run.
 
@@ -117,12 +129,23 @@ class TraceWriter:
         resolved_subject_kind = subject_kind or mode
         resolved_subject_id = subject_id
 
+        if attempt_no < 1:
+            raise ValueError("attempt_no must be at least 1")
+        if parent_run_id:
+            parent = self.db.get(Run, parent_run_id)
+            if not parent or parent.tenant_id != self.ctx.tenant_id or parent.workspace_id != self.ctx.workspace_id:
+                raise ValueError("Parent run scope mismatch")
+
         run = Run(
             id=run_id or generate_run_id(),
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             user_id=self.ctx.user_id,
             trace_id=getattr(self.ctx, "trace_id", None),
+            request_id=request_id or getattr(self.ctx, "request_id", None),
+            parent_run_id=parent_run_id,
+            source_run_id=source_run_id,
+            attempt_no=attempt_no,
             mode=mode,
             kind=kind or mode,
             subject_kind=resolved_subject_kind,
@@ -141,6 +164,10 @@ class TraceWriter:
             "subject_kind": run.subject_kind,
             "subject_id": run.subject_id,
             "subject_version_id": run.subject_version_id,
+            "request_id": run.request_id,
+            "parent_run_id": run.parent_run_id,
+            "source_run_id": run.source_run_id,
+            "attempt_no": run.attempt_no,
         }
         envelope = DomainEventEnvelope(
             event_id=f"evt_run_created_{run.id}",
@@ -171,6 +198,10 @@ class TraceWriter:
                 "subject_kind": run.subject_kind,
                 "subject_id": run.subject_id,
                 "subject_version_id": run.subject_version_id,
+                "request_id": run.request_id,
+                "parent_run_id": run.parent_run_id,
+                "source_run_id": run.source_run_id,
+                "attempt_no": run.attempt_no,
             },
             run_id=run.id,
         )
@@ -205,32 +236,70 @@ class TraceWriter:
             raise ValueError("Run scope mismatch")
 
         old_status = run.status
-        run.status = status
+        target_status = validate_run_transition(old_status, status)
+        if old_status == target_status:
+            if output_summary:
+                run.output_summary = output_summary[:8192]
+            if error_code:
+                run.error_code = error_code
+            if error_message:
+                run.error_message = error_message[:8192]
+            if error_step_id:
+                run.error_step_id = error_step_id
+            self.db.flush()
+            self.db.refresh(run)
+            return run
+
+        changed_at = utc_now()
+        values: dict[str, Any] = {
+            "status": target_status,
+            "updated_at": changed_at,
+        }
         if output_summary:
-            run.output_summary = output_summary[:8192]
+            values["output_summary"] = output_summary[:8192]
         if error_code:
-            run.error_code = error_code
+            values["error_code"] = error_code
         if error_message:
-            run.error_message = error_message[:8192]
-        elif status == "failed" and output_summary:
-            run.error_message = output_summary[:8192]
+            values["error_message"] = error_message[:8192]
+        elif target_status == "failed" and output_summary:
+            values["error_message"] = output_summary[:8192]
         if error_step_id:
-            run.error_step_id = error_step_id
-        if status in ("succeeded", "failed", "canceled"):
-            run.ended_at = utc_now()
+            values["error_step_id"] = error_step_id
+        if target_status in ("succeeded", "failed", "canceled", "expired"):
+            values["ended_at"] = changed_at
             if run.started_at:
                 started_at = run.started_at
                 if started_at.tzinfo is None:
                     started_at = started_at.replace(tzinfo=UTC)
-                duration_seconds = (run.ended_at - started_at).total_seconds()
-                run.duration_ms = int(duration_seconds * 1000)
-        run.updated_at = utc_now()
+                duration_seconds = (changed_at - started_at).total_seconds()
+                values["duration_ms"] = int(duration_seconds * 1000)
 
-        self.db.flush()
+        result = self.db.execute(
+            update(Run)
+            .where(
+                Run.id == run_id,
+                Run.tenant_id == self.ctx.tenant_id,
+                Run.workspace_id == self.ctx.workspace_id,
+                Run.status == old_status,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            self.db.expire_all()
+            current = self.db.get(Run, run_id)
+            if current and current.status == target_status:
+                return current
+            if current:
+                validate_run_transition(current.status, target_status)
+            raise RuntimeTransitionError(f"Concurrent run transition rejected: {old_status} -> {target_status}")
+
+        self.db.expire(run)
+        self.db.refresh(run)
         status_payload: dict[str, Any] = {
             "run_id": run.id,
             "old_status": old_status,
-            "new_status": status,
+            "new_status": target_status,
             "mode": run.mode,
             "tenant_id": self.ctx.tenant_id,
         }
@@ -400,23 +469,65 @@ class TraceWriter:
             raise ValueError("Step scope mismatch")
 
         old_status = step.status
-        step.status = status
+        target_status = validate_step_transition(old_status, status)
+        if old_status == target_status:
+            if output_summary:
+                step.output_summary = output_summary[:8192]
+            if metrics:
+                merged = dict(step.metrics_json or {})
+                merged.update(metrics)
+                step.metrics_json = merged
+            if error_code:
+                step.error_code = error_code
+            if error_message:
+                step.error_message = error_message
+            if error_details:
+                step.error_details = error_details
+            self.db.flush()
+            self.db.refresh(step)
+            return step
+
+        changed_at = utc_now()
+        values = {"status": target_status}
         if output_summary:
-            step.output_summary = output_summary[:8192]
+            values["output_summary"] = output_summary[:8192]
         if metrics:
             merged = dict(step.metrics_json or {})
             merged.update(metrics)
-            step.metrics_json = merged
+            values["metrics_json"] = merged
         if error_code:
-            step.error_code = error_code
+            values["error_code"] = error_code
         if error_message:
-            step.error_message = error_message
+            values["error_message"] = error_message
         if error_details:
-            step.error_details = error_details
-        if status in ("succeeded", "failed", "skipped", "canceled"):
-            step.ended_at = utc_now()
+            values["error_details"] = error_details
+        if target_status in ("succeeded", "failed", "skipped", "canceled", "expired"):
+            values["ended_at"] = changed_at
 
-        if status == "failed":
+        result = self.db.execute(
+            update(RunStep)
+            .where(
+                RunStep.id == step_id,
+                RunStep.tenant_id == self.ctx.tenant_id,
+                RunStep.workspace_id == self.ctx.workspace_id,
+                RunStep.status == old_status,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            self.db.expire_all()
+            current = self.db.get(RunStep, step_id)
+            if current and current.status == target_status:
+                return current
+            if current:
+                validate_step_transition(current.status, target_status)
+            raise RuntimeTransitionError(f"Concurrent step transition rejected: {old_status} -> {target_status}")
+
+        self.db.expire(step)
+        self.db.refresh(step)
+
+        if target_status == "failed":
             run = self.db.get(Run, step.run_id)
             if run and run.tenant_id == self.ctx.tenant_id and run.workspace_id == self.ctx.workspace_id:
                 run.error_step_id = step.id
@@ -430,7 +541,7 @@ class TraceWriter:
             "step_row_id": step.id,
             "run_id": step.run_id,
             "old_status": old_status,
-            "new_status": status,
+            "new_status": target_status,
             "step_type": step.step_type,
             "tenant_id": self.ctx.tenant_id,
         }
@@ -530,6 +641,26 @@ class TraceWriter:
         Returns:
             Created RunArtifact instance.
         """
+        run = self.db.get(Run, run_id)
+        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
+            raise ValueError("Run scope mismatch")
+        if step_id:
+            step = self.db.get(RunStep, step_id)
+            if (
+                not step
+                or step.run_id != run_id
+                or step.tenant_id != self.ctx.tenant_id
+                or step.workspace_id != self.ctx.workspace_id
+            ):
+                raise ValueError("Step scope mismatch")
+        prefix = f"tenants/{self.ctx.tenant_id}/workspaces/{self.ctx.workspace_id}/runs/{run_id}/"
+        if not storage_key.startswith(prefix):
+            raise ValueError("Artifact storage key must use the canonical run prefix")
+        if size_bytes is None or size_bytes < 0:
+            raise ValueError("Artifact size_bytes evidence is required")
+        if not sha256 or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
+            raise ValueError("Artifact SHA256 evidence is required")
+
         artifact = RunArtifact(
             id=generate_artifact_id(),
             tenant_id=self.ctx.tenant_id,
@@ -555,7 +686,8 @@ class TraceWriter:
         step_id: str | None,
         unit: str,
         quantity: Decimal | int | float,
-        currency: str = "USD",
+        entry_type: str | None = None,
+        currency: str | None = "USD",
         amount: Decimal | int | float | None = None,
         provider: str | None = None,
         provider_id: str | None = None,
@@ -569,16 +701,36 @@ class TraceWriter:
         total_tokens: int | None = None,
     ) -> RunCostEntry:
         """Record a normalized cost entry."""
+        run = self.db.get(Run, run_id)
+        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
+            raise ValueError("Run scope mismatch")
+        if step_id:
+            step = self.db.get(RunStep, step_id)
+            if not step or step.run_id != run_id or step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
+                raise ValueError("Step scope mismatch")
+
         qty = Decimal(str(quantity))
-        amt = Decimal(str(amount if amount is not None else 0))
+        raw_amount = Decimal(str(amount)) if amount is not None else None
+        resolved_entry_type = entry_type or ("charge" if raw_amount is not None and raw_amount > 0 else "usage")
+        if resolved_entry_type not in {"usage", "charge"}:
+            raise ValueError("entry_type must be usage or charge")
+        if resolved_entry_type == "charge":
+            if raw_amount is None or raw_amount <= 0 or not currency:
+                raise ValueError("Charge entries require a positive amount and currency")
+            resolved_amount = raw_amount
+            resolved_currency = currency
+        else:
+            resolved_amount = None
+            resolved_currency = None
 
         entry = RunCostEntry(
             run_id=run_id,
             step_id=step_id,
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
-            currency=currency,
-            amount=amt,
+            entry_type=resolved_entry_type,
+            currency=resolved_currency,
+            amount=resolved_amount,
             unit=unit,
             quantity=qty,
             provider=provider,
@@ -600,6 +752,7 @@ class TraceWriter:
             "tenant_id": self.ctx.tenant_id,
             "run_id": entry.run_id,
             "step_id": entry.step_id,
+            "entry_type": entry.entry_type,
             "unit": entry.unit,
             "quantity": str(entry.quantity),
             "currency": entry.currency,
@@ -638,6 +791,7 @@ class TraceWriter:
             {
                 "run_id": entry.run_id,
                 "step_id": entry.step_id,
+                "entry_type": entry.entry_type,
                 "unit": entry.unit,
                 "quantity": str(entry.quantity),
                 "currency": entry.currency,
@@ -649,3 +803,44 @@ class TraceWriter:
             run_id=entry.run_id,
         )
         return entry
+
+    def record_audit(
+        self,
+        *,
+        run_id: str,
+        step_id: str | None,
+        gateway_type: str,
+        outcome: str,
+        payload: dict[str, Any],
+        evidence_artifact_id: str | None = None,
+    ) -> AuditEvent:
+        """Persist an authoritative scoped gateway audit event."""
+
+        run = self.db.get(Run, run_id)
+        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
+            raise ValueError("Run scope mismatch")
+        if step_id:
+            step = self.db.get(RunStep, step_id)
+            if not step or step.run_id != run_id or step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
+                raise ValueError("Step scope mismatch")
+
+        event = AuditEvent(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            event_type="gateway.request",
+            resource_type=gateway_type,
+            resource_id=step_id or run_id,
+            run_id=run_id,
+            step_id=step_id,
+            trace_id=getattr(self.ctx, "trace_id", None),
+            outcome=outcome,
+            evidence_artifact_id=evidence_artifact_id,
+            operation="invoke",
+            actor_user_id=self.ctx.user_id,
+            scope="workspace",
+            payload_json=payload,
+        )
+        self.db.add(event)
+        self.db.flush()
+        self.db.refresh(event)
+        return event

@@ -32,6 +32,7 @@ class Response(SQLModel, table=True):
         Index("ix_responses_scope_status_created", "tenant_id", "workspace_id", "status", "created_at"),
         Index("ix_responses_thread_created", "thread_id", "created_at"),
         Index("ix_responses_agent_created", "agent_id", "created_at"),
+        Index("ix_responses_scope_request_created", "tenant_id", "workspace_id", "request_id", "created_at"),
     )
 
     id: str = Field(primary_key=True, default_factory=generate_response_id)
@@ -41,6 +42,7 @@ class Response(SQLModel, table=True):
     task_id: str | None = Field(default=None, index=True)
     agent_id: str | None = Field(default=None, index=True)
     run_id: str | None = Field(default=None, index=True)
+    request_id: str | None = Field(default=None, index=True)
     model: str | None = Field(default=None, index=True)
     provider: str | None = Field(default=None, index=True)
     status: str = Field(default="queued", index=True)

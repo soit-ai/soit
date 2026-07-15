@@ -55,7 +55,7 @@ async function mockRunDetailApi(page: Page) {
             },
           ],
           artifacts: [],
-          cost_summary: {
+          usage_summary: {
             tokens_prompt: 12,
             tokens_completion: 24,
             embedding_count: 0,
@@ -63,6 +63,7 @@ async function mockRunDetailApi(page: Page) {
             ms_total: 1000,
             storage_bytes: 0,
           },
+          charge_summary: { entry_count: 0, amounts: {} },
           costs: [
             {
               id: 'cost-1',
@@ -94,7 +95,7 @@ async function mockRunDetailApi(page: Page) {
               task_id: 'task-1',
               agent_id: 'agent-1',
               sequence: 1,
-              type: 'response.completed',
+              type: 'response.succeeded',
               source: 'agent',
               payload_json: { status: 'completed' },
               created_at: '2026-05-01T10:00:01.000Z',

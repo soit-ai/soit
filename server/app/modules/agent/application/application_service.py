@@ -1134,7 +1134,7 @@ class AgentApplicationService:
                     "task_id": task.id,
                 },
             )
-            linked_response = self.response_service.mark_in_progress(linked_response)
+            linked_response = self.response_service.mark_running(linked_response)
 
         runner = self._build_runner()
         try:
@@ -1204,7 +1204,7 @@ class AgentApplicationService:
                 completed_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
-                    "status": "completed",
+                    "status": "succeeded",
                     "usage": self._response_usage_payload(result),
                     "tool_calls": int(result.get("tool_calls") or 0),
                 },
@@ -1301,7 +1301,7 @@ class AgentApplicationService:
                     "task_id": task.id,
                 },
             )
-            linked_response = self.response_service.mark_in_progress(linked_response)
+            linked_response = self.response_service.mark_running(linked_response)
 
         runner = self._build_runner()
         try:
@@ -1387,7 +1387,7 @@ class AgentApplicationService:
                 completed_event_payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
-                    "status": "completed",
+                    "status": "succeeded",
                     "usage": self._response_usage_payload(result),
                     "tool_calls": int(result.get("tool_calls") or 0),
                 },

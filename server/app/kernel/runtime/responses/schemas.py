@@ -37,6 +37,7 @@ class ResponseRead(BaseModel):
     task_id: str | None = None
     agent_id: str | None = None
     run_id: str | None = None
+    request_id: str | None = None
     model: str | None = None
     provider: str | None = None
     status: str

@@ -6,6 +6,10 @@ export type { PaginatedResponse } from '@/types/api'
 export interface RunResponse {
   id: string
   trace_id?: string | null
+  request_id?: string | null
+  parent_run_id?: string | null
+  source_run_id?: string | null
+  attempt_no: number
   user_id?: string | null
   mode: string
   kind?: string | null
@@ -43,6 +47,11 @@ export interface RunCostSummary {
   rerank_count: number
   ms_total: number
   storage_bytes: number
+}
+
+export interface RunChargeSummary {
+  entry_count: number
+  amounts: Record<string, string>
 }
 
 export interface RunCostByMode {
@@ -123,8 +132,9 @@ export interface RunCostEntryResponse {
   step_id?: string | null
   tenant_id: string
   workspace_id: string
-  currency: string
-  amount: string
+  entry_type: 'usage' | 'charge'
+  currency?: string | null
+  amount?: string | null
   unit: string
   quantity: string
   provider?: string | null
@@ -206,7 +216,8 @@ export interface RunDetailResponse {
   run: RunResponse
   steps: RunStepResponse[]
   artifacts: RunArtifactResponse[]
-  cost_summary?: RunCostSummary | null
+  usage_summary?: RunCostSummary | null
+  charge_summary?: RunChargeSummary | null
   costs: RunCostEntryResponse[]
   response_events: RunResponseEvent[]
   tool_calls: RunToolCall[]
@@ -217,9 +228,13 @@ export interface RunDetailResponse {
 }
 
 export interface RunAuditLogResponse {
+  audit_id?: string | null
   run_id: string
   step_id: string
   step_type: string
+  trace_id?: string | null
+  outcome?: string | null
+  evidence_artifact_id?: string | null
   gateway_type?: string | null
   request?: Record<string, unknown> | null
   response?: Record<string, unknown> | null

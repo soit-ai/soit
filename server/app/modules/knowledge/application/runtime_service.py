@@ -811,7 +811,28 @@ class KnowledgeRuntimeService:
 
         run_id = task.run_id
         if self.trace_writer:
-            if not run_id:
+            previous_run = self.db.get(Run, run_id) if run_id else None
+            if previous_run and previous_run.status in {"succeeded", "failed", "canceled", "expired"}:
+                subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(
+                    task.knowledge_id,
+                    version_id=document.doc_key,
+                )
+                run = self.trace_writer.create_run(
+                    mode="knowledge_ingest",
+                    kind="batch",
+                    subject_kind=subject_kind,
+                    subject_id=subject_id,
+                    subject_version_id=document.doc_key,
+                    input_summary=self._compose_knowledge_run_summary(
+                        task.knowledge_id,
+                        f"doc_key={document.doc_key}",
+                    ),
+                    source_run_id=previous_run.id,
+                    attempt_no=max(previous_run.attempt_no + 1, task.retry_count + 1),
+                    request_id=f"knowledge-ingest:{task.id}:{task.retry_count + 1}",
+                )
+                run_id = run.id
+            elif not run_id:
                 subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(task.knowledge_id, version_id=document.doc_key)
                 run = self.trace_writer.create_run(
                     mode="knowledge_ingest",

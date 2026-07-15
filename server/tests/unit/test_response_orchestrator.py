@@ -125,6 +125,7 @@ def test_response_service_accepts_repository_protocols(ctx):
         model="model:openai:gpt-5.1",
         input_json={"message": "hello"},
     )
+    response = service.mark_running(response)
     completed = service.complete_response(
         response=response,
         output_json={"text": "done"},
@@ -134,13 +135,13 @@ def test_response_service_accepts_repository_protocols(ctx):
     assert isinstance(response, Response)
     assert isinstance(event_repo.events[0], ResponseEvent)
     assert response_repo.require(response.id) is completed
-    assert completed.status == "completed"
+    assert completed.status == "succeeded"
     assert completed.provider == "openai"
     assert [event.type for event in event_repo.list_for_response(response.id, limit=10, offset=0)] == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
     assert event_repo.list_for_run("run_protocol") == event_repo.events
 
@@ -168,7 +169,7 @@ async def test_response_orchestrator_executes_and_records_events(db, ctx):
         )
     )
 
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert response.output_json["text"] == "orchestrated answer"
     assert response.usage_json["total_tokens"] == 8
 
@@ -176,8 +177,8 @@ async def test_response_orchestrator_executes_and_records_events(db, ctx):
     assert [event.type for event in events] == [
         "response.created",
         "response.input.added",
-        "response.output_text.completed",
-        "response.completed",
+        "response.output_text.done",
+        "response.succeeded",
     ]
 
     run = db.get(Run, response.run_id)
@@ -230,7 +231,7 @@ async def test_response_orchestrator_persists_thread_message_attachments(db, ctx
     )
 
     messages = thread_service.thread_repo.list_messages(thread.id)
-    assert response.status == "completed"
+    assert response.status == "succeeded"
     assert messages[0].role == "user"
     assert messages[0].attachments_json == [
         {

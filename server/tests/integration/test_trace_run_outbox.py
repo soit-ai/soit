@@ -148,7 +148,11 @@ def test_artifact_follows_caller_transaction(db, ctx) -> None:
             artifact = writer.create_artifact(
                 run_id=run.id,
                 artifact_type="file",
-                storage_key="artifacts/test.txt",
+                storage_key=(
+                    f"tenants/{ctx.tenant_id}/workspaces/{ctx.workspace_id}/runs/{run.id}/artifacts/test.txt"
+                ),
+                size_bytes=4,
+                sha256="a" * 64,
             )
             raise RuntimeError("abort use case")
 

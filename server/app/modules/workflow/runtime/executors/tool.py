@@ -83,7 +83,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response = context.response_service.mark_in_progress(linked_response)
+            linked_response = context.response_service.mark_running(linked_response)
             context.response_service.append_event(
                 response=linked_response,
                 event_type="tool.call.requested",
@@ -318,7 +318,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "status": "completed",
+                    "status": "succeeded",
                     "output": output_payload,
                 },
             )
@@ -332,7 +332,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "tool_name": tool_ref,
                     "tool_type": effective_tool_type,
                     "step_id": context.step_id,
-                    "status": "completed",
+                    "status": "succeeded",
                     "result": {"result": result_payload},
                     "metadata": response_metadata,
                 },
@@ -340,13 +340,13 @@ class ToolNodeExecutor(NodeExecutor):
             )
             context.response_service.append_event(
                 response=linked_response,
-                event_type="response.completed",
+                event_type="response.succeeded",
                 payload={
                     "response_id": linked_response.id,
                     "run_id": linked_response.run_id,
                     "step_id": context.step_id,
                     "node_id": node.get("id"),
-                    "status": "completed",
+                    "status": "succeeded",
                     "output": output_payload,
                 },
                 source="workflow",
