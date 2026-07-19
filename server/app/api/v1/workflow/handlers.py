@@ -13,6 +13,7 @@ from app.modules.workflow.application.schemas import (
     WorkflowCreate,
     WorkflowDSLExport,
     WorkflowDSLImport,
+    WorkflowPreviewRequest,
     WorkflowPublishRequest,
     WorkflowReleaseResponse,
     WorkflowResponse,
@@ -335,6 +336,20 @@ class WorkflowHandlers:
         """
         result = await self.service.execute_workflow(workflow_id, inputs)
         return result
+
+    async def preview_workflow_version(
+        self,
+        ctx: RequestContext,
+        workflow_id: str,
+        version_id: str,
+        payload: WorkflowPreviewRequest,
+    ) -> dict:
+        """Execute one exact workflow version as a preview run."""
+        return await self.service.preview_workflow_version(
+            workflow_id,
+            version_id,
+            payload.inputs,
+        )
 
     async def pause_run(
         self,

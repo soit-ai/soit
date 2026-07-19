@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   SquareChartGantt,
   Settings2,
@@ -46,7 +46,20 @@ export function NavSidebar({ workflowId = '', ...props }: NavSidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [navItems, setNavItems] = useState<NavItem[]>([])
-  const [workflow, setWorkflow] = useState<Workflow | null>(null)
+  const [workflowState, setWorkflowState] = useState<{ workflowId: string; workflow: Workflow } | null>(null)
+  const mountedRef = useRef(false)
+  const workflowRequestSequenceRef = useRef(0)
+  const currentWorkflowIdRef = useRef(workflowId)
+  currentWorkflowIdRef.current = workflowId
+  const workflow = workflowState?.workflowId === workflowId ? workflowState.workflow : null
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      workflowRequestSequenceRef.current += 1
+    }
+  }, [])
 
   // Update active navigation state based on the current route.
   useEffect(() => {
@@ -100,12 +113,30 @@ export function NavSidebar({ workflowId = '', ...props }: NavSidebarProps) {
   }, [location.pathname, workflowId])
 
   useEffect(() => {
+    const targetWorkflowId = workflowId
+    const requestSequence = ++workflowRequestSequenceRef.current
+    setWorkflowState(null)
     if (!workflowId) return
-    getWorkflow(workflowId)
-      .then(setWorkflow)
+    getWorkflow(targetWorkflowId, { suppressErrorToast: true })
+      .then((nextWorkflow) => {
+        if (
+          !mountedRef.current
+          || requestSequence !== workflowRequestSequenceRef.current
+          || currentWorkflowIdRef.current !== targetWorkflowId
+        ) return
+        setWorkflowState({ workflowId: targetWorkflowId, workflow: nextWorkflow })
+      })
       .catch((error) => {
+        if (
+          !mountedRef.current
+          || requestSequence !== workflowRequestSequenceRef.current
+          || currentWorkflowIdRef.current !== targetWorkflowId
+        ) return
         console.error('Failed to fetch workflow:', error)
       })
+    return () => {
+      workflowRequestSequenceRef.current += 1
+    }
   }, [workflowId])
 
   const workflowInfo = {

@@ -1,8 +1,20 @@
-import { get, post, put, del, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
+import {
+  get,
+  post,
+  put,
+  del,
+  sse,
+  type RequestConfigWithToast,
+  type SseEvent,
+  API_BASE_URL,
+} from '@/utils/request'
 import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
 import type { PaginatedResponse } from '@/types/api'
+import { isAxiosError } from 'axios'
 
 export type { PaginatedResponse } from '@/types/api'
+
+const suppressErrorToastConfig: RequestConfigWithToast = { suppressErrorToast: true }
 
 export interface Workflow {
   id: string
@@ -70,6 +82,12 @@ export interface WorkflowRunControlResponse {
   run_id: string
   status?: string
   [key: string]: any
+}
+
+export interface WorkflowPreviewResponse {
+  run_id: string
+  workflow_version_id: string
+  output: Record<string, unknown>
 }
 
 export interface WorkflowWorkbenchSummary {
@@ -140,8 +158,11 @@ export const getWorkflowWorkbenchItems = (params?: {
   return get('/workflows/workbench/items', params)
 }
 
-export const getWorkflow = (workflowId: string): Promise<Workflow> => {
-  return get(`/workflows/${workflowId}`)
+export const getWorkflow = (
+  workflowId: string,
+  config?: RequestConfigWithToast,
+): Promise<Workflow> => {
+  return get(`/workflows/${workflowId}`, undefined, config)
 }
 
 export const getWorkflowCapabilities = (): Promise<WorkflowCapabilitiesResponse> => {
@@ -162,8 +183,8 @@ export const createWorkflow = (data: {
 
 export const createTicketTriageWorkflow = (data?: {
   name?: string
-}): Promise<Workflow> => {
-  return post('/workflows/templates/ticket-triage', data || {})
+}, config?: RequestConfigWithToast): Promise<Workflow> => {
+  return post('/workflows/templates/ticket-triage', data || {}, config)
 }
 
 export const updateWorkflow = (
@@ -178,20 +199,25 @@ export const updateWorkflow = (
     category?: string
     tags?: string[]
     metadata_json?: Record<string, any>
-  }
+  },
+  config?: RequestConfigWithToast,
 ): Promise<Workflow> => {
-  return put(`/workflows/${workflowId}`, data)
+  return put(`/workflows/${workflowId}`, data, config)
 }
 
-export const deleteWorkflow = (workflowId: string): Promise<void> => {
-  return del(`/workflows/${workflowId}`).then(() => undefined)
+export const deleteWorkflow = (
+  workflowId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/workflows/${workflowId}`, undefined, config).then(() => undefined)
 }
 
 export const createWorkflowVersion = (
   workflowId: string,
-  data: { graph_json: Record<string, unknown> }
+  data: { graph_json: Record<string, unknown> },
+  config?: RequestConfigWithToast,
 ): Promise<WorkflowVersion> => {
-  return post(`/workflows/${workflowId}/versions`, data)
+  return post(`/workflows/${workflowId}/versions`, data, config)
 }
 
 export const listWorkflowVersions = (
@@ -212,12 +238,38 @@ export const getCurrentWorkflowVersion = (workflowId: string): Promise<WorkflowV
   return get(`/workflows/${workflowId}/version/current`)
 }
 
+export const getCurrentWorkflowVersionOrNull = async (
+  workflowId: string,
+): Promise<WorkflowVersion | null> => {
+  try {
+    return await get<WorkflowVersion>(
+      `/workflows/${workflowId}/version/current`,
+      undefined,
+      suppressErrorToastConfig,
+    )
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return null
+    }
+    throw error
+  }
+}
+
 export const publishWorkflowVersion = (workflowId: string, versionId: string): Promise<Workflow> => {
   return post(`/workflows/${workflowId}/publish`, { version_id: versionId })
 }
 
 export const executeWorkflow = (workflowId: string, inputs: Record<string, any>): Promise<any> => {
   return post(`/workflows/${workflowId}/execute`, inputs)
+}
+
+export const previewWorkflowVersion = (
+  workflowId: string,
+  versionId: string,
+  inputs: Record<string, unknown>,
+  config?: RequestConfigWithToast,
+): Promise<WorkflowPreviewResponse> => {
+  return post(`/workflows/${workflowId}/versions/${versionId}/preview`, { inputs }, config)
 }
 
 export const streamWorkflowExecution = (

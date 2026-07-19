@@ -1,5 +1,5 @@
 import React from 'react'
-import { Panel, type ReactFlowInstance } from '@xyflow/react'
+import type { ReactFlowInstance } from '@xyflow/react'
 import { ZoomIn, ZoomOut, Save, RotateCcw, Download, Upload, Undo, Redo, LayoutGrid, GitBranchPlus } from 'lucide-react'
 import { useLayoutStore, type LayoutDirection } from './layout-store'
 import { useTranslation } from '@/i18n'
@@ -22,6 +22,7 @@ interface WorkflowToolbarProps {
   redoable: boolean
   saveDisabled?: boolean
   exportDisabled?: boolean
+  mutationDisabled?: boolean
 }
 
 const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
@@ -39,9 +40,13 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
   redoable,
   saveDisabled = false,
   exportDisabled = false,
+  mutationDisabled = false,
 }) => {
   const { t } = useTranslation()
   const { direction: layoutDirection, setDirection: setLayoutDirection } = useLayoutStore();
+  const layoutLabel = layoutDirection === 'TB'
+    ? t('workflow.operator.layoutHorizontal')
+    : t('workflow.operator.layoutTree')
   const getLayoutChange = (direction: LayoutDirection) => {
     setLayoutDirection(direction);
     if (flowInstance && getLayoutedElements) {
@@ -61,8 +66,8 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
     }
   }
   return (
-    <Panel position="bottom-center" className="flex justify-center w-full mb-2 z-10">
-      <div className="bg-background/80 backdrop-blur-md border rounded-full shadow-md p-2 flex gap-2">
+    <div className="mx-auto flex w-max justify-center">
+      <div className="flex w-max gap-2 rounded-full border bg-background/80 p-2 shadow-md backdrop-blur-md">
         <TooltipProvider>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -70,8 +75,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.common.undo')}
                 onClick={onUndo}
-                disabled={!undoable}
+                disabled={mutationDisabled || !undoable}
               >
                 <Undo className="h-4 w-4" />
               </Button>
@@ -89,8 +95,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.common.redo')}
                 onClick={onRedo}
-                disabled={!redoable}
+                disabled={mutationDisabled || !redoable}
               >
                 <Redo className="h-4 w-4" />
               </Button>
@@ -110,6 +117,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.zoomIn')}
                 onClick={onZoomIn}
               >
                 <ZoomIn className="h-4 w-4" />
@@ -128,6 +136,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.zoomOut')}
                 onClick={onZoomOut}
               >
                 <ZoomOut className="h-4 w-4" />
@@ -146,6 +155,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.resetView')}
                 onClick={onResetView}
               >
                 <RotateCcw className="h-4 w-4" />
@@ -215,6 +225,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 variant="ghost"
                 className="h-8 w-8"
                 aria-label={t('workflow.operator.importWorkflow')}
+                disabled={mutationDisabled}
                 onClick={onImport}
               >
                 <Upload className="h-4 w-4" />
@@ -236,6 +247,8 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
+                  aria-label={layoutLabel}
+                  disabled={mutationDisabled}
                   onClick={() => {
                     const newDirection = layoutDirection === 'TB' ? 'LR' : 'TB';
                     // Update the global layout state.
@@ -255,16 +268,14 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
               </TooltipTrigger>
               <TooltipContent side="top">
                 <p>
-                  {layoutDirection === 'TB'
-                    ? t('workflow.operator.layoutHorizontal')
-                    : t('workflow.operator.layoutTree')}
+                  {layoutLabel}
                 </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </>
       </div>
-    </Panel>
+    </div>
   )
 }
 

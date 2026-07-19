@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router'
 import { useTranslation } from '@/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { getWorkflow, updateWorkflow, deleteWorkflow } from '@/services/workflow-service'
@@ -32,39 +31,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import type { TranslationKey } from '@/i18n/types'
 
-type LimitSettings = {
-  timeoutSeconds: number
-  maxSteps: number
-  maxRetries: number
-}
-
 type AccessSettings = {
   visibility: string
-  allowAnonymous: boolean
-}
-
-type WorkflowMetadata = {
-  limits?: {
-    timeout_seconds?: number
-    max_steps?: number
-    max_retries?: number
-  }
-  access?: {
-    visibility?: string
-    allow_anonymous?: boolean
-  }
-  [key: string]: any
-}
-
-const defaultLimits: LimitSettings = {
-  timeoutSeconds: 300,
-  maxSteps: 60,
-  maxRetries: 0,
 }
 
 const defaultAccess: AccessSettings = {
-  visibility: 'workspace',
-  allowAnonymous: false,
+  visibility: 'private',
 }
 
 const grantActionOptions = ['read', 'run', 'update', 'delete']
@@ -74,170 +46,278 @@ function Page() {
   const { id: workflowId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(null)
   const [savingBasic, setSavingBasic] = useState(false)
-  const [savingLimits, setSavingLimits] = useState(false)
   const [savingAccess, setSavingAccess] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteDialogTargetId, setDeleteDialogTargetId] = useState<string | null>(null)
   const [savingGrant, setSavingGrant] = useState(false)
   const [loadingGrants, setLoadingGrants] = useState(false)
+  const [permissionsHydratedWorkflowId, setPermissionsHydratedWorkflowId] = useState<string | null>(null)
+  const [permissionsLoadErrorWorkflowId, setPermissionsLoadErrorWorkflowId] = useState<string | null>(null)
   const [currentRole, setCurrentRole] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '',
     description: '',
   })
-  const [limits, setLimits] = useState<LimitSettings>(defaultLimits)
   const [access, setAccess] = useState<AccessSettings>(defaultAccess)
-  const [metadata, setMetadata] = useState<WorkflowMetadata>({})
   const [grants, setGrants] = useState<ResourceGrant[]>([])
   const [grantUserId, setGrantUserId] = useState('')
   const [grantActions, setGrantActions] = useState<string[]>(['read'])
+  const workflowRequestSequenceRef = useRef(0)
+  const basicSaveSequenceRef = useRef(0)
+  const accessSaveSequenceRef = useRef(0)
+  const deleteSequenceRef = useRef(0)
+  const permissionsRequestSequenceRef = useRef(0)
+  const permissionsMutationSequenceRef = useRef(0)
+  const permissionsHydratedWorkflowIdRef = useRef<string | null>(null)
+  const loadingGrantsRef = useRef(false)
+  const savingGrantRef = useRef(false)
+  const deletingRef = useRef(false)
+  const mountedRef = useRef(false)
+  const currentWorkflowIdRef = useRef(workflowId)
+  currentWorkflowIdRef.current = workflowId
+  const settingsHydrated = Boolean(workflowId && hydratedWorkflowId === workflowId)
+  const permissionsHydrated = Boolean(
+    workflowId && permissionsHydratedWorkflowId === workflowId,
+  )
+  const permissionsLoadFailed = Boolean(
+    workflowId && permissionsLoadErrorWorkflowId === workflowId,
+  )
+  const deleteDialogOpen = Boolean(
+    workflowId && deleteDialogTargetId === workflowId,
+  )
 
-  const applyMetadata = (meta?: WorkflowMetadata | null) => {
-    const normalized: WorkflowMetadata = meta && typeof meta === 'object' ? meta : {}
-    setMetadata(normalized)
-    const limitsMeta = normalized.limits || {}
-    setLimits({
-      timeoutSeconds: Number(
-        limitsMeta.timeout_seconds ?? (limitsMeta as any).timeoutSeconds ?? defaultLimits.timeoutSeconds
-      ),
-      maxSteps: Number(limitsMeta.max_steps ?? (limitsMeta as any).maxSteps ?? defaultLimits.maxSteps),
-      maxRetries: Number(limitsMeta.max_retries ?? (limitsMeta as any).maxRetries ?? defaultLimits.maxRetries),
-    })
-    const accessMeta = normalized.access || {}
-    setAccess({
-      visibility: accessMeta.visibility ?? (accessMeta as any).visibility ?? defaultAccess.visibility,
-      allowAnonymous: Boolean(
-        accessMeta.allow_anonymous ?? (accessMeta as any).allowAnonymous ?? defaultAccess.allowAnonymous
-      ),
-    })
+  const setPermissionsHydration = (targetWorkflowId: string | null) => {
+    permissionsHydratedWorkflowIdRef.current = targetWorkflowId
+    setPermissionsHydratedWorkflowId(targetWorkflowId)
+  }
+
+  const setPermissionsLoading = (nextLoading: boolean) => {
+    loadingGrantsRef.current = nextLoading
+    setLoadingGrants(nextLoading)
+  }
+
+  const setGrantSaving = (nextSaving: boolean) => {
+    savingGrantRef.current = nextSaving
+    setSavingGrant(nextSaving)
+  }
+
+  const setDeletePending = (nextDeleting: boolean) => {
+    deletingRef.current = nextDeleting
+    setDeleting(nextDeleting)
+  }
+
+  const isCurrentPermissionsState = (targetWorkflowId: string) => {
+    return mountedRef.current
+      && currentWorkflowIdRef.current === targetWorkflowId
+      && permissionsHydratedWorkflowIdRef.current === targetWorkflowId
+      && !loadingGrantsRef.current
   }
 
   useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      basicSaveSequenceRef.current += 1
+      accessSaveSequenceRef.current += 1
+      deleteSequenceRef.current += 1
+      permissionsRequestSequenceRef.current += 1
+      permissionsMutationSequenceRef.current += 1
+    }
+  }, [])
+
+  useEffect(() => {
+    const requestSequence = ++workflowRequestSequenceRef.current
+    let active = true
+
     const fetchWorkflow = async () => {
-      if (!workflowId) return
+      setHydratedWorkflowId(null)
+      setForm({ name: '', description: '' })
+      setAccess(defaultAccess)
+      setSavingBasic(false)
+      setSavingAccess(false)
+      setDeletePending(false)
+      setDeleteDialogTargetId(null)
+      basicSaveSequenceRef.current += 1
+      accessSaveSequenceRef.current += 1
+      deleteSequenceRef.current += 1
+      if (!workflowId) {
+        setLoading(false)
+        return
+      }
       try {
         setLoading(true)
-        const data = await getWorkflow(workflowId)
+        const data = await getWorkflow(workflowId, { suppressErrorToast: true })
+        if (!active || requestSequence !== workflowRequestSequenceRef.current) return
         setForm({
           name: data.name || '',
           description: data.description || '',
         })
-        applyMetadata(data.metadata_json || {})
+        setAccess({ visibility: data.visibility || defaultAccess.visibility })
+        setHydratedWorkflowId(workflowId)
       } catch (error) {
+        if (!active || requestSequence !== workflowRequestSequenceRef.current) return
+        setHydratedWorkflowId(null)
         toast.error(t('workflow.detail.setting.toast.fetchError'))
         console.error('Failed to fetch workflow settings:', error)
       } finally {
-        setLoading(false)
+        if (active && requestSequence === workflowRequestSequenceRef.current) {
+          setLoading(false)
+        }
       }
     }
     fetchWorkflow()
+    return () => {
+      active = false
+      if (requestSequence === workflowRequestSequenceRef.current) {
+        workflowRequestSequenceRef.current += 1
+      }
+    }
   }, [workflowId, t])
 
   useEffect(() => {
+    const requestSequence = ++permissionsRequestSequenceRef.current
+    permissionsMutationSequenceRef.current += 1
+    let active = true
+
     const fetchPermissions = async () => {
+      setPermissionsHydration(null)
+      setPermissionsLoadErrorWorkflowId(null)
+      setGrants([])
+      setCurrentRole(null)
+      setGrantUserId('')
+      setGrantActions(['read'])
+      setGrantSaving(false)
+      setPermissionsLoading(Boolean(workflowId))
       if (!workflowId) return
       try {
-        setLoadingGrants(true)
         const [user, grantList] = await Promise.all([
-          getCurrentUser(),
-          listResourceGrants('workflow', workflowId),
+          getCurrentUser({ suppressErrorToast: true }),
+          listResourceGrants('workflow', workflowId, { suppressErrorToast: true }),
         ])
+        if (
+          !active
+          || !mountedRef.current
+          || requestSequence !== permissionsRequestSequenceRef.current
+          || currentWorkflowIdRef.current !== workflowId
+        ) return
         setCurrentRole(user.workspace_role || user.tenant_role || null)
         setGrants(grantList || [])
+        setPermissionsHydration(workflowId)
       } catch (error) {
+        if (
+          !active
+          || !mountedRef.current
+          || requestSequence !== permissionsRequestSequenceRef.current
+          || currentWorkflowIdRef.current !== workflowId
+        ) return
+        setPermissionsLoadErrorWorkflowId(workflowId)
+        toast.error(t('workflow.detail.setting.permissions.toast.loadFailed'))
         console.error('Failed to fetch workflow permissions:', error)
       } finally {
-        setLoadingGrants(false)
+        if (
+          active
+          && mountedRef.current
+          && requestSequence === permissionsRequestSequenceRef.current
+          && currentWorkflowIdRef.current === workflowId
+        ) {
+          setPermissionsLoading(false)
+        }
       }
     }
     fetchPermissions()
-  }, [workflowId])
+    return () => {
+      active = false
+      if (requestSequence === permissionsRequestSequenceRef.current) {
+        permissionsRequestSequenceRef.current += 1
+      }
+      permissionsMutationSequenceRef.current += 1
+    }
+  }, [workflowId, t])
 
   const handleSaveBasic = async () => {
-    if (!workflowId) return
+    if (!workflowId || hydratedWorkflowId !== workflowId || loading || savingBasic) return
     if (!form.name.trim()) {
       toast.error(t('workflow.detail.setting.toast.nameRequired'))
       return
     }
+    const targetWorkflowId = workflowId
+    const saveSequence = ++basicSaveSequenceRef.current
     try {
       setSavingBasic(true)
-      const updated = await updateWorkflow(workflowId, {
+      const updated = await updateWorkflow(targetWorkflowId, {
         name: form.name.trim(),
         description: form.description.trim() || undefined,
-      })
+      }, { suppressErrorToast: true })
+      if (
+        !mountedRef.current
+        || saveSequence !== basicSaveSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
       setForm({
         name: updated.name || '',
         description: updated.description || '',
       })
-      applyMetadata(updated.metadata_json || {})
       toast.success(t('workflow.detail.setting.toast.saveSuccess'))
     } catch (error) {
+      if (
+        !mountedRef.current
+        || saveSequence !== basicSaveSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
       toast.error(t('workflow.detail.setting.toast.saveError'))
       console.error('Failed to update workflow:', error)
     } finally {
-      setSavingBasic(false)
-    }
-  }
-
-  const handleSaveLimits = async () => {
-    if (!workflowId) return
-    try {
-      setSavingLimits(true)
-      const nextMetadata: WorkflowMetadata = {
-        ...metadata,
-        limits: {
-          timeout_seconds: limits.timeoutSeconds,
-          max_steps: limits.maxSteps,
-          max_retries: limits.maxRetries,
-        },
-        access: {
-          visibility: access.visibility,
-          allow_anonymous: access.allowAnonymous,
-        },
+      if (
+        mountedRef.current
+        && saveSequence === basicSaveSequenceRef.current
+        && currentWorkflowIdRef.current === targetWorkflowId
+      ) {
+        setSavingBasic(false)
       }
-      const updated = await updateWorkflow(workflowId, { metadata_json: nextMetadata })
-      applyMetadata(updated.metadata_json || nextMetadata)
-      toast.success(t('workflow.detail.setting.toast.limitsSaved'))
-    } catch (error) {
-      toast.error(t('workflow.detail.setting.toast.limitsSaveError'))
-      console.error('Failed to save limits:', error)
-    } finally {
-      setSavingLimits(false)
     }
-  }
-
-  const handleResetLimits = () => {
-    setLimits(defaultLimits)
   }
 
   const handleSaveAccess = async () => {
-    if (!workflowId) return
+    if (!workflowId || hydratedWorkflowId !== workflowId || loading || savingAccess) return
+    const targetWorkflowId = workflowId
+    const saveSequence = ++accessSaveSequenceRef.current
     try {
       setSavingAccess(true)
-      const nextMetadata: WorkflowMetadata = {
-        ...metadata,
-        limits: {
-          timeout_seconds: limits.timeoutSeconds,
-          max_steps: limits.maxSteps,
-          max_retries: limits.maxRetries,
-        },
-        access: {
-          visibility: access.visibility,
-          allow_anonymous: access.allowAnonymous,
-        },
-      }
-      const updated = await updateWorkflow(workflowId, { metadata_json: nextMetadata })
-      applyMetadata(updated.metadata_json || nextMetadata)
+      const updated = await updateWorkflow(
+        targetWorkflowId,
+        { visibility: access.visibility },
+        { suppressErrorToast: true },
+      )
+      if (
+        !mountedRef.current
+        || saveSequence !== accessSaveSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
+      setAccess({ visibility: updated.visibility || defaultAccess.visibility })
       toast.success(t('workflow.detail.setting.toast.accessSaved'))
     } catch (error) {
+      if (
+        !mountedRef.current
+        || saveSequence !== accessSaveSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
       toast.error(t('workflow.detail.setting.toast.accessSaveError'))
       console.error('Failed to save access settings:', error)
     } finally {
-      setSavingAccess(false)
+      if (
+        mountedRef.current
+        && saveSequence === accessSaveSequenceRef.current
+        && currentWorkflowIdRef.current === targetWorkflowId
+      ) {
+        setSavingAccess(false)
+      }
     }
   }
 
   const handleGrantActionToggle = (action: string, checked: boolean | string) => {
+    if (!workflowId || !isCurrentPermissionsState(workflowId) || savingGrantRef.current) return
     const resolved = checked === true
     setGrantActions((prev) => {
       if (resolved) {
@@ -248,7 +328,11 @@ function Page() {
   }
 
   const handleCreateGrant = async () => {
-    if (!workflowId) return
+    if (
+      !workflowId
+      || !isCurrentPermissionsState(workflowId)
+      || savingGrantRef.current
+    ) return
     if (!grantUserId.trim()) {
       toast.error(t('workflow.detail.setting.permissions.toast.userRequired'))
       return
@@ -257,14 +341,20 @@ function Page() {
       toast.error(t('workflow.detail.setting.permissions.toast.actionsRequired'))
       return
     }
+    const targetWorkflowId = workflowId
+    const mutationSequence = ++permissionsMutationSequenceRef.current
     try {
-      setSavingGrant(true)
+      setGrantSaving(true)
       const grant = await createResourceGrant({
         resource_type: 'workflow',
-        resource_id: workflowId,
+        resource_id: targetWorkflowId,
         user_id: grantUserId.trim(),
         actions: grantActions,
-      })
+      }, { suppressErrorToast: true })
+      if (
+        mutationSequence !== permissionsMutationSequenceRef.current
+        || !isCurrentPermissionsState(targetWorkflowId)
+      ) return
       setGrants((prev) => {
         const filtered = prev.filter((item) => item.user_id !== grant.user_id)
         return [grant, ...filtered]
@@ -272,37 +362,101 @@ function Page() {
       setGrantUserId('')
       toast.success(t('workflow.detail.setting.permissions.toast.grantSaved'))
     } catch (error) {
+      if (
+        mutationSequence !== permissionsMutationSequenceRef.current
+        || !isCurrentPermissionsState(targetWorkflowId)
+      ) return
       toast.error(t('workflow.detail.setting.permissions.toast.grantFailed'))
       console.error('Failed to save resource grant:', error)
     } finally {
-      setSavingGrant(false)
+      if (
+        mutationSequence === permissionsMutationSequenceRef.current
+        && isCurrentPermissionsState(targetWorkflowId)
+      ) {
+        setGrantSaving(false)
+      }
     }
   }
 
   const handleRevokeGrant = async (userId: string) => {
-    if (!workflowId) return
+    if (
+      !workflowId
+      || !isCurrentPermissionsState(workflowId)
+      || savingGrantRef.current
+    ) return
+    const targetWorkflowId = workflowId
+    const mutationSequence = ++permissionsMutationSequenceRef.current
     try {
-      await revokeResourceGrant('workflow', workflowId, userId)
+      setGrantSaving(true)
+      await revokeResourceGrant(
+        'workflow',
+        targetWorkflowId,
+        userId,
+        { suppressErrorToast: true },
+      )
+      if (
+        mutationSequence !== permissionsMutationSequenceRef.current
+        || !isCurrentPermissionsState(targetWorkflowId)
+      ) return
       setGrants((prev) => prev.filter((item) => item.user_id !== userId))
       toast.success(t('workflow.detail.setting.permissions.toast.grantRevoked'))
     } catch (error) {
+      if (
+        mutationSequence !== permissionsMutationSequenceRef.current
+        || !isCurrentPermissionsState(targetWorkflowId)
+      ) return
       toast.error(t('workflow.detail.setting.permissions.toast.grantRevokeFailed'))
       console.error('Failed to revoke resource grant:', error)
+    } finally {
+      if (
+        mutationSequence === permissionsMutationSequenceRef.current
+        && isCurrentPermissionsState(targetWorkflowId)
+      ) {
+        setGrantSaving(false)
+      }
     }
   }
 
   const handleDelete = async () => {
-    if (!workflowId) return
+    const targetWorkflowId = deleteDialogTargetId
+    if (
+      !mountedRef.current
+      || !workflowId
+      || !targetWorkflowId
+      || targetWorkflowId !== workflowId
+      || currentWorkflowIdRef.current !== targetWorkflowId
+      || hydratedWorkflowId !== targetWorkflowId
+      || loading
+      || deletingRef.current
+    ) return
+    const deleteSequence = ++deleteSequenceRef.current
+    setDeleteDialogTargetId(null)
     try {
-      setDeleting(true)
-      await deleteWorkflow(workflowId)
+      setDeletePending(true)
+      await deleteWorkflow(targetWorkflowId, { suppressErrorToast: true })
+      if (
+        !mountedRef.current
+        || deleteSequence !== deleteSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
       toast.success(t('workflow.detail.setting.toast.deleteSuccess'))
       navigate('/workflow')
     } catch (error) {
+      if (
+        !mountedRef.current
+        || deleteSequence !== deleteSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return
       toast.error(t('workflow.detail.setting.toast.deleteError'))
       console.error('Failed to delete workflow:', error)
     } finally {
-      setDeleting(false)
+      if (
+        mountedRef.current
+        && deleteSequence === deleteSequenceRef.current
+        && currentWorkflowIdRef.current === targetWorkflowId
+      ) {
+        setDeletePending(false)
+      }
     }
   }
 
@@ -318,21 +472,27 @@ function Page() {
             <Label htmlFor="workflow-name">{t('workflow.detail.setting.basic.nameLabel')}</Label>
             <Input
               id="workflow-name"
-              value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              disabled={loading}
+              value={settingsHydrated ? form.name : ''}
+              onChange={(event) => {
+                if (!settingsHydrated || savingBasic) return
+                setForm((prev) => ({ ...prev, name: event.target.value }))
+              }}
+              disabled={loading || !settingsHydrated || savingBasic}
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="workflow-description">{t('workflow.detail.setting.basic.descriptionLabel')}</Label>
             <Textarea
               id="workflow-description"
-              value={form.description}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-              disabled={loading}
+              value={settingsHydrated ? form.description : ''}
+              onChange={(event) => {
+                if (!settingsHydrated || savingBasic) return
+                setForm((prev) => ({ ...prev, description: event.target.value }))
+              }}
+              disabled={loading || !settingsHydrated || savingBasic}
             />
           </div>
-          <Button onClick={handleSaveBasic} disabled={savingBasic || loading}>
+          <Button onClick={handleSaveBasic} disabled={savingBasic || loading || !settingsHydrated}>
             {savingBasic ? t('workflow.detail.setting.basic.saving') : t('workflow.detail.setting.basic.save')}
           </Button>
         </CardContent>
@@ -340,53 +500,15 @@ function Page() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('workflow.detail.setting.limits.title')}</CardTitle>
-          <CardDescription>{t('workflow.detail.setting.limits.description')}</CardDescription>
+          <CardTitle>{t('workflow.detail.setting.execution.title')}</CardTitle>
+          <CardDescription>{t('workflow.detail.setting.execution.description')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="grid gap-2">
-              <Label htmlFor="workflow-timeout">{t('workflow.detail.setting.limits.timeoutLabel')}</Label>
-              <Input
-                id="workflow-timeout"
-                type="number"
-                min={10}
-                value={limits.timeoutSeconds}
-                onChange={(event) => setLimits((prev) => ({ ...prev, timeoutSeconds: Number(event.target.value || 0) }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="workflow-max-steps">{t('workflow.detail.setting.limits.maxStepsLabel')}</Label>
-              <Input
-                id="workflow-max-steps"
-                type="number"
-                min={1}
-                value={limits.maxSteps}
-                onChange={(event) => setLimits((prev) => ({ ...prev, maxSteps: Number(event.target.value || 0) }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="workflow-max-retries">{t('workflow.detail.setting.limits.maxRetriesLabel')}</Label>
-              <Input
-                id="workflow-max-retries"
-                type="number"
-                min={0}
-                value={limits.maxRetries}
-                onChange={(event) => setLimits((prev) => ({ ...prev, maxRetries: Number(event.target.value || 0) }))}
-              />
-            </div>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {t('workflow.detail.setting.limits.localNotice')}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={handleSaveLimits} disabled={savingLimits}>
-              {savingLimits ? t('workflow.detail.setting.limits.saving') : t('workflow.detail.setting.limits.save')}
-            </Button>
-            <Button variant="outline" onClick={handleResetLimits} disabled={savingLimits}>
-              {t('workflow.detail.setting.limits.reset')}
-            </Button>
-          </div>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link to={`/workflow/${workflowId}/build`}>
+              {t('workflow.detail.setting.execution.builderLink')}
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
@@ -399,8 +521,12 @@ function Page() {
           <div className="grid gap-2 max-w-sm">
             <Label>{t('workflow.detail.setting.access.visibilityLabel')}</Label>
             <Select
-              value={access.visibility}
-              onValueChange={(value) => setAccess((prev) => ({ ...prev, visibility: value }))}
+              value={settingsHydrated ? access.visibility : defaultAccess.visibility}
+              disabled={loading || !settingsHydrated || savingAccess}
+              onValueChange={(value) => {
+                if (!settingsHydrated || savingAccess) return
+                setAccess((prev) => ({ ...prev, visibility: value }))
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder={t('workflow.detail.setting.access.visibilityPlaceholder')} />
@@ -412,17 +538,10 @@ function Page() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <div className="text-sm font-medium">{t('workflow.detail.setting.access.anonymousLabel')}</div>
-              <div className="text-xs text-muted-foreground">{t('workflow.detail.setting.access.anonymousHint')}</div>
-            </div>
-            <Switch
-              checked={access.allowAnonymous}
-              onCheckedChange={(checked) => setAccess((prev) => ({ ...prev, allowAnonymous: checked }))}
-            />
-          </div>
-          <Button onClick={handleSaveAccess} disabled={savingAccess}>
+          <Button
+            onClick={handleSaveAccess}
+            disabled={loading || !settingsHydrated || savingAccess}
+          >
             {savingAccess ? t('workflow.detail.setting.access.saving') : t('workflow.detail.setting.access.save')}
           </Button>
         </CardContent>
@@ -435,7 +554,9 @@ function Page() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-sm text-muted-foreground">
-            {t('workflow.detail.setting.permissions.currentRole', { role: currentRole || '-' })}
+            {t('workflow.detail.setting.permissions.currentRole', {
+              role: permissionsHydrated ? currentRole || '-' : '-',
+            })}
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-3">
@@ -444,9 +565,13 @@ function Page() {
                 <Label htmlFor="workflow-grant-user">{t('workflow.detail.setting.permissions.userLabel')}</Label>
                 <Input
                   id="workflow-grant-user"
-                  value={grantUserId}
-                  onChange={(event) => setGrantUserId(event.target.value)}
+                  value={permissionsHydrated ? grantUserId : ''}
+                  onChange={(event) => {
+                    if (!permissionsHydrated || savingGrant) return
+                    setGrantUserId(event.target.value)
+                  }}
                   placeholder={t('workflow.detail.setting.permissions.userPlaceholder')}
+                  disabled={loadingGrants || !permissionsHydrated || savingGrant}
                 />
               </div>
               <div className="space-y-2">
@@ -455,15 +580,19 @@ function Page() {
                   {grantActionOptions.map((action) => (
                     <label key={action} className="flex items-center gap-2 text-sm">
                       <Checkbox
-                        checked={grantActions.includes(action)}
+                        checked={permissionsHydrated && grantActions.includes(action)}
                         onCheckedChange={(checked) => handleGrantActionToggle(action, checked)}
+                        disabled={loadingGrants || !permissionsHydrated || savingGrant}
                       />
                       <span>{t(`workflow.detail.setting.permissions.actions.${action}` as TranslationKey)}</span>
                     </label>
                   ))}
                 </div>
               </div>
-              <Button onClick={handleCreateGrant} disabled={savingGrant}>
+              <Button
+                onClick={handleCreateGrant}
+                disabled={loadingGrants || !permissionsHydrated || savingGrant}
+              >
                 {savingGrant
                   ? t('workflow.detail.setting.permissions.saving')
                   : t('workflow.detail.setting.permissions.save')}
@@ -473,7 +602,11 @@ function Page() {
               <div className="text-sm font-medium">{t('workflow.detail.setting.permissions.listTitle')}</div>
               {loadingGrants ? (
                 <div className="text-sm text-muted-foreground">{t('workflow.detail.setting.permissions.loading')}</div>
-              ) : grants.length === 0 ? (
+              ) : permissionsLoadFailed ? (
+                <div role="alert" className="text-sm text-destructive">
+                  {t('workflow.detail.setting.permissions.toast.loadFailed')}
+                </div>
+              ) : !permissionsHydrated || grants.length === 0 ? (
                 <div className="text-sm text-muted-foreground">{t('workflow.detail.setting.permissions.empty')}</div>
               ) : (
                 <div className="space-y-2">
@@ -483,7 +616,11 @@ function Page() {
                       <div className="text-xs text-muted-foreground">
                         {t('workflow.detail.setting.permissions.actionsValue', { actions: (grant.actions || []).join(', ') || '-' })}
                       </div>
-                      <Button variant="ghost" onClick={() => handleRevokeGrant(grant.user_id)}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => handleRevokeGrant(grant.user_id)}
+                        disabled={loadingGrants || !permissionsHydrated || savingGrant}
+                      >
                         {t('workflow.detail.setting.permissions.revoke')}
                       </Button>
                     </div>
@@ -501,9 +638,29 @@ function Page() {
           <CardDescription>{t('workflow.detail.setting.danger.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <AlertDialog>
+          <AlertDialog
+            open={deleteDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) {
+                setDeleteDialogTargetId(null)
+                return
+              }
+              if (
+                mountedRef.current
+                && workflowId
+                && hydratedWorkflowId === workflowId
+                && !loading
+                && !deletingRef.current
+              ) {
+                setDeleteDialogTargetId(workflowId)
+              }
+            }}
+          >
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" disabled={deleting || loading}>
+              <Button
+                variant="destructive"
+                disabled={deleting || loading || !settingsHydrated}
+              >
                 {deleting ? t('workflow.detail.setting.danger.deleting') : t('workflow.detail.setting.danger.delete')}
               </Button>
             </AlertDialogTrigger>

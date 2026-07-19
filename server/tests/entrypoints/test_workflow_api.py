@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.kernel.runtime.db.models.responses import Response
 from app.kernel.runtime.db.models.runs import Run
-from app.modules.workflow.domain.models import WorkflowPublish
+from app.modules.workflow.domain.models import WorkflowPublish, WorkflowVersion
 from tests.fixtures.workflow_specs import canonical_workflow_spec
 
 
@@ -627,6 +627,144 @@ class TestWorkflowAPI:
 
         assert version_response.status_code == status.HTTP_201_CREATED
         assert version_response.json()["data"]["graph_json"] == original_spec
+
+    def test_preview_executes_exact_draft_without_changing_live_version(self, client, db):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+
+        def version_spec(value: str) -> dict:
+            return {
+                "name": f"preview-{value}",
+                "inputs_schema": {"type": "object", "properties": {}},
+                "outputs_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
+                "graph": {
+                    "nodes": [
+                        {"id": "value", "type": "set_var", "params": {"key": "value", "value": value}},
+                        {"id": "output", "type": "output", "params": {"value": "{{ steps.value.output.value }}"}},
+                    ],
+                    "edges": [{"id": "value-output", "from": "value", "to": "output"}],
+                },
+            }
+
+        workflow_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "exact-draft-preview"},
+            headers=headers,
+        )
+        assert workflow_response.status_code == status.HTTP_201_CREATED
+        workflow_id = workflow_response.json()["data"]["id"]
+
+        live_version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={"graph_json": version_spec("live-v1")},
+            headers=headers,
+        )
+        assert live_version_response.status_code == status.HTTP_201_CREATED
+        live_version_id = live_version_response.json()["data"]["id"]
+        publish_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/publish",
+            json={"version_id": live_version_id},
+            headers=headers,
+        )
+        assert publish_response.status_code == status.HTTP_200_OK
+
+        draft_version_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions",
+            json={"graph_json": version_spec("draft-v2")},
+            headers=headers,
+        )
+        assert draft_version_response.status_code == status.HTTP_201_CREATED
+        draft_version_id = draft_version_response.json()["data"]["id"]
+
+        preview_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions/{draft_version_id}/preview",
+            json={"inputs": {}},
+            headers=headers,
+        )
+        assert preview_response.status_code == status.HTTP_200_OK
+        preview_payload = preview_response.json()["data"]
+        assert preview_payload["workflow_version_id"] == draft_version_id
+        assert preview_payload["output"] == {"value": "draft-v2"}
+        preview_run = db.get(Run, preview_payload["run_id"])
+        assert preview_run is not None
+        assert preview_run.subject_id == workflow_id
+        assert preview_run.subject_version_id == draft_version_id
+
+        execute_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            json={},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        execute_payload = execute_response.json()["data"]
+        assert execute_payload["output"] == {"value": "live-v1"}
+        live_run = db.get(Run, execute_payload["run_id"])
+        assert live_run is not None
+        assert live_run.subject_version_id == live_version_id
+
+        workflow_detail = client.get(f"/api/v1/workflows/{workflow_id}", headers=headers)
+        assert workflow_detail.status_code == status.HTTP_200_OK
+        assert workflow_detail.json()["data"]["published_version_id"] == live_version_id
+
+    def test_preview_rejects_unknown_request_fields(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        workflow_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "strict-preview-request"},
+            headers=headers,
+        )
+        workflow = workflow_response.json()["data"]
+
+        response = client.post(
+            f"/api/v1/workflows/{workflow['id']}/versions/{workflow['current_version_id']}/preview",
+            json={"inputs": {}, "unexpected": True},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_preview_rejects_version_owned_by_another_workflow(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        first = client.post("/api/v1/workflows", json={"name": "preview-owner-one"}, headers=headers)
+        second = client.post("/api/v1/workflows", json={"name": "preview-owner-two"}, headers=headers)
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/api/v1/workflows/{first.json()['data']['id']}/versions/{second.json()['data']['current_version_id']}/preview",
+            json={"inputs": {}},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_preview_rejects_version_outside_request_scope(self, client, db):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        workflow_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "scoped-preview"},
+            headers=headers,
+        )
+        assert workflow_response.status_code == status.HTTP_201_CREATED
+        workflow_id = workflow_response.json()["data"]["id"]
+        foreign_version = WorkflowVersion(
+            id="wfv_foreign_preview",
+            tenant_id="other-tenant",
+            workspace_id="other-workspace",
+            workflow_id=workflow_id,
+            version=99,
+            spec_json=canonical_workflow_spec(),
+            created_by="foreign-user",
+        )
+        db.add(foreign_version)
+        db.commit()
+
+        response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions/{foreign_version.id}/preview",
+            json={"inputs": {}},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_publish_workflow_promotes_existing_draft(self, client, db):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}

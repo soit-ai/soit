@@ -84,6 +84,15 @@ class WorkflowVersionCreate(BaseModel):
     """Whether to run preflight checks before publish."""
 
 
+class WorkflowPreviewRequest(BaseModel):
+    """Schema for previewing one exact workflow version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inputs: dict[str, Any] = Field(...)
+    """Workflow inputs for this preview run."""
+
+
 class WorkflowNodeCapabilityResponse(BaseModel):
     """Canonical metadata for one workflow node type."""
 

@@ -24,6 +24,7 @@ from app.modules.workflow.application.schemas import (
     WorkflowCreate,
     WorkflowDSLExport,
     WorkflowDSLImport,
+    WorkflowPreviewRequest,
     WorkflowPublishRequest,
     WorkflowReleaseResponse,
     WorkflowResponse,
@@ -282,6 +283,24 @@ async def create_version(
     """
     handlers = WorkflowHandlers(service)
     return await handlers.create_version(ctx, workflow_id, version_in)
+
+
+@router.post("/{workflow_id}/versions/{version_id}/preview")
+async def preview_workflow_version(
+    workflow_id: str,
+    version_id: str,
+    payload: WorkflowPreviewRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Execute one exact workflow version without publishing it."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.preview_workflow_version(
+        ctx,
+        workflow_id,
+        version_id,
+        payload,
+    )
 
 
 @router.post("/{workflow_id}/publish", response_model=WorkflowResponse)

@@ -1,4 +1,4 @@
-import { del, get, post, patch } from '@/utils/request'
+import { del, get, post, patch, type RequestConfigWithToast } from '@/utils/request'
 
 export interface CurrentUser {
   id: string
@@ -26,8 +26,8 @@ export interface ResourceGrant {
   updated_at: string
 }
 
-export const getCurrentUser = (): Promise<CurrentUser> => {
-  return get<CurrentUser>('/me')
+export const getCurrentUser = (config?: RequestConfigWithToast): Promise<CurrentUser> => {
+  return get<CurrentUser>('/me', undefined, config)
 }
 
 export const updateCurrentUser = (data: {
@@ -99,9 +99,14 @@ export const addWorkspaceMember = (
 
 export const listResourceGrants = (
   resourceType: string,
-  resourceId: string
+  resourceId: string,
+  config?: RequestConfigWithToast,
 ): Promise<ResourceGrant[]> => {
-  return get<ResourceGrant[]>('/resource-grants', { resource_type: resourceType, resource_id: resourceId })
+  return get<ResourceGrant[]>(
+    '/resource-grants',
+    { resource_type: resourceType, resource_id: resourceId },
+    config,
+  )
 }
 
 export const createResourceGrant = (data: {
@@ -109,14 +114,15 @@ export const createResourceGrant = (data: {
   resource_id: string
   user_id: string
   actions: string[]
-}): Promise<ResourceGrant> => {
-  return post<ResourceGrant>('/resource-grants', data)
+}, config?: RequestConfigWithToast): Promise<ResourceGrant> => {
+  return post<ResourceGrant>('/resource-grants', data, config)
 }
 
 export const revokeResourceGrant = (
   resourceType: string,
   resourceId: string,
-  userId: string
+  userId: string,
+  config?: RequestConfigWithToast,
 ): Promise<void> => {
-  return del(`/resource-grants/${resourceType}/${resourceId}/${userId}`)
+  return del(`/resource-grants/${resourceType}/${resourceId}/${userId}`, undefined, config)
 }

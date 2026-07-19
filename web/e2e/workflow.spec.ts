@@ -81,6 +81,19 @@ const mockWorkflow = {
   deleted_at: null,
 }
 
+const mockWorkflowGrant = (workflowId: string, userId: string) => ({
+  id: `grant-${workflowId}-${userId}`,
+  tenant_id: 'tenant-1',
+  workspace_id: 'workspace-1',
+  resource_type: 'workflow',
+  resource_id: workflowId,
+  user_id: userId,
+  actions: ['read'],
+  created_by: 'user-1',
+  created_at: '2026-07-19T00:00:00.000Z',
+  updated_at: '2026-07-19T00:00:00.000Z',
+})
+
 const mockWorkflowVersion = {
   id: 'workflow-version-1',
   tenant_id: 'tenant-1',
@@ -792,7 +805,9 @@ async function trackWorkflowUpdates(page: Page) {
 
 async function importWorkflowFile(page: Page, value: unknown, name = 'workflow.json') {
   const fileChooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button').filter({ has: page.locator('svg.lucide-upload') }).click()
+  const importButton = page.getByRole('button').filter({ has: page.locator('svg.lucide-upload') })
+  await expect(importButton).toBeEnabled()
+  await importButton.click()
   const fileChooser = await fileChooserPromise
   await fileChooser.setFiles({
     name,
@@ -803,7 +818,9 @@ async function importWorkflowFile(page: Page, value: unknown, name = 'workflow.j
 
 async function downloadWorkflowFile(page: Page) {
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button').filter({ has: page.locator('svg.lucide-download') }).click()
+  const exportButton = page.getByRole('button').filter({ has: page.locator('svg.lucide-download') })
+  await expect(exportButton).toBeEnabled()
+  await exportButton.click()
   const download = await downloadPromise
   const stream = await download.createReadStream()
   const chunks: Buffer[] = []
@@ -811,10 +828,1714 @@ async function downloadWorkflowFile(page: Page) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
+async function selectWorkflowNode(page: Page, nodeId: string) {
+  const node = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
+  await expect(node).toBeVisible()
+  await node.dispatchEvent('click')
+}
+
+async function navigateClientRoute(page: Page, path: string) {
+  await page.evaluate((nextPath) => {
+    window.history.pushState({}, '', nextPath)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, path)
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(seedLocalStorage)
   await mockShellApi(page)
   await mockWorkflowApi(page)
+})
+
+test('truthful settings keep real visibility controls and link execution settings to Builder', async ({ page }) => {
+  let workflowUpdate: Record<string, unknown> | null = null
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'PUT') {
+      workflowUpdate = JSON.parse(route.request().postData() || '{}')
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          code: 'OK',
+          message: 'OK',
+          data: { ...mockWorkflow, visibility: 'workspace' },
+        }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByText('Runtime limits', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Allow anonymous runs', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Enable cache', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Setting', exact: true }).first().hover()
+  await expect(page.getByRole('tooltip', {
+    name: 'Manage workflow information, visibility, and sharing permissions.',
+  })).toBeVisible()
+  const builderLink = page.getByRole('link', { name: 'Configure execution settings in Builder' })
+  await expect(builderLink).toHaveAttribute('href', '/workflow/workflow-1/build')
+
+  await page.getByRole('combobox').click()
+  await page.getByRole('option', { name: 'Workspace' }).click()
+  await page.getByRole('button', { name: 'Save access' }).click()
+  await expect.poll(() => workflowUpdate).toEqual({ visibility: 'workspace' })
+})
+
+test('visibility hydration blocks default writes until workflow loading succeeds', async ({ page }) => {
+  let releaseWorkflow!: () => void
+  const workflowGate = new Promise<void>((resolve) => { releaseWorkflow = resolve })
+  let workflowUpdates = 0
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'GET') {
+      await workflowGate
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      workflowUpdates += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+  const visibility = page.getByRole('combobox')
+  const saveAccess = page.getByRole('button', { name: 'Save access' })
+  await expect(visibility).toBeDisabled()
+  await expect(saveAccess).toBeDisabled()
+  await saveAccess.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => workflowUpdates).toBe(0)
+
+  releaseWorkflow()
+  await expect(visibility).toBeEnabled()
+  await expect(saveAccess).toBeEnabled()
+})
+
+test('visibility hydration remains blocked after workflow loading fails', async ({ page }) => {
+  let workflowUpdates = 0
+  const workflowA = {
+    ...mockWorkflow,
+    id: 'workflow-a',
+    name: 'Workflow A',
+    description: 'Settings from workflow A',
+    visibility: 'tenant',
+  }
+  await page.route('**/api/v1/workflows/workflow-a', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowA }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'unavailable', data: null }),
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      workflowUpdates += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('#workflow-name')).toHaveValue('Workflow A')
+  await navigateClientRoute(page, '/workflow/workflow-1/setting')
+  const visibility = page.getByRole('combobox')
+  const workflowName = page.locator('#workflow-name')
+  const workflowDescription = page.locator('#workflow-description')
+  const saveBasic = page.getByRole('button', { name: 'Save', exact: true })
+  const saveAccess = page.getByRole('button', { name: 'Save access' })
+  const deleteButton = page.getByRole('button', { name: 'Delete workflow' })
+  await expect(page.getByText('Failed to fetch workflow')).toBeVisible()
+  expect(await page.getByText('unavailable', { exact: true }).count()).toBe(0)
+  await expect(workflowName).toBeDisabled()
+  await expect(workflowName).toHaveValue('')
+  await expect(workflowDescription).toBeDisabled()
+  await expect(workflowDescription).toHaveValue('')
+  await expect(saveBasic).toBeDisabled()
+  await expect(visibility).toBeDisabled()
+  await expect(saveAccess).toBeDisabled()
+  await expect(deleteButton).toBeDisabled()
+  await saveBasic.evaluate((element: HTMLButtonElement) => element.click())
+  await saveAccess.evaluate((element: HTMLButtonElement) => element.click())
+  await deleteButton.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => workflowUpdates).toBe(0)
+  expect(await page.getByRole('alertdialog').count()).toBe(0)
+})
+
+test('settings show only their localized update error', async ({ page }) => {
+  let updateResponses = 0
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'PUT') {
+      updateResponses += 1
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'raw workflow update failure',
+          data: null,
+        }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => updateResponses).toBe(1)
+  await expect(page.getByText('Failed to update workflow', { exact: true })).toBeVisible()
+  expect(await page.getByText('raw workflow update failure', { exact: true }).count()).toBe(0)
+})
+
+test('settings ignore a stale workflow response after a client-side route change', async ({ page }) => {
+  let releaseWorkflowA!: () => void
+  const workflowAGate = new Promise<void>((resolve) => { releaseWorkflowA = resolve })
+  let workflowARequests = 0
+  let workflowAResponses = 0
+  const updates: Array<{ path: string, payload: Record<string, unknown> }> = []
+  const workflowA = {
+    ...mockWorkflow,
+    id: 'workflow-a',
+    name: 'Workflow A',
+    description: 'Late settings from A',
+    visibility: 'private',
+  }
+  const workflowB = {
+    ...mockWorkflow,
+    id: 'workflow-b',
+    name: 'Workflow B',
+    description: 'Current settings from B',
+    visibility: 'tenant',
+  }
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname.endsWith('/workflows/workflow-a')) {
+      workflowARequests += 1
+      await workflowAGate
+      workflowAResponses += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowA }),
+      })
+      return
+    }
+    if (request.method() === 'GET' && url.pathname.endsWith('/workflows/workflow-b')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+      })
+      return
+    }
+    if (request.method() === 'PUT') {
+      const payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>
+      updates.push({ path: url.pathname, payload })
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          code: 'OK',
+          message: 'OK',
+          data: { ...workflowB, ...payload },
+        }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => workflowARequests).toBeGreaterThan(0)
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  const workflowName = page.locator('#workflow-name')
+  const visibility = page.getByRole('combobox')
+  await expect(workflowName).toHaveValue('Workflow B')
+  await expect(visibility).toContainText('Tenant')
+
+  releaseWorkflowA()
+  await expect.poll(() => workflowAResponses).toBe(workflowARequests)
+  await expect(workflowName).toHaveValue('Workflow B')
+  await expect(visibility).toContainText('Tenant')
+
+  await workflowName.fill('Workflow B edited')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => updates).toEqual([
+    {
+      path: '/api/v1/workflows/workflow-b',
+      payload: { name: 'Workflow B edited', description: 'Current settings from B' },
+    },
+  ])
+})
+
+test('settings suppress stale save failures after the route changes', async ({ page }) => {
+  let releaseSaves!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSaves = resolve })
+  let pendingSaves = 0
+  let completedSaves = 0
+  const workflowB = {
+    ...mockWorkflow,
+    id: 'workflow-b',
+    name: 'Workflow B',
+    description: 'Current settings from B',
+    visibility: 'workspace',
+  }
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'PUT') {
+      pendingSaves += 1
+      await saveGate
+      completedSaves += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK' }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+  await page.route('**/api/v1/workflows/workflow-b', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'Save access' }).click()
+  await expect.poll(() => pendingSaves).toBe(2)
+
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.locator('#workflow-name')).toHaveValue('Workflow B')
+  releaseSaves()
+  await expect.poll(() => completedSaves).toBe(2)
+  await page.waitForTimeout(500)
+  await expect(page.getByText('Failed to update workflow')).toHaveCount(0)
+  await expect(page.getByText('Failed to save access settings')).toHaveCount(0)
+  await expect(page.locator('#workflow-name')).toHaveValue('Workflow B')
+})
+
+test('settings suppress pending basic and access results after unmount', async ({ page }) => {
+  let releaseUpdates!: () => void
+  const updateGate = new Promise<void>((resolve) => { releaseUpdates = resolve })
+  let updateRequests = 0
+  let updateResponses = 0
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() !== 'PUT') {
+      await route.fallback()
+      return
+    }
+    updateRequests += 1
+    const payload = JSON.parse(route.request().postData() || '{}') as Record<string, unknown>
+    await updateGate
+    updateResponses += 1
+    if ('visibility' in payload) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'late access failure',
+          data: null,
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'Save access' }).click()
+  await expect.poll(() => updateRequests).toBe(2)
+
+  await navigateClientRoute(page, '/workflow')
+  await expect(page.getByRole('table')).toBeVisible()
+  releaseUpdates()
+  await expect.poll(() => updateResponses).toBe(2)
+  await page.waitForTimeout(200)
+  await expect(page).toHaveURL(/\/workflow$/)
+  expect(await page.getByText('Workflow updated', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('Failed to save access settings', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('late access failure', { exact: true }).count()).toBe(0)
+})
+
+test('settings reject an old delete confirmation after the workflow ID changes', async ({ page }) => {
+  const deleteRequests: string[] = []
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'DELETE') {
+      deleteRequests.push(url.pathname)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: null }),
+      })
+      return
+    }
+    const workflow = url.pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Delete workflow' }).click()
+  const staleConfirm = await page.getByRole('button', { name: 'Delete', exact: true }).elementHandle()
+  expect(staleConfirm).not.toBeNull()
+
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.locator('#workflow-name')).toHaveValue('Workflow B')
+  await staleConfirm!.evaluate((element: HTMLButtonElement) => element.click())
+  await page.waitForTimeout(200)
+  expect(deleteRequests).toEqual([])
+  expect(await page.getByRole('alertdialog').count()).toBe(0)
+  await expect(page).toHaveURL(/\/workflow\/workflow-b\/setting$/)
+})
+
+for (const deleteOutcome of [
+  { name: 'success', status: 200, rawMessage: 'OK' },
+  { name: 'failure', status: 503, rawMessage: 'late delete failure' },
+] as const) {
+  test(`settings suppress a pending delete ${deleteOutcome.name} after unmount`, async ({ page }) => {
+    let releaseDelete!: () => void
+    const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve })
+    let deleteRequests = 0
+    let deleteResponses = 0
+    await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+      if (route.request().method() !== 'DELETE') {
+        await route.fallback()
+        return
+      }
+      deleteRequests += 1
+      await deleteGate
+      deleteResponses += 1
+      await route.fulfill({
+        status: deleteOutcome.status,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: deleteOutcome.status === 200,
+          code: deleteOutcome.status === 200 ? 'OK' : 'SERVICE_UNAVAILABLE',
+          message: deleteOutcome.rawMessage,
+          data: null,
+        }),
+      })
+    })
+    await page.route('**/api/v1/resource-grants**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+      })
+    })
+
+    await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Delete workflow' }).click()
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect.poll(() => deleteRequests).toBe(1)
+
+    await navigateClientRoute(page, '/workflow/workflow-1/build')
+    await expect(page.getByPlaceholder('Workflow name')).toBeEnabled()
+    releaseDelete()
+    await expect.poll(() => deleteResponses).toBe(1)
+    await page.waitForTimeout(200)
+    await expect(page).toHaveURL(/\/workflow\/workflow-1\/build$/)
+    expect(await page.getByText('Workflow deleted', { exact: true }).count()).toBe(0)
+    expect(await page.getByText('Failed to delete workflow', { exact: true }).count()).toBe(0)
+    if (deleteOutcome.status !== 200) {
+      expect(await page.getByText(deleteOutcome.rawMessage, { exact: true }).count()).toBe(0)
+    }
+  })
+}
+
+test('permissions ignore stale grants after a client-side route change', async ({ page }) => {
+  let releaseGrantsA!: () => void
+  const grantsAGate = new Promise<void>((resolve) => { releaseGrantsA = resolve })
+  let grantsARequests = 0
+  let grantsAResponses = 0
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const url = new URL(route.request().url())
+    const workflow = url.pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    const resourceId = new URL(route.request().url()).searchParams.get('resource_id')
+    if (resourceId === 'workflow-a') {
+      grantsARequests += 1
+      await grantsAGate
+      grantsAResponses += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          code: 'OK',
+          message: 'OK',
+          data: [mockWorkflowGrant('workflow-a', 'late-user-a')],
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: [mockWorkflowGrant('workflow-b', 'current-user-b')],
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => grantsARequests).toBeGreaterThan(0)
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.getByText('current-user-b', { exact: true })).toBeVisible()
+
+  releaseGrantsA()
+  await expect.poll(() => grantsAResponses).toBe(grantsARequests)
+  await page.waitForTimeout(200)
+  await expect(page.getByText('current-user-b', { exact: true })).toBeVisible()
+  await expect(page.getByText('late-user-a', { exact: true })).toHaveCount(0)
+})
+
+test('permissions suppress a stale loading error after a client-side route change', async ({ page }) => {
+  let releaseGrantsA!: () => void
+  const grantsAGate = new Promise<void>((resolve) => { releaseGrantsA = resolve })
+  let grantsARequests = 0
+  let grantsAResponses = 0
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const workflow = new URL(route.request().url()).pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    const resourceId = new URL(route.request().url()).searchParams.get('resource_id')
+    if (resourceId === 'workflow-a') {
+      grantsARequests += 1
+      await grantsAGate
+      grantsAResponses += 1
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'late permissions failure',
+          data: null,
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: [mockWorkflowGrant('workflow-b', 'current-user-b')],
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => grantsARequests).toBeGreaterThan(0)
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.getByText('current-user-b', { exact: true })).toBeVisible()
+
+  releaseGrantsA()
+  await expect.poll(() => grantsAResponses).toBe(grantsARequests)
+  await page.waitForTimeout(200)
+  await expect(page.getByText('current-user-b', { exact: true })).toBeVisible()
+  expect(await page.getByText('late permissions failure', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('Failed to load permissions', { exact: true }).count()).toBe(0)
+})
+
+test('permissions fail closed with a localized current loading error', async ({ page }) => {
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: false,
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'raw permissions failure',
+        data: null,
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/setting', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('button', { name: 'Save grant' })).toBeDisabled()
+  await expect(page.getByRole('alert').filter({ hasText: 'Failed to load permissions' })).toBeVisible()
+  expect(await page.getByText('No grants yet.', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('raw permissions failure', { exact: true }).count()).toBe(0)
+})
+
+test('permissions clear old grants and block revoke while the next workflow is loading', async ({ page }) => {
+  let releaseGrantsB!: () => void
+  const grantsBGate = new Promise<void>((resolve) => { releaseGrantsB = resolve })
+  const deleteRequests: string[] = []
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const url = new URL(route.request().url())
+    const workflow = url.pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'DELETE') {
+      deleteRequests.push(url.pathname)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: null }),
+      })
+      return
+    }
+    const resourceId = url.searchParams.get('resource_id')
+    if (resourceId === 'workflow-b') await grantsBGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: [mockWorkflowGrant(resourceId || 'workflow-a', resourceId === 'workflow-b' ? 'user-b' : 'user-a')],
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  const oldGrant = page.getByText('user-a', { exact: true }).locator('..')
+  await expect(oldGrant).toBeVisible()
+  const staleRevokeButton = await oldGrant.getByRole('button', { name: 'Revoke' }).elementHandle()
+  expect(staleRevokeButton).not.toBeNull()
+
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.locator('#workflow-grant-user')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Save grant' })).toBeDisabled()
+  await expect(page.getByText('user-a', { exact: true })).toHaveCount(0)
+  await staleRevokeButton!.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => deleteRequests).toEqual([])
+
+  releaseGrantsB()
+  await expect(page.getByText('user-b', { exact: true })).toBeVisible()
+})
+
+test('permissions suppress a pending create result after leaving its workflow', async ({ page }) => {
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+  let createRequests = 0
+  let createResponses = 0
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const workflow = new URL(route.request().url()).pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    const request = route.request()
+    if (request.method() === 'POST') {
+      createRequests += 1
+      await createGate
+      createResponses += 1
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          code: 'OK',
+          message: 'OK',
+          data: mockWorkflowGrant('workflow-a', 'created-user-a'),
+        }),
+      })
+      return
+    }
+    const resourceId = new URL(request.url()).searchParams.get('resource_id') || 'workflow-a'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: resourceId === 'workflow-b' ? [mockWorkflowGrant('workflow-b', 'user-b')] : [],
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  const grantUser = page.locator('#workflow-grant-user')
+  await expect(grantUser).toBeEnabled()
+  await grantUser.fill('created-user-a')
+  await page.getByRole('button', { name: 'Save grant' }).click()
+  await expect.poll(() => createRequests).toBe(1)
+
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.getByText('user-b', { exact: true })).toBeVisible()
+  releaseCreate()
+  await expect.poll(() => createResponses).toBe(1)
+  await page.waitForTimeout(200)
+  await expect(page.getByText('user-b', { exact: true })).toBeVisible()
+  await expect(page.getByText('created-user-a', { exact: true })).toHaveCount(0)
+  expect(await page.getByText('Grant saved', { exact: true }).count()).toBe(0)
+})
+
+test('permissions suppress a pending revoke result after leaving its workflow', async ({ page }) => {
+  let releaseRevoke!: () => void
+  const revokeGate = new Promise<void>((resolve) => { releaseRevoke = resolve })
+  let revokeRequests = 0
+  let revokeResponses = 0
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const workflow = new URL(route.request().url()).pathname.endsWith('/workflow-a') ? workflowA : workflowB
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflow }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    const request = route.request()
+    if (request.method() === 'DELETE') {
+      revokeRequests += 1
+      await revokeGate
+      revokeResponses += 1
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'late revoke failure',
+          data: null,
+        }),
+      })
+      return
+    }
+    const resourceId = new URL(request.url()).searchParams.get('resource_id') || 'workflow-a'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: [mockWorkflowGrant(resourceId, resourceId === 'workflow-b' ? 'user-b' : 'revoke-user-a')],
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-a/setting', { waitUntil: 'domcontentloaded' })
+  await page.getByText('revoke-user-a', { exact: true }).locator('..').getByRole('button', { name: 'Revoke' }).click()
+  await expect.poll(() => revokeRequests).toBe(1)
+
+  await navigateClientRoute(page, '/workflow/workflow-b/setting')
+  await expect(page.getByText('user-b', { exact: true })).toBeVisible()
+  releaseRevoke()
+  await expect.poll(() => revokeResponses).toBe(1)
+  await page.waitForTimeout(200)
+  await expect(page.getByText('user-b', { exact: true })).toBeVisible()
+  expect(await page.getByText('late revoke failure', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('Failed to revoke grant', { exact: true }).count()).toBe(0)
+})
+
+test('Test Run saves the exact draft, previews it, and opens the evidence Run', async ({ page }) => {
+  const requestOrder: string[] = []
+  const previewRequests: Array<{ workflowId: string, versionId: string, inputs: Record<string, unknown> }> = []
+  const savedVersion = {
+    ...mockWorkflowVersion,
+    id: 'workflow-version-draft-2',
+  }
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    requestOrder.push('save')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: savedVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'PUT') {
+      requestOrder.push('metadata')
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    const url = new URL(route.request().url())
+    const segments = url.pathname.split('/')
+    const workflowId = segments[segments.indexOf('workflows') + 1]
+    const versionId = segments[segments.indexOf('versions') + 1]
+    previewRequests.push({
+      workflowId,
+      versionId,
+      inputs: JSON.parse(route.request().postData() || '{}').inputs,
+    })
+    requestOrder.push('preview')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { run_id: 'run-preview-1', workflow_version_id: versionId, output: { value: 'draft' } },
+      }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  const testRun = page.getByRole('button', { name: 'Test Run' })
+  await testRun.click()
+
+  await expect.poll(() => previewRequests).toEqual([
+    { workflowId: 'workflow-1', versionId: 'workflow-version-draft-2', inputs: {} },
+  ])
+  expect(requestOrder).toEqual(['save', 'metadata', 'preview'])
+  await expect(page).toHaveURL(/\/observe\/runs\/run-preview-1$/)
+})
+
+test('Test Run stops after a draft save failure and does not claim execution success', async ({ page }) => {
+  let saveRequests = 0
+  let previewRequests = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    saveRequests += 1
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'INTERNAL_ERROR', message: 'save failed', data: null }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    previewRequests += 1
+    await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Test Run' }).click()
+
+  await expect.poll(() => saveRequests).toBe(1)
+  await expect.poll(() => previewRequests).toBe(0)
+  await expect(page).toHaveURL(/\/workflow\/workflow-1\/build$/)
+  await expect(page.getByText('Failed to save workflow version.')).toBeVisible()
+  await expect(page.getByText('Workflow is running...')).toHaveCount(0)
+})
+
+test('Test Run suppresses a stale preview failure after the route changes', async ({ page }) => {
+  let releasePreview!: () => void
+  const previewGate = new Promise<void>((resolve) => { releasePreview = resolve })
+  let previewRequests = 0
+  let previewResponses = 0
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    previewRequests += 1
+    await previewGate
+    previewResponses += 1
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'late preview failure', data: null }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionB }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Test Run' }).click()
+  await expect.poll(() => previewRequests).toBe(1)
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+
+  releasePreview()
+  await expect.poll(() => previewResponses).toBe(1)
+  await page.waitForTimeout(300)
+  await expect(page.getByText('Failed to start workflow test run.')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/workflow\/workflow-b\/build$/)
+})
+
+test('Test Run does not navigate after a pending preview succeeds on an unmounted Builder', async ({ page }) => {
+  let releasePreview!: () => void
+  const previewGate = new Promise<void>((resolve) => { releasePreview = resolve })
+  let previewRequests = 0
+  let previewResponses = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    previewRequests += 1
+    await previewGate
+    previewResponses += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { run_id: 'stale-preview-success', workflow_version_id: mockWorkflowVersion.id },
+      }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Test Run' }).click()
+  await expect.poll(() => previewRequests).toBe(1)
+  await navigateClientRoute(page, '/workflow/workflow-1/setting')
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+
+  releasePreview()
+  await expect.poll(() => previewResponses).toBe(1)
+  await page.waitForTimeout(200)
+  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+})
+
+test('Test Run suppresses a pending preview failure after Builder unmount', async ({ page }) => {
+  let releasePreview!: () => void
+  const previewGate = new Promise<void>((resolve) => { releasePreview = resolve })
+  let previewRequests = 0
+  let previewResponses = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    previewRequests += 1
+    await previewGate
+    previewResponses += 1
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'stale preview failure', data: null }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Test Run' }).click()
+  await expect.poll(() => previewRequests).toBe(1)
+  await navigateClientRoute(page, '/workflow/workflow-1/setting')
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+
+  releasePreview()
+  await expect.poll(() => previewResponses).toBe(1)
+  await page.waitForTimeout(200)
+  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+  expect(await page.getByText('stale preview failure', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('Failed to start workflow test run.', { exact: true }).count()).toBe(0)
+})
+
+test('Test Run stops after a pending version save when Builder unmounts', async ({ page }) => {
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  let saveRequests = 0
+  let saveResponses = 0
+  let metadataRequests = 0
+  let previewRequests = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    saveRequests += 1
+    await saveGate
+    saveResponses += 1
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'PUT') metadataRequests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions/*/preview', async (route) => {
+    previewRequests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { run_id: 'must-not-run' } }),
+    })
+  })
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Test Run' }).click()
+  await expect.poll(() => saveRequests).toBe(1)
+  await navigateClientRoute(page, '/workflow/workflow-1/setting')
+  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+
+  releaseSave()
+  await expect.poll(() => saveResponses).toBe(1)
+  await page.waitForTimeout(300)
+  expect(metadataRequests).toBe(0)
+  expect(previewRequests).toBe(0)
+  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+  expect(await page.getByText('Workflow saved successfully', { exact: true }).count()).toBe(0)
+  expect(await page.getByText('Failed to start workflow test run.', { exact: true }).count()).toBe(0)
+})
+
+test('Builder operation lock prevents duplicate saves and editing while a save is pending', async ({ page }) => {
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  let saveRequests = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    saveRequests += 1
+    await saveGate
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await selectWorkflowNode(page, 'interaction-condition')
+  const condition = page.locator('#conditional-expression')
+  const originalCondition = await condition.inputValue()
+  const save = page.getByRole('button', { name: 'Save Workflow' })
+  const testRun = page.getByRole('button', { name: 'Test Run' })
+  await save.click()
+  await expect.poll(() => saveRequests).toBe(1)
+
+  await expect(save).toBeDisabled()
+  await expect(testRun).toBeDisabled()
+  await expect(condition).toBeDisabled()
+  await expect(page.getByRole('tabpanel', { name: 'Nodes' }).getByRole('button').first()).toBeDisabled()
+  await expect(page.locator('.workflow-editor')).toHaveAttribute('data-interaction-disabled', 'true')
+
+  await save.evaluate((element: HTMLButtonElement) => element.click())
+  await testRun.evaluate((element: HTMLButtonElement) => element.click())
+  await condition.evaluate((element: HTMLInputElement) => {
+    element.value = 'must-not-apply'
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await expect.poll(() => saveRequests).toBe(1)
+
+  releaseSave()
+  await expect(save).toBeEnabled()
+  await expect(testRun).toBeEnabled()
+  await selectWorkflowNode(page, 'interaction-condition')
+  await expect(condition).toBeEnabled()
+  await expect(condition).toHaveValue(originalCondition)
+  await expect(page.locator('.workflow-editor')).toHaveAttribute('data-interaction-disabled', 'false')
+})
+
+test('Builder blocks mutations while its workflow and current version are loading', async ({ page }) => {
+  let releaseWorkflow!: () => void
+  let releaseVersion!: () => void
+  const workflowGate = new Promise<void>((resolve) => { releaseWorkflow = resolve })
+  const versionGate = new Promise<void>((resolve) => { releaseVersion = resolve })
+  let mutations = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await versionGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: editorInteractionWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'GET') {
+      await workflowGate
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
+      })
+      return
+    }
+    mutations += 1
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    mutations += 1
+    await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  const workflowName = page.getByPlaceholder('Workflow name')
+  const save = page.getByRole('button', { name: 'Save Workflow' })
+  const testRun = page.getByRole('button', { name: 'Test Run' })
+  await expect(workflowName).toBeDisabled()
+  await expect(save).toBeDisabled()
+  await expect(testRun).toBeDisabled()
+  await expect(page.locator('.workflow-editor')).toHaveAttribute('data-interaction-disabled', 'true')
+  await save.evaluate((element: HTMLButtonElement) => element.click())
+  await testRun.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => mutations).toBe(0)
+
+  releaseWorkflow()
+  releaseVersion()
+  await expect(workflowName).toBeEnabled()
+  await expect(save).toBeEnabled()
+  await expect(testRun).toBeEnabled()
+})
+
+test('Builder remains fail closed when workflow loading fails', async ({ page }) => {
+  let mutations = 0
+  await page.route('**/api/v1/workflows/workflow-1', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'workflow unavailable', data: null }),
+      })
+      return
+    }
+    mutations += 1
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    mutations += 1
+    await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Failed to load workflow builder state.')).toBeVisible()
+  const workflowName = page.getByPlaceholder('Workflow name')
+  const save = page.getByRole('button', { name: 'Save Workflow' })
+  const testRun = page.getByRole('button', { name: 'Test Run' })
+  await expect(workflowName).toBeDisabled()
+  await expect(save).toBeDisabled()
+  await expect(testRun).toBeDisabled()
+  await save.evaluate((element: HTMLButtonElement) => element.click())
+  await testRun.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => mutations).toBe(0)
+})
+
+test('Builder treats a current-version 503 as a load failure', async ({ page }) => {
+  let mutations = 0
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'version unavailable', data: null }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    mutations += 1
+    await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Failed to load workflow builder state.')).toBeVisible()
+  const save = page.getByRole('button', { name: 'Save Workflow' })
+  const testRun = page.getByRole('button', { name: 'Test Run' })
+  await expect(page.getByPlaceholder('Workflow name')).toBeDisabled()
+  await expect(save).toBeDisabled()
+  await expect(testRun).toBeDisabled()
+  await save.evaluate((element: HTMLButtonElement) => element.click())
+  await testRun.evaluate((element: HTMLButtonElement) => element.click())
+  await expect.poll(() => mutations).toBe(0)
+})
+
+test('Builder treats a missing current version as an editable new draft', async ({ page }) => {
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'NOT_FOUND', message: 'version not found', data: null }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Demo Workflow')
+  await expect(page.getByPlaceholder('Workflow name')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Test Run' })).toBeEnabled()
+  await expect(page.locator('.react-flow__node[data-id="transform-1"]')).toBeVisible()
+  expect(await page.getByText('version not found').count()).toBe(0)
+})
+
+test('Builder toolbar stays inside the central canvas at the default viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+
+  const leftPanel = page.getByPlaceholder('Workflow name').locator('xpath=ancestor::div[contains(@class, "w-80")]')
+  const rightPanel = page.getByText('Select a node to edit its properties').locator('xpath=ancestor::div[contains(@class, "w-100")]')
+  await expect(leftPanel).toBeVisible()
+  await expect(rightPanel).toBeVisible()
+  const leftPanelBox = await leftPanel.boundingBox()
+  const rightPanelBox = await rightPanel.boundingBox()
+  const toolbar = page.getByRole('toolbar', { name: 'Workflow editor controls' })
+  await expect(toolbar).toBeVisible()
+  const toolbarBox = await toolbar.boundingBox()
+
+  expect(leftPanelBox).not.toBeNull()
+  expect(rightPanelBox).not.toBeNull()
+  expect(toolbarBox).not.toBeNull()
+  expect(toolbarBox!.x).toBeGreaterThanOrEqual(leftPanelBox!.x + leftPanelBox!.width)
+  expect(toolbarBox!.x + toolbarBox!.width).toBeLessThanOrEqual(rightPanelBox!.x)
+
+  const toolbarButtons = toolbar.getByRole('button')
+  await expect(toolbarButtons).toHaveCount(9)
+  for (let index = 0; index < 9; index += 1) {
+    await expect(toolbarButtons.nth(index)).toHaveAccessibleName(/.+/)
+  }
+
+  const initialScroll = await toolbar.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(initialScroll.scrollWidth).toBeGreaterThan(initialScroll.clientWidth)
+  const scrollLeft = await toolbar.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth
+    return element.scrollLeft
+  })
+  expect(scrollLeft).toBeGreaterThan(0)
+
+  const importButton = toolbar.getByRole('button', { name: 'Import Workflow' })
+  const layoutButton = toolbar.getByRole('button', { name: /Switch to (?:horizontal|tree) layout/ })
+  const initialLayoutLabel = await layoutButton.getAttribute('aria-label')
+  const scrolledToolbarBox = await toolbar.boundingBox()
+  const importBox = await importButton.boundingBox()
+  const layoutBox = await layoutButton.boundingBox()
+  for (const buttonBox of [importBox, layoutBox]) {
+    expect(buttonBox).not.toBeNull()
+    expect(buttonBox!.x).toBeGreaterThanOrEqual(scrolledToolbarBox!.x)
+    expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(
+      scrolledToolbarBox!.x + scrolledToolbarBox!.width,
+    )
+  }
+
+  await importButton.focus()
+  await expect(importButton).toBeFocused()
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await importButton.click()
+  await fileChooserPromise
+
+  await layoutButton.focus()
+  await expect(layoutButton).toBeFocused()
+  await layoutButton.click()
+  const expectedLayoutLabel = initialLayoutLabel === 'Switch to horizontal layout'
+    ? 'Switch to tree layout'
+    : 'Switch to horizontal layout'
+  await expect(layoutButton).toHaveAccessibleName(expectedLayoutLabel)
+})
+
+test('Builder ignores stale workflow and version responses after a client-side route change', async ({ page }) => {
+  let releaseWorkflowA!: () => void
+  let releaseVersionA!: () => void
+  const workflowAGate = new Promise<void>((resolve) => { releaseWorkflowA = resolve })
+  const versionAGate = new Promise<void>((resolve) => { releaseVersionA = resolve })
+  let workflowARequests = 0
+  let versionARequests = 0
+  let workflowAResponses = 0
+  let versionAResponses = 0
+  const workflowA = { ...mockWorkflow, id: 'workflow-a', name: 'Workflow A' }
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  const versionA = structuredClone(editorInteractionWorkflowVersion)
+  versionA.workflow_id = 'workflow-a'
+  versionA.graph_json.name = 'Builder A'
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+
+  await page.route('**/api/v1/workflows/workflow-*/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/workflows/workflow-a/version/current')) {
+      versionARequests += 1
+      await versionAGate
+      versionAResponses += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionA }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/workflows/workflow-b/version/current')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionB }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+  await page.route('**/api/v1/workflows/workflow-*', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/workflows/workflow-a')) {
+      workflowARequests += 1
+      await workflowAGate
+      workflowAResponses += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowA }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/workflows/workflow-b')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/workflow/workflow-a/build', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => workflowARequests).toBeGreaterThan(0)
+  await expect.poll(() => versionARequests).toBeGreaterThan(0)
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  const workflowName = page.getByPlaceholder('Workflow name')
+  await expect(workflowName).toHaveValue('Builder B')
+  await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeEnabled()
+
+  releaseWorkflowA()
+  releaseVersionA()
+  await expect.poll(() => workflowAResponses).toBe(workflowARequests)
+  await expect.poll(() => versionAResponses).toBe(versionARequests)
+  await page.waitForTimeout(300)
+  await expect(workflowName).toHaveValue('Builder B')
+  await expect(page).toHaveURL(/\/workflow\/workflow-b\/build$/)
+})
+
+test('Builder rejects an old import confirmation after the workflow ID changes', async ({ page }) => {
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+  versionB.graph_json.description = 'Builder B description'
+  const importedGraph = structuredClone(canonicalWorkflowVersion.graph_json)
+  importedGraph.name = 'Imported From Workflow A'
+  importedGraph.description = 'This graph must never reach Workflow B'
+  let versionPayload: Record<string, any> | null = null
+
+  await page.route('**/api/v1/workflows/workflow-b/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionB }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b/versions', async (route) => {
+    versionPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { ...mockWorkflowVersion, workflow_id: 'workflow-b' } }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Demo Workflow')
+  await importWorkflowFile(page, {
+    format: 'soit-workflow-spec-v1',
+    graph_json: importedGraph,
+  }, 'workflow-a-import.json')
+  const staleDialog = page.getByRole('dialog')
+  await expect(staleDialog.getByText('Import workflow', { exact: true })).toBeVisible()
+  const staleConfirm = await staleDialog.getByRole('button', { name: 'Import' }).elementHandle()
+  expect(staleConfirm).not.toBeNull()
+
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  const workflowName = page.getByPlaceholder('Workflow name')
+  await expect(workflowName).toHaveValue('Builder B')
+  await expect(page.locator('.react-flow__node[data-id="interaction-input"]')).toBeVisible()
+  const staleDialogVisibleAfterRoute = await staleDialog.isVisible().catch(() => false)
+
+  await staleConfirm!.evaluate((element: HTMLButtonElement) => element.click())
+  await page.waitForTimeout(200)
+  const nameAfterStaleConfirm = await workflowName.inputValue()
+  const nodeIdsAfterStaleConfirm = await page.locator('.react-flow__node').evaluateAll((elements) => (
+    elements.map((element) => element.getAttribute('data-id'))
+  ))
+  await page.getByRole('button', { name: 'Save Workflow' }).click()
+  await expect.poll(() => versionPayload).not.toBeNull()
+
+  expect(staleDialogVisibleAfterRoute).toBe(false)
+  expect(nameAfterStaleConfirm).toBe('Builder B')
+  expect(nodeIdsAfterStaleConfirm).toEqual(versionB.graph_json.graph.nodes.map((node) => node.id))
+  expect((versionPayload as unknown as Record<string, any>).graph_json.name).toBe('Builder B')
+  expect((versionPayload as unknown as Record<string, any>).graph_json.graph.nodes.map((node: Record<string, unknown>) => node.id)).toEqual(
+    versionB.graph_json.graph.nodes.map((node) => node.id),
+  )
+})
+
+test('Builder ignores a stale import file selection after the workflow ID changes', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalReadAsText = FileReader.prototype.readAsText
+    ;(window as any).__workflowImportReadCount = 0
+    FileReader.prototype.readAsText = function (blob: Blob, encoding?: string) {
+      ;(window as any).__workflowImportReadCount += 1
+      return originalReadAsText.call(this, blob, encoding)
+    }
+  })
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+  await page.route('**/api/v1/workflows/workflow-b/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionB }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Import Workflow' }).click()
+  const fileChooser = await fileChooserPromise
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+  await fileChooser.setFiles({
+    name: 'stale-selection.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({
+      format: 'soit-workflow-spec-v1',
+      graph_json: canonicalWorkflowVersion.graph_json,
+    })),
+  })
+  await page.waitForTimeout(200)
+
+  expect(await page.evaluate(() => (window as any).__workflowImportReadCount)).toBe(0)
+  expect(await page.getByRole('dialog').count()).toBe(0)
+  expect(await page.getByText('Import failed: invalid workflow file format', { exact: true }).count()).toBe(0)
+})
+
+test('Builder suppresses stale import load and parse results after the workflow ID changes', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalReadAsText = FileReader.prototype.readAsText
+    const pendingReads: Array<() => void> = []
+    ;(window as any).__workflowImportPendingReads = 0
+    ;(window as any).__workflowImportCompletedReads = 0
+    ;(window as any).__releaseWorkflowImportReads = () => {
+      pendingReads.splice(0).forEach((release) => release())
+    }
+    FileReader.prototype.readAsText = function (blob: Blob, encoding?: string) {
+      const reader = this
+      pendingReads.push(() => {
+        reader.addEventListener('loadend', () => {
+          ;(window as any).__workflowImportCompletedReads += 1
+        }, { once: true })
+        originalReadAsText.call(reader, blob, encoding)
+      })
+      ;(window as any).__workflowImportPendingReads = pendingReads.length
+    }
+  })
+  const workflowB = { ...mockWorkflow, id: 'workflow-b', name: 'Workflow B' }
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+  await page.route('**/api/v1/workflows/workflow-b/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: versionB }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-b', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: workflowB }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await importWorkflowFile(page, {
+    format: 'soit-workflow-spec-v1',
+    graph_json: canonicalWorkflowVersion.graph_json,
+  }, 'pending-valid-import.json')
+  await importWorkflowFile(page, { format: 'invalid' }, 'pending-invalid-import.json')
+  await expect.poll(() => page.evaluate(() => (window as any).__workflowImportPendingReads)).toBe(2)
+
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+  await page.evaluate(() => (window as any).__releaseWorkflowImportReads())
+  await expect.poll(() => page.evaluate(() => (window as any).__workflowImportCompletedReads)).toBe(2)
+  await page.waitForTimeout(200)
+
+  expect(await page.getByRole('dialog').count()).toBe(0)
+  expect(await page.getByText('Import failed: invalid workflow file format', { exact: true }).count()).toBe(0)
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+})
+
+test('workflow sidebar ignores every late Workflow A response after navigating to Workflow B', async ({ page }) => {
+  let releaseWorkflowA!: () => void
+  const workflowAGate = new Promise<void>((resolve) => { releaseWorkflowA = resolve })
+  let workflowARequests = 0
+  let workflowAResponses = 0
+  const workflowA = {
+    ...mockWorkflow,
+    id: 'workflow-a',
+    name: 'Workflow A Sidebar Title',
+    description: 'Workflow A sidebar description',
+  }
+  const workflowB = {
+    ...mockWorkflow,
+    id: 'workflow-b',
+    name: 'Workflow B Sidebar Title',
+    description: 'Workflow B sidebar description',
+  }
+  const versionA = structuredClone(editorInteractionWorkflowVersion)
+  versionA.workflow_id = 'workflow-a'
+  versionA.graph_json.name = 'Builder A'
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+
+  const handleWorkflowRequest = async (route: Parameters<Parameters<typeof page.route>[1]>[0]) => {
+    const url = new URL(route.request().url())
+    const isWorkflowA = url.pathname.includes('/workflows/workflow-a')
+    if (isWorkflowA) {
+      workflowARequests += 1
+      await workflowAGate
+      workflowAResponses += 1
+    }
+    const isVersion = url.pathname.endsWith('/version/current')
+    const data = isWorkflowA
+      ? (isVersion ? versionA : workflowA)
+      : (isVersion ? versionB : workflowB)
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data }),
+    })
+  }
+  await page.route('**/api/v1/workflows/workflow-*/version/current', handleWorkflowRequest)
+  await page.route('**/api/v1/workflows/workflow-*', handleWorkflowRequest)
+
+  await page.goto('/workflow/workflow-a/build', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => workflowARequests).toBeGreaterThanOrEqual(3)
+  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+  const workflowSidebarHeader = page.locator('[data-sidebar="header"]').filter({
+    has: page.getByText('Status', { exact: true }),
+  })
+  await expect(workflowSidebarHeader).toHaveCount(1)
+  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
+  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
+
+  const pendingWorkflowAResponses = workflowARequests
+  releaseWorkflowA()
+  await expect.poll(() => workflowAResponses).toBe(pendingWorkflowAResponses)
+  await page.waitForTimeout(200)
+
+  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
+  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
+  expect(await workflowSidebarHeader.getByText('Workflow A Sidebar Title', { exact: true }).count()).toBe(0)
+  expect(await workflowSidebarHeader.getByText('Workflow A sidebar description', { exact: true }).count()).toBe(0)
 })
 
 test('workflow workbench renders api data', async ({ page }) => {
@@ -839,6 +2560,59 @@ test('workflow builder creates ticket triage template from templates tab', async
   await expect.poll(() => templateRequests).toBe(1)
   await expect(page).toHaveURL(/\/workflow\/workflow-ticket-template\/build$/)
 })
+
+for (const templateOutcome of [
+  { name: 'success', status: 201, rawMessage: 'OK' },
+  { name: 'failure', status: 503, rawMessage: 'late template failure' },
+] as const) {
+  test(`ticket triage template suppresses a pending ${templateOutcome.name} after Builder unmount`, async ({ page }) => {
+    let releaseTemplate!: () => void
+    const templateGate = new Promise<void>((resolve) => { releaseTemplate = resolve })
+    let templateRequests = 0
+    let templateResponses = 0
+    await page.route('**/api/v1/workflows/templates/ticket-triage', async (route) => {
+      templateRequests += 1
+      await templateGate
+      templateResponses += 1
+      await route.fulfill({
+        status: templateOutcome.status,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: templateOutcome.status === 201,
+          code: templateOutcome.status === 201 ? 'OK' : 'SERVICE_UNAVAILABLE',
+          message: templateOutcome.rawMessage,
+          data: templateOutcome.status === 201
+            ? { ...mockWorkflow, id: 'stale-template-workflow', name: 'Ticket triage' }
+            : null,
+        }),
+      })
+    })
+    await page.route('**/api/v1/resource-grants**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+      })
+    })
+
+    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('tab', { name: 'Templates' }).click()
+    await page.getByRole('button', { name: /Ticket triage/ }).click()
+    await expect.poll(() => templateRequests).toBe(1)
+
+    await navigateClientRoute(page, '/workflow/workflow-1/setting')
+    await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+    releaseTemplate()
+    await expect.poll(() => templateResponses).toBe(1)
+    await page.waitForTimeout(200)
+    await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+    expect(await page.getByText('Ticket triage workflow created', { exact: true }).count()).toBe(0)
+    expect(await page.getByText('Failed to create ticket triage workflow', { exact: true }).count()).toBe(0)
+    if (templateOutcome.status !== 201) {
+      expect(await page.getByText(templateOutcome.rawMessage, { exact: true }).count()).toBe(0)
+    }
+  })
+}
 
 test('workflow playground sends real HTTP and SSE requests without fake adapters', async ({ page }) => {
   let httpPayload: Record<string, unknown> | null = null
@@ -1565,7 +3339,7 @@ test('property editors retain sequential input and save the latest combined valu
   await variableValue.pressSequentially('{"nested":{"enabled":false},"count":0}')
   await expect(variableValue).toHaveValue('{\n  "nested": {\n    "enabled": false\n  },\n  "count": 0\n}')
 
-  await page.locator('.react-flow__node[data-id="interaction-condition"]').click()
+  await selectWorkflowNode(page, 'interaction-condition')
   const condition = page.locator('#conditional-expression')
   await condition.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   await condition.pressSequentially('{{ inputs.approved }}')

@@ -11,8 +11,9 @@ import useDialog from '@/hooks/use-dialog'
 import {
   createTicketTriageWorkflow,
   createWorkflowVersion,
-  getCurrentWorkflowVersion,
+  getCurrentWorkflowVersionOrNull,
   getWorkflow,
+  previewWorkflowVersion,
   updateWorkflow,
 } from '@/services/workflow-service'
 
@@ -40,6 +41,11 @@ import {
 
 interface BuildPageProps { }
 
+type BuilderOperation = {
+  generation: number
+  workflowId: string
+}
+
 const newWorkflowBase = (): WorkflowSpecBase => ({
   inputs_schema: { type: 'object', properties: {} },
   outputs_schema: { type: 'object', properties: {} },
@@ -52,8 +58,11 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null)
   const [pageLoading, setPageLoading] = useState(false)
+  const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(null)
   const [savingWorkflow, setSavingWorkflow] = useState(false)
+  const [executingWorkflow, setExecutingWorkflow] = useState(false)
   const [creatingTemplate, setCreatingTemplate] = useState(false)
+  const [importDialogContext, setImportDialogContext] = useState<BuilderOperation | null>(null)
   const [capabilityMutationBlocked, setCapabilityMutationBlocked] = useState(true)
 
   // State management.
@@ -74,6 +83,62 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Track undo/redo operations.
   const isHistoryActionRef = useRef(false)
+  const operationLockRef = useRef(false)
+  const operationGenerationRef = useRef(0)
+  const loadRequestSequenceRef = useRef(0)
+  const mountedRef = useRef(false)
+  const currentWorkflowIdRef = useRef(id)
+  const hydratedWorkflowIdRef = useRef<string | null>(null)
+  const pageLoadingRef = useRef(pageLoading)
+  currentWorkflowIdRef.current = id
+  hydratedWorkflowIdRef.current = hydratedWorkflowId
+  pageLoadingRef.current = pageLoading
+  const operationBusy = savingWorkflow || executingWorkflow || creatingTemplate
+  const builderHydrated = Boolean(id && hydratedWorkflowId === id)
+  const builderInteractionDisabled = operationBusy || pageLoading || !builderHydrated
+  const setWorkflowHydration = useCallback((workflowId: string | null) => {
+    hydratedWorkflowIdRef.current = workflowId
+    setHydratedWorkflowId(workflowId)
+  }, [])
+  const isCurrentWorkflowHydrated = useCallback((workflowId: string | undefined) => {
+    return Boolean(
+      mountedRef.current
+      && workflowId
+      && currentWorkflowIdRef.current === workflowId
+      && hydratedWorkflowIdRef.current === workflowId
+      && !pageLoadingRef.current
+    )
+  }, [])
+  const isBuilderMutationBlocked = useCallback(() => {
+    return operationLockRef.current
+      || !isCurrentWorkflowHydrated(currentWorkflowIdRef.current)
+  }, [isCurrentWorkflowHydrated])
+  const isBuilderOperationActive = useCallback((operation: BuilderOperation) => {
+    return mountedRef.current
+      && operationGenerationRef.current === operation.generation
+      && currentWorkflowIdRef.current === operation.workflowId
+  }, [])
+  const beginBuilderOperation = useCallback((workflowId: string | undefined) => {
+    if (!workflowId || !isCurrentWorkflowHydrated(workflowId)) return null
+    return {
+      generation: ++operationGenerationRef.current,
+      workflowId,
+    } satisfies BuilderOperation
+  }, [isCurrentWorkflowHydrated])
+  const isBuilderImportContextActive = useCallback((context: BuilderOperation) => {
+    return isBuilderOperationActive(context)
+      && isCurrentWorkflowHydrated(context.workflowId)
+  }, [isBuilderOperationActive, isCurrentWorkflowHydrated])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      operationGenerationRef.current += 1
+      loadRequestSequenceRef.current += 1
+      operationLockRef.current = false
+    }
+  }, [])
 
   // Dialog handler.
   const dialog = useDialog()
@@ -134,72 +199,79 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   )
   const hasInvalidDrafts = invalidDraftNodeIds.size > 0
   const mutationDisabled = hasCompatibilityNodes || hasUnsupportedEdges || hasInvalidDrafts
+  const builderMutationDisabled = mutationDisabled || builderInteractionDisabled
   const handleCapabilityMutationBlocked = useCallback((blocked: boolean) => {
     setCapabilityMutationBlocked(blocked)
   }, [])
   const handleNodeValidityChange = useCallback((nodeId: string, valid: boolean) => {
+    if (isBuilderMutationBlocked()) return
     setInvalidDraftNodeIds((current) => {
       const next = new Set(current)
       if (valid) next.delete(nodeId)
       else next.add(nodeId)
       return next
     })
-  }, [])
+  }, [isBuilderMutationBlocked])
 
   // Custom node change handler for history.
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      if (isBuilderMutationBlocked()) return
       if (!isHistoryActionRef.current) {
         // Record history only for non-undo/redo actions.
         addToHistory()
       }
       onNodesChange(changes)
     },
-    [nodes, edges, onNodesChange]
+    [isBuilderMutationBlocked, nodes, edges, onNodesChange]
   )
 
   // Custom edge change handler for history.
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
+      if (isBuilderMutationBlocked()) return
       if (!isHistoryActionRef.current) {
         // Record history only for non-undo/redo actions.
         addToHistory()
       }
       onEdgesChange(changes)
     },
-    [nodes, edges, onEdgesChange]
+    [isBuilderMutationBlocked, nodes, edges, onEdgesChange]
   )
 
   // Handle direct node set (layout switching).
   const handleNodesSet = useCallback(
     (newNodes: Node[]) => {
+      if (isBuilderMutationBlocked()) return
       // Record history.
       if (!isHistoryActionRef.current) {
         addToHistory()
       }
       setNodes(newNodes)
     },
-    [setNodes]
+    [isBuilderMutationBlocked, setNodes]
   )
 
   // Handle direct edge set (layout switching).
   const handleEdgesSet = useCallback(
     (newEdges: Edge[]) => {
+      if (isBuilderMutationBlocked()) return
       setEdges(newEdges)
     },
-    [setEdges]
+    [isBuilderMutationBlocked, setEdges]
   )
 
   // Handle connection.
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (isBuilderMutationBlocked()) return
       if (!isHistoryActionRef.current) {
         // Record history.
         addToHistory()
       }
       setEdges((eds) => addEdge(connection, eds))
     },
-    [setEdges]
+    [isBuilderMutationBlocked, setEdges]
   )
 
   // Handle node drag over.
@@ -212,6 +284,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault()
+
+      if (isBuilderMutationBlocked()) return
 
       const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect()
       if (!reactFlowBounds || !reactFlowInstance || capabilityMutationBlocked) return
@@ -238,13 +312,14 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       addToHistory()
       setNodes((nds) => nds.concat(newNode))
     },
-    [capabilityMutationBlocked, reactFlowInstance, setNodes]
+    [capabilityMutationBlocked, isBuilderMutationBlocked, reactFlowInstance, setNodes]
   )
 
   // Handle node click.
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    if (isBuilderMutationBlocked()) return
     setSelectedNodeId(node.id)
-  }, [])
+  }, [isBuilderMutationBlocked])
 
   // Handle save.
   const handleSave = useCallback(() => {
@@ -267,6 +342,10 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Handle node drag start.
   const onDragStart = (event: React.DragEvent<HTMLElement>, nodeType: string, nodeLabel: string) => {
+    if (isBuilderMutationBlocked()) {
+      event.preventDefault()
+      return
+    }
     event.dataTransfer.setData('application/reactflow/type', nodeType)
     event.dataTransfer.setData('application/reactflow/label', nodeLabel)
     event.dataTransfer.effectAllowed = 'move'
@@ -274,7 +353,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Add new node.
   const addNewNode = (type: CanonicalBuilderType, label: string) => {
-    if (capabilityMutationBlocked) return
+    if (isBuilderMutationBlocked() || capabilityMutationBlocked) return
     const newNode: Node = {
       id: `${type}-${Date.now()}`,
       type,
@@ -292,6 +371,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Update node data.
   const updateNodeData = (nodeId: string, newData: any) => {
+    if (isBuilderMutationBlocked()) return
     // Record history.
     addToHistory()
     setNodes((nds) =>
@@ -301,6 +381,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Delete selected node.
   const deleteSelectedNode = () => {
+    if (isBuilderMutationBlocked()) return
     if (selectedNode && selectedNode.type !== 'compatibility-node') {
       // Record history.
       addToHistory()
@@ -312,16 +393,9 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     }
   }
 
-  // Run workflow.
-  const runWorkflow = () => {
-    if (mutationDisabled) return
-    toast.info(t('workflow.detail.build.toast.running'))
-    // Execute workflow run here.
-  }
-
   // Append history entry.
   const addToHistory = () => {
-    if (isHistoryActionRef.current) return
+    if (isBuilderMutationBlocked() || isHistoryActionRef.current) return
 
     setHistory(prev => {
       // Drop history after the current index when diverging.
@@ -343,6 +417,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Undo action.
   const handleUndo = useCallback(() => {
+    if (isBuilderMutationBlocked()) return
     setHistory(prev => {
       if (prev.currentIndex <= 0) return prev
 
@@ -369,10 +444,11 @@ const BuildPage: React.FC<BuildPageProps> = () => {
         currentIndex: newIndex,
       }
     })
-  }, [])
+  }, [isBuilderMutationBlocked])
 
   // Redo action.
   const handleRedo = useCallback(() => {
+    if (isBuilderMutationBlocked()) return
     setHistory(prev => {
       if (prev.currentIndex >= prev.nodes.length - 1) return prev
 
@@ -399,83 +475,102 @@ const BuildPage: React.FC<BuildPageProps> = () => {
         currentIndex: newIndex,
       }
     })
-  }, [])
+  }, [isBuilderMutationBlocked])
 
-  const loadWorkflow = useCallback(async () => {
-    if (!id) {
-      setWorkflowBase(newWorkflowBase())
-      seedHistory(initialNodes, initialEdges)
-      return
-    }
+  const clearWorkflowDraft = useCallback(() => {
+    setWorkflowName('')
+    setWorkflowDescription('')
+    setWorkflowBase(newWorkflowBase())
+    setInvalidDraftNodeIds(new Set())
+    setSelectedNodeId(null)
+    setNodes([])
+    setEdges([])
+    seedHistory([], [])
+  }, [seedHistory, setEdges, setNodes])
 
+  const loadWorkflow = useCallback(async (targetWorkflowId: string | undefined = id): Promise<boolean> => {
+    if (!mountedRef.current) return false
+    const requestSequence = ++loadRequestSequenceRef.current
+    setWorkflowHydration(null)
+    pageLoadingRef.current = Boolean(targetWorkflowId)
+    setPageLoading(Boolean(targetWorkflowId))
+    clearWorkflowDraft()
+    if (!targetWorkflowId) return false
+
+    let loaded = false
     try {
-      setPageLoading(true)
       const [workflow, currentVersion] = await Promise.all([
-        getWorkflow(id),
-        getCurrentWorkflowVersion(id).catch(() => null),
+        getWorkflow(targetWorkflowId, { suppressErrorToast: true }),
+        getCurrentWorkflowVersionOrNull(targetWorkflowId),
       ])
+      if (
+        !mountedRef.current
+        || requestSequence !== loadRequestSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return false
 
-      setWorkflowName(workflow.name || t('workflow.detail.build.defaultName'))
-      setWorkflowDescription(workflow.description || '')
+      let nextNodes = initialNodes
+      let nextEdges = initialEdges
+      let nextBase = newWorkflowBase()
+      let nextName = workflow.name || t('workflow.detail.build.defaultName')
+      let nextDescription = workflow.description || ''
 
       if (currentVersion) {
         const restoredGraph = parseWorkflowVersion(currentVersion)
-        setInvalidDraftNodeIds(new Set())
-        setSelectedNodeId(null)
-        setWorkflowBase(restoredGraph.base)
-        setNodes(restoredGraph.nodes)
-        setEdges(restoredGraph.edges)
-        if (restoredGraph.name) {
-          setWorkflowName(restoredGraph.name)
-        }
-        if (restoredGraph.description) {
-          setWorkflowDescription(restoredGraph.description)
-        }
+        nextBase = restoredGraph.base
+        if (restoredGraph.name) nextName = restoredGraph.name
+        if (restoredGraph.description) nextDescription = restoredGraph.description
         if (restoredGraph.nodes.length) {
-          seedHistory(restoredGraph.nodes, restoredGraph.edges)
-          return
+          nextNodes = restoredGraph.nodes
+          nextEdges = restoredGraph.edges
         }
-        setNodes(initialNodes)
-        setEdges(initialEdges)
-        seedHistory(initialNodes, initialEdges)
-        return
       }
 
-      setWorkflowBase(newWorkflowBase())
+      setWorkflowName(nextName)
+      setWorkflowDescription(nextDescription)
+      setWorkflowBase(nextBase)
       setInvalidDraftNodeIds(new Set())
       setSelectedNodeId(null)
-      setNodes(initialNodes)
-      setEdges(initialEdges)
-      seedHistory(initialNodes, initialEdges)
+      setNodes(nextNodes)
+      setEdges(nextEdges)
+      seedHistory(nextNodes, nextEdges)
+      loaded = true
+      return true
     } catch (error) {
+      if (
+        !mountedRef.current
+        || requestSequence !== loadRequestSequenceRef.current
+        || currentWorkflowIdRef.current !== targetWorkflowId
+      ) return false
       toast.error('Failed to load workflow builder state.')
       console.error('Failed to load workflow builder state:', error)
-      setWorkflowBase(newWorkflowBase())
-      setInvalidDraftNodeIds(new Set())
-      setSelectedNodeId(null)
-      setNodes(initialNodes)
-      setEdges(initialEdges)
-      seedHistory(initialNodes, initialEdges)
+      return false
     } finally {
-      setPageLoading(false)
+      if (
+        mountedRef.current
+        && requestSequence === loadRequestSequenceRef.current
+        && currentWorkflowIdRef.current === targetWorkflowId
+      ) {
+        pageLoadingRef.current = false
+        setPageLoading(false)
+        if (loaded) setWorkflowHydration(targetWorkflowId)
+      }
     }
-  }, [id, initialEdges, initialNodes, seedHistory, setEdges, setNodes, t])
+  }, [clearWorkflowDraft, id, initialEdges, initialNodes, seedHistory, setEdges, setNodes, setWorkflowHydration, t])
 
-  // Save workflow.
-  const handleSaveWorkflow = useCallback(async () => {
-    if (mutationDisabled) return
+  const persistWorkflowDraft = useCallback(async (operation: BuilderOperation) => {
+    const targetWorkflowId = operation.workflowId
+    if (
+      mutationDisabled
+      || !isBuilderOperationActive(operation)
+      || !isCurrentWorkflowHydrated(targetWorkflowId)
+    ) return
     if (!workflowName.trim()) {
       toast.error(t('workflow.detail.build.toast.nameRequired'))
       return
     }
 
-    if (!id) {
-      toast.error('Workflow ID is missing.')
-      return
-    }
-
     try {
-      setSavingWorkflow(true)
       const spec = serializeWorkflowSpec(
         workflowBase,
         workflowName.trim(),
@@ -484,37 +579,104 @@ const BuildPage: React.FC<BuildPageProps> = () => {
         edges
       )
 
-      await createWorkflowVersion(id, {
+      const version = await createWorkflowVersion(targetWorkflowId, {
         graph_json: spec,
-      })
+      }, { suppressErrorToast: true })
+      if (
+        !isBuilderOperationActive(operation)
+        || !isCurrentWorkflowHydrated(targetWorkflowId)
+      ) return
       try {
-        await updateWorkflow(id, {
+        await updateWorkflow(targetWorkflowId, {
           name: workflowName.trim(),
           description: workflowDescription.trim() || undefined,
-        })
+        }, { suppressErrorToast: true })
       } catch (metadataError) {
-        toast.error('Workflow version saved, but workflow metadata update failed.')
+        if (!isBuilderOperationActive(operation)) return
+        toast.error(t('workflow.detail.build.toast.metadataSaveFailed'))
         console.error('Workflow version saved but metadata update failed:', metadataError)
-        await loadWorkflow()
+        await loadWorkflow(targetWorkflowId)
         return
       }
+      if (!isBuilderOperationActive(operation)) return
+      const refreshed = await loadWorkflow(targetWorkflowId)
+      if (
+        !refreshed
+        || !isBuilderOperationActive(operation)
+        || !isCurrentWorkflowHydrated(targetWorkflowId)
+      ) return
       toast.success(t('workflow.detail.build.toast.saved'))
-      await loadWorkflow()
+      return version
     } catch (error) {
+      if (!isBuilderOperationActive(operation)) return
       const message = error instanceof CanonicalNodeValidationError
         || error instanceof UnsupportedBuilderNodeError
         || error instanceof UnsupportedWorkflowEdgeError
         ? error.message
-        : 'Failed to save workflow version.'
+        : t('workflow.detail.build.toast.saveFailed')
       toast.error(message)
       console.error('Failed to save workflow version:', error)
-    } finally {
-      setSavingWorkflow(false)
     }
-  }, [id, loadWorkflow, mutationDisabled, nodes, edges, t, workflowBase, workflowDescription, workflowName])
+  }, [isBuilderOperationActive, isCurrentWorkflowHydrated, loadWorkflow, mutationDisabled, nodes, edges, t, workflowBase, workflowDescription, workflowName])
+
+  // Save workflow.
+  const handleSaveWorkflow = useCallback(async () => {
+    if (mutationDisabled || isBuilderMutationBlocked()) return
+    const operation = beginBuilderOperation(id)
+    if (!operation) return
+    operationLockRef.current = true
+    setSavingWorkflow(true)
+    try {
+      return await persistWorkflowDraft(operation)
+    } finally {
+      if (isBuilderOperationActive(operation)) {
+        setSavingWorkflow(false)
+        operationLockRef.current = false
+      }
+    }
+  }, [beginBuilderOperation, id, isBuilderMutationBlocked, isBuilderOperationActive, mutationDisabled, persistWorkflowDraft])
+
+  const runWorkflow = useCallback(async () => {
+    const targetWorkflowId = id
+    if (!targetWorkflowId || mutationDisabled || isBuilderMutationBlocked()) return
+    const operation = beginBuilderOperation(targetWorkflowId)
+    if (!operation) return
+    operationLockRef.current = true
+    try {
+      setExecutingWorkflow(true)
+      toast.info(t('workflow.detail.build.toast.preparingRun'))
+      const version = await persistWorkflowDraft(operation)
+      if (
+        !version
+        || !isBuilderOperationActive(operation)
+        || !isCurrentWorkflowHydrated(targetWorkflowId)
+      ) return
+      const result = await previewWorkflowVersion(
+        targetWorkflowId,
+        version.id,
+        {},
+        { suppressErrorToast: true },
+      )
+      if (!isBuilderOperationActive(operation)) return
+      if (!result.run_id) {
+        throw new Error('Workflow execution did not return a run ID')
+      }
+      navigate(`/observe/runs/${result.run_id}`)
+    } catch (error) {
+      if (!isBuilderOperationActive(operation)) return
+      toast.error(t('workflow.detail.build.toast.runFailed'))
+      console.error('Failed to preview workflow version:', error)
+    } finally {
+      if (isBuilderOperationActive(operation)) {
+        setExecutingWorkflow(false)
+        operationLockRef.current = false
+      }
+    }
+  }, [beginBuilderOperation, id, isBuilderMutationBlocked, isBuilderOperationActive, isCurrentWorkflowHydrated, mutationDisabled, navigate, persistWorkflowDraft, t])
 
   // Export workflow.
   const handleExportWorkflow = useCallback(() => {
+    if (!isCurrentWorkflowHydrated(id)) return
     if (hasInvalidDrafts) {
       toast.error(t('workflow.detail.build.export.invalidDraft'))
       return
@@ -549,16 +711,22 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       const message = error instanceof Error ? error.message : t('workflow.detail.build.import.invalidData')
       toast.error(message)
     }
-  }, [edges, hasInvalidDrafts, nodes, t, workflowBase, workflowDescription, workflowName])
+  }, [edges, hasInvalidDrafts, id, isCurrentWorkflowHydrated, nodes, t, workflowBase, workflowDescription, workflowName])
 
   // Import workflow.
   const handleImportWorkflow = useCallback(() => {
+    if (isBuilderMutationBlocked()) return
+    const importContext = id && isCurrentWorkflowHydrated(id)
+      ? { generation: operationGenerationRef.current, workflowId: id }
+      : null
+    if (!importContext) return
     // Create file input.
     const fileInput = document.createElement('input')
     fileInput.type = 'file'
     fileInput.accept = '.json'
 
     fileInput.onchange = (e: Event) => {
+      if (!isBuilderImportContextActive(importContext)) return
       const target = e.target as HTMLInputElement
       if (!target.files || target.files.length === 0) return
 
@@ -566,6 +734,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       const reader = new FileReader()
 
       reader.onload = (event) => {
+        if (!isBuilderImportContextActive(importContext)) return
         try {
           const result = event.target?.result
           if (typeof result !== 'string') return
@@ -589,12 +758,17 @@ const BuildPage: React.FC<BuildPageProps> = () => {
           const importedName = restoredGraph.name || t('workflow.detail.build.import.unnamed')
 
           // Confirm import.
+          if (!isBuilderImportContextActive(importContext)) return
+          setImportDialogContext(importContext)
           dialog.confirm({
             title: t('workflow.detail.build.import.title'),
             description: t('workflow.detail.build.import.confirmDescription', { name: importedName }),
             confirmText: t('workflow.detail.build.import.confirm'),
             cancelText: t('workflow.detail.build.import.cancel'),
             onConfirm: () => {
+              const isCurrentImport = isBuilderImportContextActive(importContext)
+              if (mountedRef.current) setImportDialogContext(null)
+              if (!isCurrentImport) return
               // Record history.
               addToHistory()
 
@@ -609,8 +783,12 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
               toast.success(t('workflow.detail.build.toast.imported'))
             },
+            onCancel: () => {
+              if (mountedRef.current) setImportDialogContext(null)
+            },
           })
         } catch (error) {
+          if (!isBuilderImportContextActive(importContext)) return
           console.error('Failed to import workflow:', error)
           toast.error(t('workflow.detail.build.import.invalidFile'))
         }
@@ -620,51 +798,76 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     }
 
     fileInput.click()
-  }, [dialog, setEdges, setNodes, t])
+  }, [dialog, id, isBuilderImportContextActive, isBuilderMutationBlocked, isCurrentWorkflowHydrated, setEdges, setNodes, t])
 
   const handleCreateTicketTemplate = useCallback(async () => {
+    if (isBuilderMutationBlocked()) return
+    const operation = beginBuilderOperation(id)
+    if (!operation) return
+    operationLockRef.current = true
     try {
       setCreatingTemplate(true)
-      const workflow = await createTicketTriageWorkflow({ name: 'Ticket triage' })
+      const workflow = await createTicketTriageWorkflow(
+        { name: 'Ticket triage' },
+        { suppressErrorToast: true },
+      )
+      if (!isBuilderOperationActive(operation)) return
       toast.success(t('workflow.nodeLibrary.templates.ticketTriage.created'))
       navigate(`/workflow/${workflow.id}/build`)
     } catch (error) {
+      if (!isBuilderOperationActive(operation)) return
       toast.error(t('workflow.nodeLibrary.templates.ticketTriage.createError'))
       console.error('Failed to create ticket triage workflow:', error)
     } finally {
-      setCreatingTemplate(false)
+      if (isBuilderOperationActive(operation)) {
+        setCreatingTemplate(false)
+        operationLockRef.current = false
+      }
     }
-  }, [navigate, t])
+  }, [beginBuilderOperation, id, isBuilderMutationBlocked, isBuilderOperationActive, navigate, t])
 
   useEffect(() => {
-    loadWorkflow()
-  }, [loadWorkflow])
+    operationGenerationRef.current += 1
+    operationLockRef.current = false
+    setImportDialogContext(null)
+    setSavingWorkflow(false)
+    setExecutingWorkflow(false)
+    setCreatingTemplate(false)
+    void loadWorkflow(id)
+    return () => {
+      operationGenerationRef.current += 1
+      loadRequestSequenceRef.current += 1
+      operationLockRef.current = false
+    }
+  }, [id, loadWorkflow])
 
   const renderLeftPanel = () => {
     return (
       <div className="w-80 m-0 mb-2 p-2 bg-background flex flex-col h-full">
         <Card className="w-full h-full shadow-none border-1 rounded-lg">
           <CardContent className="px-2 h-full overflow-hidden">
-            <WorkflowInfoPanel
-              workflowName={workflowName}
-              workflowDescription={workflowDescription}
-              setWorkflowName={setWorkflowName}
-              setWorkflowDescription={setWorkflowDescription}
-            />
+            <fieldset disabled={builderInteractionDisabled} className="contents">
+              <WorkflowInfoPanel
+                workflowName={builderHydrated ? workflowName : ''}
+                workflowDescription={builderHydrated ? workflowDescription : ''}
+                setWorkflowName={setWorkflowName}
+                setWorkflowDescription={setWorkflowDescription}
+              />
 
-            <Separator className="my-4" />
+              <Separator className="my-4" />
 
-            <div className="flex flex-col h-full">
-              <ScrollArea className="h-full">
-                <NodeLibraryPanel
-                  onDragStart={onDragStart}
-                  addNewNode={addNewNode}
-                  onCreateTicketTemplate={handleCreateTicketTemplate}
-                  creatingTicketTemplate={creatingTemplate}
-                  onMutationBlockedChange={handleCapabilityMutationBlocked}
-                />
-              </ScrollArea>
-            </div>
+              <div className="flex flex-col h-full">
+                <ScrollArea className="h-full">
+                  <NodeLibraryPanel
+                    onDragStart={onDragStart}
+                    addNewNode={addNewNode}
+                    onCreateTicketTemplate={handleCreateTicketTemplate}
+                    creatingTicketTemplate={creatingTemplate}
+                    onMutationBlockedChange={handleCapabilityMutationBlocked}
+                  />
+                </ScrollArea>
+              </div>
+            </fieldset>
           </CardContent>
         </Card>
       </div>
@@ -674,12 +877,14 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const renderRightPanel = () => {
     return (
       <div className="w-100 m-0 mb-2 p-2 bg-background flex flex-col h-full">
-        <NodePropertiesPanel
-          selectedNode={selectedNode}
-          updateNodeData={updateNodeData}
-          onNodeValidityChange={handleNodeValidityChange}
-          className="border-1 rounded-lg px-2"
-        />
+        <fieldset disabled={builderInteractionDisabled} className="contents">
+          <NodePropertiesPanel
+            selectedNode={builderHydrated ? selectedNode : null}
+            updateNodeData={updateNodeData}
+            onNodeValidityChange={handleNodeValidityChange}
+            className="border-1 rounded-lg px-2"
+          />
+        </fieldset>
       </div>
     )
   }
@@ -700,8 +905,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
               ref={reactFlowWrapper}
               leftPanel={renderLeftPanel()}
               rightPanel={renderRightPanel()}
-              nodes={nodes}
-              edges={edges}
+              nodes={builderHydrated ? nodes : []}
+              edges={builderHydrated ? edges : []}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={onConnect}
@@ -709,11 +914,12 @@ const BuildPage: React.FC<BuildPageProps> = () => {
               onDrop={onDrop}
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
-              selectedNode={selectedNode}
+              selectedNode={builderHydrated ? selectedNode : null}
               deleteSelectedNode={deleteSelectedNode}
               runWorkflow={runWorkflow}
-              mutationDisabled={mutationDisabled}
-              exportDisabled={hasInvalidDrafts}
+              mutationDisabled={builderMutationDisabled}
+              interactionDisabled={builderInteractionDisabled}
+              exportDisabled={hasInvalidDrafts || !builderHydrated}
               undoable={undoable}
               redoable={redoable}
               onUndo={handleUndo}
@@ -724,12 +930,17 @@ const BuildPage: React.FC<BuildPageProps> = () => {
               onNodesSet={handleNodesSet}
               onEdgesSet={handleEdgesSet}
               workflowId={id || ''}
-              workflowName={workflowName}
+              workflowName={builderHydrated ? workflowName : ''}
             />
           </ReactFlowProvider>
         </div>
       </div>
-      <DialogComponent />
+      {importDialogContext
+        && importDialogContext.workflowId === id
+        && importDialogContext.generation === operationGenerationRef.current
+        && builderHydrated
+        ? <DialogComponent />
+        : null}
     </div>
   )
 }

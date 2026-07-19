@@ -571,6 +571,29 @@ class WorkflowService:
         result = await self.engine.execute(plan)
         return {"run_id": plan.run_id, "output": result}
 
+    @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
+    async def preview_workflow_version(
+        self,
+        workflow_id: str,
+        version_id: str,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        workflow = self._get_workflow(workflow_id)
+        version = self.version_repo.get_by_id(version_id)
+        if version is None or version.workflow_id != workflow.id:
+            raise NotFoundError(f"Workflow version not found: {version_id}")
+
+        plan = self.compiler.compile(version.spec_json, inputs, run_id="")
+        plan.subject_kind = "workflow"
+        plan.subject_id = workflow.id
+        plan.subject_version_id = version.id
+        result = await self.engine.execute(plan)
+        return {
+            "run_id": plan.run_id,
+            "workflow_version_id": version.id,
+            "output": result,
+        }
+
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def pause_run(self, workflow_id: str, run_id: str) -> dict:

@@ -25,6 +25,7 @@ interface WorkflowEditorProps {
   deleteSelectedNode: () => void
   runWorkflow: () => void
   mutationDisabled?: boolean
+  interactionDisabled?: boolean
   exportDisabled?: boolean
   // History controls.
   undoable?: boolean
@@ -102,6 +103,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
       deleteSelectedNode,
       runWorkflow,
       mutationDisabled = false,
+      interactionDisabled = false,
       exportDisabled = false,
       undoable,
       redoable,
@@ -195,8 +197,12 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
             fitView
             nodeTypes={nodeTypes}
             proOptions={{ hideAttribution: true }}
-            deleteKeyCode={['Backspace', 'Delete']}
+            nodesDraggable={!interactionDisabled}
+            nodesConnectable={!interactionDisabled}
+            elementsSelectable={!interactionDisabled}
+            deleteKeyCode={interactionDisabled ? null : ['Backspace', 'Delete']}
             className="workflow-editor"
+            data-interaction-disabled={String(interactionDisabled)}
           >
             <Background />
             <Controls showInteractive={false} />
@@ -252,7 +258,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                           variant="ghost"
                           className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
                           aria-label={t('workflow.build.actions.deleteSelected')}
-                          disabled={selectedNode.type === 'compatibility-node'}
+                          disabled={interactionDisabled || selectedNode.type === 'compatibility-node'}
                           onClick={deleteSelectedNode}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -266,7 +272,15 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
               )}
             </div>
           </Panel>
+          </ReactFlow>
+        </div>
 
+        <div
+          role="toolbar"
+          aria-label={t('workflow.operator.toolbarLabel')}
+          className={`pointer-events-auto absolute bottom-2 z-20 min-w-0 overflow-x-auto ${leftPanel ? 'left-80' : 'left-0'} ${rightPanel ? 'right-100' : 'right-0'}`}
+        >
+          <div className="mx-auto w-max">
             <WorkflowToolbar
               flowInstance={reactFlowInstance}
               onZoomIn={handleZoomIn}
@@ -282,8 +296,9 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
               redoable={redoable || false}
               saveDisabled={mutationDisabled}
               exportDisabled={exportDisabled}
+              mutationDisabled={interactionDisabled}
             />
-          </ReactFlow>
+          </div>
         </div>
 
         <WorkflowCallConfigPanel
