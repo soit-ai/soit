@@ -1,5 +1,6 @@
 import React, { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { useQuery } from '@tanstack/react-query'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { Search, Plus, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,8 +10,48 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/i18n'
+import { listKnowledgeBases, type KnowledgeBase } from '@/services/knowledge-service'
 import { useNodeHandles } from '../hooks/use-node-handles'
-import type { TranslationKey } from '@/i18n/types'
+
+const supportedKnowledgeStatuses = new Set(['active', 'archived', 'disabled'])
+
+const loadWorkflowKnowledgeBases = async (): Promise<KnowledgeBase[]> => {
+  const response = await listKnowledgeBases({ page_size: 200 })
+  const items = response?.items
+  const pageSize = response?.page_size
+  const nextPageToken = response?.next_page_token
+  const ids = new Set<string>()
+  if (
+    typeof pageSize !== 'number'
+    || !Number.isInteger(pageSize)
+    || pageSize < 0
+    || (nextPageToken !== undefined
+      && nextPageToken !== null
+      && typeof nextPageToken !== 'string')
+    || !Array.isArray(items)
+    || items.some((knowledge) => {
+    if (
+      !knowledge
+      || typeof knowledge.id !== 'string'
+      || !knowledge.id.trim()
+      || typeof knowledge.name !== 'string'
+      || !knowledge.name.trim()
+      || typeof knowledge.status !== 'string'
+      || !supportedKnowledgeStatuses.has(knowledge.status)
+      || ids.has(knowledge.id)
+    ) return true
+    ids.add(knowledge.id)
+    return false
+    })
+  ) {
+    throw new Error('Malformed knowledge inventory')
+  }
+  return items
+}
+
+const knowledgeIsDisabled = (knowledge: KnowledgeBase) => {
+  return knowledge.status !== 'active'
+}
 
 export const KnowledgeSearchNodeInfo = {
   type: 'knowledge-search-node',
@@ -25,7 +66,7 @@ export const KnowledgeSearchNodeInfo = {
 
 export const KnowledgeSearchNodeDefaultData = {
   label: 'Knowledge Search',
-  dataSource: 'knowledge_base',
+  knowledgeRef: '',
   topK: 3,
   similarityThreshold: 0.7,
   rerank: false,
@@ -44,10 +85,8 @@ const KnowledgeSearchNodeComponent = ({ data, isConnectable, selected }: NodePro
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">
-        {data.dataSource
-          ? t('workflow.detail.nodes.knowledgeSearch.previewSource', {
-            value: t(`workflow.detail.nodes.knowledgeSearch.dataSources.${data.dataSource}` as TranslationKey),
-          })
+        {data.knowledgeRef
+          ? t('workflow.detail.nodes.knowledgeSearch.previewSource', { value: data.knowledgeRef as string })
           : t('workflow.detail.nodes.knowledgeSearch.description')}
       </div>
 
@@ -81,6 +120,27 @@ interface KnowledgeSearchPropertiesProps {
 
 export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps> = ({ data, onChange }) => {
   const { t } = useTranslation()
+  const knowledgeQuery = useQuery({
+    queryKey: ['workflow', 'knowledge'],
+    queryFn: loadWorkflowKnowledgeBases,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 0,
+    retry: false,
+  })
+  const knowledgeBases = knowledgeQuery.data || []
+  const knowledgeRef = typeof data.knowledgeRef === 'string' ? data.knowledgeRef : ''
+  const selectedKnowledge = knowledgeBases.find((knowledge) => `knowledge:${knowledge.id}` === knowledgeRef)
+  const unavailableLabel = knowledgeRef
+    ? t('workflow.detail.nodes.knowledgeSearch.states.unavailable', { ref: knowledgeRef })
+    : undefined
+  const selectedLabel = selectedKnowledge
+    ? `${selectedKnowledge.name}${knowledgeIsDisabled(selectedKnowledge) ? ` (${t('workflow.detail.nodes.knowledgeSearch.states.disabled')})` : ''}`
+    : unavailableLabel
+  const knowledgeState = knowledgeQuery.isPending ? t('workflow.detail.nodes.knowledgeSearch.states.loading')
+    : knowledgeQuery.isError ? t('workflow.detail.nodes.knowledgeSearch.states.error')
+      : knowledgeBases.length === 0 ? t('workflow.detail.nodes.knowledgeSearch.states.empty')
+        : undefined
+  const knowledgeSelectDisabled = knowledgeQuery.isPending || knowledgeQuery.isError || knowledgeBases.length === 0
   const handleChange = (field: string, value: any) => {
     onChange({
       ...data,
@@ -118,34 +178,35 @@ export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="dataSource">{t('workflow.detail.nodes.knowledgeSearch.fields.dataSourceLabel')}</Label>
+        <Label htmlFor="knowledgeRef">{t('workflow.detail.nodes.knowledgeSearch.fields.dataSourceLabel')}</Label>
         <Select
-          value={data.dataSource || ''}
-          onValueChange={(value) => handleChange('dataSource', value)}
+          value={knowledgeRef}
+          onValueChange={(value) => handleChange('knowledgeRef', value)}
+          disabled={knowledgeSelectDisabled}
         >
-          <SelectTrigger id="dataSource">
-            <SelectValue placeholder={t('workflow.detail.nodes.knowledgeSearch.placeholders.dataSource')} />
+          <SelectTrigger id="knowledgeRef" aria-describedby="knowledgeRef-status">
+            <SelectValue placeholder={t('workflow.detail.nodes.knowledgeSearch.placeholders.dataSource')}>
+              {selectedLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="knowledge_base">{t('workflow.detail.nodes.knowledgeSearch.dataSources.knowledge_base')}</SelectItem>
-            <SelectItem value="document_store">{t('workflow.detail.nodes.knowledgeSearch.dataSources.document_store')}</SelectItem>
-            <SelectItem value="vector_db">{t('workflow.detail.nodes.knowledgeSearch.dataSources.vector_db')}</SelectItem>
-            <SelectItem value="custom">{t('workflow.detail.nodes.knowledgeSearch.dataSources.custom')}</SelectItem>
+            {knowledgeRef && !selectedKnowledge && (
+              <SelectItem value={knowledgeRef} disabled>{unavailableLabel}</SelectItem>
+            )}
+            {knowledgeBases.map((knowledge) => {
+              const disabled = knowledgeIsDisabled(knowledge)
+              return (
+                <SelectItem key={knowledge.id} value={`knowledge:${knowledge.id}`} disabled={disabled}>
+                  {knowledge.name}{disabled ? ` (${t('workflow.detail.nodes.knowledgeSearch.states.disabled')})` : ''}
+                </SelectItem>
+              )
+            })}
           </SelectContent>
         </Select>
+        <p id="knowledgeRef-status" role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {knowledgeState || (knowledgeRef && !selectedKnowledge ? unavailableLabel : '')}
+        </p>
       </div>
-
-      {data.dataSource === 'custom' && (
-        <div className="space-y-2">
-          <Label htmlFor="customSource">{t('workflow.detail.nodes.knowledgeSearch.fields.customSourceLabel')}</Label>
-          <Input
-            id="customSource"
-            value={data.customSource || ''}
-            onChange={(e) => handleChange('customSource', e.target.value)}
-            placeholder={t('workflow.detail.nodes.knowledgeSearch.placeholders.customSource')}
-          />
-        </div>
-      )}
 
       <div className="space-y-2">
         <Label htmlFor="query">{t('workflow.detail.nodes.knowledgeSearch.fields.queryLabel')}</Label>

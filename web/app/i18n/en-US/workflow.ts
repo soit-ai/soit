@@ -1412,6 +1412,7 @@ const translation = {
       llm: {
         label: 'LLM',
         description: 'Large language model',
+        unsetModel: 'Not set',
         fields: {
           modelLabel: 'Model',
           temperatureLabel: 'Temperature',
@@ -1423,6 +1424,13 @@ const translation = {
         placeholders: {
           model: 'Select model',
           systemPrompt: 'Enter system prompt',
+        },
+        states: {
+          loading: 'Loading models...',
+          error: 'Unable to load models.',
+          empty: 'No models available.',
+          unavailable: 'Unavailable: {{ref}}',
+          disabled: 'Unavailable',
         },
       },
       data: {
@@ -1506,6 +1514,12 @@ const translation = {
           parameterName: 'Parameter name',
           parameterValue: 'Default value',
         },
+        states: {
+          loading: 'Loading tools...',
+          error: 'Unable to load tools.',
+          empty: 'No tools available.',
+          unavailable: 'Unavailable: {{ref}}',
+        },
         tools: {
           search: 'Search',
           calculator: 'Calculator',
@@ -1534,6 +1548,13 @@ const translation = {
           filterField: 'Field name',
           filterOperator: 'Operator',
           filterValue: 'Value',
+        },
+        states: {
+          loading: 'Loading knowledge bases...',
+          error: 'Unable to load knowledge bases.',
+          empty: 'No knowledge bases available.',
+          unavailable: 'Unavailable: {{ref}}',
+          disabled: 'Unavailable',
         },
         actions: {
           addFilter: 'Add filter',

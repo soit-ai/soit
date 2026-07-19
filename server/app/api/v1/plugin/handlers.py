@@ -345,7 +345,26 @@ class PluginHandlers:
 
     async def list_runtime_tools(self, ctx: RequestContext) -> dict:
         reg = get_registry()
-        items = reg.list(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id)
+        tool_refs = sorted(
+            {
+                key.name
+                for key, _ in reg.list(
+                    kind="tool",
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                )
+            }
+        )
+        items = []
+        for tool_ref in tool_refs:
+            latest = reg.get_latest(
+                kind="tool",
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                name=tool_ref,
+            )
+            if latest is not None:
+                items.append(latest)
         return {
             "tools": [
                 {

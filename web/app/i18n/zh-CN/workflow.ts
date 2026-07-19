@@ -1412,6 +1412,7 @@ const translation = {
       llm: {
         label: 'LLM模型',
         description: '大语言模型',
+        unsetModel: '未指定',
         fields: {
           modelLabel: '模型',
           temperatureLabel: '温度',
@@ -1423,6 +1424,13 @@ const translation = {
         placeholders: {
           model: '选择模型',
           systemPrompt: '输入系统提示词',
+        },
+        states: {
+          loading: '正在加载模型…',
+          error: '无法加载模型。',
+          empty: '暂无可用模型。',
+          unavailable: '不可用：{{ref}}',
+          disabled: '不可用',
         },
       },
       data: {
@@ -1506,6 +1514,12 @@ const translation = {
           parameterName: '参数名',
           parameterValue: '默认值',
         },
+        states: {
+          loading: '正在加载工具…',
+          error: '无法加载工具。',
+          empty: '暂无可用工具。',
+          unavailable: '不可用：{{ref}}',
+        },
         tools: {
           search: '搜索',
           calculator: '计算器',
@@ -1534,6 +1548,13 @@ const translation = {
           filterField: '字段名',
           filterOperator: '操作符',
           filterValue: '值',
+        },
+        states: {
+          loading: '正在加载知识库…',
+          error: '无法加载知识库。',
+          empty: '暂无可用知识库。',
+          unavailable: '不可用：{{ref}}',
+          disabled: '不可用',
         },
         actions: {
           addFilter: '添加过滤条件',

@@ -1,12 +1,47 @@
 import React, { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { useQuery } from '@tanstack/react-query'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { Cpu } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useTranslation } from '@/i18n'
+import { listModels, type ModelLibraryItem } from '@/services/provider-service'
 import { useNodeHandles } from '../hooks/use-node-handles'
+
+const isModelHubRef = (value: string): boolean => {
+  if (!value.startsWith('model:')) return false
+  const scopedRef = value.slice('model:'.length)
+  const providerSeparator = scopedRef.indexOf(':')
+  if (providerSeparator < 1) return false
+  const provider = scopedRef.slice(0, providerSeparator)
+  const modelId = scopedRef.slice(providerSeparator + 1)
+  return Boolean(provider.trim() && modelId.trim())
+}
+
+const loadWorkflowModels = async (): Promise<ModelLibraryItem[]> => {
+  const models = await listModels()
+  const refs = new Set<string>()
+  if (!Array.isArray(models) || models.some((model) => {
+    if (
+      !model
+      || typeof model.id !== 'string'
+      || !model.id.trim()
+      || typeof model.name !== 'string'
+      || !model.name.trim()
+      || typeof model.modelName !== 'string'
+      || !isModelHubRef(model.modelName)
+      || typeof model.isActive !== 'boolean'
+      || refs.has(model.modelName)
+    ) return true
+    refs.add(model.modelName)
+    return false
+  })) {
+    throw new Error('Malformed model inventory')
+  }
+  return models
+}
 
 export const LLMNodeInfo = {
   type: 'llm-node',
@@ -21,7 +56,7 @@ export const LLMNodeInfo = {
 
 export const LLMNodeDefaultData = {
   label: 'LLM',
-  modelName: 'gpt-3.5-turbo',
+  modelRef: '',
   temperature: 0.7,
   maxTokens: 1000,
   topP: 1,
@@ -40,7 +75,7 @@ const LLMNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
       </div>
 
       <div className="text-xs text-muted-foreground mb-1">
-        {t('workflow.detail.nodes.llm.fields.modelLabel')}: {data.modelName as string || 'gpt-3.5-turbo'}
+        {t('workflow.detail.nodes.llm.fields.modelLabel')}: {data.modelRef as string || t('workflow.detail.nodes.llm.unsetModel')}
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">
@@ -77,6 +112,27 @@ interface LLMPropertiesProps {
 
 export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) => {
   const { t } = useTranslation()
+  const modelsQuery = useQuery({
+    queryKey: ['workflow', 'models'],
+    queryFn: loadWorkflowModels,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 0,
+    retry: false,
+  })
+  const models = modelsQuery.data || []
+  const modelRef = typeof data.modelRef === 'string' ? data.modelRef : ''
+  const selectedModel = models.find((model) => model.modelName === modelRef)
+  const unavailableLabel = modelRef
+    ? t('workflow.detail.nodes.llm.states.unavailable', { ref: modelRef })
+    : undefined
+  const selectedLabel = selectedModel
+    ? `${selectedModel.name}${selectedModel.isActive ? '' : ` (${t('workflow.detail.nodes.llm.states.disabled')})`}`
+    : unavailableLabel
+  const modelState = modelsQuery.isPending ? t('workflow.detail.nodes.llm.states.loading')
+    : modelsQuery.isError ? t('workflow.detail.nodes.llm.states.error')
+      : models.length === 0 ? t('workflow.detail.nodes.llm.states.empty')
+        : undefined
+  const modelSelectDisabled = modelsQuery.isPending || modelsQuery.isError || models.length === 0
   const handleChange = (field: string, value: any) => {
     onChange({
       ...data,
@@ -97,25 +153,31 @@ export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) 
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="modelName">{t('workflow.detail.nodes.llm.fields.modelLabel')}</Label>
+        <Label htmlFor="modelRef">{t('workflow.detail.nodes.llm.fields.modelLabel')}</Label>
         <Select
-          value={data.modelName || 'gpt-3.5-turbo'}
-          onValueChange={(value) => handleChange('modelName', value)}
+          value={modelRef}
+          onValueChange={(value) => handleChange('modelRef', value)}
+          disabled={modelSelectDisabled}
         >
-          <SelectTrigger id="modelName">
-            <SelectValue placeholder={t('workflow.detail.nodes.llm.placeholders.model')} />
+          <SelectTrigger id="modelRef" aria-describedby="modelRef-status">
+            <SelectValue placeholder={t('workflow.detail.nodes.llm.placeholders.model')}>
+              {selectedLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
-            <SelectItem value="gpt-4">GPT-4</SelectItem>
-            <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-            <SelectItem value="model:anthropic:claude-opus-4-8">Claude Opus 4.8</SelectItem>
-            <SelectItem value="model:anthropic:claude-sonnet-4-6">Claude Sonnet 4.6</SelectItem>
-            <SelectItem value="model:anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5</SelectItem>
-            <SelectItem value="llama-3-70b">Llama 3 70B</SelectItem>
-            <SelectItem value="llama-3-8b">Llama 3 8B</SelectItem>
+            {modelRef && !selectedModel && (
+              <SelectItem value={modelRef} disabled>{unavailableLabel}</SelectItem>
+            )}
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.modelName} disabled={!model.isActive}>
+                {model.name}{model.isActive ? '' : ` (${t('workflow.detail.nodes.llm.states.disabled')})`}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        <p id="modelRef-status" role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {modelState || (modelRef && !selectedModel ? unavailableLabel : '')}
+        </p>
       </div>
 
       <div className="space-y-2">

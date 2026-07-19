@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Any
 
-from packaging.version import parse as parse_version
+from packaging.version import InvalidVersion, Version
 
 
 @dataclass(frozen=True)
@@ -119,22 +119,21 @@ class Registry:
         workspace_id: str,
         name: str,
     ) -> tuple[ArtifactKey, dict[str, Any]] | None:
-        """Get latest version by semantic version comparison.
+        """Get latest version by PEP 440 comparison.
 
-        If versions are not valid semver/PEP440, it falls back to lexicographic order.
+        If any candidate is not valid PEP 440, compare all raw versions
+        lexicographically instead.
         """
         items = self.list(kind=kind, tenant_id=tenant_id, workspace_id=workspace_id, name=name)
         if not items:
             return None
 
-        def _key(item: tuple[ArtifactKey, dict[str, Any]]):
-            k, _ = item
-            try:
-                return parse_version(k.version)
-            except Exception:
-                return k.version
+        try:
+            parsed_versions = {key: Version(key.version) for key, _ in items}
+        except InvalidVersion:
+            return sorted(items, key=lambda item: item[0].version, reverse=True)[0]
 
-        return sorted(items, key=_key, reverse=True)[0]
+        return sorted(items, key=lambda item: parsed_versions[item[0]], reverse=True)[0]
 
     def clear_scope(self, tenant_id: str, workspace_id: str) -> None:
         """Clear all artifacts for a tenant/workspace scope."""

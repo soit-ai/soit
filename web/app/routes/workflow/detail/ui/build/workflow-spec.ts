@@ -371,7 +371,7 @@ const runtimeParamsForNode = (
       }
     case 'llm-node': {
       const params: Record<string, JsonValue> = {
-        model: requireNonEmptyString(node, nodeType, 'model', dataValue(data, 'modelName', 'model')),
+        model: requireNonEmptyString(node, nodeType, 'model', dataValue(data, 'modelRef')),
         prompt: requireString(node, nodeType, 'prompt', dataValue(data, 'prompt')),
       }
       const system = optionalString(node, nodeType, 'system', dataValue(data, 'systemPrompt', 'system'))
@@ -388,7 +388,7 @@ const runtimeParamsForNode = (
           node,
           nodeType,
           'knowledge_ref',
-          dataValue(data, 'customSource', 'knowledgeRef', 'knowledge_ref')
+          dataValue(data, 'knowledgeRef')
         ),
         query: requireString(node, nodeType, 'query', dataValue(data, 'query')),
       }
@@ -407,7 +407,7 @@ const runtimeParamsForNode = (
     }
     case 'tool-node': {
       const params: Record<string, JsonValue> = {
-        tool_ref: requireNonEmptyString(node, nodeType, 'tool_ref', dataValue(data, 'toolName', 'toolRef', 'tool_ref')),
+        tool_ref: requireNonEmptyString(node, nodeType, 'tool_ref', dataValue(data, 'toolRef')),
       }
       const args = optionalJsonValue(node, nodeType, 'arguments', dataValue(data, 'parameters', 'arguments'))
       const input = optionalJsonValue(node, nodeType, 'input', dataValue(data, 'input'))
@@ -660,7 +660,7 @@ const paramDataForBuilder = (
       return { key: param('key'), value: param('value') }
     case 'llm-node':
       return {
-        modelName: param('model'),
+        modelRef: param('model'),
         prompt: param('prompt'),
         systemPrompt: param('system'),
         temperature: param('temperature'),
@@ -669,15 +669,13 @@ const paramDataForBuilder = (
     case 'knowledge-search-node':
       return {
         knowledgeRef: param('knowledge_ref'),
-        customSource: param('knowledge_ref'),
-        dataSource: typeof param('knowledge_ref') === 'string' ? 'custom' : undefined,
         query: param('query'),
         topK: param('top_k'),
         filters: param('filters'),
         rerankModel: param('rerank_model'),
       }
     case 'tool-node':
-      return { toolName: param('tool_ref'), parameters: param('arguments'), input: param('input') }
+      return { toolRef: param('tool_ref'), parameters: param('arguments'), input: param('input') }
     case 'conditional-node':
       return { condition: param('condition') }
     case 'output-node':

@@ -172,6 +172,23 @@ export interface PluginRuntimeReloadResponse {
   loaded_count: number
 }
 
+export interface RuntimeToolItem {
+  tool_ref: string
+  version: string
+  plugin?: {
+    name: string
+    version: string
+  } | null
+  tool_spec?: {
+    name?: string
+    description?: string | null
+    input_schema?: Record<string, unknown> | null
+  } | null
+}
+
+export const listRuntimeTools = (): Promise<{ tools: RuntimeToolItem[] }> =>
+  get<{ tools: RuntimeToolItem[] }>('/plugins/runtime/tools')
+
 export const reloadPluginRuntime = (): Promise<PluginRuntimeReloadResponse> => {
   return post<PluginRuntimeReloadResponse>('/plugins/runtime/reload', {}).then(unwrapApiData)
 }

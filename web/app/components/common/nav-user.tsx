@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { useNavigate } from '@/hooks/use-navigate'
 import { storage } from '@/utils/storage'
 import { useUserStore } from '@/stores/user'
+import { useQueryClient } from '@tanstack/react-query'
 
 export function NavUser({
   user,
@@ -24,9 +25,11 @@ export function NavUser({
 }) {
   const { isMobile } = useSidebar()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const clearUser = useUserStore((state) => state.clearUser)
 
   const handleLogout = async () => {
+    queryClient.clear()
     clearUser()
     await storage.delete('token')
     await storage.delete('workspace_id')

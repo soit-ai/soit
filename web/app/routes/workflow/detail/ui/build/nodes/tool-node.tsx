@@ -1,5 +1,6 @@
 import React, { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { useQuery } from '@tanstack/react-query'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { Wrench, Plus, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -7,7 +8,47 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useTranslation } from '@/i18n'
+import { listRuntimeTools, type RuntimeToolItem } from '@/services/plugin-service'
 import { useNodeHandles } from '../hooks/use-node-handles'
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const loadWorkflowRuntimeTools = async (): Promise<RuntimeToolItem[]> => {
+  const response = await listRuntimeTools()
+  const tools = response?.tools
+  const refs = new Set<string>()
+  if (!Array.isArray(tools) || tools.some((tool) => {
+    const spec = tool?.tool_spec
+    const plugin = tool?.plugin
+    if (
+      !tool
+      || typeof tool.tool_ref !== 'string'
+      || !tool.tool_ref.trim()
+      || typeof tool.version !== 'string'
+      || !tool.version.trim()
+      || (plugin !== undefined && plugin !== null && (
+        !isRecord(plugin)
+        || typeof plugin.name !== 'string'
+        || !plugin.name.trim()
+        || typeof plugin.version !== 'string'
+        || !plugin.version.trim()
+        || plugin.version !== tool.version
+      ))
+      || (spec !== undefined && spec !== null && !isRecord(spec))
+      || (spec?.name !== undefined && typeof spec.name !== 'string')
+      || (spec?.description !== undefined && spec.description !== null && typeof spec.description !== 'string')
+      || (spec?.input_schema !== undefined && spec.input_schema !== null && !isRecord(spec.input_schema))
+      || refs.has(tool.tool_ref)
+    ) return true
+    refs.add(tool.tool_ref)
+    return false
+  })) {
+    throw new Error('Malformed runtime tool inventory')
+  }
+  return tools
+}
 
 export const ToolNodeInfo = {
   type: 'tool-node',
@@ -22,7 +63,7 @@ export const ToolNodeInfo = {
 
 export const ToolNodeDefaultData = {
   label: 'Tool Call',
-  toolName: '',
+  toolRef: '',
   description: '',
   parameters: {},
 }
@@ -39,7 +80,7 @@ const ToolNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
       </div>
 
       <div className="text-xs text-muted-foreground mb-1">
-        {t('workflow.detail.nodes.tool.fields.toolLabel')}: {data.toolName as string || t('workflow.detail.nodes.tool.unsetTool')}
+        {t('workflow.detail.nodes.tool.fields.toolLabel')}: {data.toolRef as string || t('workflow.detail.nodes.tool.unsetTool')}
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">
@@ -76,6 +117,25 @@ interface ToolPropertiesProps {
 
 export const ToolProperties: React.FC<ToolPropertiesProps> = ({ data, onChange }) => {
   const { t } = useTranslation()
+  const toolsQuery = useQuery({
+    queryKey: ['workflow', 'runtime-tools'],
+    queryFn: loadWorkflowRuntimeTools,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 0,
+    retry: false,
+  })
+  const tools = toolsQuery.data || []
+  const toolRef = typeof data.toolRef === 'string' ? data.toolRef : ''
+  const selectedTool = tools.find((tool) => tool.tool_ref === toolRef)
+  const unavailableLabel = toolRef
+    ? t('workflow.detail.nodes.tool.states.unavailable', { ref: toolRef })
+    : undefined
+  const selectedLabel = selectedTool?.tool_spec?.name || selectedTool?.tool_ref || unavailableLabel
+  const toolState = toolsQuery.isPending ? t('workflow.detail.nodes.tool.states.loading')
+    : toolsQuery.isError ? t('workflow.detail.nodes.tool.states.error')
+      : tools.length === 0 ? t('workflow.detail.nodes.tool.states.empty')
+        : undefined
+  const toolSelectDisabled = toolsQuery.isPending || toolsQuery.isError || tools.length === 0
   const handleChange = (field: string, value: any) => {
     onChange({
       ...data,
@@ -124,22 +184,32 @@ export const ToolProperties: React.FC<ToolPropertiesProps> = ({ data, onChange }
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="toolName">{t('workflow.detail.nodes.tool.fields.toolLabel')}</Label>
+        <Label htmlFor="toolRef">{t('workflow.detail.nodes.tool.fields.toolLabel')}</Label>
         <Select
-          value={data.toolName || ''}
-          onValueChange={(value) => handleChange('toolName', value)}
+          value={toolRef}
+          onValueChange={(value) => handleChange('toolRef', value)}
+          disabled={toolSelectDisabled}
         >
-          <SelectTrigger id="toolName">
-            <SelectValue placeholder={t('workflow.detail.nodes.tool.placeholders.tool')} />
+          <SelectTrigger id="toolRef" aria-describedby="toolRef-status">
+            <SelectValue placeholder={t('workflow.detail.nodes.tool.placeholders.tool')}>
+              {selectedLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="search">{t('workflow.detail.nodes.tool.tools.search')}</SelectItem>
-            <SelectItem value="calculator">{t('workflow.detail.nodes.tool.tools.calculator')}</SelectItem>
-            <SelectItem value="weather">{t('workflow.detail.nodes.tool.tools.weather')}</SelectItem>
-            <SelectItem value="calendar">{t('workflow.detail.nodes.tool.tools.calendar')}</SelectItem>
-            <SelectItem value="custom">{t('workflow.detail.nodes.tool.tools.custom')}</SelectItem>
+            {toolRef && !selectedTool && (
+              <SelectItem value={toolRef} disabled>{unavailableLabel}</SelectItem>
+            )}
+            {tools.map((tool) => (
+              <SelectItem key={tool.tool_ref} value={tool.tool_ref}>
+                <span>{tool.tool_spec?.name || tool.tool_ref}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{tool.tool_ref} · v{tool.version}</span>
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        <p id="toolRef-status" role="status" aria-live="polite" className="text-xs text-muted-foreground">
+          {toolState || (toolRef && !selectedTool ? unavailableLabel : '')}
+        </p>
       </div>
 
       <div className="space-y-2">

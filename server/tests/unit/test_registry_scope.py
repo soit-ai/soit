@@ -4,6 +4,7 @@ Registry must isolate artifacts by tenant/workspace.
 """
 
 from app.kernel.registry.deps import get_registry
+from app.kernel.registry.registry import Registry
 
 
 def test_registry_is_scoped_by_tenant_workspace():
@@ -19,3 +20,26 @@ def test_registry_is_scoped_by_tenant_workspace():
 
     assert p1["a"] == 1
     assert p2["a"] == 2
+
+
+def test_registry_latest_falls_back_to_lexicographic_when_any_version_is_invalid():
+    registry = Registry()
+    scope = {
+        "kind": "tool",
+        "tenant_id": "test-tenant",
+        "workspace_id": "test-workspace",
+        "name": "tool:function:registry-cache",
+    }
+    registry.register(**scope, version="1.0.0", payload={"label": "stable"})
+    registry.register(
+        **scope,
+        version="registry-cache",
+        payload={"label": "lexicographic"},
+    )
+
+    latest = registry.get_latest(**scope)
+
+    assert latest is not None
+    key, payload = latest
+    assert key.version == "registry-cache"
+    assert payload == {"label": "lexicographic"}

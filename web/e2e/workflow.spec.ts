@@ -129,6 +129,58 @@ const mockWorkflowCapabilities = {
   compatibility_node_types: ['http', 'node'],
 }
 
+const mockModelWorkbenchResponse = (items: Record<string, unknown>[]) => ({
+  summary: {
+    total_models: items.length,
+    available_models: items.filter((item) => item.status === 'available').length,
+    total_providers: items.length ? 1 : 0,
+    online_providers: items.length ? 1 : 0,
+    month_calls: 0,
+    month_tokens: 0,
+    month_cost_amount: 0,
+    abnormal_models: 0,
+    updated_at: '2026-07-19T00:00:00.000Z',
+  },
+  tabs: {
+    all: items.length,
+    text: items.filter((item) => item.model_type === 'text').length,
+    embedding: 0,
+    multimodal: 0,
+    rerank: 0,
+    disabled: 0,
+    abnormal: 0,
+  },
+  items,
+  next_page_token: null,
+  page_size: items.length,
+})
+
+const mockKnowledgeListResponse = (items: Record<string, unknown>[]) => ({
+  items,
+  next_page_token: null,
+  page_size: items.length,
+  has_next: false,
+})
+
+const mockKnowledgeBase = (overrides: Record<string, unknown>) => ({
+  id: 'knowledge-1',
+  tenant_id: 'tenant-1',
+  workspace_id: 'workspace-1',
+  name: 'Knowledge base',
+  description: null,
+  status: 'active',
+  visibility: 'private',
+  knowledge_type: 'document',
+  settings_json: {},
+  chunking_json: {},
+  retrieval_json: {},
+  doc_count: 0,
+  chunk_count: 0,
+  created_at: '2026-07-19T00:00:00.000Z',
+  updated_at: '2026-07-19T00:00:00.000Z',
+  ...overrides,
+})
+
 const canonicalNodeParams = {
   input: { select: ['question', 'locale'] },
   transform: {
@@ -429,6 +481,42 @@ const editorInteractionWorkflowVersion = {
           name: 'Interaction Condition',
           params: { condition: 'true' },
           ui: { builder_type: 'conditional-node', position: { x: 560, y: 560 }, data: { label: 'Interaction Condition' } },
+        },
+      ],
+      edges: [],
+    },
+  },
+}
+
+const scopedResourceWorkflowVersion = {
+  ...mockWorkflowVersion,
+  graph_json: {
+    name: 'Scoped Resource Workflow',
+    description: 'Builder resource references come from workspace-scoped inventories',
+    inputs_schema: { type: 'object', properties: {} },
+    outputs_schema: { type: 'object', properties: {} },
+    graph: {
+      nodes: [
+        {
+          id: 'scoped-llm',
+          type: 'llm',
+          name: 'Scoped LLM',
+          params: { model: 'model:legacy:missing', prompt: '{{ inputs.question }}' },
+          ui: { builder_type: 'llm-node', position: { x: 560, y: 80 }, data: { label: 'Scoped LLM' } },
+        },
+        {
+          id: 'scoped-knowledge',
+          type: 'retrieve',
+          name: 'Scoped Knowledge',
+          params: { knowledge_ref: 'knowledge:legacy-missing', query: '{{ inputs.question }}', top_k: 3 },
+          ui: { builder_type: 'knowledge-search-node', position: { x: 560, y: 280 }, data: { label: 'Scoped Knowledge' } },
+        },
+        {
+          id: 'scoped-tool',
+          type: 'tool',
+          name: 'Scoped Tool',
+          params: { tool_ref: 'tool:legacy:missing', arguments: {}, input: '{{ steps.scoped-knowledge.output.result }}' },
+          ui: { builder_type: 'tool-node', position: { x: 560, y: 480 }, data: { label: 'Scoped Tool' } },
         },
       ],
       edges: [],
@@ -1082,6 +1170,362 @@ test('properties label edit is preserved in the workflow save request', async ({
     modelName: 'stale:model',
     presentation: 'model-card',
   })
+})
+
+test('scoped workflow resources load accessible inventory options and save only canonical references', async ({ page }) => {
+  let versionPayload: Record<string, any> | null = null
+  const requestedInventories: string[] = []
+
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    requestedInventories.push(new URL(route.request().url()).pathname)
+    expect(route.request().headers()['x-workspace-id']).toBe('workspace-1')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([{
+          id: 'model-1',
+          provider_id: 'provider-1',
+          provider_slug: 'provider-1',
+          provider_name: 'Primary Provider',
+          provider_kind: 'openai',
+          model_id: 'gpt-primary',
+          display_name: 'Primary GPT',
+          model_type: 'text',
+          status: 'available',
+          sync_status: 'synced',
+          source: 'manual',
+          month_calls: 0,
+          today_calls: 0,
+          month_tokens: 0,
+          month_cost_amount: 0,
+          recent_exception_count: 0,
+          updated_at: '2026-07-19T00:00:00.000Z',
+          action_enabled: true,
+        }]) }),
+    })
+  })
+  await page.route('**/api/v1/knowledge**', async (route) => {
+    requestedInventories.push(new URL(route.request().url()).pathname)
+    expect(route.request().headers()['x-workspace-id']).toBe('workspace-1')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockKnowledgeListResponse([
+        mockKnowledgeBase({ id: 'kb-support', name: 'Support KB', status: 'active' }),
+      ]) }),
+    })
+  })
+  await page.route('**/api/v1/plugins/runtime/tools', async (route) => {
+    requestedInventories.push(new URL(route.request().url()).pathname)
+    expect(route.request().headers()['x-workspace-id']).toBe('workspace-1')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+        tools: [{
+          tool_ref: 'tool:plugin:tickets:create',
+          version: '1.10.0',
+          plugin: { name: 'tickets', version: '1.10.0' },
+          tool_spec: { name: 'Create ticket', description: 'Create a support ticket', input_schema: {} },
+        }],
+      } }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    versionPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await expect(page.locator('#modelRef')).toContainText('Unavailable: model:legacy:missing')
+  await page.locator('#modelRef').click()
+  await expect(page.getByRole('option', { name: 'Primary GPT' })).toBeVisible()
+  await page.getByRole('option', { name: 'Primary GPT' }).click()
+
+  await page.locator('.react-flow__node[data-id="scoped-knowledge"]').click()
+  await expect(page.locator('#knowledgeRef')).toContainText('Unavailable: knowledge:legacy-missing')
+  await page.locator('#knowledgeRef').click()
+  await expect(page.getByRole('option', { name: 'Support KB' })).toBeVisible()
+  await page.getByRole('option', { name: 'Support KB' }).click()
+
+  await page.locator('.react-flow__node[data-id="scoped-tool"]').click()
+  await expect(page.locator('#toolRef')).toContainText('Unavailable: tool:legacy:missing')
+  await page.locator('#toolRef').click()
+  const createTicketOption = page.getByRole('option', {
+    name: /Create ticket.*tool:plugin:tickets:create.*v1\.10\.0/,
+  })
+  await expect(createTicketOption).toBeVisible()
+  await createTicketOption.click()
+
+  await page.getByRole('button', { name: 'Save Workflow' }).click()
+  await expect.poll(() => versionPayload).not.toBeNull()
+
+  const savedNodes = (versionPayload as unknown as Record<string, any>).graph_json.graph.nodes
+  expect(savedNodes.find((node: Record<string, unknown>) => node.id === 'scoped-llm').params).toEqual({
+    model: 'model:provider-1:gpt-primary',
+    prompt: '{{ inputs.question }}',
+  })
+  expect(savedNodes.find((node: Record<string, unknown>) => node.id === 'scoped-knowledge').params).toEqual({
+    knowledge_ref: 'knowledge:kb-support',
+    query: '{{ inputs.question }}',
+    top_k: 3,
+  })
+  expect(savedNodes.find((node: Record<string, unknown>) => node.id === 'scoped-tool').params).toEqual({
+    tool_ref: 'tool:plugin:tickets:create',
+    arguments: {},
+    input: '{{ steps.scoped-knowledge.output.result }}',
+  })
+  expect(requestedInventories.sort()).toEqual([
+    '/api/v1/knowledge',
+    '/api/v1/modelhub/workbench/models',
+    '/api/v1/plugins/runtime/tools',
+  ])
+})
+
+test('scoped workflow resources preserve broad ModelHub references and save them exactly', async ({ page }) => {
+  let versionPayload: Record<string, any> | null = null
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([{
+        id: 'versioned-model',
+        provider_id: 'provider-openrouter',
+        provider_slug: 'openrouter',
+        provider_name: 'OpenRouter',
+        provider_kind: 'openrouter',
+        model_id: 'meta-llama/llama-3.1@stable',
+        display_name: 'OpenRouter Llama',
+        model_type: 'text',
+        status: 'available',
+        sync_status: 'synced',
+        source: 'manual',
+        month_calls: 0,
+        today_calls: 0,
+        month_tokens: 0,
+        month_cost_amount: 0,
+        recent_exception_count: 0,
+        updated_at: '2026-07-19T00:00:00.000Z',
+        action_enabled: true,
+      }]) }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/versions', async (route) => {
+    versionPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await page.locator('#modelRef').click()
+  await page.getByRole('option', { name: 'OpenRouter Llama' }).click()
+  await page.getByRole('button', { name: 'Save Workflow' }).click()
+  await expect.poll(() => versionPayload).not.toBeNull()
+
+  const savedLlm = (versionPayload as unknown as Record<string, any>).graph_json.graph.nodes.find(
+    (node: Record<string, unknown>) => node.id === 'scoped-llm',
+  )
+  expect(savedLlm.params.model).toBe('model:openrouter:meta-llama/llama-3.1@stable')
+})
+
+test('scoped workflow resources refetch after a workspace route transition instead of reusing cached options', async ({ page }) => {
+  const requestedWorkspaces: string[] = []
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    const workspaceId = route.request().headers()['x-workspace-id'] || 'missing'
+    requestedWorkspaces.push(workspaceId)
+    const suffix = workspaceId === 'workspace-b' ? 'B' : 'A'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([{
+        id: `workspace-${suffix.toLowerCase()}-model`,
+        provider_id: `provider-${suffix.toLowerCase()}`,
+        provider_slug: `workspace-${suffix.toLowerCase()}`,
+        provider_name: `Workspace ${suffix}`,
+        provider_kind: 'openai',
+        model_id: 'primary',
+        display_name: `Workspace ${suffix} Model`,
+        model_type: 'text',
+        status: 'available',
+        sync_status: 'synced',
+        source: 'manual',
+        month_calls: 0,
+        today_calls: 0,
+        month_tokens: 0,
+        month_cost_amount: 0,
+        recent_exception_count: 0,
+        updated_at: '2026-07-19T00:00:00.000Z',
+        action_enabled: true,
+      }]) }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await page.locator('#modelRef').click()
+  await expect(page.getByRole('option', { name: 'Workspace A Model' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button').filter({ has: page.locator('svg.lucide-workflow') }).first().click()
+  await expect(page).toHaveURL(/\/workflow$/)
+  await page.evaluate(() => localStorage.setItem('workspace_id', 'workspace-b'))
+  await page.goBack({ waitUntil: 'domcontentloaded' })
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await page.locator('#modelRef').click()
+  await expect(page.getByRole('option', { name: 'Workspace B Model' })).toBeVisible()
+  await expect(requestedWorkspaces).toEqual(['workspace-1', 'workspace-b'])
+})
+
+test('scoped workflow resources keep restored references visible and fail closed on malformed inventories', async ({ page }) => {
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([{
+        id: 'malformed-model',
+        provider_slug: '',
+        model_id: '',
+        display_name: '',
+        model_type: 'text',
+        status: 'available',
+        updated_at: '2026-07-19T00:00:00.000Z',
+      }]) }),
+    })
+  })
+  await page.route('**/api/v1/knowledge**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockKnowledgeListResponse([
+        mockKnowledgeBase({ id: 'malformed-knowledge', name: '', status: 'active' }),
+      ]) }),
+    })
+  })
+  await page.route('**/api/v1/plugins/runtime/tools', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+        tools: [{
+          tool_ref: 'tool:malformed',
+          version: '',
+          plugin: { name: 'malformed', version: '' },
+          tool_spec: {},
+        }],
+      } }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+
+  for (const resource of [
+    { nodeId: 'scoped-llm', trigger: '#modelRef', ref: 'model:legacy:missing', error: 'Unable to load models.' },
+    { nodeId: 'scoped-knowledge', trigger: '#knowledgeRef', ref: 'knowledge:legacy-missing', error: 'Unable to load knowledge bases.' },
+    { nodeId: 'scoped-tool', trigger: '#toolRef', ref: 'tool:legacy:missing', error: 'Unable to load tools.' },
+  ]) {
+    await page.locator(`.react-flow__node[data-id="${resource.nodeId}"]`).click()
+    await expect(page.locator(resource.trigger)).toBeDisabled()
+    await expect(page.locator(resource.trigger)).toContainText(`Unavailable: ${resource.ref}`)
+    await expect(page.getByText(resource.error, { exact: true })).toBeVisible()
+  }
+})
+
+test('scoped workflow resources localize loading, empty, and disabled inventory states', async ({ page }) => {
+  let releaseModels: (() => void) | undefined
+  const modelsReady = new Promise<void>((resolve) => {
+    releaseModels = resolve
+  })
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    await modelsReady
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([]) }),
+    })
+  })
+  await page.route('**/api/v1/knowledge**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockKnowledgeListResponse([
+        mockKnowledgeBase({ id: 'kb-archived', name: 'Archived KB', status: 'archived' }),
+      ]) }),
+    })
+  })
+  await page.route('**/api/v1/plugins/runtime/tools', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { tools: [] } }),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await expect(page.getByText('Loading models...', { exact: true })).toBeVisible()
+  await expect(page.locator('#modelRef')).toBeDisabled()
+  releaseModels?.()
+  await expect(page.getByText('No models available.', { exact: true })).toBeVisible()
+  await expect(page.locator('#modelRef')).toContainText('Unavailable: model:legacy:missing')
+
+  await page.locator('.react-flow__node[data-id="scoped-knowledge"]').click()
+  await expect(page.locator('#knowledgeRef')).toBeEnabled()
+  await page.locator('#knowledgeRef').click()
+  const disabledKnowledge = page.getByRole('option', { name: 'Archived KB (Unavailable)' })
+  await expect(disabledKnowledge).toBeVisible()
+  await expect(disabledKnowledge).toHaveAttribute('aria-disabled', 'true')
+  await page.keyboard.press('Escape')
+
+  await page.locator('.react-flow__node[data-id="scoped-tool"]').click()
+  await expect(page.getByText('No tools available.', { exact: true })).toBeVisible()
+  await expect(page.locator('#toolRef')).toBeDisabled()
+  await expect(page.locator('#toolRef')).toContainText('Unavailable: tool:legacy:missing')
 })
 
 test('property editors retain sequential input and save the latest combined values', async ({ page }) => {
