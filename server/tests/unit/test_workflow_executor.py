@@ -33,9 +33,53 @@ from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executor import WorkflowExecutor
+from app.modules.workflow.runtime.executors import _executor_registry
 from app.modules.workflow.runtime.executors.base import ExecutionContext
 from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
 from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
+from tests.fixtures.workflow_specs import CANONICAL_NODE_TYPES, canonical_workflow_spec
+
+
+def test_workflow_executor_registry_records_current_node_types() -> None:
+    """The current runtime registry includes canonical and compatibility executors."""
+    assert set(_executor_registry) == {
+        "condition",
+        "http",
+        "llm",
+        "node",
+        "output",
+        "retrieve",
+        "set_var",
+        "tool",
+        "transform",
+    }
+
+
+def test_canonical_node_types_document_the_approved_target() -> None:
+    assert CANONICAL_NODE_TYPES == (
+        "input",
+        "transform",
+        "set_var",
+        "llm",
+        "retrieve",
+        "tool",
+        "condition",
+        "output",
+    )
+
+
+def test_canonical_workflow_spec_returns_deeply_isolated_copies() -> None:
+    caller_params = {"mapping": {"value": {"tags": ["original"]}}}
+    caller_spec = canonical_workflow_spec(params=caller_params)
+    first_default_spec = canonical_workflow_spec()
+    second_default_spec = canonical_workflow_spec()
+
+    caller_params["mapping"]["value"]["tags"].append("mutated")
+    caller_spec["graph"]["nodes"][0]["params"]["mapping"]["value"]["tags"].append("saved")
+    first_default_spec["graph"]["nodes"][0]["params"]["mapping"]["value"] = False
+
+    assert caller_spec["graph"]["nodes"][0]["params"]["mapping"]["value"]["tags"] == ["original", "saved"]
+    assert second_default_spec["graph"]["nodes"][0]["params"] == {"mapping": {"value": True}}
 
 
 class FakeLLMPort(LLMPort):

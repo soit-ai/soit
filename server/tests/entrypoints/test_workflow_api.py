@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.kernel.runtime.db.models.responses import Response
 from app.kernel.runtime.db.models.runs import Run
 from app.modules.workflow.domain.models import WorkflowPublish
+from tests.fixtures.workflow_specs import canonical_workflow_spec
 
 
 class TestWorkflowAPI:
@@ -316,6 +317,25 @@ class TestWorkflowAPI:
         detail_payload = detail_response.json()["data"]
         assert detail_payload["current_version_id"] == payload["id"]
         assert detail_payload["published_version_id"] is None
+
+    def test_create_workflow_version_preserves_original_spec_json(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "preserve-workflow-spec"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        original_spec = canonical_workflow_spec()
+        version_response = client.post(
+            f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
+            json={"graph_json": original_spec, "created_by": "test-user"},
+            headers=headers,
+        )
+
+        assert version_response.status_code == status.HTTP_201_CREATED
+        assert version_response.json()["data"]["graph_json"] == original_spec
 
     def test_publish_workflow_promotes_existing_draft(self, client, db):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
