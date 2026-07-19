@@ -3,6 +3,7 @@
 Integration tests for Workflow API endpoints.
 """
 
+import pytest
 from fastapi import status
 from sqlalchemy import select
 
@@ -14,6 +15,297 @@ from tests.fixtures.workflow_specs import canonical_workflow_spec
 
 class TestWorkflowAPI:
     """Test workflow API endpoints."""
+
+    def test_get_workflow_capabilities(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+
+        response = client.get("/api/v1/workflows/capabilities", headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()["data"]
+        assert payload["builder_node_types"] == [
+            "input",
+            "transform",
+            "set_var",
+            "llm",
+            "retrieve",
+            "tool",
+            "condition",
+            "output",
+        ]
+        assert payload["compatibility_node_types"] == ["http", "node"]
+        assert payload["capabilities"] == [
+            {"type": "input", "ui_type": "input-node", "category": "input", "executable": True},
+            {"type": "transform", "ui_type": "transform-node", "category": "data", "executable": True},
+            {
+                "type": "set_var",
+                "ui_type": "variable-assignment-node",
+                "category": "data",
+                "executable": True,
+            },
+            {"type": "llm", "ui_type": "llm-node", "category": "model", "executable": True},
+            {
+                "type": "retrieve",
+                "ui_type": "knowledge-search-node",
+                "category": "data",
+                "executable": True,
+            },
+            {"type": "tool", "ui_type": "tool-node", "category": "tool", "executable": True},
+            {
+                "type": "condition",
+                "ui_type": "conditional-node",
+                "category": "flow",
+                "executable": True,
+            },
+            {"type": "output", "ui_type": "output-node", "category": "output", "executable": True},
+        ]
+
+    def test_create_workflow_version_rejects_spoofed_created_by(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "reject-version-actor-spoof"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
+            json={"graph_json": canonical_workflow_spec(), "created_by": "spoofed-user"},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_import_workflow_dsl_rejects_spoofed_created_by(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "reject-import-actor-spoof"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/api/v1/workflows/{create_response.json()['data']['id']}/dsl",
+            json={
+                "dsl": canonical_workflow_spec(),
+                "format": "json",
+                "created_by": "spoofed-user",
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_create_workflow_version_empty_body_preserves_validation_response(self, client):
+        headers = {
+            "Content-Type": "application/json",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(
+            "/api/v1/workflows/wf-empty-version-body/versions",
+            content=b"",
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_import_workflow_dsl_empty_body_preserves_validation_response(self, client):
+        headers = {
+            "Content-Type": "application/json",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(
+            "/api/v1/workflows/wf-empty-import-body/dsl",
+            content=b"",
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/workflows/wf-invalid-bytes/versions",
+            "/api/v1/workflows/wf-invalid-bytes/dsl",
+        ],
+    )
+    def test_workflow_actor_guard_invalid_text_bytes_preserve_validation_response(self, client, path):
+        headers = {
+            "Content-Type": "text/plain",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(path, content=b"\xff", headers=headers)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/workflows/wf-malformed-json/versions",
+            "/api/v1/workflows/wf-malformed-json/dsl",
+        ],
+    )
+    def test_workflow_actor_guard_malformed_json_preserves_validation_response(self, client, path):
+        headers = {
+            "Content-Type": "application/json",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(path, content=b"{", headers=headers)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        ("path", "payload"),
+        [
+            ("/api/v1/workflows/wf-array-body/versions", []),
+            ("/api/v1/workflows/wf-scalar-body/versions", "created_by"),
+            ("/api/v1/workflows/wf-array-body/dsl", []),
+            ("/api/v1/workflows/wf-scalar-body/dsl", "created_by"),
+        ],
+    )
+    def test_workflow_actor_guard_non_object_json_preserves_validation_response(self, client, path, payload):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+
+        response = client.post(path, json=payload, headers=headers)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/workflows/wf-wrong-media/versions",
+            "/api/v1/workflows/wf-wrong-media/dsl",
+        ],
+    )
+    def test_workflow_actor_guard_ignores_wrong_media_type(self, client, path):
+        headers = {
+            "Content-Type": "text/plain; charset=utf-8",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(
+            path,
+            content=b'{"created_by":"spoofed-user"}',
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/workflows/wf-structured-json/versions",
+            "/api/v1/workflows/wf-structured-json/dsl",
+        ],
+    )
+    def test_workflow_actor_guard_inspects_structured_json_media_type(self, client, path):
+        headers = {
+            "Content-Type": "Application/Vnd.Soit+Json; charset=utf-8",
+            "X-Tenant-Id": "test-tenant",
+            "X-Workspace-Id": "test-workspace",
+        }
+
+        response = client.post(
+            path,
+            content=b'{"created_by":"spoofed-user"}',
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    @pytest.mark.parametrize(
+        ("path", "payload"),
+        [
+            (
+                "/api/v1/workflows/wf-viewer-actor/versions",
+                {"graph_json": canonical_workflow_spec(), "created_by": "spoofed-user"},
+            ),
+            (
+                "/api/v1/workflows/wf-viewer-actor/dsl",
+                {
+                    "dsl": canonical_workflow_spec(),
+                    "format": "json",
+                    "created_by": "spoofed-user",
+                },
+            ),
+        ],
+    )
+    def test_workflow_actor_guard_authorization_precedes_actor_rejection(self, client, path, payload):
+        from app.kernel.contracts.context import RequestContext
+        from app.main import app
+        from app.middleware.auth import get_current_context
+
+        async def _override_get_current_context() -> RequestContext:
+            return RequestContext(
+                tenant_id="test-tenant",
+                workspace_id="test-workspace",
+                user_id="test-viewer",
+                tenant_role="Viewer",
+                workspace_role="Viewer",
+            )
+
+        previous_override = app.dependency_overrides.get(get_current_context)
+        app.dependency_overrides[get_current_context] = _override_get_current_context
+        try:
+            response = client.post(
+                path,
+                json=payload,
+                headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+            )
+        finally:
+            if previous_override is None:
+                app.dependency_overrides.pop(get_current_context, None)
+            else:
+                app.dependency_overrides[get_current_context] = previous_override
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_create_workflow_version_uses_authenticated_actor(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "authenticated-version-actor"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
+            json={"graph_json": canonical_workflow_spec()},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["data"]["created_by"] == "test-user"
+
+    def test_import_workflow_dsl_uses_authenticated_actor(self, client):
+        headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+        create_response = client.post(
+            "/api/v1/workflows",
+            json={"name": "authenticated-import-actor"},
+            headers=headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/api/v1/workflows/{create_response.json()['data']['id']}/dsl",
+            json={"dsl": canonical_workflow_spec(), "format": "json"},
+            headers=headers,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["data"]["created_by"] == "test-user"
 
     def test_create_workflow(self, client):
         """Test creating a workflow."""
@@ -291,7 +583,6 @@ class TestWorkflowAPI:
                         "edges": [{"id": "e1", "from": "set1", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -330,7 +621,7 @@ class TestWorkflowAPI:
         original_spec = canonical_workflow_spec()
         version_response = client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
-            json={"graph_json": original_spec, "created_by": "test-user"},
+            json={"graph_json": original_spec},
             headers=headers,
         )
 
@@ -367,7 +658,6 @@ class TestWorkflowAPI:
                         "edges": [{"id": "e1", "from": "set1", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )
@@ -606,7 +896,6 @@ class TestWorkflowAPI:
                         "edges": [{"id": "e1", "from": "llm1", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )
@@ -716,7 +1005,6 @@ class TestWorkflowAPI:
                         "edges": [{"id": "e1", "from": "ticket_tool", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )
@@ -791,7 +1079,6 @@ class TestWorkflowAPI:
                         "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )

@@ -194,6 +194,42 @@ def test_enterprise_mvp_smoke_bootstrap_uses_requested_admin(monkeypatch):
     assert bootstrap_command[bootstrap_command.index("--password") + 1] == "12345678"
 
 
+def test_smoke_workflow_version_request_omits_created_by(monkeypatch):
+    requests = []
+
+    def fake_request(_ctx, method, path, **kwargs):
+        requests.append((method, path, kwargs))
+        if path == "/workflows":
+            return {"id": "wf-smoke"}
+        if path == "/workflows/wf-smoke/versions":
+            return {"id": "wfv-smoke"}
+        if path == "/workflows/wf-smoke/execute":
+            return {"run_id": "run-smoke"}
+        return {}
+
+    monkeypatch.setattr(smoke_run_all, "_request", fake_request)
+    ctx = smoke_run_all.SmokeContext(
+        base_url="http://testserver/api/v1",
+        token="test-token",
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        user_id="test-user",
+        strict=False,
+        timeout_seconds=30,
+        poll_interval=0.01,
+        embedding_model_ref="model:test:embedding",
+        response_model_ref="model:test:chat",
+        inline_ingest_worker=False,
+    )
+
+    smoke_run_all.demo_workflow(ctx)
+
+    version_request = next(item for item in requests if item[1] == "/workflows/wf-smoke/versions")
+    payload = version_request[2]["json"]
+    assert "graph_json" in payload
+    assert "created_by" not in payload
+
+
 def test_smoke_llm_gate_allows_test_model_refs_without_openai_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 

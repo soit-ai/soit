@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import requests
 
@@ -80,10 +80,10 @@ def _request(
     method: str,
     path: str,
     *,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
     timeout: int = 30,
     **kwargs: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     url = ctx.base_url.rstrip("/") + path
     merged_headers = {
         "Accept": "application/json",
@@ -104,7 +104,7 @@ def _request(
     return payload.get("data", payload)
 
 
-def _login(base_url: str, email: str, password: str) -> Tuple[str, str]:
+def _login(base_url: str, email: str, password: str) -> tuple[str, str]:
     url = base_url.rstrip("/") + "/login"
     response = requests.post(
         url,
@@ -123,7 +123,7 @@ def _login(base_url: str, email: str, password: str) -> Tuple[str, str]:
     return token, workspace_id
 
 
-def _get_current_actor(ctx: SmokeContext) -> Tuple[str, str]:
+def _get_current_actor(ctx: SmokeContext) -> tuple[str, str]:
     data = _request(ctx, "GET", "/me")
     user_id = data.get("id")
     tenant_id = data.get("tenant_id")
@@ -351,7 +351,7 @@ def demo_workflow(ctx: SmokeContext) -> None:
         ctx,
         "POST",
         f"/workflows/{workflow_id}/versions",
-        json={"graph_json": spec, "created_by": ctx.user_id},
+        json={"graph_json": spec},
     )
     version_id = version.get("id")
     if not version_id:

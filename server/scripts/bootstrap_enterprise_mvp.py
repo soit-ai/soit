@@ -543,7 +543,7 @@ async def _ensure_workflow(db, ctx: RequestContext) -> Workflow:
     if not workflow.current_version_id:
         version = await service.create_version(
             workflow.id,
-            WorkflowVersionCreate(graph_json=spec_json, created_by=ctx.user_id or ""),
+            WorkflowVersionCreate(graph_json=spec_json),
         )
         workflow = service._get_workflow(workflow.id)
         workflow.current_version_id = version.id
@@ -563,7 +563,7 @@ async def _ensure_workflow(db, ctx: RequestContext) -> Workflow:
         if current_version is None or current_version.spec_json != spec_json:
             version = await service.create_version(
                 workflow.id,
-                WorkflowVersionCreate(graph_json=spec_json, created_by=ctx.user_id or ""),
+                WorkflowVersionCreate(graph_json=spec_json),
             )
             workflow = service._get_workflow(workflow.id)
             workflow.current_version_id = version.id

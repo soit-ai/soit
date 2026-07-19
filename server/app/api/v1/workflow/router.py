@@ -4,7 +4,9 @@ Workflow API routes (FastAPI).
 """
 
 
-from fastapi import APIRouter, Body, Depends, status
+from json import JSONDecodeError
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -18,6 +20,7 @@ from app.api.v1.workflow.streaming import SSEHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
 from app.modules.workflow.application.schemas import (
+    WorkflowCapabilitiesResponse,
     WorkflowCreate,
     WorkflowDSLExport,
     WorkflowDSLImport,
@@ -35,6 +38,27 @@ from app.modules.workflow.application.schemas import (
 from app.modules.workflow.application.service import WorkflowService
 
 router = APIRouter()
+
+
+async def _reject_caller_supplied_actor(
+    request: Request,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+) -> RequestContext:
+    content_type = request.headers.get("content-type")
+    if content_type is not None:
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        if media_type != "application/json" and not media_type.endswith("+json"):
+            return ctx
+    try:
+        payload = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError):
+        return ctx
+    if isinstance(payload, dict) and "created_by" in payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="created_by is resolved from the authenticated request context",
+        )
+    return ctx
 
 
 class WorkflowStreamRequest(BaseModel):
@@ -126,6 +150,16 @@ async def list_workflow_workbench_items(
         tab=tab,
         keyword=keyword,
     )
+
+
+@router.get("/capabilities", response_model=WorkflowCapabilitiesResponse)
+async def get_workflow_capabilities(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    """Get backend-owned workflow node capabilities."""
+    handlers = WorkflowHandlers(service)
+    return await handlers.get_capabilities(ctx)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
@@ -224,11 +258,15 @@ async def delete_workflow(
     await handlers.delete_workflow(ctx, workflow_id)
 
 
-@router.post("/{workflow_id}/versions", response_model=WorkflowVersionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{workflow_id}/versions",
+    response_model=WorkflowVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_version(
     workflow_id: str,
     version_in: WorkflowVersionCreate,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(_reject_caller_supplied_actor),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Create a new workflow version.
@@ -416,11 +454,15 @@ async def export_dsl(
     return await handlers.export_dsl(ctx, workflow_id, version_id=version_id, format=format)
 
 
-@router.post("/{workflow_id}/dsl", response_model=WorkflowVersionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{workflow_id}/dsl",
+    response_model=WorkflowVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def import_dsl(
     workflow_id: str,
     dsl_in: WorkflowDSLImport,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(_reject_caller_supplied_actor),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     """Import workflow DSL."""

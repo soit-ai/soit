@@ -75,14 +75,30 @@ class WorkflowUpdate(BaseModel):
 class WorkflowVersionCreate(BaseModel):
     """Schema for creating a workflow version."""
 
+    model_config = ConfigDict(extra="forbid")
+
     graph_json: dict[str, Any] = Field(...)
     """WorkflowSpec JSON."""
 
-    created_by: str = Field(...)
-    """User ID who creates this version."""
-
     preflight: bool = Field(default=False)
     """Whether to run preflight checks before publish."""
+
+
+class WorkflowNodeCapabilityResponse(BaseModel):
+    """Canonical metadata for one workflow node type."""
+
+    type: str
+    ui_type: str
+    category: str
+    executable: bool
+
+
+class WorkflowCapabilitiesResponse(BaseModel):
+    """Backend-owned workflow node capability collection."""
+
+    capabilities: list[WorkflowNodeCapabilityResponse]
+    builder_node_types: list[str]
+    compatibility_node_types: list[str]
 
 
 class WorkflowResponse(BaseModel):
@@ -210,11 +226,10 @@ class WorkflowWorkbenchItemsResponse(BaseModel):
 class WorkflowDSLImport(BaseModel):
     """Schema for importing workflow DSL."""
 
+    model_config = ConfigDict(extra="forbid")
+
     dsl: dict[str, Any] | str = Field(...)
     """Workflow DSL payload."""
-
-    created_by: str = Field(...)
-    """User ID who creates this version."""
 
     format: str = Field(default="json", pattern="^(json|yaml)$")
     """DSL format."""

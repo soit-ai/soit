@@ -610,7 +610,6 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
                         "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )
@@ -811,7 +810,6 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
                         "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
                     },
                 },
-                "created_by": "test-user",
             },
             headers=headers,
         )

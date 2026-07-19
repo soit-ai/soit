@@ -22,9 +22,16 @@ from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.specs.validator import validate_runtime_spec
 from app.modules.versioning.application.service import VersionControlService
+from app.modules.workflow.application.capabilities import (
+    BUILDER_NODE_TYPES,
+    COMPATIBILITY_NODE_TYPES,
+    get_workflow_node_capabilities,
+)
 from app.modules.workflow.application.compiler import WorkflowCompiler
 from app.modules.workflow.application.schemas import (
+    WorkflowCapabilitiesResponse,
     WorkflowCreate,
+    WorkflowNodeCapabilityResponse,
     WorkflowUpdate,
     WorkflowVersionCreate,
     WorkflowWorkbenchItemsResponse,
@@ -182,7 +189,6 @@ class WorkflowService:
             workflow.id,
             WorkflowVersionCreate(
                 graph_json=spec_json,
-                created_by=self.ctx.user_id or "",
             ),
         )
         return self._get_workflow(workflow.id)
@@ -246,6 +252,22 @@ class WorkflowService:
     @workspace_guard("read")
     async def list_workflows(self, limit: int = 20, offset: int = 0) -> list[Workflow]:
         return self.workflow_repo.list(limit=limit, offset=offset)
+
+    @workspace_guard("read")
+    async def get_capabilities(self) -> WorkflowCapabilitiesResponse:
+        return WorkflowCapabilitiesResponse(
+            capabilities=[
+                WorkflowNodeCapabilityResponse(
+                    type=capability.type,
+                    ui_type=capability.ui_type,
+                    category=capability.category,
+                    executable=capability.executable,
+                )
+                for capability in get_workflow_node_capabilities()
+            ],
+            builder_node_types=list(BUILDER_NODE_TYPES),
+            compatibility_node_types=list(COMPATIBILITY_NODE_TYPES),
+        )
 
     @workspace_guard("read")
     async def get_workbench(self, limit: int = 20, offset: int = 0) -> WorkflowWorkbenchResponse:
@@ -485,7 +507,7 @@ class WorkflowService:
             workflow_id,
             spec_schema="workflow.v1",
             spec_json=data.graph_json,
-            metadata={"created_by": data.created_by},
+            metadata={"created_by": self.ctx.user_id},
         )
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
@@ -716,7 +738,6 @@ class WorkflowService:
         self,
         workflow_id: str,
         dsl: Any,
-        created_by: str,
         *,
         format: str = "json",
     ) -> WorkflowVersion:
@@ -737,5 +758,5 @@ class WorkflowService:
             workflow_id,
             spec_schema="workflow.v1",
             spec_json=payload,
-            metadata={"created_by": created_by},
+            metadata={"created_by": self.ctx.user_id},
         )

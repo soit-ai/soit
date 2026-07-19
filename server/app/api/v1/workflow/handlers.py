@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.modules.workflow.application.schemas import (
+    WorkflowCapabilitiesResponse,
     WorkflowCreate,
     WorkflowDSLExport,
     WorkflowDSLImport,
@@ -130,6 +131,10 @@ class WorkflowHandlers:
             has_next=has_next,
             next_offset=next_offset,
         )
+
+    async def get_capabilities(self, ctx: RequestContext) -> WorkflowCapabilitiesResponse:
+        """Get backend-owned workflow node capabilities."""
+        return await self.service.get_capabilities()
 
     async def get_workbench(
         self,
@@ -420,7 +425,6 @@ class WorkflowHandlers:
         version = await self.service.import_dsl(
             workflow_id,
             dsl_in.dsl,
-            dsl_in.created_by,
             format=dsl_in.format,
         )
         return self._as_version_response(version)
