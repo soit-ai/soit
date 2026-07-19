@@ -1,192 +1,86 @@
-import { TextNode, TextNodeInfo, TextNodeDefaultData, TextProperties } from './text-node'
-import { PromptNode, PromptNodeInfo, PromptNodeDefaultData, PromptProperties } from './prompt-node'
-import { LLMNode, LLMNodeInfo, LLMNodeDefaultData, LLMProperties } from './llm-node'
-import { ToolNode, ToolNodeInfo, ToolNodeDefaultData, ToolProperties } from './tool-node'
-import { DataNode, DataNodeInfo, DataNodeDefaultData, DataProperties } from './data-node'
-import { OutputNode, OutputNodeInfo, OutputNodeDefaultData, OutputProperties } from './output-node'
-import { KnowledgeSearchNode, KnowledgeSearchNodeInfo, KnowledgeSearchNodeDefaultData, KnowledgeSearchProperties } from './knowledge-search-node'
-import { AgentNode, AgentNodeInfo, AgentNodeDefaultData, AgentProperties } from './agent-node'
-import { QuestionClassifierNode, QuestionClassifierNodeInfo, QuestionClassifierNodeDefaultData, QuestionClassifierProperties } from './question-classifier-node'
-import { LogicNode, LogicNodeInfo, LogicNodeDefaultData } from './logic-node'
-import { ConditionalNode, ConditionalNodeInfo, ConditionalNodeDefaultData } from './conditional-node'
-import { DeliveryNode, DeliveryNodeInfo, DeliveryNodeDefaultData } from './delivery-node'
-import { LoopNode, LoopNodeInfo, LoopNodeDefaultData } from './loop-node'
-import { TransformNode, TransformNodeInfo, TransformNodeDefaultData } from './transform-node'
-import { CodeExecutionNode, CodeExecutionNodeInfo, CodeExecutionNodeDefaultData } from './code-execution-node'
-import { TemplateTransformNode, TemplateTransformNodeInfo, TemplateTransformNodeDefaultData } from './template-transform-node'
-import { VariableAggregatorNode, VariableAggregatorNodeInfo, VariableAggregatorNodeDefaultData } from './variable-aggregator-node'
-import { DocumentExtractorNode, DocumentExtractorNodeInfo, DocumentExtractorNodeDefaultData } from './document-extractor-node'
-import { VariableAssignmentNode, VariableAssignmentNodeInfo, VariableAssignmentNodeDefaultData } from './variable-assignment-node'
-import { ParameterExtractorNode, ParameterExtractorNodeInfo, ParameterExtractorNodeDefaultData } from './parameter-extractor-node'
-import { EndNode, EndNodeInfo, EndNodeDefaultData } from './end-node'
+import { InputNode, InputNodeDefaultData, InputNodeInfo, InputProperties } from './input-node'
+import { TransformNode, TransformNodeDefaultData, TransformNodeInfo, TransformProperties } from './transform-node'
+import {
+  VariableAssignmentNode,
+  VariableAssignmentNodeDefaultData,
+  VariableAssignmentNodeInfo,
+  VariableAssignmentProperties,
+} from './variable-assignment-node'
+import { LLMNode, LLMNodeDefaultData, LLMNodeInfo, LLMProperties } from './llm-node'
+import {
+  KnowledgeSearchNode,
+  KnowledgeSearchNodeDefaultData,
+  KnowledgeSearchNodeInfo,
+  KnowledgeSearchProperties,
+} from './knowledge-search-node'
+import { ToolNode, ToolNodeDefaultData, ToolNodeInfo, ToolProperties } from './tool-node'
+import { ConditionalNode, ConditionalNodeDefaultData, ConditionalNodeInfo, ConditionalProperties } from './conditional-node'
+import { OutputNode, OutputNodeDefaultData, OutputNodeInfo, OutputProperties } from './output-node'
+import { CompatibilityNode } from './compatibility-node'
+import type { CanonicalBuilderType } from '../canonical-node-registry'
 
-// Node type mapping.
 export const nodeTypes = {
-  'text-node': TextNode,
-  'prompt-node': PromptNode,
-  'llm-node': LLMNode,
-  'tool-node': ToolNode,
-  'data-node': DataNode,
-  'output-node': OutputNode,
-  'knowledge-search-node': KnowledgeSearchNode,
-  'agent-node': AgentNode,
-  'question-classifier-node': QuestionClassifierNode,
-  'logic-node': LogicNode,
-  'conditional-node': ConditionalNode,
-  'delivery-node': DeliveryNode,
-  'loop-node': LoopNode,
+  'input-node': InputNode,
   'transform-node': TransformNode,
-  'code-execution-node': CodeExecutionNode,
-  'template-transform-node': TemplateTransformNode,
-  'variable-aggregator-node': VariableAggregatorNode,
-  'document-extractor-node': DocumentExtractorNode,
   'variable-assignment-node': VariableAssignmentNode,
-  'parameter-extractor-node': ParameterExtractorNode,
-  'end-node': EndNode,
+  'llm-node': LLMNode,
+  'knowledge-search-node': KnowledgeSearchNode,
+  'tool-node': ToolNode,
+  'conditional-node': ConditionalNode,
+  'output-node': OutputNode,
+  'compatibility-node': CompatibilityNode,
 }
 
-// Node metadata mapping.
 export const nodeTypeInfo = {
-  'text-node': TextNodeInfo,
-  'prompt-node': PromptNodeInfo,
-  'llm-node': LLMNodeInfo,
-  'tool-node': ToolNodeInfo,
-  'data-node': DataNodeInfo,
-  'output-node': OutputNodeInfo,
-  'knowledge-search-node': KnowledgeSearchNodeInfo,
-  'agent-node': AgentNodeInfo,
-  'question-classifier-node': QuestionClassifierNodeInfo,
-  'logic-node': LogicNodeInfo,
-  'conditional-node': ConditionalNodeInfo,
-  'delivery-node': DeliveryNodeInfo,
-  'loop-node': LoopNodeInfo,
+  'input-node': InputNodeInfo,
   'transform-node': TransformNodeInfo,
-  'code-execution-node': CodeExecutionNodeInfo,
-  'template-transform-node': TemplateTransformNodeInfo,
-  'variable-aggregator-node': VariableAggregatorNodeInfo,
-  'document-extractor-node': DocumentExtractorNodeInfo,
   'variable-assignment-node': VariableAssignmentNodeInfo,
-  'parameter-extractor-node': ParameterExtractorNodeInfo,
-  'end-node': EndNodeInfo,
-}
+  'llm-node': LLMNodeInfo,
+  'knowledge-search-node': KnowledgeSearchNodeInfo,
+  'tool-node': ToolNodeInfo,
+  'conditional-node': ConditionalNodeInfo,
+  'output-node': OutputNodeInfo,
+} satisfies Record<CanonicalBuilderType, {
+  type: string
+  label: string
+  category: string
+  description: string
+  icon: string
+} & Record<string, unknown>>
 
-
-// Properties panel mapping.
 export const propertyPanels = {
-  'text-node': TextProperties,
-  'prompt-node': PromptProperties,
+  'input-node': InputProperties,
+  'transform-node': TransformProperties,
+  'variable-assignment-node': VariableAssignmentProperties,
   'llm-node': LLMProperties,
-  'tool-node': ToolProperties,
-  'data-node': DataProperties,
-  'output-node': OutputProperties,
   'knowledge-search-node': KnowledgeSearchProperties,
-  'agent-node': AgentProperties,
-  'question-classifier-node': QuestionClassifierProperties,
-  // Other node panels can be added as needed.
-}
+  'tool-node': ToolProperties,
+  'conditional-node': ConditionalProperties,
+  'output-node': OutputProperties,
+} satisfies Record<CanonicalBuilderType, React.ComponentType<any>>
 
-// Default node data.
-export const getDefaultNodeData = (type: string) => {
-  switch (type) {
-    case 'text-node':
-      return TextNodeDefaultData
-    case 'prompt-node':
-      return PromptNodeDefaultData
-    case 'llm-node':
-      return LLMNodeDefaultData
-    case 'tool-node':
-      return ToolNodeDefaultData
-    case 'data-node':
-      return DataNodeDefaultData
-    case 'output-node':
-      return OutputNodeDefaultData
-    case 'knowledge-search-node':
-      return KnowledgeSearchNodeDefaultData
-    case 'agent-node':
-      return AgentNodeDefaultData // Use AgentNodeDefaultData.
-    case 'question-classifier-node':
-      return QuestionClassifierNodeDefaultData
-    case 'logic-node':
-      return LogicNodeDefaultData
-    case 'conditional-node':
-      return ConditionalNodeDefaultData
-    case 'delivery-node':
-      return DeliveryNodeDefaultData
-    case 'loop-node':
-      return LoopNodeDefaultData
-    case 'transform-node':
-      return TransformNodeDefaultData
-    case 'code-execution-node':
-      return CodeExecutionNodeDefaultData
-    case 'template-transform-node':
-      return TemplateTransformNodeDefaultData
-    case 'variable-aggregator-node':
-      return VariableAggregatorNodeDefaultData
-    case 'document-extractor-node':
-      return DocumentExtractorNodeDefaultData
-    case 'variable-assignment-node':
-      return VariableAssignmentNodeDefaultData
-    case 'parameter-extractor-node':
-      return ParameterExtractorNodeDefaultData
-    case 'end-node':
-      return EndNodeDefaultData
-    default:
-      return {
-        label: type,
-      }
-  }
-}
+const defaultNodeData = {
+  'input-node': InputNodeDefaultData,
+  'transform-node': TransformNodeDefaultData,
+  'variable-assignment-node': VariableAssignmentNodeDefaultData,
+  'llm-node': LLMNodeDefaultData,
+  'knowledge-search-node': KnowledgeSearchNodeDefaultData,
+  'tool-node': ToolNodeDefaultData,
+  'conditional-node': ConditionalNodeDefaultData,
+  'output-node': OutputNodeDefaultData,
+} satisfies Record<CanonicalBuilderType, Record<string, unknown>>
 
+export const getDefaultNodeData = (type: CanonicalBuilderType) => defaultNodeData[type]
 
-// Node categories.
 export const nodeCategories = [
-  {
-    id: 'input',
-    label: 'Input',
-    types: ['text-node', 'prompt-node'],
-  },
-  {
-    id: 'model',
-    label: 'Model',
-    types: ['llm-node', 'agent-node'],
-  },
-  {
-    id: 'tool',
-    label: 'Tool',
-    types: [
-      'tool-node',
-      'knowledge-search-node',
-      'question-classifier-node',
-      'transform-node',
-      'code-execution-node',
-      'template-transform-node'
-    ],
-  },
-  {
-    id: 'data',
-    label: 'Data',
-    types: [
-      'data-node',
-      'variable-aggregator-node',
-      'document-extractor-node',
-      'variable-assignment-node',
-      'parameter-extractor-node'
-    ],
-  },
-  {
-    id: 'flow',
-    label: 'Flow',
-    types: [
-      'logic-node',
-      'conditional-node',
-      'delivery-node',
-      'loop-node',
-      'end-node'
-    ],
-  },
-  {
-    id: 'output',
-    label: 'Output',
-    types: ['output-node'],
-  },
-]
+  { id: 'input', label: 'Input', types: ['input-node'] },
+  { id: 'model', label: 'Model', types: ['llm-node'] },
+  { id: 'tool', label: 'Tool', types: ['tool-node'] },
+  { id: 'data', label: 'Data', types: ['knowledge-search-node', 'transform-node', 'variable-assignment-node'] },
+  { id: 'flow', label: 'Flow', types: ['conditional-node'] },
+  { id: 'output', label: 'Output', types: ['output-node'] },
+] as const satisfies ReadonlyArray<{
+  id: 'input' | 'model' | 'tool' | 'data' | 'flow' | 'output'
+  label: string
+  types: readonly CanonicalBuilderType[]
+}>

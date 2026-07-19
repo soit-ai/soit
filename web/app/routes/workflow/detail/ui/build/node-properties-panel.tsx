@@ -15,15 +15,21 @@ import { useTranslation } from '@/i18n'
 interface NodePropertiesPanelProps {
   selectedNode: Node | null
   updateNodeData: (nodeId: string, data: any) => void
+  onNodeValidityChange?: (nodeId: string, valid: boolean) => void
   className?: string
 }
 
 const NodePropertiesPanel: React.FC<NodePropertiesPanelProps> = ({
   selectedNode,
   updateNodeData,
+  onNodeValidityChange,
   className
 }) => {
   const { t } = useTranslation()
+  const selectedNodeId = selectedNode?.id
+  const handleValidityChange = React.useCallback((valid: boolean) => {
+    if (selectedNodeId) onNodeValidityChange?.(selectedNodeId, valid)
+  }, [onNodeValidityChange, selectedNodeId])
   if (!selectedNode) {
     return (
       <Card className="w-full h-full border-none shadow-none">
@@ -31,6 +37,41 @@ const NodePropertiesPanel: React.FC<NodePropertiesPanelProps> = ({
           <div className="text-muted-foreground text-center">
             <Settings className="h-10 w-10 mx-auto mb-4 opacity-20" />
             <p>{t('workflow.nodeProperties.empty')}</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (selectedNode.type === 'compatibility-node') {
+    const formatJson = (value: unknown) => {
+      const formatted = JSON.stringify(value, null, 2)
+      return formatted === undefined ? t('workflow.nodeProperties.compatibility.unavailable') : formatted
+    }
+    return (
+      <Card className={cn('w-full border-none shadow-none', className)}>
+        <CardHeader className="border-b px-4 py-3">
+          <CardTitle className="text-base font-medium">{t('workflow.nodeProperties.compatibility.title')}</CardTitle>
+          <CardDescription>{t('workflow.nodeProperties.compatibility.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 p-4">
+          <div className="space-y-2">
+            <Label>{t('workflow.nodeProperties.compatibility.runtimeType')}</Label>
+            <div className="rounded-md bg-muted p-2 font-mono text-xs">
+              {String(selectedNode.data.originalRuntimeType)}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>{t('workflow.nodeProperties.compatibility.params')}</Label>
+            <pre className="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+              {formatJson(selectedNode.data.originalParams)}
+            </pre>
+          </div>
+          <div className="space-y-2">
+            <Label>{t('workflow.nodeProperties.compatibility.ui')}</Label>
+            <pre className="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+              {formatJson(selectedNode.data.originalUi)}
+            </pre>
           </div>
         </CardContent>
       </Card>
@@ -82,6 +123,7 @@ const NodePropertiesPanel: React.FC<NodePropertiesPanelProps> = ({
                         <PropertyPanel
                           data={selectedNode.data}
                           onChange={handleDataChange}
+                          onValidityChange={handleValidityChange}
                         />
                       )
                     } else {

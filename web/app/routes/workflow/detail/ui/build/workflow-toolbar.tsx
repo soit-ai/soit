@@ -20,6 +20,8 @@ interface WorkflowToolbarProps {
   getLayoutedElements?: (nodes: Node[], edges: Edge[], direction?: string) => { nodes: Node[]; edges: Edge[]; }
   undoable: boolean
   redoable: boolean
+  saveDisabled?: boolean
+  exportDisabled?: boolean
 }
 
 const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
@@ -34,7 +36,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
   onImport,
   getLayoutedElements,
   undoable,
-  redoable
+  redoable,
+  saveDisabled = false,
+  exportDisabled = false,
 }) => {
   const { t } = useTranslation()
   const { direction: layoutDirection, setDirection: setLayoutDirection } = useLayoutStore();
@@ -162,6 +166,8 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.saveWorkflow')}
+                disabled={saveDisabled}
                 onClick={onSave}
               >
                 <Save className="h-4 w-4" />
@@ -180,16 +186,26 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.exportWorkflow')}
+                aria-describedby={exportDisabled ? 'workflow-export-disabled-reason' : undefined}
+                disabled={exportDisabled}
                 onClick={onExport}
               >
                 <Download className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>{t('workflow.operator.exportWorkflow')}</p>
+              <p>{exportDisabled
+                ? t('workflow.detail.build.export.invalidDraft')
+                : t('workflow.operator.exportWorkflow')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        {exportDisabled && (
+          <span id="workflow-export-disabled-reason" className="sr-only">
+            {t('workflow.detail.build.export.invalidDraft')}
+          </span>
+        )}
 
         <TooltipProvider>
           <Tooltip delayDuration={300}>
@@ -198,6 +214,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
+                aria-label={t('workflow.operator.importWorkflow')}
                 onClick={onImport}
               >
                 <Upload className="h-4 w-4" />

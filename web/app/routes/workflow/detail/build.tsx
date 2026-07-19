@@ -18,6 +18,7 @@ import {
 
 // Import node types and metadata.
 import { getDefaultNodeData } from './ui/build/nodes'
+import { isCanonicalBuilderType, type CanonicalBuilderType } from './ui/build/canonical-node-registry'
 
 // Import custom components.
 import WorkflowInfoPanel from './ui/build/workflow-info-panel'
@@ -28,8 +29,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   CanonicalNodeValidationError,
+  isWorkflowSpecImportStructure,
   parseWorkflowVersion,
   serializeWorkflowSpec,
+  serializeWorkflowSpecForExport,
   UnsupportedBuilderNodeError,
   UnsupportedWorkflowEdgeError,
   type WorkflowSpecBase,
@@ -51,12 +54,14 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   const [pageLoading, setPageLoading] = useState(false)
   const [savingWorkflow, setSavingWorkflow] = useState(false)
   const [creatingTemplate, setCreatingTemplate] = useState(false)
+  const [capabilityMutationBlocked, setCapabilityMutationBlocked] = useState(true)
 
   // State management.
   const [workflowName, setWorkflowName] = useState(() => t('workflow.detail.build.defaultName'))
   const [workflowDescription, setWorkflowDescription] = useState('')
   const [workflowBase, setWorkflowBase] = useState<WorkflowSpecBase>(newWorkflowBase)
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [invalidDraftNodeIds, setInvalidDraftNodeIds] = useState<Set<string>>(() => new Set())
 
   // History state.
   const [history, setHistory] = useState<{ nodes: Node[][], edges: Edge[][], currentIndex: number }>({
@@ -72,6 +77,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Dialog handler.
   const dialog = useDialog()
+  const DialogComponent = dialog.DialogComponent
 
   // Initial nodes and edges.
   const initialNodes = useMemo<Node[]>(() => [
@@ -114,6 +120,31 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   // ReactFlow state hooks.
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [nodes, selectedNodeId],
+  )
+  const hasCompatibilityNodes = useMemo(
+    () => nodes.some((node) => node.type === 'compatibility-node'),
+    [nodes],
+  )
+  const hasUnsupportedEdges = useMemo(
+    () => edges.some((edge) => edge.data?.unsupported === true),
+    [edges],
+  )
+  const hasInvalidDrafts = invalidDraftNodeIds.size > 0
+  const mutationDisabled = hasCompatibilityNodes || hasUnsupportedEdges || hasInvalidDrafts
+  const handleCapabilityMutationBlocked = useCallback((blocked: boolean) => {
+    setCapabilityMutationBlocked(blocked)
+  }, [])
+  const handleNodeValidityChange = useCallback((nodeId: string, valid: boolean) => {
+    setInvalidDraftNodeIds((current) => {
+      const next = new Set(current)
+      if (valid) next.delete(nodeId)
+      else next.add(nodeId)
+      return next
+    })
+  }, [])
 
   // Custom node change handler for history.
   const handleNodesChange = useCallback(
@@ -183,13 +214,13 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       event.preventDefault()
 
       const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect()
-      if (!reactFlowBounds || !reactFlowInstance) return
+      if (!reactFlowBounds || !reactFlowInstance || capabilityMutationBlocked) return
 
       const type = event.dataTransfer.getData('application/reactflow/type')
       const label = event.dataTransfer.getData('application/reactflow/label')
 
       // Validate node type.
-      if (!type) return
+      if (!isCanonicalBuilderType(type)) return
 
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX - reactFlowBounds.left,
@@ -207,12 +238,12 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       addToHistory()
       setNodes((nds) => nds.concat(newNode))
     },
-    [reactFlowInstance, setNodes]
+    [capabilityMutationBlocked, reactFlowInstance, setNodes]
   )
 
   // Handle node click.
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
-    setSelectedNode(node)
+    setSelectedNodeId(node.id)
   }, [])
 
   // Handle save.
@@ -235,14 +266,15 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   }, [id, workflowName, workflowDescription, nodes, edges, t])
 
   // Handle node drag start.
-  const onDragStart = (event: React.DragEvent<HTMLDivElement>, nodeType: string, nodeLabel: string) => {
+  const onDragStart = (event: React.DragEvent<HTMLElement>, nodeType: string, nodeLabel: string) => {
     event.dataTransfer.setData('application/reactflow/type', nodeType)
     event.dataTransfer.setData('application/reactflow/label', nodeLabel)
     event.dataTransfer.effectAllowed = 'move'
   }
 
   // Add new node.
-  const addNewNode = (type: string, label: string) => {
+  const addNewNode = (type: CanonicalBuilderType, label: string) => {
+    if (capabilityMutationBlocked) return
     const newNode: Node = {
       id: `${type}-${Date.now()}`,
       type,
@@ -269,19 +301,20 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Delete selected node.
   const deleteSelectedNode = () => {
-    if (selectedNode) {
+    if (selectedNode && selectedNode.type !== 'compatibility-node') {
       // Record history.
       addToHistory()
       setNodes((nds) => nds.filter((node) => node.id !== selectedNode.id))
       setEdges((eds) => eds.filter(
         (edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id
       ))
-      setSelectedNode(null)
+      setSelectedNodeId(null)
     }
   }
 
   // Run workflow.
   const runWorkflow = () => {
+    if (mutationDisabled) return
     toast.info(t('workflow.detail.build.toast.running'))
     // Execute workflow run here.
   }
@@ -387,6 +420,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
       if (currentVersion) {
         const restoredGraph = parseWorkflowVersion(currentVersion)
+        setInvalidDraftNodeIds(new Set())
+        setSelectedNodeId(null)
         setWorkflowBase(restoredGraph.base)
         setNodes(restoredGraph.nodes)
         setEdges(restoredGraph.edges)
@@ -407,6 +442,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       }
 
       setWorkflowBase(newWorkflowBase())
+      setInvalidDraftNodeIds(new Set())
+      setSelectedNodeId(null)
       setNodes(initialNodes)
       setEdges(initialEdges)
       seedHistory(initialNodes, initialEdges)
@@ -414,6 +451,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
       toast.error('Failed to load workflow builder state.')
       console.error('Failed to load workflow builder state:', error)
       setWorkflowBase(newWorkflowBase())
+      setInvalidDraftNodeIds(new Set())
+      setSelectedNodeId(null)
       setNodes(initialNodes)
       setEdges(initialEdges)
       seedHistory(initialNodes, initialEdges)
@@ -424,6 +463,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   // Save workflow.
   const handleSaveWorkflow = useCallback(async () => {
+    if (mutationDisabled) return
     if (!workflowName.trim()) {
       toast.error(t('workflow.detail.build.toast.nameRequired'))
       return
@@ -471,37 +511,45 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     } finally {
       setSavingWorkflow(false)
     }
-  }, [id, loadWorkflow, nodes, edges, t, workflowBase, workflowDescription, workflowName])
+  }, [id, loadWorkflow, mutationDisabled, nodes, edges, t, workflowBase, workflowDescription, workflowName])
 
   // Export workflow.
   const handleExportWorkflow = useCallback(() => {
+    if (hasInvalidDrafts) {
+      toast.error(t('workflow.detail.build.export.invalidDraft'))
+      return
+    }
     if (!workflowName.trim()) {
       toast.error(t('workflow.detail.build.toast.nameRequired'))
       return
     }
 
-    const workflowData = {
-      name: workflowName,
-      description: workflowDescription,
-      nodes,
-      edges,
-      exportTime: new Date().toISOString(),
-      version: '1.0.0',
+    try {
+      const graphJson = serializeWorkflowSpecForExport(
+        workflowBase,
+        workflowName.trim(),
+        workflowDescription.trim(),
+        nodes,
+        edges,
+      )
+      const workflowData = {
+        format: 'soit-workflow-spec-v1',
+        graph_json: graphJson,
+        exported_at: new Date().toISOString(),
+      }
+      const dataStr = JSON.stringify(workflowData, null, 2)
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
+      const exportFileName = `${workflowName.replace(/\s+/g, '_')}_${new Date().getTime()}.json`
+      const linkElement = document.createElement('a')
+      linkElement.setAttribute('href', dataUri)
+      linkElement.setAttribute('download', exportFileName)
+      linkElement.click()
+      toast.success(t('workflow.detail.build.toast.exported'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('workflow.detail.build.import.invalidData')
+      toast.error(message)
     }
-
-    // Create download link.
-    const dataStr = JSON.stringify(workflowData, null, 2)
-    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
-
-    const exportFileName = `${workflowName.replace(/\s+/g, '_')}_${new Date().getTime()}.json`
-
-    const linkElement = document.createElement('a')
-    linkElement.setAttribute('href', dataUri)
-    linkElement.setAttribute('download', exportFileName)
-    linkElement.click()
-
-    toast.success(t('workflow.detail.build.toast.exported'))
-  }, [workflowName, workflowDescription, nodes, edges, t])
+  }, [edges, hasInvalidDrafts, nodes, t, workflowBase, workflowDescription, workflowName])
 
   // Import workflow.
   const handleImportWorkflow = useCallback(() => {
@@ -522,28 +570,42 @@ const BuildPage: React.FC<BuildPageProps> = () => {
           const result = event.target?.result
           if (typeof result !== 'string') return
 
-          const workflowData = JSON.parse(result)
+          const workflowData = JSON.parse(result) as Record<string, unknown>
 
           // Validate imported data.
-          if (!workflowData.nodes || !workflowData.edges) {
+          if (
+            workflowData.format !== 'soit-workflow-spec-v1'
+            || !isWorkflowSpecImportStructure(workflowData.graph_json)
+          ) {
+            throw new Error(t('workflow.detail.build.import.invalidData'))
+          }
+          const restoredGraph = parseWorkflowVersion({
+            graph_json: workflowData.graph_json,
+          })
+          if (!restoredGraph.nodes.length) {
             throw new Error(t('workflow.detail.build.import.invalidData'))
           }
 
-          const importedName = workflowData.name || t('workflow.detail.build.import.unnamed')
+          const importedName = restoredGraph.name || t('workflow.detail.build.import.unnamed')
 
           // Confirm import.
           dialog.confirm({
             title: t('workflow.detail.build.import.title'),
             description: t('workflow.detail.build.import.confirmDescription', { name: importedName }),
+            confirmText: t('workflow.detail.build.import.confirm'),
+            cancelText: t('workflow.detail.build.import.cancel'),
             onConfirm: () => {
               // Record history.
               addToHistory()
 
               // Update workflow data.
-              setWorkflowName(workflowData.name || t('workflow.detail.build.import.importedFallbackName'))
-              setWorkflowDescription(workflowData.description || '')
-              setNodes(workflowData.nodes)
-              setEdges(workflowData.edges)
+              setWorkflowName(restoredGraph.name || t('workflow.detail.build.import.importedFallbackName'))
+              setWorkflowDescription(restoredGraph.description)
+              setWorkflowBase(restoredGraph.base)
+              setNodes(restoredGraph.nodes)
+              setEdges(restoredGraph.edges)
+              setInvalidDraftNodeIds(new Set())
+              setSelectedNodeId(null)
 
               toast.success(t('workflow.detail.build.toast.imported'))
             },
@@ -558,7 +620,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
     }
 
     fileInput.click()
-  }, [dialog, t])
+  }, [dialog, setEdges, setNodes, t])
 
   const handleCreateTicketTemplate = useCallback(async () => {
     try {
@@ -599,6 +661,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
                   addNewNode={addNewNode}
                   onCreateTicketTemplate={handleCreateTicketTemplate}
                   creatingTicketTemplate={creatingTemplate}
+                  onMutationBlockedChange={handleCapabilityMutationBlocked}
                 />
               </ScrollArea>
             </div>
@@ -614,6 +677,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
         <NodePropertiesPanel
           selectedNode={selectedNode}
           updateNodeData={updateNodeData}
+          onNodeValidityChange={handleNodeValidityChange}
           className="border-1 rounded-lg px-2"
         />
       </div>
@@ -622,6 +686,13 @@ const BuildPage: React.FC<BuildPageProps> = () => {
 
   return (
     <div className="flex flex-1 flex-col h-full w-full">
+      {(hasCompatibilityNodes || hasUnsupportedEdges) && (
+        <div role="alert" className="mx-2 mb-1 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
+          {hasCompatibilityNodes
+            ? t('workflow.detail.build.compatibilityMessage')
+            : t('workflow.detail.build.unsupportedEdgeMessage')}
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden h-full">
         <div className="flex flex-1 overflow-hidden h-full">
           <ReactFlowProvider>
@@ -641,6 +712,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
               selectedNode={selectedNode}
               deleteSelectedNode={deleteSelectedNode}
               runWorkflow={runWorkflow}
+              mutationDisabled={mutationDisabled}
+              exportDisabled={hasInvalidDrafts}
               undoable={undoable}
               redoable={redoable}
               onUndo={handleUndo}
@@ -656,6 +729,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
           </ReactFlowProvider>
         </div>
       </div>
+      <DialogComponent />
     </div>
   )
 }

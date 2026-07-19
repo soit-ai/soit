@@ -37,6 +37,19 @@ export interface WorkflowVersion {
   created_at: string
 }
 
+export interface WorkflowNodeCapability {
+  type: string
+  ui_type: string
+  category: string
+  executable: boolean
+}
+
+export interface WorkflowCapabilitiesResponse {
+  capabilities: WorkflowNodeCapability[]
+  builder_node_types: string[]
+  compatibility_node_types: string[]
+}
+
 export interface WorkflowRelease {
   id: string
   workflow_id: string
@@ -129,6 +142,10 @@ export const getWorkflowWorkbenchItems = (params?: {
 
 export const getWorkflow = (workflowId: string): Promise<Workflow> => {
   return get(`/workflows/${workflowId}`)
+}
+
+export const getWorkflowCapabilities = (): Promise<WorkflowCapabilitiesResponse> => {
+  return get('/workflows/capabilities')
 }
 
 export const createWorkflow = (data: {

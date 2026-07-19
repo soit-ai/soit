@@ -11,6 +11,8 @@ import {
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 const canonicalUiMetadata = Symbol('canonicalUiMetadata')
+const canonicalUiDataBaselineMetadata = Symbol('canonicalUiDataBaselineMetadata')
+const originalWorkflowSpecMetadata = Symbol('originalWorkflowSpecMetadata')
 
 const canonicalParamKeysByRuntimeType: Record<CanonicalRuntimeType, readonly string[]> = {
   input: ['select'],
@@ -65,7 +67,7 @@ export type WorkflowSpec = {
 export type WorkflowSpecBase = Pick<
   WorkflowSpec,
   'version' | 'inputs_schema' | 'outputs_schema' | 'limits' | 'runtime' | 'policy' | 'semantics'
->
+> & { [originalWorkflowSpecMetadata]?: Record<string, unknown> }
 
 export type ParsedWorkflowVersion = {
   name: string
@@ -126,6 +128,31 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (!isRecord(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+type ImportableWorkflowSpec = Record<string, unknown> & {
+  name: string
+  inputs_schema: Record<string, unknown>
+  outputs_schema: Record<string, unknown>
+  graph: Record<string, unknown> & { nodes: unknown[]; edges: unknown[] }
+}
+
+export const isWorkflowSpecImportStructure = (value: unknown): value is ImportableWorkflowSpec => {
+  if (!isPlainRecord(value) || typeof value.name !== 'string') return false
+  if (!isPlainRecord(value.inputs_schema) || !isPlainRecord(value.outputs_schema)) return false
+  if (!isPlainRecord(value.graph) || !Array.isArray(value.graph.nodes) || !Array.isArray(value.graph.edges)) return false
+  if (hasOwn(value, 'description') && typeof value.description !== 'string') return false
+  if (hasOwn(value, 'version') && value.version !== null && typeof value.version !== 'string') return false
+  for (const key of ['limits', 'runtime', 'policy', 'semantics'] as const) {
+    if (hasOwn(value, key) && value[key] !== null && !isPlainRecord(value[key])) return false
+  }
+  return true
+}
+
 const isDensePlainArray = (value: unknown): value is unknown[] => {
   if (
     !Array.isArray(value)
@@ -170,6 +197,52 @@ const isJsonValue = (value: unknown, seen = new Set<object>()): value is JsonVal
   }
   seen.delete(value)
   return valid
+}
+
+const jsonValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => jsonValuesEqual(value, right[index]))
+  }
+  if (!isRecord(left) || !isRecord(right)) return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => hasOwn(right, key) && jsonValuesEqual(left[key], right[key]))
+}
+
+const cloneMetadataValue = <T>(value: T): T => {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneMetadataValue(item)) as T
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneMetadataValue(item)]),
+    ) as T
+  }
+  return value
+}
+
+const applyUiDataDelta = (
+  originalUiData: Record<string, unknown>,
+  baselineUiData: Record<string, unknown>,
+  currentUiData: Record<string, unknown>,
+): Record<string, unknown> => {
+  const serializedUiData = cloneMetadataValue(originalUiData)
+  const keys = new Set([...Object.keys(baselineUiData), ...Object.keys(currentUiData)])
+
+  for (const key of keys) {
+    if (!hasOwn(currentUiData, key)) {
+      delete serializedUiData[key]
+    } else if (!hasOwn(baselineUiData, key) || !jsonValuesEqual(currentUiData[key], baselineUiData[key])) {
+      serializedUiData[key] = cloneMetadataValue(currentUiData[key])
+    }
+  }
+
+  return serializedUiData
 }
 
 const dataValue = (data: Record<string, unknown>, ...keys: string[]): unknown => {
@@ -293,8 +366,8 @@ const runtimeParamsForNode = (
     }
     case 'variable-assignment-node':
       return {
-        key: requireNonEmptyString(node, nodeType, 'key', dataValue(data, 'variableName', 'key')),
-        value: requireJsonValue(node, nodeType, 'value', dataValue(data, 'variableValue', 'value')),
+        key: requireNonEmptyString(node, nodeType, 'key', dataValue(data, 'key')),
+        value: requireJsonValue(node, nodeType, 'value', dataValue(data, 'value')),
       }
     case 'llm-node': {
       const params: Record<string, JsonValue> = {
@@ -365,13 +438,20 @@ export const serializeCanonicalNode = (node: Node): RuntimeNode => {
   const label = typeof data.label === 'string' && data.label.trim() ? data.label : node.id
   const originalUiValue = (data as Record<PropertyKey, unknown>)[canonicalUiMetadata]
   const originalUi = isRecord(originalUiValue) ? originalUiValue : {}
-  const serializedUiData = Object.fromEntries(Object.entries(data))
+  const params = runtimeParamsForNode(node, node.type, data)
+  const originalUiData = isRecord(originalUi.data) ? originalUi.data : undefined
+  const baselineUiDataValue = (data as Record<PropertyKey, unknown>)[canonicalUiDataBaselineMetadata]
+  const baselineUiData = isRecord(baselineUiDataValue) ? baselineUiDataValue : undefined
+  const currentUiData = Object.fromEntries(Object.entries(data))
+  const serializedUiData = originalUiData && baselineUiData
+    ? applyUiDataDelta(originalUiData, baselineUiData, currentUiData)
+    : currentUiData
 
   return {
     id: node.id,
     type: runtimeTypeByBuilderType[node.type],
     name: label,
-    params: runtimeParamsForNode(node, node.type, data),
+    params,
     ui: {
       ...originalUi,
       position: { ...node.position },
@@ -433,36 +513,7 @@ export const serializeWorkflowSpec = (
 ): WorkflowSpec => {
   const serializedNodes = nodes.map(serializeCanonicalNode)
   const runtimeTypeByNodeId = new Map(serializedNodes.map((node) => [node.id, node.type]))
-  const serializedEdges: RuntimeEdge[] = edges.map((edge) => {
-    const edgeData = isRecord(edge.data) ? edge.data : {}
-    if (edgeData.unsupported === true) {
-      throw new UnsupportedWorkflowEdgeError(
-        edge.id,
-        edgeData.originalCondition ?? edgeData.originalEdge,
-        typeof edgeData.compatibilityKind === 'string' ? edgeData.compatibilityKind : undefined
-      )
-    }
-
-    const serializedEdge: RuntimeEdge = {
-      id: edge.id,
-      from: edge.source,
-      to: edge.target,
-    }
-    const persistedFromPort = persistedFromPortForUnchangedEdge(edge)
-    if (persistedFromPort?.present) {
-      serializedEdge.from_port = persistedFromPort.value
-    } else if (!persistedFromPort && edge.sourceHandle !== undefined) {
-      serializedEdge.from_port = edge.sourceHandle
-    }
-    if (edge.targetHandle !== undefined) {
-      serializedEdge.to_port = edge.targetHandle
-    }
-    const condition = conditionForEdge(edge, runtimeTypeByNodeId.get(edge.source))
-    if (condition !== undefined) {
-      serializedEdge.condition = condition
-    }
-    return serializedEdge
-  })
+  const serializedEdges = edges.map((edge) => serializeCanonicalEdge(edge, runtimeTypeByNodeId))
 
   return {
     name,
@@ -479,6 +530,105 @@ export const serializeWorkflowSpec = (
       edges: serializedEdges,
     },
   }
+}
+
+const serializeCanonicalEdge = (
+  edge: Edge,
+  runtimeTypeByNodeId: Map<string, CanonicalRuntimeType>,
+): RuntimeEdge => {
+  const edgeData = isRecord(edge.data) ? edge.data : {}
+  if (edgeData.unsupported === true) {
+    throw new UnsupportedWorkflowEdgeError(
+      edge.id,
+      edgeData.originalCondition ?? edgeData.originalEdge,
+      typeof edgeData.compatibilityKind === 'string' ? edgeData.compatibilityKind : undefined,
+    )
+  }
+
+  const serializedEdge: RuntimeEdge = {
+    id: edge.id,
+    from: edge.source,
+    to: edge.target,
+  }
+  const persistedFromPort = persistedFromPortForUnchangedEdge(edge)
+  if (persistedFromPort?.present) {
+    serializedEdge.from_port = persistedFromPort.value
+  } else if (!persistedFromPort && edge.sourceHandle !== undefined) {
+    serializedEdge.from_port = edge.sourceHandle
+  }
+  if (edge.targetHandle !== undefined) {
+    serializedEdge.to_port = edge.targetHandle
+  }
+  const condition = conditionForEdge(edge, runtimeTypeByNodeId.get(edge.source))
+  if (condition !== undefined) {
+    serializedEdge.condition = condition
+  }
+  return serializedEdge
+}
+
+const setOptionalEnvelopeValue = (
+  spec: Record<string, unknown>,
+  key: keyof Pick<WorkflowSpecBase, 'version' | 'limits' | 'runtime' | 'policy' | 'semantics'>,
+  value: unknown,
+) => {
+  if (value === undefined) delete spec[key]
+  else spec[key] = cloneMetadataValue(value)
+}
+
+export const serializeWorkflowSpecForExport = (
+  base: WorkflowSpecBase,
+  name: string,
+  description: string,
+  nodes: Node[],
+  edges: Edge[],
+): Record<string, unknown> => {
+  const originalSpec = base[originalWorkflowSpecMetadata]
+  const serializedSpec = isRecord(originalSpec) ? cloneMetadataValue(originalSpec) : {}
+  const originalGraph = isRecord(serializedSpec.graph) ? serializedSpec.graph : {}
+  const losslessReadOnlyExport = nodes.some((node) => node.type === 'compatibility-node')
+    || edges.some((edge) => edge.data?.unsupported === true)
+  const serializedNodes = nodes.map((node) => {
+    const data = isRecord(node.data) ? node.data : {}
+    if (node.type === 'compatibility-node' && hasOwn(data, 'originalNode')) {
+      return cloneMetadataValue(data.originalNode)
+    }
+    return serializeCanonicalNode(node)
+  })
+  const runtimeTypeByNodeId = new Map<string, CanonicalRuntimeType>()
+  serializedNodes.forEach((node) => {
+    if (isRecord(node) && typeof node.id === 'string' && isCanonicalRuntimeType(node.type)) {
+      runtimeTypeByNodeId.set(node.id, node.type)
+    }
+  })
+  const serializedEdges = edges.map((edge) => {
+    const data = isRecord(edge.data) ? edge.data : {}
+    if (data.unsupported === true && hasOwn(data, 'originalEdge')) {
+      return cloneMetadataValue(data.originalEdge)
+    }
+    if (
+      losslessReadOnlyExport
+      && isRecord(data.originalEdge)
+      && edgeMatchesOriginalPersistedShape(edge, data.originalEdge, runtimeTypeByNodeId)
+    ) return cloneMetadataValue(data.originalEdge)
+    return serializeCanonicalEdge(edge, runtimeTypeByNodeId)
+  })
+
+  serializedSpec.name = name
+  if (description.trim()) serializedSpec.description = description
+  else delete serializedSpec.description
+  serializedSpec.inputs_schema = cloneMetadataValue(base.inputs_schema)
+  serializedSpec.outputs_schema = cloneMetadataValue(base.outputs_schema)
+  setOptionalEnvelopeValue(serializedSpec, 'version', base.version)
+  setOptionalEnvelopeValue(serializedSpec, 'limits', base.limits)
+  setOptionalEnvelopeValue(serializedSpec, 'runtime', base.runtime)
+  setOptionalEnvelopeValue(serializedSpec, 'policy', base.policy)
+  setOptionalEnvelopeValue(serializedSpec, 'semantics', base.semantics)
+  serializedSpec.graph = {
+    ...cloneMetadataValue(originalGraph),
+    nodes: serializedNodes,
+    edges: serializedEdges,
+  }
+  return serializedSpec
 }
 
 const validPosition = (value: unknown): value is { x: number; y: number } => {
@@ -507,7 +657,7 @@ const paramDataForBuilder = (
     case 'transform-node':
       return { mapping: param('mapping') }
     case 'variable-assignment-node':
-      return { variableName: param('key'), variableValue: param('value') }
+      return { key: param('key'), value: param('value') }
     case 'llm-node':
       return {
         modelName: param('model'),
@@ -552,6 +702,9 @@ const compatibilityNode = (
     id,
     type: 'compatibility-node',
     position,
+    draggable: false,
+    deletable: false,
+    connectable: false,
     data: {
       ...rawUiData,
       label: presentationLabel(rawUiData, rawNode, id),
@@ -629,36 +782,52 @@ const parseNode = (rawNodeValue: unknown, index: number): Node => {
   const uiData = isRecord(rawUi.data) ? rawUi.data : {}
   const position = validPosition(rawUi.position) ? { ...rawUi.position } : { x: 120 + index * 240, y: 140 }
 
-  return {
+  const parsedUiData = {
+    ...uiData,
+    label: presentationLabel(uiData, rawNode, id),
+    ...paramDataForBuilder(builderType, params),
+  }
+  const parsedNode: Node = {
     id,
     type: builderType,
     position,
     data: {
-      ...uiData,
-      label: presentationLabel(uiData, rawNode, id),
-      ...paramDataForBuilder(builderType, params),
-      [canonicalUiMetadata]: rawUi,
+      ...parsedUiData,
+      [canonicalUiMetadata]: cloneMetadataValue(rawUi),
+      [canonicalUiDataBaselineMetadata]: cloneMetadataValue(parsedUiData),
     },
   }
+
+  try {
+    const parsedData = isRecord(parsedNode.data) ? parsedNode.data : {}
+    if (!jsonValuesEqual(runtimeParamsForNode(parsedNode, builderType, parsedData), params)) {
+      return compatibilityNode(rawNode, index, 'Persisted canonical params cannot be mapped without changing their values.')
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Persisted canonical params are invalid.'
+    return compatibilityNode(rawNode, index, reason)
+  }
+
+  return parsedNode
 }
 
 const conditionVisualHandle = (
   rawEdge: Record<string, unknown>,
   sourceRuntimeType: unknown
-): 'output-true' | 'output-false' | undefined => {
+): 'true' | 'false' | undefined => {
   if (sourceRuntimeType !== 'condition') {
     return undefined
   }
 
   const source = typeof rawEdge.from === 'string' ? rawEdge.from : ''
   const resultRef = `{{ steps.${source}.output.result }}`
-  if (rawEdge.condition === resultRef) return 'output-true'
-  if (rawEdge.condition === `${resultRef} == false`) return 'output-false'
+  if (rawEdge.condition === resultRef) return 'true'
+  if (rawEdge.condition === `${resultRef} == false`) return 'false'
   if (rawEdge.condition === 'true' || rawEdge.condition === true || rawEdge.condition === 'output-true') {
-    return 'output-true'
+    return 'true'
   }
   if (rawEdge.condition === 'false' || rawEdge.condition === false || rawEdge.condition === 'output-false') {
-    return 'output-false'
+    return 'false'
   }
   return undefined
 }
@@ -678,10 +847,29 @@ const restoredSourceHandle = (
     return rawEdge.from_port === null ? null : undefined
   }
   if (sourceRuntimeType === 'condition') {
-    if (rawEdge.from_port === 'true' || rawEdge.from_port === 'output-true') return 'output-true'
-    if (rawEdge.from_port === 'false' || rawEdge.from_port === 'output-false') return 'output-false'
+    if (rawEdge.from_port === 'true' || rawEdge.from_port === 'output-true') return 'true'
+    if (rawEdge.from_port === 'false' || rawEdge.from_port === 'output-false') return 'false'
   }
   return rawEdge.from_port
+}
+
+const edgeMatchesOriginalPersistedShape = (
+  edge: Edge,
+  originalEdge: Record<string, unknown>,
+  runtimeTypeByNodeId: Map<string, CanonicalRuntimeType>,
+): boolean => {
+  const originalSource = typeof originalEdge.from === 'string' ? originalEdge.from : ''
+  const originalTarget = typeof originalEdge.to === 'string' ? originalEdge.to : ''
+  const originalSourceHandle = restoredSourceHandle(originalEdge, runtimeTypeByNodeId.get(originalSource))
+  const originalTargetHandle = hasOwn(originalEdge, 'to_port')
+    && (typeof originalEdge.to_port === 'string' || originalEdge.to_port === null)
+    ? originalEdge.to_port
+    : undefined
+  return edge.id === originalEdge.id
+    && edge.source === originalSource
+    && edge.target === originalTarget
+    && edge.sourceHandle === originalSourceHandle
+    && edge.targetHandle === originalTargetHandle
 }
 
 const isRecognizedPersistedCondition = (
@@ -738,19 +926,17 @@ const parseEdge = (
     && (typeof rawEdge.to_port === 'string' || rawEdge.to_port === null)
     ? rawEdge.to_port
     : undefined
-  const preservedData: Record<string, unknown> = {}
+  const preservedData: Record<string, unknown> = { originalEdge: rawEdgeValue }
   if (!rawEdgeIsRecord) {
     preservedData.unsupported = true
     preservedData.compatibilityKind = 'unsupported-edge'
     preservedData.validationError = 'Persisted workflow edge is not an object.'
-    preservedData.originalEdge = rawEdgeValue
   } else {
     const validationError = persistedEdgeValidationError(rawEdge)
     if (validationError) {
       preservedData.unsupported = true
       preservedData.compatibilityKind = 'unsupported-edge'
       preservedData.validationError = validationError
-      preservedData.originalEdge = rawEdgeValue
     } else {
       if (sourceRuntimeType === 'condition') {
         preservedData.persistedFromPort = hasOwn(rawEdge, 'from_port')
@@ -760,13 +946,11 @@ const parseEdge = (
       }
       if (sourceRuntimeType === 'condition' && (rawEdge.condition === undefined || rawEdge.condition === null)) {
         preservedData.persistedConditionEmpty = true
-        preservedData.originalEdge = rawEdgeValue
       } else if (!isRecognizedPersistedCondition(rawEdge, sourceRuntimeType)) {
         preservedData.unsupported = true
         preservedData.compatibilityKind = 'unsupported-condition'
         preservedData.validationError = 'Persisted edge condition cannot be mapped to a canonical condition branch.'
         preservedData.originalCondition = rawEdge.condition
-        preservedData.originalEdge = rawEdgeValue
       }
     }
   }
@@ -800,18 +984,24 @@ export const parseWorkflowVersion = (version: WorkflowVersionLike): ParsedWorkfl
 
   const nodes = rawNodes.map(parseNode)
 
+  const base: WorkflowSpecBase = {
+    version: typeof spec.version === 'string' || spec.version === null ? spec.version : undefined,
+    inputs_schema: isRecord(spec.inputs_schema) ? spec.inputs_schema : {},
+    outputs_schema: isRecord(spec.outputs_schema) ? spec.outputs_schema : {},
+    limits: optionalEnvelopeRecord(spec.limits),
+    runtime: optionalEnvelopeRecord(spec.runtime),
+    policy: optionalEnvelopeRecord(spec.policy),
+    semantics: optionalEnvelopeRecord(spec.semantics),
+  }
+  Object.defineProperty(base, originalWorkflowSpecMetadata, {
+    value: cloneMetadataValue(spec),
+    enumerable: false,
+  })
+
   return {
     name: typeof spec.name === 'string' ? spec.name : '',
     description: typeof spec.description === 'string' ? spec.description : '',
-    base: {
-      version: typeof spec.version === 'string' || spec.version === null ? spec.version : undefined,
-      inputs_schema: isRecord(spec.inputs_schema) ? spec.inputs_schema : {},
-      outputs_schema: isRecord(spec.outputs_schema) ? spec.outputs_schema : {},
-      limits: optionalEnvelopeRecord(spec.limits),
-      runtime: optionalEnvelopeRecord(spec.runtime),
-      policy: optionalEnvelopeRecord(spec.policy),
-      semantics: optionalEnvelopeRecord(spec.semantics),
-    },
+    base,
     nodes,
     edges: rawEdges.map((edge, index) => parseEdge(edge, index, runtimeTypeByNodeId)),
     hasUnsupportedNodes: nodes.some((node) => node.type === 'compatibility-node'),

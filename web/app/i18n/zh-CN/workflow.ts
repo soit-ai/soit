@@ -287,6 +287,7 @@ const translation = {
     },
     actions: {
       run: '运行工作流',
+      testRun: '测试运行',
       callConfig: '调用配置',
       deleteSelected: '删除选中节点',
     },
@@ -313,6 +314,22 @@ const translation = {
       flow: '流程',
       output: '输出',
     },
+    states: {
+      loading: '正在加载支持的工作流节点...',
+      empty: '暂无可用的工作流能力，已禁用节点添加。',
+      error: '无法加载工作流能力，已禁用节点添加。',
+      contractMismatch: '工作流能力契约不匹配，已禁用节点添加。',
+    },
+    items: {
+      'input-node': { label: '输入' },
+      'transform-node': { label: '转换' },
+      'variable-assignment-node': { label: '变量赋值' },
+      'llm-node': { label: 'LLM' },
+      'knowledge-search-node': { label: '知识检索' },
+      'tool-node': { label: '工具调用' },
+      'conditional-node': { label: '条件' },
+      'output-node': { label: '输出' },
+    },
   },
   nodeProperties: {
     empty: '选择一个节点以编辑其属性',
@@ -327,6 +344,14 @@ const translation = {
     cacheTip: '缓存节点输出以提高性能',
     timeout: '超时设置 (秒)',
     nodeId: '节点ID',
+    compatibility: {
+      title: '不支持的历史节点',
+      description: '该节点为只读，无法重新发布。',
+      runtimeType: '原始运行时类型',
+      params: '原始参数',
+      ui: '原始 UI 数据',
+      unavailable: '不可用',
+    },
   },
   customNodes: {
     code: {
@@ -1001,12 +1026,17 @@ const translation = {
     },
     build: {
       defaultName: '我的新工作流',
+      compatibilityMessage: '该工作流包含不支持的历史节点。请先迁移节点，再保存或运行工作流。',
+      unsupportedEdgeMessage: '该工作流包含不兼容的连线数据。请先修复或迁移，再保存或运行工作流。',
       toast: {
         nameRequired: '请输入工作流名称',
         saved: '工作流保存成功',
         running: '工作流运行中...',
         exported: '工作流导出成功',
         imported: '工作流导入成功',
+      },
+      export: {
+        invalidDraft: '请先修复无效的 JSON，再导出工作流。',
       },
       import: {
         invalidData: '无效的工作流数据格式',
@@ -1015,6 +1045,8 @@ const translation = {
         unnamed: '未命名',
         importedFallbackName: '导入的工作流',
         invalidFile: '导入失败：无效的工作流文件格式',
+        confirm: '导入',
+        cancel: '取消',
       },
     },
     log: {
@@ -1337,6 +1369,17 @@ const translation = {
         modelLabel: '模型',
         modelPlaceholder: '选择模型',
       },
+      input: {
+        label: '输入',
+        description: '经过校验的工作流调用输入',
+        fields: {
+          selectLabel: '选择输入字段（可选）',
+          selectHelp: '每行输入一个字段名称。',
+        },
+        placeholders: {
+          select: 'question\nlocale',
+        },
+      },
       text: {
         label: '文本输入',
         description: '用户输入的文本内容',
@@ -1546,6 +1589,9 @@ const translation = {
         label: '转换',
         description: '转换数据格式或结构',
         previewType: '转换类型: {{value}}',
+        fields: { mappingLabel: '确定性映射（JSON）' },
+        placeholders: { mapping: '{\n  "answer": "{{ inputs.question }}"\n}' },
+        invalidMapping: '映射必须是有效的 JSON 对象。',
       },
       variableAggregator: {
         label: '变量聚合器',
@@ -1556,6 +1602,23 @@ const translation = {
         label: '变量赋值',
         description: '为变量赋值',
         previewVariable: '变量名: {{value}}',
+        fields: {
+          keyLabel: '变量键',
+          valueLabel: '值（JSON）',
+        },
+        placeholders: {
+          key: 'result',
+          value: '"{{ inputs.value }}"',
+        },
+        invalidValue: '值必须是有效的 JSON。',
+      },
+      conditional: {
+        fields: { conditionLabel: '条件' },
+        placeholders: { condition: '{{ steps.previous.output.result }}' },
+      },
+      compatibility: {
+        title: '不支持的历史节点',
+        description: '该节点为只读，无法重新发布。',
       },
       documentExtractor: {
         label: '文档提取器',

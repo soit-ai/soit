@@ -1,6 +1,8 @@
 import React, { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { GitBranch } from 'lucide-react'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useNodeHandles } from '../hooks/use-node-handles'
 import { useTranslation } from '@/i18n'
 
@@ -8,7 +10,7 @@ export const ConditionalNodeInfo = {
   type: 'conditional-node',
   label: 'Conditional',
   labelKey: 'workflow.blocks.if-else',
-  category: 'Flow',
+  category: 'flow',
   categoryKey: 'workflow.nodeLibrary.categories.flow',
   description: 'Branch based on conditions',
   descriptionKey: 'workflow.blocksAbout.if-else',
@@ -18,8 +20,7 @@ export const ConditionalNodeInfo = {
 
 export const ConditionalNodeDefaultData = {
   label: 'Conditional',
-  conditions: [],
-  defaultPath: '',
+  condition: 'true',
 }
 
 const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
@@ -47,7 +48,7 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
       <Handle
         type="source"
         position={sourcePosition}
-        id="output-true"
+        id="true"
         style={{ top: '30%' }}
         isConnectable={isConnectable}
         className="w-3 h-3 bg-amber-600 border-2 border-background"
@@ -56,7 +57,7 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
       <Handle
         type="source"
         position={sourcePosition}
-        id="output-false"
+        id="false"
         style={{ top: '70%' }}
         isConnectable={isConnectable}
         className="w-3 h-3 bg-amber-600 border-2 border-background"
@@ -66,3 +67,25 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
 }
 
 export const ConditionalNode = memo(ConditionalNodeComponent)
+
+interface ConditionalPropertiesProps {
+  data: any
+  onChange: (data: any) => void
+}
+
+export const ConditionalProperties: React.FC<ConditionalPropertiesProps> = ({ data, onChange }) => {
+  const { t } = useTranslation()
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="conditional-expression">{t('workflow.detail.nodes.conditional.fields.conditionLabel')}</Label>
+      <Textarea
+        id="conditional-expression"
+        rows={5}
+        value={typeof data.condition === 'boolean' ? String(data.condition) : data.condition || ''}
+        placeholder={t('workflow.detail.nodes.conditional.placeholders.condition')}
+        onChange={(event) => onChange({ condition: event.target.value })}
+      />
+    </div>
+  )
+}

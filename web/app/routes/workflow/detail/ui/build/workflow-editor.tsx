@@ -24,6 +24,8 @@ interface WorkflowEditorProps {
   selectedNode: Node | null
   deleteSelectedNode: () => void
   runWorkflow: () => void
+  mutationDisabled?: boolean
+  exportDisabled?: boolean
   // History controls.
   undoable?: boolean
   redoable?: boolean
@@ -99,6 +101,8 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
       selectedNode,
       deleteSelectedNode,
       runWorkflow,
+      mutationDisabled = false,
+      exportDisabled = false,
       undoable,
       redoable,
       onUndo,
@@ -203,12 +207,19 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                 <TooltipProvider>
                   <Tooltip delayDuration={300}>
                     <TooltipTrigger asChild>
-                      <Button size="icon" variant="default" className="h-8 w-8 rounded-full" onClick={runWorkflow}>
+                      <Button
+                        size="icon"
+                        variant="default"
+                        className="h-8 w-8 rounded-full"
+                        aria-label={t('workflow.build.actions.testRun')}
+                        disabled={mutationDisabled}
+                        onClick={runWorkflow}
+                      >
                         <Play className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                      <p>{t('workflow.build.actions.run')}</p>
+                      <p>{t('workflow.build.actions.testRun')}</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -236,7 +247,14 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                   <TooltipProvider>
                     <Tooltip delayDuration={300}>
                       <TooltipTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10" onClick={deleteSelectedNode}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                          aria-label={t('workflow.build.actions.deleteSelected')}
+                          disabled={selectedNode.type === 'compatibility-node'}
+                          onClick={deleteSelectedNode}
+                        >
                           <Trash2 className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
@@ -262,6 +280,8 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
               getLayoutedElements={getLayoutedElements}
               undoable={undoable || false}
               redoable={redoable || false}
+              saveDisabled={mutationDisabled}
+              exportDisabled={exportDisabled}
             />
           </ReactFlow>
         </div>

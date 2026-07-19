@@ -1,6 +1,9 @@
 import React, { memo } from 'react'
 import { Handle, type NodeProps } from '@xyflow/react'
 import { Variable } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/i18n'
 import { useNodeHandles } from '../hooks/use-node-handles'
 
@@ -17,9 +20,8 @@ export const VariableAssignmentNodeInfo = {
 
 export const VariableAssignmentNodeDefaultData = {
   label: 'Variable Assignment',
-  variableName: '',
-  variableValue: '',
-  valueType: 'string',
+  key: '',
+  value: '',
 }
 
 // Variable assignment node component.
@@ -34,8 +36,8 @@ const VariableAssignmentNodeComponent = ({ data, isConnectable, selected }: Node
       </div>
 
       <div className="text-xs text-muted-foreground mb-2">
-        {data.variableName
-          ? t('workflow.detail.nodes.variableAssignment.previewVariable', { value: data.variableName as string })
+        {data.key
+          ? t('workflow.detail.nodes.variableAssignment.previewVariable', { value: data.key as string })
           : t('workflow.detail.nodes.variableAssignment.description')}
       </div>
 
@@ -61,3 +63,64 @@ const VariableAssignmentNodeComponent = ({ data, isConnectable, selected }: Node
 }
 
 export const VariableAssignmentNode = memo(VariableAssignmentNodeComponent)
+
+interface VariableAssignmentPropertiesProps {
+  data: any
+  onChange: (data: any) => void
+  onValidityChange?: (valid: boolean) => void
+}
+
+const jsonValueText = (value: unknown) => JSON.stringify(value, null, 2) ?? ''
+
+export const VariableAssignmentProperties: React.FC<VariableAssignmentPropertiesProps> = ({ data, onChange, onValidityChange }) => {
+  const { t } = useTranslation()
+  const [draft, setDraft] = React.useState(() => jsonValueText(data.value))
+  const [invalid, setInvalid] = React.useState(false)
+
+  React.useEffect(() => {
+    setDraft(jsonValueText(data.value))
+    setInvalid(false)
+    onValidityChange?.(true)
+  }, [data.value, onValidityChange])
+
+  React.useEffect(() => () => onValidityChange?.(true), [onValidityChange])
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="variable-key">{t('workflow.detail.nodes.variableAssignment.fields.keyLabel')}</Label>
+        <Input
+          id="variable-key"
+          value={typeof data.key === 'string' ? data.key : ''}
+          placeholder={t('workflow.detail.nodes.variableAssignment.placeholders.key')}
+          onChange={(event) => onChange({ key: event.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="variable-value">{t('workflow.detail.nodes.variableAssignment.fields.valueLabel')}</Label>
+        <Textarea
+          id="variable-value"
+          className="font-mono text-xs"
+          rows={6}
+          value={draft}
+          aria-invalid={invalid}
+          placeholder={t('workflow.detail.nodes.variableAssignment.placeholders.value')}
+          onChange={(event) => {
+            const value = event.target.value
+            setDraft(value)
+            try {
+              const parsed = JSON.parse(value)
+              setInvalid(false)
+              onValidityChange?.(true)
+              onChange({ value: parsed })
+            } catch {
+              setInvalid(true)
+              onValidityChange?.(false)
+            }
+          }}
+        />
+        {invalid && <p className="text-xs text-destructive">{t('workflow.detail.nodes.variableAssignment.invalidValue')}</p>}
+      </div>
+    </div>
+  )
+}

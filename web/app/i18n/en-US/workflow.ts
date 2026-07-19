@@ -287,6 +287,7 @@ const translation = {
     },
     actions: {
       run: 'Run workflow',
+      testRun: 'Test Run',
       callConfig: 'Call config',
       deleteSelected: 'Delete selected node',
     },
@@ -313,6 +314,22 @@ const translation = {
       flow: 'Flow',
       output: 'Output',
     },
+    states: {
+      loading: 'Loading supported workflow nodes...',
+      empty: 'No workflow capabilities are available. Adding nodes is disabled.',
+      error: 'Unable to load workflow capabilities. Adding nodes is disabled.',
+      contractMismatch: 'Workflow capability contract mismatch. Adding nodes is disabled.',
+    },
+    items: {
+      'input-node': { label: 'Input' },
+      'transform-node': { label: 'Transform' },
+      'variable-assignment-node': { label: 'Variable Assignment' },
+      'llm-node': { label: 'LLM' },
+      'knowledge-search-node': { label: 'Knowledge Search' },
+      'tool-node': { label: 'Tool Call' },
+      'conditional-node': { label: 'Condition' },
+      'output-node': { label: 'Output' },
+    },
   },
   nodeProperties: {
     empty: 'Select a node to edit its properties',
@@ -327,6 +344,14 @@ const translation = {
     cacheTip: 'Cache node outputs to improve performance',
     timeout: 'Timeout (seconds)',
     nodeId: 'Node ID',
+    compatibility: {
+      title: 'Unsupported historical node',
+      description: 'This node is read only and cannot be republished.',
+      runtimeType: 'Original runtime type',
+      params: 'Original parameters',
+      ui: 'Original UI data',
+      unavailable: 'Not available',
+    },
   },
   customNodes: {
     code: {
@@ -1001,12 +1026,17 @@ const translation = {
     },
     build: {
       defaultName: 'My New Workflow',
+      compatibilityMessage: 'This workflow contains unsupported historical nodes. Migrate them before saving or running the workflow.',
+      unsupportedEdgeMessage: 'This workflow contains incompatible edge data. Repair or migrate it before saving or running the workflow.',
       toast: {
         nameRequired: 'Please enter a workflow name',
         saved: 'Workflow saved successfully',
         running: 'Workflow is running...',
         exported: 'Workflow exported successfully',
         imported: 'Workflow imported successfully',
+      },
+      export: {
+        invalidDraft: 'Repair invalid JSON before exporting the workflow.',
       },
       import: {
         invalidData: 'Invalid workflow data format',
@@ -1015,6 +1045,8 @@ const translation = {
         unnamed: 'Untitled',
         importedFallbackName: 'Imported workflow',
         invalidFile: 'Import failed: invalid workflow file format',
+        confirm: 'Import',
+        cancel: 'Cancel',
       },
     },
     log: {
@@ -1337,6 +1369,17 @@ const translation = {
         modelLabel: 'Model',
         modelPlaceholder: 'Select model',
       },
+      input: {
+        label: 'Input',
+        description: 'Validated workflow invocation input',
+        fields: {
+          selectLabel: 'Selected input fields (optional)',
+          selectHelp: 'Enter one input field name per line.',
+        },
+        placeholders: {
+          select: 'question\nlocale',
+        },
+      },
       text: {
         label: 'Text input',
         description: 'User input text',
@@ -1546,6 +1589,9 @@ const translation = {
         label: 'Transform',
         description: 'Transform data format or structure',
         previewType: 'Transform type: {{value}}',
+        fields: { mappingLabel: 'Deterministic mapping (JSON)' },
+        placeholders: { mapping: '{\n  "answer": "{{ inputs.question }}"\n}' },
+        invalidMapping: 'Mapping must be a valid JSON object.',
       },
       variableAggregator: {
         label: 'Variable aggregator',
@@ -1556,6 +1602,23 @@ const translation = {
         label: 'Variable assignment',
         description: 'Assign values to variables',
         previewVariable: 'Variable: {{value}}',
+        fields: {
+          keyLabel: 'Variable key',
+          valueLabel: 'Value (JSON)',
+        },
+        placeholders: {
+          key: 'result',
+          value: '"{{ inputs.value }}"',
+        },
+        invalidValue: 'Value must be valid JSON.',
+      },
+      conditional: {
+        fields: { conditionLabel: 'Condition' },
+        placeholders: { condition: '{{ steps.previous.output.result }}' },
+      },
+      compatibility: {
+        title: 'Unsupported historical node',
+        description: 'This node is read only and cannot be republished.',
       },
       documentExtractor: {
         label: 'Document extractor',
