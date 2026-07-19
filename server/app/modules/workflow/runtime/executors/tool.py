@@ -50,8 +50,23 @@ class ToolNodeExecutor(NodeExecutor):
         if registry_only and not inputs.get("tool_ref"):
             raise ValidationError("Tool node requires 'tool_ref' when registry_only_tools is enabled")
 
-        # Extract parameters (everything except tool_ref)
-        parameters = {k: v for k, v in inputs.items() if k not in ("tool_ref", "tool")}
+        # Canonical nodes keep tool arguments under one governed payload boundary.
+        canonical_arguments = inputs.get("arguments")
+        if canonical_arguments is not None:
+            if not isinstance(canonical_arguments, dict):
+                raise ValidationError("Tool node 'arguments' must be an object")
+            parameters = dict(canonical_arguments)
+        elif "input" in inputs:
+            input_payload = inputs.get("input")
+            parameters = (
+                dict(input_payload)
+                if isinstance(input_payload, dict)
+                else {"input": input_payload}
+            )
+        else:
+            parameters = {
+                k: v for k, v in inputs.items() if k not in ("tool_ref", "tool")
+            }
         node_id = str(node.get("id") or "tool")
         resuming_approval = context.resume_approval_node_id == node_id
         node_attempt_step_id = str(context.step_id or "untraced")

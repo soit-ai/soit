@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, select
 from app.modules.agent.domain.models import Agent
 from app.modules.knowledge.domain.models import KnowledgeDocument
 from app.modules.modelhub.domain.models import Provider, ProviderModel
+from app.modules.workflow.domain.models import WorkflowVersion
 from scripts.bootstrap_enterprise_mvp import DEMO_AGENT_NAME, bootstrap_enterprise_mvp
 from scripts.smoke import run_all as smoke_run_all
 
@@ -72,6 +73,21 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
     assert second.knowledge_id == first.knowledge_id
     assert second.document_id == first.document_id
     assert second.workflow_id == first.workflow_id
+
+    workflow_version = db.get(WorkflowVersion, first.workflow_version_id)
+    assert workflow_version is not None
+    retrieve_refs = [
+        node["params"]["knowledge_ref"]
+        for node in workflow_version.spec_json["graph"]["nodes"]
+        if node["type"] == "retrieve"
+    ]
+    model_refs = [
+        node["params"]["model"]
+        for node in workflow_version.spec_json["graph"]["nodes"]
+        if node["type"] == "llm"
+    ]
+    assert retrieve_refs == [f"knowledge:{first.knowledge_id}"]
+    assert model_refs == ["model:test:workflow"]
 
     agent_count = db.exec(
         select(func.count(Agent.id)).where(

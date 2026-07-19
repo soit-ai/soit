@@ -28,6 +28,7 @@ from app.modules.workflow.application.capabilities import (
     get_workflow_node_capabilities,
 )
 from app.modules.workflow.application.compiler import WorkflowCompiler
+from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
 from app.modules.workflow.application.schemas import (
     WorkflowCapabilitiesResponse,
     WorkflowCreate,
@@ -71,6 +72,7 @@ class WorkflowService:
         publish_repo: WorkflowPublishRepository | None = None,
         response_service: ResponseService | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
         **_: Any,
     ):
         self.db = db
@@ -99,6 +101,7 @@ class WorkflowService:
             trace_writer=self.trace_writer,
             response_service=self.response_service,
             approval_checkpoint_gateway=approval_checkpoint_gateway,
+            workflow_knowledge_query_port=workflow_knowledge_query_port,
         )
 
     def _resolve_workflow_create_id(self, data: WorkflowCreate, **kwargs) -> str:
@@ -114,7 +117,7 @@ class WorkflowService:
             "outputs_schema": {"type": "object", "properties": {"value": {"type": "object"}}},
             "graph": {
                 "nodes": [
-                    {"id": "t1", "type": "transform", "params": {}},
+                    {"id": "t1", "type": "transform", "params": {"mapping": {}}},
                     {"id": "o1", "type": "output", "params": {"value": "{{ steps.t1.output }}"}},
                 ],
                 "edges": [{"id": "e1", "from": "t1", "to": "o1"}],

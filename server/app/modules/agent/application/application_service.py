@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
@@ -82,6 +82,9 @@ from app.modules.evaluation.application.service import (
 from app.modules.memory.application.service import MemoryService
 from app.modules.versioning.application.service import VersionControlService
 
+if TYPE_CHECKING:
+    from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
+
 logger = logging.getLogger(__name__)
 _PUBLIC_AGENT_EXECUTION_ERROR = "Agent execution failed"
 
@@ -113,12 +116,14 @@ class AgentApplicationService:
         regression_evaluator: RegressionEvaluationService | None = None,
         plugin_runtime_port: PluginRuntimePort | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
+        workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
     ) -> None:
         self.db = db
         self.ctx = ctx
         self.llm_port = llm_port
         self.tool_port = tool_port
         self.memory_service = memory_service
+        self.workflow_knowledge_query_port = workflow_knowledge_query_port
         # Create ToolResolver if tool_port is a RegistryToolRouterPort
         self.tool_resolver = (
             ToolResolver(tool_port=tool_port)
@@ -457,6 +462,7 @@ class AgentApplicationService:
                 db=self.db,
                 ctx=self.ctx,
                 response_service=self.response_service,
+                workflow_knowledge_query_port=self.workflow_knowledge_query_port,
             )
             return await workflow_service.execute_workflow(workflow_id, parameters or {})
 

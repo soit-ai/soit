@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
 
@@ -30,7 +31,6 @@ from app.modules.agent.application.schemas import (
 from app.modules.knowledge.application.runtime_schemas import (
     DocumentUpload,
     KnowledgeCreate,
-    QueryRequest,
 )
 from app.modules.knowledge.domain.models import KnowledgeIndex
 from app.modules.modelhub.application.schemas import ProviderCreate, ProviderModelCreate
@@ -43,6 +43,7 @@ from app.modules.modelhub.infra.repository import (
     ProviderRepository,
     SyncJobRepository,
 )
+from app.modules.workflow.application.schemas import WorkflowVersionCreate
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import WorkflowRun
 from app.wiring.container import reset_container
@@ -96,7 +97,6 @@ def _unwrap(row: Any) -> Any:
 async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workflow_tool_and_trace(
     db,
     tenant1_ctx: RequestContext,
-    monkeypatch,
 ):
     reset_container()
     register_preapproved_evaluation_tool(tenant1_ctx)
@@ -164,28 +164,35 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
         )
         assert document.status == "indexed"
         assert index is not None
-        collection_name = index.collection_name or f"idx_{index.id}"
 
-        async def query_test_knowledge(**kwargs):
-            response = await knowledge_service.query(
-                kwargs["knowledge_id"],
-                QueryRequest(
-                    query=kwargs["query"],
-                    top_k=kwargs.get("top_k", 5),
-                    index_id=kwargs.get("index_id"),
-                    filter=kwargs.get("filter"),
-                    include_snippets=kwargs.get("include_snippets", True),
-                    strategy=kwargs.get("strategy"),
-                ),
-            )
-            return response.model_dump()
+        from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 
-        monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", query_test_knowledge)
-
-        workflow_service = WorkflowService(db=db, ctx=tenant1_ctx)
+        workflow_knowledge_query_port = KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=knowledge_service,
+            ctx=tenant1_ctx,
+        )
+        workflow_service = WorkflowService(
+            db=db,
+            ctx=tenant1_ctx,
+            workflow_knowledge_query_port=workflow_knowledge_query_port,
+        )
         workflow = await workflow_service.create_ticket_triage_template(name="Enterprise ticket triage")
         assert workflow.current_version_id is not None
-        workflow = await workflow_service.publish_version(workflow.id, workflow.current_version_id)
+        template_version = await workflow_service.get_current_version(workflow.id)
+        assert template_version is not None
+        configured_spec = deepcopy(template_version.spec_json)
+        for node in configured_spec["graph"]["nodes"]:
+            if node["type"] == "retrieve":
+                assert node["params"]["knowledge_ref"] == "knowledge:configure-me"
+                node["params"]["knowledge_ref"] = f"knowledge:{knowledge.id}"
+            elif node["type"] == "llm":
+                assert node["params"]["model"] == "model:configure-me"
+                node["params"]["model"] = model_ref
+        configured_version = await workflow_service.create_version(
+            workflow.id,
+            WorkflowVersionCreate(graph_json=configured_spec),
+        )
+        workflow = await workflow_service.publish_version(workflow.id, configured_version.id)
         workflow_ref = f"wf:{workflow.id}"
 
         agent_llm = QueueLLMPort(
@@ -204,9 +211,6 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                                 "customer_message": "Customer requests a refund escalation.",
                                 "customer_id": "customer-123",
                                 "priority": "high",
-                                "knowledge_collection": collection_name,
-                                "embedding_model": "model:test:embedding",
-                                "model_ref": "model:test:workflow",
                             },
                         )
                     ],
@@ -226,6 +230,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             llm_port=agent_llm,
             tool_port=RegistryToolRouterPort(),
             memory_service=StubMemoryService(),
+            workflow_knowledge_query_port=workflow_knowledge_query_port,
         )
         agent = await agent_service.create_agent(
             AgentCreate(
@@ -278,6 +283,8 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
         response, _, agent_tool_calls = agent_service.response_service.get_response_detail(result["response_id"])
         workflow_tool_call = next(call for call in agent_tool_calls if call["tool_name"] == workflow_ref)
         workflow_run_id = workflow_tool_call["result_json"]["result"]["workflow_run_id"]
+        workflow_output = workflow_tool_call["result_json"]["result"]["output"]
+        workflow_citations = workflow_output["value"]["citations"]
 
         workflow_run = _unwrap(db.exec(select(WorkflowRun).where(WorkflowRun.run_id == workflow_run_id)).first())
         workflow_trace = _unwrap(db.exec(select(Run).where(Run.id == workflow_run_id)).first())
@@ -314,7 +321,8 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
 
         assert result["output"]
         assert result["model"] == model_ref
-        assert result["citations"]
+        assert workflow_citations
+        assert result["citations"] == workflow_citations
         assert result["citations"][0]["document_id"] == document.id
         assert response.output_json["citations"] == result["citations"]
         assert workflow_tool_call["status"] == "completed"

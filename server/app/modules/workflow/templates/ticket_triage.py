@@ -14,19 +14,25 @@ def build_ticket_triage_template() -> dict[str, Any]:
                 "customer_message": {"type": "string"},
                 "customer_id": {"type": "string"},
                 "priority": {"type": "string"},
-                "knowledge_collection": {"type": "string"},
-                "embedding_model": {"type": "string"},
-                "model_ref": {"type": "string"},
             },
         },
         "outputs_schema": {
             "type": "object",
+            "required": ["value"],
             "properties": {
-                "ticket_id": {"type": "string"},
-                "status": {"type": "string"},
-                "response": {"type": "string"},
-                "citations": {"type": "array"},
+                "value": {
+                    "type": "object",
+                    "required": ["ticket_id", "status", "response", "citations"],
+                    "properties": {
+                        "ticket_id": {"type": "string"},
+                        "status": {"type": "string"},
+                        "response": {"type": "string"},
+                        "citations": {"type": "array"},
+                    },
+                    "additionalProperties": False,
+                },
             },
+            "additionalProperties": False,
         },
         "policy": {
             "registry_only_tools": True,
@@ -36,22 +42,15 @@ def build_ticket_triage_template() -> dict[str, Any]:
             "nodes": [
                 {
                     "id": "start",
-                    "type": "set_var",
-                    "params": {
-                        "set": {
-                            "customer_message": "{{ inputs.customer_message }}",
-                            "customer_id": "{{ inputs.customer_id }}",
-                            "priority": "{{ inputs.priority }}",
-                        }
-                    },
+                    "type": "input",
+                    "params": {},
                 },
                 {
                     "id": "knowledge_search",
                     "type": "retrieve",
                     "params": {
                         "query": "{{ steps.start.output.customer_message }}",
-                        "collection": "{{ inputs.knowledge_collection }}",
-                        "embedding_model": "{{ inputs.embedding_model }}",
+                        "knowledge_ref": "knowledge:configure-me",
                         "top_k": 3,
                     },
                 },
@@ -59,7 +58,7 @@ def build_ticket_triage_template() -> dict[str, Any]:
                     "id": "classify",
                     "type": "llm",
                     "params": {
-                        "model": "{{ inputs.model_ref }}",
+                        "model": "model:configure-me",
                         "system": "Classify support tickets using the retrieved policy context.",
                         "prompt": (
                             "Customer: {{ steps.start.output.customer_message }}\n"
@@ -73,8 +72,7 @@ def build_ticket_triage_template() -> dict[str, Any]:
                     "id": "approval",
                     "type": "condition",
                     "params": {
-                        "condition": '{{ inputs.priority }} != "low"',
-                        "classification": "{{ steps.classify.output.text }}",
+                        "condition": '{{ inputs.priority }} != "low"'
                     },
                 },
                 {
@@ -82,32 +80,39 @@ def build_ticket_triage_template() -> dict[str, Any]:
                     "type": "tool",
                     "params": {
                         "tool_ref": "builtin.ticket.create_review_ticket",
-                        "url": "https://tickets.example.local/reviews",
-                        "customer_id": "{{ steps.start.output.customer_id }}",
-                        "priority": "{{ steps.start.output.priority }}",
-                        "message": "{{ steps.start.output.customer_message }}",
-                        "classification": "{{ steps.classify.output.text }}",
-                        "api_token": "secret:ticket_api_key",
+                        "arguments": {
+                            "customer_id": "{{ steps.start.output.customer_id }}",
+                            "priority": "{{ steps.start.output.priority }}",
+                            "message": "{{ steps.start.output.customer_message }}",
+                            "classification": "{{ steps.classify.output.text }}",
+                            "api_token": {
+                                "secret_ref": "secret:ticket_api_key"
+                            },
+                        },
                     },
                 },
                 {
                     "id": "response",
                     "type": "output",
                     "params": {
-                        "ticket_id": "{{ steps.ticket_tool.output.result.ticket_id }}",
-                        "status": "{{ steps.ticket_tool.output.result.status }}",
-                        "response": "{{ steps.classify.output.text }}",
-                        "citations": "{{ steps.knowledge_search.output.citations }}",
+                        "value": {
+                            "ticket_id": "{{ steps.ticket_tool.output.result.ticket_id }}",
+                            "status": "{{ steps.ticket_tool.output.result.status }}",
+                            "response": "{{ steps.classify.output.text }}",
+                            "citations": "{{ steps.knowledge_search.output.citations }}",
+                        },
                     },
                 },
                 {
                     "id": "reject",
                     "type": "output",
                     "params": {
-                        "ticket_id": "",
-                        "status": "rejected",
-                        "response": "Ticket creation skipped because the approval condition was not met.",
-                        "citations": "{{ steps.knowledge_search.output.citations }}",
+                        "value": {
+                            "ticket_id": "",
+                            "status": "rejected",
+                            "response": "Ticket creation skipped because the approval condition was not met.",
+                            "citations": "{{ steps.knowledge_search.output.citations }}",
+                        },
                     },
                 },
             ],

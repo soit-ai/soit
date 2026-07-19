@@ -63,6 +63,14 @@ def build_workflow_refs(spec_json: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(params, dict | list):
             continue
         node_path = f"$.graph.nodes[{idx}].params"
+        if node.get("type") == "llm" and isinstance(params, dict):
+            model_ref = _build_ref_entry(
+                "model",
+                params.get("model"),
+                f"{node_path}.model",
+            )
+            if model_ref:
+                refs.append(model_ref)
         refs.extend(_extract_refs(params, node_path))
     return refs
 

@@ -15,6 +15,7 @@ from app.kernel.specs import (
     validate_spec,
     validator,
 )
+from tests.fixtures.workflow_specs import canonical_workflow_spec
 
 
 def test_list_and_load_schemas():
@@ -127,6 +128,154 @@ def test_workflow_spec_validation_minimal():
         },
     }
     assert validate_spec(wf_doc, "workflow_spec") is True
+
+
+@pytest.mark.parametrize(
+    ("node_type", "params"),
+    [
+        ("input", {}),
+        ("transform", {"mapping": {"value": "{{ inputs.value }}"}}),
+        ("set_var", {"key": "ticket_id", "value": "{{ inputs.ticket_id }}"}),
+        ("llm", {"model": "model:test:chat", "prompt": "hello"}),
+        (
+            "retrieve",
+            {
+                "knowledge_ref": "knowledge:kb-1",
+                "query": "hello",
+                "top_k": 3,
+            },
+        ),
+        (
+            "tool",
+            {
+                "tool_ref": "tool:test:echo",
+                "arguments": {"value": "hello"},
+            },
+        ),
+        ("condition", {"condition": "{{ inputs.accepted }}"}),
+        ("output", {"value": "{{ inputs.value }}"}),
+        (
+            "http",
+            {
+                "url": "https://example.test/items",
+                "method": "POST",
+                "headers": {"X-Request-ID": "request-1"},
+                "query": {"page": 1},
+                "body": {"value": True},
+            },
+        ),
+        (
+            "node",
+            {
+                "node_ref": "node:test:echo",
+                "parameters": {"value": "hello"},
+            },
+        ),
+    ],
+)
+def test_workflow_schema_accepts_canonical_and_compatibility_node_contracts(
+    node_type: str,
+    params: dict,
+) -> None:
+    spec = canonical_workflow_spec(node_type=node_type, params=params)
+
+    validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+@pytest.mark.parametrize("node_type", ["loop", "code", "agent", "parallel", "join"])
+def test_workflow_schema_rejects_new_unsupported_node_types(node_type: str) -> None:
+    spec = canonical_workflow_spec(node_type=node_type, params={})
+
+    with pytest.raises(ValidationError):
+        validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+@pytest.mark.parametrize(
+    ("node_type", "params"),
+    [
+        ("input", {"unknown": True}),
+        ("transform", {}),
+        ("set_var", {"key": "", "value": None}),
+        ("llm", {"model": "", "prompt": "hello"}),
+        ("llm", {"model": "model:test:chat", "prompt": ""}),
+        ("llm", {"model": "model:test:chat", "prompt": "hello", "temperature": 2.1}),
+        ("llm", {"model": "model:test:chat", "prompt": "hello", "max_tokens": 0}),
+        ("retrieve", {"knowledge_ref": "", "query": "hello"}),
+        ("retrieve", {"knowledge_ref": "knowledge:kb-1", "query": ""}),
+        ("retrieve", {"knowledge_ref": "knowledge:kb-1", "query": "hello", "top_k": 0}),
+        ("tool", {"tool_ref": ""}),
+        ("condition", {"condition": ""}),
+        ("output", {}),
+        ("http", {"url": "", "method": "GET"}),
+        ("http", {"url": "https://example.test", "method": "TRACE"}),
+        ("node", {"node_ref": ""}),
+    ],
+)
+def test_workflow_schema_rejects_invalid_node_parameters(
+    node_type: str,
+    params: dict,
+) -> None:
+    spec = canonical_workflow_spec(node_type=node_type, params=params)
+
+    with pytest.raises(ValidationError):
+        validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"timeout_ms": 0},
+        {"max_steps": 0},
+        {"budget": -0.01},
+        {"max_tool_calls": -1},
+        {"budget_currency": "usd"},
+        {"budget_currency": "US"},
+        {"budget_currency": "USDT"},
+    ],
+)
+def test_workflow_schema_rejects_invalid_execution_limits(limits: dict) -> None:
+    spec = canonical_workflow_spec()
+    spec["limits"] = limits
+
+    with pytest.raises(ValidationError):
+        validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+def test_workflow_schema_accepts_historical_budget_without_currency() -> None:
+    spec = canonical_workflow_spec()
+    spec["limits"] = {"budget": 3.5}
+
+    validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+    budget_currency = load_schema("workflow_spec")["properties"]["limits"]["properties"][
+        "budget_currency"
+    ]
+    assert budget_currency["default"] == "USD"
+
+
+def test_workflow_schema_rejects_non_positive_concurrency() -> None:
+    spec = canonical_workflow_spec()
+    spec["semantics"] = {"concurrency": 0}
+
+    with pytest.raises(ValidationError):
+        validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+def test_workflow_schema_rejects_negative_default_retry_count() -> None:
+    spec = canonical_workflow_spec()
+    spec["policy"] = {"default_retry_policy": {"max_retries": -1}}
+
+    with pytest.raises(ValidationError):
+        validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
+
+
+def test_workflow_schema_accepts_equal_condition_and_when_during_migration() -> None:
+    spec = canonical_workflow_spec()
+    spec["graph"]["edges"][0].update(
+        condition="{{ inputs.enabled }}",
+        when="{{ inputs.enabled }}",
+    )
+
+    validate_runtime_spec("workflow.v1", spec, raise_on_error=True)
 
 
 def test_agent_spec_validation_with_bindings_only_shape():

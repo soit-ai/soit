@@ -351,11 +351,20 @@ class TestWorkflowAPI:
         }
         for key in required_keys:
             assert key in payload
+
         assert payload["summary"] == "Workflow summary"
         assert payload["visibility"] == "workspace"
         assert payload["icon_url"] == "https://example.com/workflow.png"
         assert payload["category"] == "automation"
         assert payload["tags"] == ["ops", "etl"]
+
+        current_version = client.get(
+            f"/api/v1/workflows/{payload['id']}/version/current",
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert current_version.status_code == status.HTTP_200_OK
+        transform = current_version.json()["data"]["graph_json"]["graph"]["nodes"][0]
+        assert transform["params"] == {"mapping": {}}
 
     def test_create_ticket_triage_template_workflow(self, client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
@@ -573,11 +582,15 @@ class TestWorkflowAPI:
                     "outputs_schema": {"type": "object", "properties": {"value": {"type": "boolean"}}},
                     "graph": {
                         "nodes": [
-                            {"id": "set1", "type": "set_var", "params": {"set": {"flag": True}}},
+                            {
+                                "id": "set1",
+                                "type": "set_var",
+                                "params": {"key": "flag", "value": True},
+                            },
                             {
                                 "id": "out1",
                                 "type": "output",
-                                "params": {"value": "{{ steps.set1.output.flag }}"},
+                                "params": {"value": "{{ steps.set1.output.value }}"},
                             },
                         ],
                         "edges": [{"id": "e1", "from": "set1", "to": "out1"}],
@@ -599,6 +612,14 @@ class TestWorkflowAPI:
         }
         for key in required_keys:
             assert key in payload
+
+        preview_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/versions/{payload['id']}/preview",
+            json={"inputs": {}},
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert preview_response.status_code == status.HTTP_200_OK
+        assert preview_response.json()["data"]["output"] == {"value": True}
 
         detail_response = client.get(
             f"/api/v1/workflows/{workflow_id}",
@@ -790,8 +811,12 @@ class TestWorkflowAPI:
                     "outputs_schema": {"type": "object", "properties": {"value": {"type": "boolean"}}},
                     "graph": {
                         "nodes": [
-                            {"id": "set1", "type": "set_var", "params": {"set": {"flag": True}}},
-                            {"id": "out1", "type": "output", "params": {"value": "{{ steps.set1.output.flag }}"}},
+                            {
+                                "id": "set1",
+                                "type": "set_var",
+                                "params": {"key": "flag", "value": True},
+                            },
+                            {"id": "out1", "type": "output", "params": {"value": "{{ steps.set1.output.value }}"}},
                         ],
                         "edges": [{"id": "e1", "from": "set1", "to": "out1"}],
                     },
@@ -811,6 +836,14 @@ class TestWorkflowAPI:
         payload = publish_response.json()["data"]
         assert payload["current_version_id"] == version_id
         assert payload["published_version_id"] == version_id
+
+        execute_response = client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            json={},
+            headers=headers,
+        )
+        assert execute_response.status_code == status.HTTP_200_OK
+        assert execute_response.json()["data"]["output"] == {"value": True}
 
         rollback_response = client.post(
             f"/api/v1/workflows/{workflow_id}/rollback",
@@ -1028,7 +1061,14 @@ class TestWorkflowAPI:
                     "outputs_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
                     "graph": {
                         "nodes": [
-                            {"id": "llm1", "type": "llm", "params": {"prompt": "hello from sse"}},
+                            {
+                                "id": "llm1",
+                                "type": "llm",
+                                "params": {
+                                    "model": "model:test:sse",
+                                    "prompt": "hello from sse",
+                                },
+                            },
                             {"id": "out1", "type": "output", "params": {"value": "{{ steps.llm1.output.text }}"}},
                         ],
                         "edges": [{"id": "e1", "from": "llm1", "to": "out1"}],
@@ -1126,7 +1166,9 @@ class TestWorkflowAPI:
                                 "type": "tool",
                                 "params": {
                                     "tool_ref": "tool:function:time_now",
-                                    "ticket_id": "{{ inputs.ticket_id }}",
+                                    "arguments": {
+                                        "ticket_id": "{{ inputs.ticket_id }}",
+                                    },
                                 },
                             },
                             {
@@ -1197,7 +1239,17 @@ class TestWorkflowAPI:
                 "graph_json": {
                     "name": "ticket-control-flow",
                     "inputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
-                    "outputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "outputs_schema": {
+                        "type": "object",
+                        "properties": {
+                            "value": {
+                                "type": "object",
+                                "properties": {"ticket_id": {"type": "string"}},
+                                "required": ["ticket_id"],
+                            }
+                        },
+                        "required": ["value"],
+                    },
                     "graph": {
                         "nodes": [
                             {
@@ -1211,7 +1263,11 @@ class TestWorkflowAPI:
                             {
                                 "id": "out1",
                                 "type": "output",
-                                "params": {"ticket_id": "{{ steps.set_ticket.output.value }}"},
+                                "params": {
+                                    "value": {
+                                        "ticket_id": "{{ steps.set_ticket.output.value }}",
+                                    }
+                                },
                             }
                         ],
                         "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
@@ -1316,7 +1372,7 @@ class TestWorkflowAPI:
         assert retry_payload["run_id"]
         assert retry_payload["source_run_id"] == failed_run.id
         assert retry_payload["control_action"] == "retry"
-        assert retry_payload["output"]["ticket_id"] == "TCK-2002"
+        assert retry_payload["output"]["value"]["ticket_id"] == "TCK-2002"
 
         retry_canceled_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/retry", headers=headers)
         assert retry_canceled_response.status_code == status.HTTP_200_OK
@@ -1324,7 +1380,7 @@ class TestWorkflowAPI:
         assert retry_canceled_payload["run_id"]
         assert retry_canceled_payload["source_run_id"] == running_run.id
         assert retry_canceled_payload["control_action"] == "retry"
-        assert retry_canceled_payload["output"]["ticket_id"] == "TCK-2001"
+        assert retry_canceled_payload["output"]["value"]["ticket_id"] == "TCK-2001"
 
         replay_response = client.post(
             f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/replay",
@@ -1336,6 +1392,6 @@ class TestWorkflowAPI:
         assert replay_payload["run_id"]
         assert replay_payload["source_run_id"] == failed_run.id
         assert replay_payload["control_action"] == "replay"
-        assert replay_payload["output"]["ticket_id"] == "TCK-2003"
+        assert replay_payload["output"]["value"]["ticket_id"] == "TCK-2003"
 
 

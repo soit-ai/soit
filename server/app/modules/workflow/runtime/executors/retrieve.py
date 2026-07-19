@@ -28,85 +28,35 @@ class RetrieveNodeExecutor(NodeExecutor):
         Returns:
             Output dictionary with 'context' (list of documents) and 'citations'.
         """
-        if not context.vector_port:
-            raise ValidationError("Vector gateway not available")
+        if not context.workflow_knowledge_query_port:
+            raise ValidationError("Workflow knowledge query port not available")
 
-        if not context.llm_port:
-            raise ValidationError("LLM gateway not available for embedding")
+        knowledge_ref = inputs.get("knowledge_ref")
+        if not isinstance(knowledge_ref, str) or not knowledge_ref.strip():
+            raise ValidationError("Retrieve node requires 'knowledge_ref' input")
 
-        # Extract parameters
         query = inputs.get("query")
-        if not query:
+        if not isinstance(query, str) or not query.strip():
             raise ValidationError("Retrieve node requires 'query' input")
 
-        collection = inputs.get("collection") or inputs.get("knowledge")
-        if not collection:
-            raise ValidationError("Retrieve node requires 'collection' or 'knowledge' input")
-
         top_k = inputs.get("top_k", 10)
-        embedding_model = inputs.get("embedding_model") or inputs.get("model")
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 100:
+            raise ValidationError("Retrieve node requires 'top_k' between 1 and 100")
+        filters = inputs.get("filters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ValidationError("Retrieve node 'filters' must be an object")
+        rerank_model = inputs.get("rerank_model")
+        if rerank_model is not None and (
+            not isinstance(rerank_model, str) or not rerank_model.strip()
+        ):
+            raise ValidationError("Retrieve node 'rerank_model' must be a non-empty string")
 
-        # Generate embedding for query
-        if isinstance(query, str):
-            # Query is text, need to embed it
-            if not embedding_model:
-                raise ValidationError("Retrieve node requires 'embedding_model' input for text queries")
-
-            # Generate embedding using LLM gateway
-            embedding_response = await context.llm_port.embed(
-                texts=[query],
-                model=embedding_model,
-                run_id=context.run_id,
-            )
-
-            if not embedding_response.embeddings or len(embedding_response.embeddings) == 0:
-                raise ValidationError("Failed to generate query embedding")
-
-            query_vector = embedding_response.embeddings[0]
-        elif isinstance(query, list) and all(isinstance(x, int | float) for x in query):
-            # Query is already a vector
-            query_vector = query
-        else:
-            raise ValidationError("Query must be a string or a vector list")
-
-        # Call vector gateway
-        result = await context.vector_port.query(
-            collection=collection,
-            vector=query_vector,
+        return await context.workflow_knowledge_query_port.query(
+            knowledge_ref=knowledge_ref,
+            query=query,
             top_k=top_k,
-            include_metadata=True,
+            filters=filters,
+            rerank_model=rerank_model,
+            ctx=context.ctx,
             run_id=context.run_id,
         )
-
-        # Format output
-        documents = []
-        citations = []
-
-        for i, doc_id in enumerate(result.ids):
-            doc_metadata = result.metadata[i] if result.metadata and i < len(result.metadata) else {}
-            score = result.scores[i] if result.scores and i < len(result.scores) else 0.0
-
-            documents.append({
-                "id": doc_id,
-                "score": score,
-                "metadata": doc_metadata,
-                "text": doc_metadata.get("text", "") or doc_metadata.get("text_preview", ""),
-            })
-            citations.append({
-                "id": doc_id,
-                "rank": i + 1,
-                "score": score,
-            })
-
-        # Build context text from documents
-        context_text = "\n\n".join([
-            doc.get("text", "") or str(doc.get("metadata", {}))
-            for doc in documents
-        ])
-
-        return {
-            "context": context_text,
-            "documents": documents,
-            "citations": citations,
-            "count": len(documents),
-        }

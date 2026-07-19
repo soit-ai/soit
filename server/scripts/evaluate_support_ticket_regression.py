@@ -11,8 +11,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, select
-
 from app.adapters.tools.router import RegistryToolRouterPort
 from app.infra.db.session import get_db_sync
 from app.kernel.contracts.context import RequestContext
@@ -29,10 +27,10 @@ from app.kernel.runtime.runs.service import RunService
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import AgentRunRequest
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
-from app.modules.knowledge.domain.models import KnowledgeIndex
 from app.modules.knowledge.runtime import tool_entrypoint as knowledge_tools
 from app.wiring.container import reset_container
 from app.wiring.services import build_knowledge_runtime_service, build_response_service
+from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "support_ticket_golden_set.json"
@@ -258,27 +256,11 @@ def _case_pass_fail(case: SupportTicketGoldenCase, report: SupportTicketCaseRepo
     return failures
 
 
-def _workflow_inputs(db, bootstrap: BootstrapResult) -> dict[str, Any]:
-    index = _unwrap(
-        db.exec(
-            select(KnowledgeIndex).where(
-                and_(
-                    KnowledgeIndex.tenant_id == bootstrap.tenant_id,
-                    KnowledgeIndex.workspace_id == bootstrap.workspace_id,
-                    KnowledgeIndex.knowledge_id == bootstrap.knowledge_id,
-                    KnowledgeIndex.is_primary.is_(True),
-                )
-            )
-        ).first()
-    )
-    collection_name = index.collection_name if index else f"kb_{bootstrap.knowledge_id}"
+def _workflow_inputs() -> dict[str, Any]:
     return {
         "customer_message": "Customer customer-123 requests a refund escalation.",
         "customer_id": "customer-123",
         "priority": "high",
-        "knowledge_collection": collection_name,
-        "embedding_model": "model:test:embedding",
-        "model_ref": "model:test:workflow",
     }
 
 
@@ -324,10 +306,14 @@ async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: S
         llm_port=SupportTicketEvaluationLLMPort(
             case,
             workflow_ref=workflow_ref,
-            workflow_inputs=_workflow_inputs(db, bootstrap),
+            workflow_inputs=_workflow_inputs(),
         ),
         tool_port=RegistryToolRouterPort(),
         response_service=build_response_service(db=db, ctx=ctx),
+        workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
+            ctx=ctx,
+        ),
     )
     result = await service.execute_agent(
         bootstrap.agent_id,

@@ -20,12 +20,15 @@ def _sample_spec() -> dict:
                 {
                     "id": "tool1",
                     "type": "tool",
-                    "params": {"tool_ref": "tool:http:demo", "knowledge_ref": "knowledge:kb_1"},
+                    "params": {
+                        "tool_ref": "tool:http:demo",
+                        "arguments": {"knowledge_ref": "knowledge:kb_1"},
+                    },
                 },
                 {
                     "id": "llm1",
                     "type": "llm",
-                    "params": {"model_ref": "model:openai:gpt-4"},
+                    "params": {"model": "model:openai:gpt-4", "prompt": "Summarize the result."},
                 },
             ],
             "edges": [

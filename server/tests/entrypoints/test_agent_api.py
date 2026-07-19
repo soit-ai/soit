@@ -593,7 +593,17 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
                 "graph_json": {
                     "name": "agent-ticket-flow",
                     "inputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
-                    "outputs_schema": {"type": "object", "properties": {"ticket_id": {"type": "string"}}},
+                    "outputs_schema": {
+                        "type": "object",
+                        "properties": {
+                            "value": {
+                                "type": "object",
+                                "properties": {"ticket_id": {"type": "string"}},
+                                "required": ["ticket_id"],
+                            }
+                        },
+                        "required": ["value"],
+                    },
                     "graph": {
                         "nodes": [
                             {
@@ -604,7 +614,11 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
                             {
                                 "id": "out1",
                                 "type": "output",
-                                "params": {"ticket_id": "{{ steps.set_ticket.output.value }}"},
+                                "params": {
+                                    "value": {
+                                        "ticket_id": "{{ steps.set_ticket.output.value }}",
+                                    }
+                                },
                             },
                         ],
                         "edges": [{"id": "e1", "from": "set_ticket", "to": "out1"}],
@@ -672,7 +686,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         assert tool_call["tool_type"] == "workflow"
         assert tool_call["status"] == "completed"
         assert tool_call["result_json"]["result"]["workflow_run_id"].startswith("run_")
-        assert tool_call["result_json"]["result"]["output"]["ticket_id"] == "TCK-3001"
+        assert tool_call["result_json"]["result"]["output"]["value"]["ticket_id"] == "TCK-3001"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 
@@ -787,23 +801,37 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
                     "outputs_schema": {
                         "type": "object",
                         "properties": {
-                            "ticket_id": {"type": "string"},
-                            "priority": {"type": "string"},
+                            "value": {
+                                "type": "object",
+                                "properties": {
+                                    "ticket_id": {"type": "string"},
+                                    "priority": {"type": "string"},
+                                },
+                                "required": ["ticket_id", "priority"],
+                            }
                         },
+                        "required": ["value"],
                     },
                     "graph": {
                         "nodes": [
                             {
                                 "id": "set_ticket",
-                                "type": "set_var",
-                                "params": {"set": {"ticket_id": "{{ inputs.ticket_id }}", "priority": "{{ inputs.priority }}"}},
+                                "type": "transform",
+                                "params": {
+                                    "mapping": {
+                                        "ticket_id": "{{ inputs.ticket_id }}",
+                                        "priority": "{{ inputs.priority }}",
+                                    }
+                                },
                             },
                             {
                                 "id": "out1",
                                 "type": "output",
                                 "params": {
-                                    "ticket_id": "{{ steps.set_ticket.output.ticket_id }}",
-                                    "priority": "{{ steps.set_ticket.output.priority }}",
+                                    "value": {
+                                        "ticket_id": "{{ steps.set_ticket.output.ticket_id }}",
+                                        "priority": "{{ steps.set_ticket.output.priority }}",
+                                    }
                                 },
                             },
                         ],
@@ -907,8 +935,10 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert workflow_tool_call["status"] == "completed"
         assert workflow_tool_call["result_json"]["result"]["workflow_run_id"].startswith("run_")
         assert workflow_tool_call["result_json"]["result"]["output"] == {
-            "ticket_id": "TCK-DEMO-1",
-            "priority": "high",
+            "value": {
+                "ticket_id": "TCK-DEMO-1",
+                "priority": "high",
+            }
         }
         durable_tool_calls = db.execute(
             select(RunStepToolCall).where(

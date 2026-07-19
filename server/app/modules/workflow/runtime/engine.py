@@ -3,9 +3,11 @@
 Execution engine core entry.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,9 @@ from app.kernel.runtime.runs.tool_calls import (
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 
+if TYPE_CHECKING:
+    from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
+
 
 class ExecutionEngine:
     """Unified execution engine for chat/agent/workflow."""
@@ -33,6 +38,7 @@ class ExecutionEngine:
         trace_writer: TraceWriter,
         response_service: ResponseService | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
     ):
         """Initialize execution engine.
 
@@ -46,6 +52,7 @@ class ExecutionEngine:
         self.trace_writer = trace_writer
         self.response_service = response_service
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.workflow_knowledge_query_port = workflow_knowledge_query_port
         self.state_machine = StateMachine()
 
     @staticmethod
@@ -471,6 +478,7 @@ class ExecutionEngine:
             llm_port=llm_port,
             tool_port=tool_port,
             vector_port=vector_port,
+            workflow_knowledge_query_port=self.workflow_knowledge_query_port,
             plugin_runtime_port=plugin_runtime_port,
             response_service=self.response_service,
             workflow_policy=plan.plan_data.get("policy", {}),

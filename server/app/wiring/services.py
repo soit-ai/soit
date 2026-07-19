@@ -109,6 +109,7 @@ from app.modules.workflow.infra.repository import (
 )
 from app.settings.settings import settings
 from app.wiring.container import get_container
+from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 
 
 def _get_optional_approval_checkpoint_gateway() -> Any | None:
@@ -346,6 +347,10 @@ def build_workflow_service(*, db: Session, ctx: RequestContext) -> WorkflowServi
         event_bus=container.get_event_bus(),
         response_service=build_response_service(db=db, ctx=ctx),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
+        workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
+            ctx=ctx,
+        ),
     )
 
 
@@ -379,6 +384,10 @@ def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplication
         regression_evaluator=build_evaluation_service(db=db, ctx=ctx),
         plugin_runtime_port=skill_runtime_port,
         capability_catalog=SqlAgentCapabilityCatalog(db, ctx),
+        workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
+            ctx=ctx,
+        ),
     )
 
 

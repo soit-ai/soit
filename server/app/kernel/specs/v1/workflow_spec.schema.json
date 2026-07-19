@@ -3,6 +3,7 @@
   "$id": "https://soit.ai/specs/v1/workflow_spec.schema.json",
   "$comment": "SOIT kernel workflow spec schema (v1).",
   "title": "WorkflowSpec",
+  "description": "Immutable workflow spec with graph projection and runtime constraints.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,17 +18,11 @@
       "minLength": 1
     },
     "version": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "description": "Optional spec version string"
     },
     "description": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "inputs_schema": {
       "type": "object",
@@ -38,54 +33,39 @@
       "description": "JSON Schema for workflow outputs"
     },
     "limits": {
-      "type": [
-        "object",
-        "null"
-      ],
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "timeout_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "max_steps": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "budget": {
-          "type": [
-            "number",
-            "null"
-          ],
+          "type": ["number", "null"],
           "minimum": 0
         },
+        "budget_currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "default": "USD",
+          "description": "Execution budget currency. Historical specs without this field use USD."
+        },
         "max_tool_calls": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         }
       }
     },
     "runtime": {
-      "type": [
-        "object",
-        "null"
-      ],
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "engine": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "description": "Runtime engine identifier (e.g. workflow_engine_v1)"
         }
       }
@@ -93,124 +73,46 @@
     "graph": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "nodes",
-        "edges"
-      ],
+      "required": ["nodes", "edges"],
       "properties": {
         "nodes": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "type",
-              "params"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "type": "string",
-                "minLength": 1
-              },
-              "name": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "params": {
-                "type": "object",
-                "description": "Node parameters payload"
-              },
-              "ui": {
-                "type": [
-                  "object",
-                  "null"
-                ],
-                "description": "UI metadata (position/group/color)"
-              }
-            }
+            "oneOf": [
+              {"$ref": "#/$defs/inputNode"},
+              {"$ref": "#/$defs/transformNode"},
+              {"$ref": "#/$defs/setVarNode"},
+              {"$ref": "#/$defs/llmNode"},
+              {"$ref": "#/$defs/retrieveNode"},
+              {"$ref": "#/$defs/toolNode"},
+              {"$ref": "#/$defs/conditionNode"},
+              {"$ref": "#/$defs/outputNode"},
+              {"$ref": "#/$defs/httpCompatibilityNode"},
+              {"$ref": "#/$defs/registryCompatibilityNode"}
+            ]
           }
         },
         "edges": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "from",
-              "to"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "from": {
-                "type": "string",
-                "minLength": 1
-              },
-              "to": {
-                "type": "string",
-                "minLength": 1
-              },
-              "from_port": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "to_port": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "condition": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Conditional expression for routing"
-              }
-            }
-          }
+          "items": {"$ref": "#/$defs/edge"}
         }
       }
     },
     "policy": {
-      "type": [
-        "object",
-        "null"
-      ],
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "registry_only_tools": {
-          "type": [
-            "boolean",
-            "null"
-          ],
+          "type": ["boolean", "null"],
           "description": "If true, tool nodes must use registry tool_ref (no raw-http)."
         },
         "default_timeout_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "default_retry_policy": {
-          "type": [
-            "object",
-            "null"
-          ],
+          "type": ["object", "null"],
           "additionalProperties": false,
           "properties": {
             "max_retries": {
@@ -218,10 +120,7 @@
               "minimum": 0
             },
             "backoff_ms": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "minimum": 0
             }
           }
@@ -229,40 +128,269 @@
       }
     },
     "semantics": {
-      "type": [
-        "object",
-        "null"
-      ],
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "on_error": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            null,
-            "fail_fast",
-            "continue",
-            "compensate"
-          ]
+          "type": ["string", "null"],
+          "enum": [null, "fail_fast", "continue", "compensate"]
         },
         "concurrency": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "pause_poll_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 100
         }
       }
     }
   },
-  "description": "Immutable workflow spec with graph projection and runtime constraints."
+  "$defs": {
+    "nodeName": {
+      "type": ["string", "null"]
+    },
+    "nodeUi": {
+      "type": ["object", "null"],
+      "description": "UI metadata (position/group/color)"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "input"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "select": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "transformNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "transform"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mapping"],
+          "properties": {
+            "mapping": {"type": "object"}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "setVarNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "set_var"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "value"],
+          "properties": {
+            "key": {"$ref": "#/$defs/nonEmptyString"},
+            "value": {}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "llmNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "llm"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "prompt"],
+          "properties": {
+            "model": {"$ref": "#/$defs/nonEmptyString"},
+            "prompt": {"$ref": "#/$defs/nonEmptyString"},
+            "system": {"type": "string"},
+            "temperature": {"type": "number", "minimum": 0, "maximum": 2},
+            "max_tokens": {"type": "integer", "minimum": 1}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "retrieveNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "retrieve"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["knowledge_ref", "query"],
+          "properties": {
+            "knowledge_ref": {"$ref": "#/$defs/nonEmptyString"},
+            "query": {"$ref": "#/$defs/nonEmptyString"},
+            "top_k": {"type": "integer", "minimum": 1, "maximum": 100},
+            "filters": {"type": "object"},
+            "rerank_model": {"$ref": "#/$defs/nonEmptyString"}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "toolNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "tool"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool_ref"],
+          "properties": {
+            "tool_ref": {"$ref": "#/$defs/nonEmptyString"},
+            "arguments": {"type": "object"},
+            "input": {}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "conditionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "condition"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["condition"],
+          "properties": {
+            "condition": {
+              "oneOf": [
+                {"$ref": "#/$defs/nonEmptyString"},
+                {"type": "boolean"}
+              ]
+            }
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "outputNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "output"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "httpCompatibilityNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "http"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url"],
+          "properties": {
+            "url": {"$ref": "#/$defs/nonEmptyString"},
+            "method": {
+              "type": "string",
+              "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+            },
+            "headers": {"type": "object"},
+            "query": {"type": "object"},
+            "body": {}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "registryCompatibilityNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {"const": "node"},
+        "name": {"$ref": "#/$defs/nodeName"},
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node_ref"],
+          "properties": {
+            "node_ref": {"$ref": "#/$defs/nonEmptyString"},
+            "parameters": {"type": "object"},
+            "input": {}
+          }
+        },
+        "ui": {"$ref": "#/$defs/nodeUi"}
+      }
+    },
+    "edgePredicate": {
+      "type": ["string", "boolean", "null"]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "from": {"$ref": "#/$defs/nonEmptyString"},
+        "to": {"$ref": "#/$defs/nonEmptyString"},
+        "from_port": {"type": ["string", "null"]},
+        "to_port": {"type": ["string", "null"]},
+        "condition": {"$ref": "#/$defs/edgePredicate"},
+        "when": {"$ref": "#/$defs/edgePredicate"}
+      }
+    }
+  }
 }

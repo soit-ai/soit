@@ -130,6 +130,50 @@ class AgentService:
         ).hexdigest()[:24]
         return f"approval_{fingerprint}"
 
+    @staticmethod
+    def _citation_identity(citation: dict[str, Any]) -> tuple[str, str] | None:
+        for field in ("id", "chunk_id", "document_id"):
+            value = citation.get(field)
+            if isinstance(value, str) and value.strip():
+                return field, value.strip()
+        for field in ("source_uri", "uri", "url"):
+            value = citation.get(field)
+            if isinstance(value, str) and value.strip():
+                return "uri", value.strip()
+        return None
+
+    @classmethod
+    def _merge_citations(
+        cls,
+        *citation_groups: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for citations in citation_groups:
+            for citation in citations:
+                if not isinstance(citation, dict):
+                    continue
+                identity = cls._citation_identity(citation)
+                if identity is None or identity in seen:
+                    continue
+                seen.add(identity)
+                merged.append(dict(citation))
+        return merged
+
+    @classmethod
+    def _workflow_output_citations(cls, output: Any) -> list[dict[str, Any]]:
+        """Merge canonical and historical workflow citations in stable order."""
+        if not isinstance(output, dict):
+            return []
+
+        value = output.get("value")
+        canonical = value.get("citations") if isinstance(value, dict) else None
+        historical = output.get("citations")
+        return cls._merge_citations(
+            canonical if isinstance(canonical, list) else [],
+            historical if isinstance(historical, list) else [],
+        )
+
     def _approval_response(
         self,
         data: AgentRuntimeRequest,
@@ -944,6 +988,17 @@ class AgentService:
                                 await runtime_tool_execution.complete(
                                     direct_tool_claim.record.id,
                                     tool_response,
+                                )
+                            if (
+                                is_workflow_call
+                                and tool_response.success
+                                and isinstance(tool_response.result, dict)
+                            ):
+                                rag_citations = self._merge_citations(
+                                    rag_citations,
+                                    self._workflow_output_citations(
+                                        tool_response.result.get("output")
+                                    ),
                                 )
                         except Exception as exc:
                             if (

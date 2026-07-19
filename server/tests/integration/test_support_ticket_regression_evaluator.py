@@ -10,6 +10,7 @@ import pytest
 
 from app.modules.modelhub.domain.models import Provider, ProviderModel  # noqa: F401
 from scripts.evaluate_support_ticket_regression import (
+    _workflow_inputs,
     evaluate_support_ticket_regression,
 )
 
@@ -26,6 +27,14 @@ def _args(**overrides):
     }
     data.update(overrides)
     return SimpleNamespace(**data)
+
+
+def test_support_ticket_workflow_inputs_use_the_canonical_template_contract():
+    assert _workflow_inputs() == {
+        "customer_message": "Customer customer-123 requests a refund escalation.",
+        "customer_id": "customer-123",
+        "priority": "high",
+    }
 
 
 @pytest.mark.asyncio

@@ -512,10 +512,20 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     return knowledge, document
 
 
-async def _ensure_workflow(db, ctx: RequestContext) -> Workflow:
+async def _ensure_workflow(
+    db,
+    ctx: RequestContext,
+    knowledge: Knowledge,
+    workflow_model_ref: str,
+) -> Workflow:
     service = WorkflowService(db=db, ctx=ctx)
     spec_json = build_ticket_triage_template()
     spec_json["name"] = DEMO_WORKFLOW_NAME
+    for node in spec_json["graph"]["nodes"]:
+        if node["type"] == "retrieve":
+            node["params"]["knowledge_ref"] = f"knowledge:{knowledge.id}"
+        elif node["type"] == "llm":
+            node["params"]["model"] = workflow_model_ref
     workflow = _one(
         db,
         select(Workflow).where(
@@ -637,7 +647,17 @@ async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapRes
     ctx = _ensure_context(db, args)
     provider, model_refs = _ensure_provider_models(db, ctx)
     knowledge, document = _ensure_knowledge(db, ctx)
-    workflow = await _ensure_workflow(db, ctx)
+    workflow_model_ref = next(
+        model_ref
+        for model_ref in model_refs
+        if model_ref == f"model:{provider.kind}:workflow"
+    )
+    workflow = await _ensure_workflow(
+        db,
+        ctx,
+        knowledge,
+        workflow_model_ref,
+    )
     agent = await _ensure_agent(db, ctx, knowledge, workflow)
     return BootstrapResult(
         tenant_id=ctx.tenant_id,

@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.modules.workflow.application.schemas import WorkflowCreate
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.templates.ticket_triage import build_ticket_triage_template
 
@@ -31,16 +32,35 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
     assert properties["customer_message"]["type"] == "string"
     assert properties["customer_id"]["type"] == "string"
     assert properties["priority"]["type"] == "string"
-    assert properties["knowledge_collection"]["type"] == "string"
-    assert properties["embedding_model"]["type"] == "string"
-    assert properties["model_ref"]["type"] == "string"
+    assert "knowledge_collection" not in properties
+    assert "embedding_model" not in properties
+    assert "model_ref" not in properties
+
+    start_node = next(node for node in nodes if node["id"] == "start")
+    assert start_node == {"id": "start", "type": "input", "params": {}}
+
+    retrieve_node = next(node for node in nodes if node["id"] == "knowledge_search")
+    assert retrieve_node["params"]["knowledge_ref"] == "knowledge:configure-me"
+    assert "collection" not in retrieve_node["params"]
+    assert "embedding_model" not in retrieve_node["params"]
+
+    classify_node = next(node for node in nodes if node["id"] == "classify")
+    assert classify_node["params"]["model"] == "model:configure-me"
     ticket_node = next(node for node in nodes if node["id"] == "ticket_tool")
     assert ticket_node["params"]["tool_ref"] == "builtin.ticket.create_review_ticket"
-    assert ticket_node["params"]["customer_id"] == "{{ steps.start.output.customer_id }}"
-    assert "parameters" not in ticket_node["params"]
+    assert ticket_node["params"]["arguments"] == {
+        "customer_id": "{{ steps.start.output.customer_id }}",
+        "priority": "{{ steps.start.output.priority }}",
+        "message": "{{ steps.start.output.customer_message }}",
+        "classification": "{{ steps.classify.output.text }}",
+        "api_token": {"secret_ref": "secret:ticket_api_key"},
+    }
+    assert set(ticket_node["params"]) == {"tool_ref", "arguments"}
 
     approval_node = next(node for node in nodes if node["id"] == "approval")
-    assert approval_node["params"]["condition"] == '{{ inputs.priority }} != "low"'
+    assert approval_node["params"] == {
+        "condition": '{{ inputs.priority }} != "low"'
+    }
 
     approval_edges = [edge for edge in spec["graph"]["edges"] if edge["from"] == "approval"]
     assert approval_edges == [
@@ -66,11 +86,17 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
     reject_node = next(node for node in nodes if node["id"] == "reject")
     assert reject_node["type"] == "output"
     assert reject_node["params"] == {
-        "ticket_id": "",
-        "status": "rejected",
-        "response": "Ticket creation skipped because the approval condition was not met.",
-        "citations": "{{ steps.knowledge_search.output.citations }}",
+        "value": {
+            "ticket_id": "",
+            "status": "rejected",
+            "response": "Ticket creation skipped because the approval condition was not met.",
+            "citations": "{{ steps.knowledge_search.output.citations }}",
+        },
     }
+    response_node = next(node for node in nodes if node["id"] == "response")
+    assert set(response_node["params"]) == {"value"}
+    assert spec["outputs_schema"]["required"] == ["value"]
+    assert spec["outputs_schema"]["properties"]["value"]["type"] == "object"
     assert all(edge["from"] != "response" for edge in spec["graph"]["edges"])
 
 
@@ -95,3 +121,18 @@ async def test_workflow_service_creates_ticket_triage_draft(db, ctx):
         "response",
         "reject",
     ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_service_creates_a_schema_valid_default_draft(db, ctx):
+    service = WorkflowService(db=db, ctx=ctx)
+
+    workflow = await service.create_workflow(WorkflowCreate(name="Default workflow unit"))
+    version = await service.get_current_version(workflow.id)
+
+    assert version is not None
+    assert version.status == "draft"
+    transform = next(
+        node for node in version.spec_json["graph"]["nodes"] if node["type"] == "transform"
+    )
+    assert transform["params"] == {"mapping": {}}

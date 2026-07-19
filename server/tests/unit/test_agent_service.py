@@ -114,6 +114,73 @@ def test_agent_application_projects_reasoning_to_durable_outputs():
     assert message_metadata["reasoning"] == "Checked the evidence."
 
 
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (
+            {"value": {"citations": [{"document_id": "canonical-document"}]}},
+            [{"document_id": "canonical-document"}],
+        ),
+        (
+            {"citations": [{"document_id": "historical-document"}]},
+            [{"document_id": "historical-document"}],
+        ),
+        (
+            {
+                "value": {
+                    "citations": [
+                        {"chunk_id": "shared-chunk", "title": "Canonical"},
+                        {"id": "canonical-id"},
+                        {"source_uri": "s3://bucket/canonical"},
+                        {"title": "missing identity"},
+                        {"document_id": ""},
+                    ]
+                },
+                "citations": [
+                    {"chunk_id": "shared-chunk", "title": "Historical duplicate"},
+                    {"document_id": "historical-document"},
+                    {"uri": "https://example.test/historical"},
+                ],
+            },
+            [
+                {"chunk_id": "shared-chunk", "title": "Canonical"},
+                {"id": "canonical-id"},
+                {"source_uri": "s3://bucket/canonical"},
+                {"document_id": "historical-document"},
+                {"uri": "https://example.test/historical"},
+            ],
+        ),
+        ({"value": {"citations": ["invalid", None]}}, []),
+        ({"value": None, "citations": "invalid"}, []),
+    ],
+)
+def test_agent_extracts_workflow_output_citations_from_canonical_and_historical_paths(
+    output,
+    expected,
+):
+    assert AgentService._workflow_output_citations(output) == expected
+
+
+def test_agent_merges_workflow_citations_without_duplicating_existing_rag_sources():
+    rag_citations = [
+        {"chunk_id": "shared-chunk", "document_id": "document-1"},
+        {"url": "https://example.test/existing"},
+    ]
+    workflow_citations = [
+        {"chunk_id": "shared-chunk", "title": "Duplicate workflow source"},
+        {"document_id": "document-2"},
+        {"source_uri": "https://example.test/existing"},
+    ]
+
+    merged = AgentService._merge_citations(rag_citations, workflow_citations)
+
+    assert merged == [
+        {"chunk_id": "shared-chunk", "document_id": "document-1"},
+        {"url": "https://example.test/existing"},
+        {"document_id": "document-2"},
+    ]
+
+
 @pytest.mark.asyncio
 async def test_agent_service_rejects_public_run_request(db, ctx):
     """AgentService uses resolved runtime requests, not public API payloads."""

@@ -3,8 +3,10 @@
 Base node executor interface.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import LLMPort
@@ -14,6 +16,9 @@ from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.application.variable_resolver import VariableResolver
+
+if TYPE_CHECKING:
+    from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
 
 
 class ExecutionContext:
@@ -28,6 +33,7 @@ class ExecutionContext:
         llm_port: LLMPort | None = None,
         tool_port: ToolPort | None = None,
         vector_port: VectorPort | None = None,
+        workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
         plugin_runtime_port: PluginRuntimePort | None = None,
         response_service: ResponseService | None = None,
         workflow_policy: dict[str, Any] | None = None,
@@ -53,6 +59,7 @@ class ExecutionContext:
             llm_port: Optional LLM gateway.
             tool_port: Optional tool gateway.
             vector_port: Optional vector gateway.
+            workflow_knowledge_query_port: Optional scoped knowledge query port.
             workflow_policy: Optional workflow policy object.
             steps_outputs: Dictionary of step outputs.
             workflow_run_id: Optional aggregate id for workflow_runs outbox (B3).
@@ -69,6 +76,7 @@ class ExecutionContext:
         self.llm_port = llm_port
         self.tool_port = tool_port
         self.vector_port = vector_port
+        self.workflow_knowledge_query_port = workflow_knowledge_query_port
         self.plugin_runtime_port = plugin_runtime_port
         self.response_service = response_service
         self.workflow_policy = workflow_policy or {}

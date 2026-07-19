@@ -84,6 +84,7 @@ class WorkflowCompiler:
             "execution_order": execution_order,
             "semantics": workflow_spec.get("semantics", {}),
             "policy": workflow_spec.get("policy", {}),
+            "limits": self._normalize_limits(workflow_spec.get("limits")),
         }
 
         return ExecutionPlan(
@@ -92,6 +93,11 @@ class WorkflowCompiler:
             plan_data=plan_data,
             inputs=inputs,
         )
+
+    def _normalize_limits(self, limits: Any) -> dict[str, Any]:
+        normalized = dict(limits or {})
+        normalized.setdefault("budget_currency", "USD")
+        return normalized
 
     def _build_graph(
         self,
@@ -239,6 +245,14 @@ class WorkflowCompiler:
         out: list[dict[str, Any]] = []
         for edge in edges:
             normalized = dict(edge)
+            if (
+                "condition" in normalized
+                and "when" in normalized
+                and normalized["condition"] != normalized["when"]
+            ):
+                raise ValidationError(
+                    "Workflow edge condition and when must have the same value"
+                )
             if "when" not in normalized and "condition" in normalized:
                 normalized["when"] = normalized.get("condition")
             out.append(normalized)

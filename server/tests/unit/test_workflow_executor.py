@@ -31,6 +31,7 @@ from app.kernel.runtime.responses.repository import (
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.application.capabilities import get_workflow_node_capabilities
+from app.modules.workflow.application.compiler import WorkflowCompiler
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executor import WorkflowExecutor
@@ -96,6 +97,35 @@ def test_canonical_workflow_spec_returns_deeply_isolated_copies() -> None:
     assert second_default_spec["graph"]["nodes"][0]["params"] == {"mapping": {"value": True}}
 
 
+@pytest.mark.parametrize(
+    ("limits", "expected"),
+    [
+        (None, {"budget_currency": "USD"}),
+        ({"budget": 3.5}, {"budget": 3.5, "budget_currency": "USD"}),
+        (
+            {"budget": 3.5, "budget_currency": "EUR"},
+            {"budget": 3.5, "budget_currency": "EUR"},
+        ),
+    ],
+)
+def test_workflow_compiler_materializes_budget_currency_default(
+    limits: dict[str, Any] | None,
+    expected: dict[str, Any],
+) -> None:
+    spec = canonical_workflow_spec()
+    if limits is not None:
+        spec["limits"] = limits
+    original_limits = dict(limits) if limits is not None else None
+
+    plan = WorkflowCompiler().compile(spec, {}, "run-budget-default")
+
+    assert plan.plan_data["limits"] == expected
+    if original_limits is None:
+        assert "limits" not in spec
+    else:
+        assert spec["limits"] == original_limits
+
+
 class FakeLLMPort(LLMPort):
     """Deterministic LLM port for tests."""
 
@@ -137,6 +167,58 @@ class FakeToolPort(ToolPort):
     async def invoke(self, tool_ref: str, parameters: dict[str, Any], **kwargs: Any) -> ToolResponse:
         self.calls.append({"tool_ref": tool_ref, "parameters": parameters, "kwargs": kwargs})
         return ToolResponse(result={"tool_ref": tool_ref, "parameters": parameters}, success=True, metadata={})
+
+
+class FakeWorkflowKnowledgeQueryPort:
+    """Knowledge port that records canonical workflow retrieval requests."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def query(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(kwargs)
+        return {
+            "context": "Refund policy",
+            "documents": [{"id": "chunk-1", "text": "Refund policy"}],
+            "citations": [{"id": "chunk-1", "rank": 1}],
+            "count": 1,
+        }
+
+
+class FakeKnowledgeRuntimeService:
+    """Knowledge runtime fake that records its scoped application request."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any]] = []
+
+    async def query(self, knowledge_id: str, request: Any) -> Any:
+        self.calls.append((knowledge_id, request))
+        return type(
+            "KnowledgeQueryResponse",
+            (),
+            {
+                "model_dump": lambda self: {
+                    "results": [
+                        {
+                            "chunk_id": "chunk-1",
+                            "document_id": "document-1",
+                            "score": 0.9,
+                            "text": "Refund policy",
+                            "snippets": ["Refund policy"],
+                        }
+                    ],
+                    "total": 1,
+                    "citations": [
+                        {
+                            "chunk_id": "chunk-1",
+                            "document_id": "document-1",
+                            "rank": 1,
+                            "score": 0.9,
+                        }
+                    ],
+                }
+            },
+        )()
 
 
 class ExplicitApprovalToolPort(FakeToolPort):
@@ -310,6 +392,257 @@ def test_workflow_executor_distinguishes_quoted_boolean_literals(
     executor = WorkflowExecutor(ExecutionEngine(db, ctx, trace_writer))
 
     assert executor._evaluate_condition(expression, {}) is expected
+
+
+def test_workflow_compiler_rejects_conflicting_condition_and_when() -> None:
+    edge = {
+        "id": "edge-1",
+        "from": "input",
+        "to": "output",
+        "condition": "{{ inputs.enabled }}",
+        "when": "{{ inputs.disabled }}",
+    }
+
+    with pytest.raises(ValidationError, match="condition.*when"):
+        WorkflowCompiler()._normalize_edges([edge])
+
+
+@pytest.mark.asyncio
+async def test_retrieve_step_delegates_exact_reference_and_options(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    engine = ExecutionEngine(db, ctx, trace_writer)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_retrieve",
+        subject_version_id="ver_workflow",
+    )
+    knowledge_port = FakeWorkflowKnowledgeQueryPort()
+    plan = ExecutionPlan(
+        run_id=run.id,
+        mode="workflow",
+        inputs={"question": "Can I get a refund?"},
+        plan_data={
+            "nodes": {
+                "retrieve": {
+                    "id": "retrieve",
+                    "type": "retrieve",
+                    "input": {
+                        "knowledge_ref": "knowledge:refund-policy",
+                        "query": "{{ inputs.question }}",
+                        "top_k": 7,
+                        "filters": {"locale": "en-US"},
+                        "rerank_model": "model:test:reranker",
+                    },
+                },
+                "output": {
+                    "id": "output",
+                    "type": "output",
+                    "input": {"value": "{{ steps.retrieve.output.context }}"},
+                },
+            },
+            "edges": [{"from": "retrieve", "to": "output"}],
+            "execution_order": ["retrieve", "output"],
+            "semantics": {"concurrency": 1},
+            "policy": {},
+        },
+    )
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id=None,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        workflow_knowledge_query_port=knowledge_port,
+        workflow_policy={},
+    )
+
+    result = await WorkflowExecutor(engine).execute(plan, context)
+
+    assert result == {"value": "Refund policy"}
+    assert knowledge_port.calls == [
+        {
+            "knowledge_ref": "knowledge:refund-policy",
+            "query": "Can I get a refund?",
+            "top_k": 7,
+            "filters": {"locale": "en-US"},
+            "rerank_model": "model:test:reranker",
+            "ctx": ctx,
+            "run_id": run.id,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scoped_workflow_knowledge_adapter_delegates_to_runtime_service(
+    ctx: RequestContext,
+) -> None:
+    from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
+
+    runtime_service = FakeKnowledgeRuntimeService()
+    adapter = KnowledgeRuntimeWorkflowQueryAdapter(
+        runtime_service=runtime_service,
+        ctx=ctx,
+    )
+
+    result = await adapter.query(
+        knowledge_ref="knowledge:refund-policy",
+        query="Can I get a refund?",
+        top_k=7,
+        filters={"locale": "en-US"},
+        rerank_model="model:test:reranker",
+        ctx=ctx,
+        run_id="run-1",
+    )
+
+    assert result == {
+        "context": "Refund policy",
+        "documents": [
+            {
+                "chunk_id": "chunk-1",
+                "document_id": "document-1",
+                "score": 0.9,
+                "text": "Refund policy",
+                "snippets": ["Refund policy"],
+            }
+        ],
+        "citations": [
+            {
+                "chunk_id": "chunk-1",
+                "document_id": "document-1",
+                "rank": 1,
+                "score": 0.9,
+            }
+        ],
+        "count": 1,
+    }
+    assert len(runtime_service.calls) == 1
+    knowledge_id, request = runtime_service.calls[0]
+    assert knowledge_id == "refund-policy"
+    assert request.query == "Can I get a refund?"
+    assert request.top_k == 7
+    assert request.filter == {"locale": "en-US"}
+    assert request.use_rerank is True
+    assert request.reranker_ref == "model:test:reranker"
+
+
+@pytest.mark.asyncio
+async def test_scoped_workflow_knowledge_adapter_rejects_context_mismatch(
+    ctx: RequestContext,
+) -> None:
+    from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
+
+    runtime_service = FakeKnowledgeRuntimeService()
+    adapter = KnowledgeRuntimeWorkflowQueryAdapter(
+        runtime_service=runtime_service,
+        ctx=ctx,
+    )
+    other_ctx = RequestContext(
+        tenant_id="other-tenant",
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.user_id,
+    )
+
+    with pytest.raises(ValidationError, match="scope"):
+        await adapter.query(
+            knowledge_ref="knowledge:refund-policy",
+            query="Can I get a refund?",
+            top_k=7,
+            filters=None,
+            rerank_model=None,
+            ctx=other_ctx,
+            run_id="run-1",
+        )
+
+    assert runtime_service.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ctx_overrides",
+    [
+        {"user_id": "other-user"},
+        {"workspace_role": "Viewer"},
+        {"tenant_role": "Viewer"},
+    ],
+)
+async def test_scoped_workflow_knowledge_adapter_rejects_rebound_identity(
+    ctx: RequestContext,
+    ctx_overrides: dict[str, str],
+) -> None:
+    from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
+
+    runtime_service = FakeKnowledgeRuntimeService()
+    adapter = KnowledgeRuntimeWorkflowQueryAdapter(
+        runtime_service=runtime_service,
+        ctx=ctx,
+    )
+    other_ctx = RequestContext(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        user_id=ctx_overrides.get("user_id", ctx.user_id),
+        tenant_role=ctx_overrides.get("tenant_role", ctx.tenant_role),
+        workspace_role=ctx_overrides.get("workspace_role", ctx.workspace_role),
+    )
+
+    with pytest.raises(ValidationError, match="scope"):
+        await adapter.query(
+            knowledge_ref="knowledge:refund-policy",
+            query="Can I get a refund?",
+            top_k=7,
+            filters=None,
+            rerank_model=None,
+            ctx=other_ctx,
+            run_id="run-1",
+        )
+
+    assert runtime_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_tool_node_uses_canonical_arguments_payload(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    tool_port = FakeToolPort()
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_tool_arguments",
+        subject_version_id="ver_workflow",
+    )
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id="step_tool_arguments",
+        ctx=ctx,
+        trace_writer=trace_writer,
+        tool_port=tool_port,
+        workflow_policy={},
+    )
+
+    result = await ToolNodeExecutor().execute(
+        {"id": "ticket_tool", "type": "tool"},
+        context,
+        {
+            "tool_ref": "builtin.ticket.create_review_ticket",
+            "arguments": {
+                "customer_id": "customer-1",
+                "api_token": {"secret_ref": "secret:ticket_api_key"},
+            },
+        },
+    )
+
+    assert result["result"]["parameters"] == {
+        "customer_id": "customer-1",
+        "api_token": {"secret_ref": "secret:ticket_api_key"},
+    }
+    assert tool_port.calls[0]["parameters"] == {
+        "customer_id": "customer-1",
+        "api_token": {"secret_ref": "secret:ticket_api_key"},
+    }
 
 
 @pytest.mark.asyncio
