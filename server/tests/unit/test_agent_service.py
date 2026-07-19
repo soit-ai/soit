@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.adapters.tools.router import RegistryToolRouterPort
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
@@ -17,10 +17,12 @@ from app.kernel.ports.llm.interface import (
     ToolCall,
 )
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.ports.tools.policy import ToolPolicyGateway
 from app.kernel.registry.deps import get_registry
-from app.kernel.runtime.db.models.runs import RunCostEntry
+from app.kernel.runtime.db.models.runs import RunCostEntry, RunStep, RunStepToolCall
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.tools.resolver import ToolResolver
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
     AgentRunRequest,
     AgentRuntimeRequest,
@@ -35,8 +37,10 @@ class QueueLLMPort(LLMPort):
 
     def __init__(self, responses):
         self._responses = list(responses)
+        self.calls = []
 
     async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        self.calls.append(kwargs)
         return self._responses.pop(0)
 
     async def embed(self, texts, model, **kwargs):
@@ -84,6 +88,30 @@ def _runtime_request(**kwargs):
     }
     defaults.update(kwargs)
     return AgentRuntimeRequest(**defaults)
+
+
+def test_agent_application_projects_reasoning_to_durable_outputs():
+    service = object.__new__(AgentApplicationService)
+    result = {
+        "output": "Done.",
+        "reasoning": "Checked the evidence.",
+        "run_id": "run_reasoning",
+    }
+    agent = SimpleNamespace(id="agent_reasoning")
+    version = SimpleNamespace(id="version_reasoning")
+
+    response_output = service._response_output_payload(result)
+    task_output = service._task_output_payload(result, response_id="response_reasoning")
+    message_metadata = service._assistant_message_metadata(
+        agent,
+        version,
+        result,
+        response_id="response_reasoning",
+    )
+
+    assert response_output["reasoning"] == "Checked the evidence."
+    assert task_output["reasoning"] == "Checked the evidence."
+    assert message_metadata["reasoning"] == "Checked the evidence."
 
 
 @pytest.mark.asyncio
@@ -201,6 +229,516 @@ async def test_agent_run_with_tool_success(db, ctx):
     assert result["tool_calls"] == 1
     assert result["llm_calls"] == 3
     assert tool_port.calls[0] == ("tool:test:echo", {"value": "hi"})
+
+
+@pytest.mark.asyncio
+async def test_agent_run_emits_enabled_provider_reasoning(db, ctx):
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text="Done.",
+                reasoning="Checked the evidence.",
+                tokens_prompt=2,
+                tokens_completion=3,
+                finish_reason="stop",
+            )
+        ]
+    )
+    emitter = CollectingEmitter()
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=StubToolPort(ToolResponse(result="done")),
+    )
+
+    result = await service.run(
+        _runtime_request(
+            verify=False,
+            show_reasoning=True,
+            reasoning_effort="high",
+        ),
+        event_emitter=emitter,
+    )
+
+    assert result["reasoning"] == "Checked the evidence."
+    assert llm_port.calls[0]["reasoning_effort"] == "high"
+    assert (
+        "agent.reasoning.completed",
+        {
+            "iteration": 1,
+            "content": "Checked the evidence.",
+        },
+    ) in emitter.events
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, ctx):
+    tool_call = ToolCall(id="call_stable", name="tool:test:echo", arguments={"value": "first"})
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[tool_call],
+            ),
+            ChatResponse(text="done", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+        ]
+    )
+    trace_writer = TraceWriter(db, ctx)
+    base_tool_port = StubToolPort(ToolResponse(result={"value": "done"}))
+    governed_tool_port = ToolPolicyGateway(
+        gateway=base_tool_port,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=governed_tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+    )
+
+    result = await service.run(_runtime_request(tool_refs=["tool:test:echo"], verify=False))
+
+    step_rows = db.execute(
+        select(RunStep).where(
+            RunStep.run_id == result["run_id"],
+            RunStep.step_type == "tool",
+        )
+    ).scalars().all()
+    call_rows = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == result["run_id"])
+    ).scalars().all()
+    assert len(step_rows) == 1
+    assert len(call_rows) == 1
+    assert call_rows[0].run_step_id == step_rows[0].id
+    assert call_rows[0].tool_call_id == "call_stable"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_approval_interrupts_before_side_effect(db, ctx):
+    tc = ToolCall(id="call_approval", name="tool:test:echo", arguments={"value": "sensitive"})
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[tc],
+            )
+        ]
+    )
+    tool_port = StubToolPort(ToolResponse(result="must not execute"))
+
+    class ApprovalGateway:
+        def __init__(self):
+            self.requests = []
+
+        def evaluate(self, request_ctx, request):
+            assert request_ctx is ctx
+            self.requests.append(request)
+            return SimpleNamespace(
+                requires_approval=True,
+                task_status="waiting_approval",
+                policy_ref="policy:high-risk-tool",
+                reason="required_by_workspace_policy",
+                approval_payload={"title": "Approve sensitive tool"},
+            )
+
+    gateway = ApprovalGateway()
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run("agent", kind="agent")
+    trace_writer.update_run_status(run.id, "running")
+    emitter = CollectingEmitter()
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+        approval_checkpoint_gateway=gateway,
+    )
+
+    result = await service.run(
+        _runtime_request(
+            tool_refs=["tool:test:echo"],
+            verify=False,
+            task_id="task_approval",
+            thread_id="thread_approval",
+            agent_id="agent_approval",
+        ),
+        existing_run_id=run.id,
+        event_emitter=emitter,
+    )
+
+    db.refresh(run)
+    assert result["status"] == "waiting_approval"
+    assert result["interrupt"]["reason"] == "tool_call"
+    assert result["interrupt"]["toolCallId"] == "call_approval"
+    assert result["interrupt"]["metadata"]["toolRef"] == "tool:test:echo"
+    assert tool_port.calls == []
+    assert gateway.requests[0]["task_id"] == "task_approval"
+    assert run.status == "waiting_approval"
+    assert "agent.approval.required" in [event for event, _ in emitter.events]
+    assert "agent.run.succeeded" not in [event for event, _ in emitter.events]
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_spec_approval_interrupts_without_optional_gateway(db, ctx):
+    tool_ref = "tool:test:explicit_approval"
+    get_registry().register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=tool_ref,
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "explicit_approval",
+                "description": "A high-risk test tool.",
+                "input_schema": {"type": "object"},
+                "policy": {
+                    "audit_level": "basic",
+                    "approval": {"mode": "required", "risk_level": "high"},
+                },
+            }
+        },
+    )
+    tool_call = ToolCall(
+        id="call_explicit_approval",
+        name=tool_ref,
+        arguments={"value": "sensitive"},
+    )
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[tool_call],
+            )
+        ]
+    )
+    tool_port = StubToolPort(ToolResponse(result="must not execute"))
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run("agent", kind="agent")
+    trace_writer.update_run_status(run.id, "running")
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+    )
+
+    result = await service.run(
+        _runtime_request(tool_refs=[tool_ref], verify=False),
+        existing_run_id=run.id,
+    )
+
+    assert result["status"] == "waiting_approval"
+    assert result["interrupt"]["metadata"]["toolRef"] == tool_ref
+    assert result["interrupt"]["metadata"]["riskLevel"] == "high"
+    assert result["interrupt"]["metadata"]["reason"] == "tool_spec_approval_required"
+    assert tool_port.calls == []
+
+
+@pytest.mark.asyncio
+async def test_agent_rejected_approval_cancels_record_without_side_effect(db, ctx):
+    tool_call = ToolCall(
+        id="call_rejected",
+        name="tool:test:echo",
+        arguments={"value": "sensitive"},
+    )
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[tool_call],
+            ),
+            ChatResponse(
+                text="The action was not executed.",
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="stop",
+            ),
+        ]
+    )
+    tool_port = StubToolPort(ToolResponse(result="must not execute"))
+
+    class ApprovalGateway:
+        def evaluate(self, request_ctx, request):
+            return SimpleNamespace(
+                requires_approval=True,
+                policy_ref="policy:reject-test",
+                reason="approval_required",
+                approval_payload={"title": "Approve test tool"},
+            )
+
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run("agent", kind="agent")
+    trace_writer.update_run_status(run.id, "running")
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+        approval_checkpoint_gateway=ApprovalGateway(),
+    )
+    request = _runtime_request(tool_refs=["tool:test:echo"], verify=False)
+    interrupted = await service.run(request, existing_run_id=run.id)
+    resumed = request.model_copy(
+        update={
+            "approval_responses": [
+                {
+                    "interrupt_id": interrupted["interrupt"]["id"],
+                    "status": "resolved",
+                    "payload": {"decision": "rejected"},
+                }
+            ],
+            "approval_checkpoint": interrupted["checkpoint"],
+        }
+    )
+
+    result = await service.run(resumed, existing_run_id=run.id)
+
+    record = db.execute(
+        select(RunStepToolCall).where(
+            RunStepToolCall.run_id == run.id,
+            RunStepToolCall.tool_call_id == "call_rejected",
+        )
+    ).scalars().one()
+    step = db.get(RunStep, record.run_step_id)
+    assert result["output"] == "The action was not executed."
+    assert tool_port.calls == []
+    assert record.status == "rejected"
+    assert step is not None
+    assert step.status == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
+    first_call = ToolCall(id="call_first", name="tool:test:echo", arguments={"value": "first"})
+    gated_call = ToolCall(id="call_gated", name="tool:test:echo", arguments={"value": "gated"})
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=2,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[first_call, gated_call],
+            ),
+            ChatResponse(
+                text="completed once",
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="stop",
+            ),
+        ]
+    )
+    base_tool_port = StubToolPort(ToolResponse(result="done"))
+
+    class ApprovalGateway:
+        def evaluate(self, request_ctx, request):
+            return SimpleNamespace(
+                requires_approval=request["details"]["tool_call_id"] == "call_gated",
+                policy_ref="policy:gated",
+                reason="approval_required",
+                approval_payload={"title": "Approve gated tool"},
+            )
+
+    trace_writer = TraceWriter(db, ctx)
+    tool_port = ToolPolicyGateway(
+        gateway=base_tool_port,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+    run = trace_writer.create_run("agent", kind="agent")
+    trace_writer.update_run_status(run.id, "running")
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+        approval_checkpoint_gateway=ApprovalGateway(),
+    )
+    request = _runtime_request(
+        tool_refs=["tool:test:echo"],
+        verify=False,
+        task_id="task_checkpoint",
+        thread_id="thread_checkpoint",
+        agent_id="agent_checkpoint",
+    )
+
+    interrupted = await service.run(request, existing_run_id=run.id)
+
+    assert interrupted["status"] == "waiting_approval"
+    assert interrupted["checkpoint"]["schema_version"] == 1
+    assert base_tool_port.calls == [("tool:test:echo", {"value": "first"})]
+    interrupted_records = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().all()
+    assert {record.tool_call_id: record.status for record in interrupted_records} == {
+        "call_first": "succeeded",
+        "call_gated": "waiting_approval",
+    }
+    gated_record_id = next(
+        record.id for record in interrupted_records if record.tool_call_id == "call_gated"
+    )
+
+    resumed_request = request.model_copy(
+        update={
+            "approval_responses": [
+                {
+                    "interrupt_id": interrupted["interrupt"]["id"],
+                    "status": "resolved",
+                    "payload": {"decision": "approved"},
+                }
+            ],
+            "approval_checkpoint": interrupted["checkpoint"],
+        }
+    )
+    result = await service.run(resumed_request, existing_run_id=run.id)
+
+    assert result["output"] == "completed once"
+    assert base_tool_port.calls == [
+        ("tool:test:echo", {"value": "first"}),
+        ("tool:test:echo", {"value": "gated"}),
+    ]
+    resumed_records = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().all()
+    assert len(resumed_records) == 2
+    resumed_gated = next(
+        record for record in resumed_records if record.tool_call_id == "call_gated"
+    )
+    assert resumed_gated.id == gated_record_id
+    assert resumed_gated.status == "succeeded"
+    assert llm_port._responses == []
+
+
+@pytest.mark.asyncio
+async def test_agent_approval_resume_rejects_edited_tool_arguments(db, ctx):
+    gated_call = ToolCall(
+        id="call_gated_edit",
+        name="tool:test:echo",
+        arguments={"value": "approved"},
+    )
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[gated_call],
+            )
+        ]
+    )
+    tool_port = StubToolPort(ToolResponse(result="must not execute"))
+
+    class ApprovalGateway:
+        def evaluate(self, request_ctx, request):
+            return SimpleNamespace(
+                requires_approval=True,
+                policy_ref="policy:gated-edit",
+                reason="approval_required",
+                approval_payload={"title": "Approve gated tool"},
+            )
+
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run("agent", kind="agent")
+    trace_writer.update_run_status(run.id, "running")
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=trace_writer,
+        approval_checkpoint_gateway=ApprovalGateway(),
+    )
+    request = _runtime_request(tool_refs=["tool:test:echo"], verify=False)
+    interrupted = await service.run(request, existing_run_id=run.id)
+    resumed_request = request.model_copy(
+        update={
+            "approval_responses": [
+                {
+                    "interrupt_id": interrupted["interrupt"]["id"],
+                    "status": "resolved",
+                    "payload": {
+                        "decision": "approved",
+                        "editedArgs": {"value": "attacker-controlled"},
+                    },
+                }
+            ],
+            "approval_checkpoint": interrupted["checkpoint"],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="Edited tool arguments require a new approval"):
+        await service.run(resumed_request, existing_run_id=run.id)
+
+    assert tool_port.calls == []
+
+
+@pytest.mark.asyncio
+async def test_agent_emits_only_the_verified_authoritative_response(db, ctx):
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text="pre-verification draft",
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="stop",
+            ),
+            ChatResponse(
+                text=None,
+                tokens_prompt=1,
+                tokens_completion=1,
+                finish_reason="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="call_verify",
+                        name="verify_response",
+                        arguments={"ok": False, "reason": "unsafe claim"},
+                    )
+                ],
+            ),
+        ]
+    )
+    emitter = CollectingEmitter()
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=StubToolPort(ToolResponse(result="done")),
+    )
+
+    result = await service.run(_runtime_request(), event_emitter=emitter)
+
+    response_events = [payload for name, payload in emitter.events if name == "agent.response.succeeded"]
+    assert result["output"] == "Agent verification failed: unsafe claim"
+    assert response_events == [{"output": result["output"]}]
 
 
 @pytest.mark.asyncio

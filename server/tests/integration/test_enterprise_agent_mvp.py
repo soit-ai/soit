@@ -18,6 +18,7 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
     ToolCall,
 )
+from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.responses.repository import ResponseEventRepository
 from app.modules.agent.application.application_service import AgentApplicationService
@@ -46,6 +47,9 @@ from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import WorkflowRun
 from app.wiring.container import reset_container
 from app.wiring.services import build_knowledge_runtime_service
+from scripts.evaluate_support_ticket_regression import (
+    register_preapproved_evaluation_tool,
+)
 
 
 class QueueLLMPort(LLMPort):
@@ -95,6 +99,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
     monkeypatch,
 ):
     reset_container()
+    register_preapproved_evaluation_tool(tenant1_ctx)
     try:
         knowledge_service = build_knowledge_runtime_service(db=db, ctx=tenant1_ctx)
         modelhub_service = ModelHubService(
@@ -175,7 +180,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             )
             return response.model_dump()
 
-        monkeypatch.setattr("app.modules.knowledge.application.tools.knowledge_query", query_test_knowledge)
+        monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", query_test_knowledge)
 
         workflow_service = WorkflowService(db=db, ctx=tenant1_ctx)
         workflow = await workflow_service.create_ticket_triage_template(name="Enterprise ticket triage")
@@ -336,4 +341,8 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
         assert any(_unwrap(entry).unit == "requests" and _unwrap(entry).tool_ref == "builtin.ticket.create_review_ticket" for entry in cost_entries)
         assert any(event.type == "tool.call.completed" and event.payload_json.get("tool_type") == "workflow" for event in response_events)
     finally:
+        get_registry().clear_scope(
+            tenant_id=tenant1_ctx.tenant_id,
+            workspace_id=tenant1_ctx.workspace_id,
+        )
         reset_container()

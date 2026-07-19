@@ -6,11 +6,14 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
+from app.kernel.runtime.db.models.tasks import Task
+from app.kernel.runtime.db.models.threads import Thread
 from app.kernel.runtime.runs.exporter import to_runtrace_spec
-from app.kernel.runtime.tasks.status import ApprovalStatus
+from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.application.dashboard_service import ObserveDashboardService
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
@@ -93,7 +96,87 @@ class ObserveService:
         return self.approval_repo.update(approval, emit_resolution_event=data.status)
 
     @workspace_guard("write")
+    async def resolve_approvals(
+        self,
+        resolutions: list[tuple[str, ApprovalResolve]],
+        *,
+        commit: bool = True,
+    ) -> list[ApprovalRequest]:
+        """Validate and resolve one execution's approvals atomically."""
+
+        approval_ids = [approval_id for approval_id, _ in resolutions]
+        if len(approval_ids) != len(set(approval_ids)):
+            raise ValidationError("An approval can only be resolved once per request")
+        approvals = self.approval_repo.lock_by_ids(approval_ids)
+        approvals_by_id = {approval.id: approval for approval in approvals}
+        if len(approvals_by_id) != len(approval_ids):
+            raise NotFoundError("One or more approvals were not found")
+
+        pending_updates: list[ApprovalRequest] = []
+        for approval_id, data in resolutions:
+            approval = approvals_by_id[approval_id]
+            if approval.status == data.status:
+                continue
+            if approval.status != ApprovalStatus.PENDING.value:
+                raise ValidationError(
+                    f"Approval {approval.id} is already resolved as {approval.status}"
+                )
+            pending_updates.append(approval)
+
+        resolved_at = utc_now()
+        data_by_id = dict(resolutions)
+        for approval in pending_updates:
+            data = data_by_id[approval.id]
+            approval.status = data.status
+            approval.resolution_note = data.resolution_note
+            approval.resolved_by = self.ctx.user_id
+            approval.resolved_at = resolved_at
+        if pending_updates:
+            self.approval_repo.update_many(pending_updates, commit=commit)
+        elif commit:
+            self.db.commit()
+        return [approvals_by_id[approval_id] for approval_id in approval_ids]
+
+    @workspace_guard("write")
     async def create_feedback(self, data: FeedbackCreate) -> RunFeedback:
+        run = self._get_run(data.run_id) if data.run_id else None
+        task = None
+        if data.task_id:
+            task = self.db.execute(
+                select(Task).where(
+                    and_(
+                        Task.id == data.task_id,
+                        Task.tenant_id == self.ctx.tenant_id,
+                        Task.workspace_id == self.ctx.workspace_id,
+                    )
+                )
+            ).scalars().first()
+            if task is None:
+                raise NotFoundError(f"Task not found: {data.task_id}")
+            if run is not None and task.run_id != run.id:
+                raise ValidationError("Feedback task does not belong to the referenced Run")
+        if data.thread_id:
+            thread = self.db.execute(
+                select(Thread).where(
+                    and_(
+                        Thread.id == data.thread_id,
+                        Thread.tenant_id == self.ctx.tenant_id,
+                        Thread.workspace_id == self.ctx.workspace_id,
+                        Thread.deleted_at.is_(None),
+                    )
+                )
+            ).scalars().first()
+            if thread is None:
+                raise NotFoundError(f"Thread not found: {data.thread_id}")
+            if task is not None and task.thread_id != thread.id:
+                raise ValidationError("Feedback thread does not belong to the referenced Task")
+        if (
+            run is not None
+            and data.agent_id
+            and run.subject_kind == "agent"
+            and run.subject_id != data.agent_id
+        ):
+            raise ValidationError("Feedback Agent does not match the referenced Run")
         return self.feedback_repo.create(
             RunFeedback(
                 run_id=data.run_id,
@@ -195,7 +278,6 @@ class ObserveService:
             db=self.db,
             ctx=self.ctx,
             approval_repo=self.approval_repo,
-            feedback_repo=self.feedback_repo,
         ).build_dashboard(
             tab=tab,
             range_label=range_label,

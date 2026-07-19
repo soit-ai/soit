@@ -160,6 +160,21 @@ Workspace-scoped.
 - `meta_json` (mime/size/hash)
 - INDEX `(tenant_id, workspace_id, run_id)`
 
+### run_step_tool_calls
+- `id` PK
+- `tenant_id`, `workspace_id`, `run_id`, `run_step_id`
+- `tool_call_id`, `idempotency_key`, `request_hash`, `tool_ref`
+- `status`, `attempt_count`
+- `lease_owner`, `lease_expires_at`, `outbound_started_at`
+- `parameters_summary_json` (redacted and bounded; never raw credentials)
+- `result_json` (bounded), `result_artifact_id` nullable
+- `error_code`, `error_message`, `completed_at`
+- UNIQUE `(tenant_id, workspace_id, run_step_id)`
+- UNIQUE `(tenant_id, workspace_id, run_id, tool_call_id)`
+- UNIQUE `(tenant_id, workspace_id, idempotency_key)`
+- INDEX `(run_id, status)`
+- INDEX `(status, lease_expires_at)`
+
 ### run_cost_entries
 - `id` PK
 - `run_id` FK

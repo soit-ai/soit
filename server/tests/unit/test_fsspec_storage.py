@@ -10,6 +10,21 @@ from app.kernel.ports.storage.policy import StoragePolicyGateway
 from app.settings.settings import settings
 
 
+class _FakeS3Filesystem:
+    protocol = "s3"
+
+    def __init__(self, *, roots: set[str] | None = None) -> None:
+        self.roots = set(roots or set())
+        self.makedirs_calls: list[tuple[str, bool]] = []
+
+    def exists(self, path: str) -> bool:
+        return path in self.roots
+
+    def makedirs(self, path: str, exist_ok: bool = False) -> None:
+        self.makedirs_calls.append((path, exist_ok))
+        self.roots.add(path)
+
+
 def test_fsspec_storage_defaults_to_local_development_path(monkeypatch) -> None:
     monkeypatch.setattr(settings, "storage_url", None)
 
@@ -36,6 +51,21 @@ async def test_put_get_exists_and_delete_roundtrip(tmp_path: Path) -> None:
     await storage.delete(key)
     assert await storage.exists(key) is False
     await storage.delete(key)
+
+
+@pytest.mark.asyncio
+async def test_delete_uses_single_object_operation(tmp_path: Path, monkeypatch) -> None:
+    storage = FsspecStoragePort(base_url=tmp_path.as_uri(), auto_mkdir=True)
+    key = await storage.put("single/object.txt", b"hello")
+
+    def fail_bulk_remove(*_args, **_kwargs):
+        raise AssertionError("bulk remove must not be used for one object")
+
+    monkeypatch.setattr(storage.fs, "rm", fail_bulk_remove)
+
+    await storage.delete(key)
+
+    assert await storage.exists(key) is False
 
 
 @pytest.mark.asyncio
@@ -85,6 +115,60 @@ async def test_storage_operation_timeout_raises_kernel_error(tmp_path: Path, mon
         await storage.open_writer("slow.txt")
 
     assert exc_info.value.code == "STORAGE_TIMEOUT"
+
+
+@pytest.mark.asyncio
+async def test_s3_readiness_creates_a_missing_bucket_once(monkeypatch) -> None:
+    filesystem = _FakeS3Filesystem()
+    monkeypatch.setattr(
+        "app.adapters.storage.fsspec.fsspec.core.url_to_fs",
+        lambda *_args, **_kwargs: (filesystem, "soit-artifacts/prefix"),
+    )
+    storage = FsspecStoragePort(base_url="s3://soit-artifacts/prefix", auto_mkdir=True)
+
+    await storage.ensure_ready()
+    await storage.ensure_ready()
+
+    assert filesystem.makedirs_calls == [("soit-artifacts", True)]
+
+
+@pytest.mark.asyncio
+async def test_s3_readiness_rejects_a_missing_bucket_when_auto_mkdir_is_disabled(
+    monkeypatch,
+) -> None:
+    filesystem = _FakeS3Filesystem()
+    monkeypatch.setattr(
+        "app.adapters.storage.fsspec.fsspec.core.url_to_fs",
+        lambda *_args, **_kwargs: (filesystem, "soit-artifacts/prefix"),
+    )
+    storage = FsspecStoragePort(base_url="s3://soit-artifacts/prefix", auto_mkdir=False)
+
+    with pytest.raises(KernelError) as exc_info:
+        await storage.ensure_ready()
+
+    assert exc_info.value.code == "STORAGE_NOT_READY"
+    assert exc_info.value.details == {"backend": "s3", "root": "soit-artifacts"}
+
+
+@pytest.mark.asyncio
+async def test_storage_backend_errors_are_typed_without_leaking_provider_details(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    storage = FsspecStoragePort(base_url=tmp_path.as_uri(), auto_mkdir=True)
+
+    def unavailable(_path: str) -> bool:
+        raise RuntimeError("access_key=secret-provider-detail")
+
+    monkeypatch.setattr(storage.fs, "exists", unavailable)
+
+    with pytest.raises(KernelError) as exc_info:
+        await storage.exists("object.txt")
+
+    assert exc_info.value.code == "STORAGE_UNAVAILABLE"
+    assert exc_info.value.details["operation"] == "storage_ready"
+    assert "secret-provider-detail" not in str(exc_info.value.details)
+    assert "secret-provider-detail" not in exc_info.value.message
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,7 @@ import {
 export interface ChatLedgerMessage {
   id: string
   parent_id?: string | null
-  role: 'system' | 'user' | 'assistant' | string
+  role: NormalizedRole
   content: string
   response_id?: string | null
   task_id?: string | null
@@ -53,42 +53,11 @@ class MessageAdapterError extends Error {
   }
 }
 
-const roleMap: Record<string, NormalizedRole> = {
-  system: 'system',
-  sys: 'system',
-  user: 'user',
-  human: 'user',
-  assistant: 'assistant',
-  ai: 'assistant',
-  model: 'assistant',
-  tool: 'tool',
-  function: 'tool',
-}
-
-const normalizeRole = (role: unknown, metadata?: Record<string, any> | null): NormalizedRole => {
-  const roleKey = String(role || '')
-    .trim()
-    .toLowerCase()
-  if (roleKey && roleMap[roleKey]) {
-    return roleMap[roleKey]
+const normalizeRole = (role: unknown): NormalizedRole => {
+  if (role === 'system' || role === 'user' || role === 'assistant' || role === 'tool') {
+    return role
   }
-
-  const metadataCandidates = [
-    metadata?.role,
-    metadata?.sender,
-    metadata?.message_role,
-    metadata?.type,
-  ]
-  for (const candidate of metadataCandidates) {
-    const candidateKey = String(candidate || '')
-      .trim()
-      .toLowerCase()
-    if (candidateKey && roleMap[candidateKey]) {
-      return roleMap[candidateKey]
-    }
-  }
-
-  return 'assistant'
+  throw new MessageAdapterError(`Unsupported canonical message role: ${String(role)}`)
 }
 
 const normalizeThinkTags = (content: string): string => {
@@ -144,6 +113,28 @@ const splitReasoningContent = (
   }
 }
 
+const normalizeReasoningText = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  if (!Array.isArray(value)) {
+    return ''
+  }
+  return value
+    .map((item) => {
+      if (typeof item === 'string') {
+        return item.trim()
+      }
+      if (item && typeof item === 'object') {
+        const content = (item as Record<string, unknown>).content
+        return typeof content === 'string' ? content.trim() : ''
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 const normalizeAttachments = (attachments: unknown): any[] => {
   if (!Array.isArray(attachments)) {
     return []
@@ -196,35 +187,66 @@ const normalizeToolCalls = (toolCalls: unknown): ThreadAssistantMessagePart[] =>
     })
 }
 
+const normalizeMessageStatus = (
+  status: unknown,
+  errorMessage?: unknown
+): MessageStatus => {
+  const normalizedStatus = String(status || 'completed').trim().toLowerCase()
+  if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+    return {
+      type: 'incomplete',
+      reason: 'error',
+      error: String(errorMessage || 'Agent execution failed'),
+    }
+  }
+  if (normalizedStatus === 'canceled' || normalizedStatus === 'cancelled') {
+    return { type: 'incomplete', reason: 'cancelled' }
+  }
+  if (
+    normalizedStatus === 'running'
+    || normalizedStatus === 'pending'
+    || normalizedStatus === 'streaming'
+  ) {
+    return { type: 'running' }
+  }
+  if (normalizedStatus === 'waiting_approval' || normalizedStatus === 'interrupted') {
+    return { type: 'requires-action', reason: 'interrupt' }
+  }
+  return { type: 'complete', reason: 'stop' }
+}
+
 export const MessageConverter = {
   toThreadMessage(message: ChatLedgerMessage): ThreadMessage {
     const metadata = message.metadata_json || {}
-    const normalizedRole = normalizeRole(message.role, metadata)
+    const normalizedRole = normalizeRole(message.role)
     const customMetadata = {
       server_message_id: message.id,
       parent_id: message.parent_id ?? null,
       source_role: message.role,
-      response_id: message.response_id ?? metadata.response_id ?? undefined,
-      task_id: message.task_id ?? metadata.task_id ?? undefined,
-      message_status: message.status ?? metadata.status ?? undefined,
-      sequence_no: message.sequence_no ?? metadata.sequence_no ?? undefined,
-      run_id: message.run_id ?? metadata.run_id ?? undefined,
-      model_ref: message.model_ref ?? metadata.model ?? undefined,
-      tokens_prompt: message.tokens_prompt ?? metadata.tokens_prompt ?? undefined,
-      tokens_completion: message.tokens_completion ?? metadata.tokens_completion ?? undefined,
-      finish_reason: message.finish_reason ?? metadata.finish_reason ?? undefined,
+      response_id: message.response_id ?? undefined,
+      task_id: message.task_id ?? undefined,
+      branch_id: metadata.branch_id ?? undefined,
+      message_status: message.status ?? undefined,
+      sequence_no: message.sequence_no ?? undefined,
+      run_id: message.run_id ?? undefined,
+      model_ref: message.model_ref ?? undefined,
+      tokens_prompt: message.tokens_prompt ?? undefined,
+      tokens_completion: message.tokens_completion ?? undefined,
+      finish_reason: message.finish_reason ?? undefined,
       budget_exceeded: metadata.budget_exceeded ?? undefined,
       budget_reason: metadata.budget_reason ?? undefined,
       cost_total: metadata.cost_total ?? undefined,
-      citations: message.citations_json ?? metadata.citations ?? undefined,
-      attachments: message.attachments_json ?? metadata.attachments ?? undefined,
-      tool_calls: message.tool_calls_json ?? metadata.tool_calls ?? undefined,
-      summary: message.summary ?? metadata.summary ?? undefined,
+      citations: message.citations_json ?? undefined,
+      artifacts: metadata.artifacts ?? undefined,
+      attachments: message.attachments_json ?? undefined,
+      tool_calls: message.tool_calls_json ?? undefined,
+      summary: message.summary ?? undefined,
       rag_query: metadata.rag_query ?? undefined,
       rag_knowledge: metadata.rag_knowledge ?? undefined,
-      error_code: message.error_code ?? metadata.error_code ?? undefined,
-      error_message: message.error_message ?? metadata.error_message ?? undefined,
+      error_code: message.error_code ?? undefined,
+      error_message: message.error_message ?? undefined,
       interrupted: metadata.interrupted ?? undefined,
+      reasoning: metadata.reasoning ?? metadata.reasoning_summary ?? undefined,
     }
     const baseProps = {
       id: message.id,
@@ -251,20 +273,23 @@ export const MessageConverter = {
         } as ThreadUserMessage
 
       case 'assistant': {
-        const { reasoning, answer } = splitReasoningContent(message.content || '')
+        const parsedContent = splitReasoningContent(message.content || '')
+        const reasoning =
+          normalizeReasoningText(customMetadata.reasoning) || parsedContent.reasoning
         const assistantContent: ThreadAssistantMessagePart[] = []
         if (reasoning) {
           assistantContent.push({ type: 'reasoning', text: reasoning } as any)
         }
-        if (answer || !assistantContent.length) {
-          assistantContent.push({ type: 'text', text: answer } as any)
-        }
+        assistantContent.push({ type: 'text', text: parsedContent.answer } as any)
         assistantContent.push(...normalizeToolCalls(customMetadata.tool_calls))
         return {
           ...baseProps,
           role: 'assistant',
           content: assistantContent as readonly ThreadAssistantMessagePart[],
-          status: { type: 'complete', reason: 'stop' } as MessageStatus,
+          status: normalizeMessageStatus(
+            customMetadata.message_status,
+            customMetadata.error_message
+          ),
           metadata: {
             unstable_state: null,
             unstable_annotations: [],
@@ -280,7 +305,10 @@ export const MessageConverter = {
           ...baseProps,
           role: 'assistant',
           content: [{ type: 'text', text: message.content }] as readonly ThreadAssistantMessagePart[],
-          status: { type: 'complete', reason: 'stop' } as MessageStatus,
+          status: normalizeMessageStatus(
+            customMetadata.message_status,
+            customMetadata.error_message
+          ),
           metadata: {
             unstable_state: null,
             unstable_annotations: [],

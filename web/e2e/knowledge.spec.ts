@@ -173,8 +173,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: mockKnowledgeWorkbench.items,
             page_size: 1,
             next_page_token: null,
@@ -188,7 +187,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockKnowledgeWorkbench }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockKnowledgeWorkbench }),
       })
       return
     }
@@ -197,8 +196,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: [
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [
             {
               id: 'doc-1',
               tenant_id: 'tenant-1',
@@ -230,13 +228,13 @@ async function mockKnowledgeApi(page: Page) {
           ? { ...task, status: 'queued', error_code: null, error_message: null, retry_count: 0 }
           : task
       )
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: tasks[0] }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: tasks[0] }) })
       return
     }
 
     if (url.pathname.endsWith('/knowledge/kb-1/ingest-tasks/task-queued/cancel')) {
       tasks = tasks.map((task) => (task.id === 'task-queued' ? { ...task, status: 'canceled' } : task))
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: tasks[1] }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: tasks[1] }) })
       return
     }
 
@@ -244,7 +242,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: tasks }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: tasks }),
       })
       return
     }
@@ -258,7 +256,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: indexes[0] }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: indexes[0] }),
       })
       return
     }
@@ -267,7 +265,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: indexes }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: indexes }),
       })
       return
     }
@@ -276,8 +274,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             results: [
               {
                 chunk_id: 'chunk-1',
@@ -321,7 +318,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockKnowledge }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockKnowledge }),
       })
       return
     }
@@ -330,7 +327,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: [] }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
       })
       return
     }
@@ -339,8 +336,7 @@ async function mockKnowledgeApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: [],
             page_size: 5,
             next_page_token: null,
@@ -353,8 +349,7 @@ async function mockKnowledgeApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [mockKnowledge],
           page_size: 20,
           next_page_token: null,

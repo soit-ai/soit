@@ -1,326 +1,221 @@
-import { useTranslation } from '@/i18n'
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  Activity,
+  Clock3,
+  Database,
+  HardDrive,
+  MemoryStick,
+  RefreshCw,
+  ServerCog,
+  ShieldAlert,
+} from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Cpu, MemoryStick, HardDrive, Activity, RefreshCw, Server, Clock } from 'lucide-react'
-
-// 导入监控组件
+import { useTranslation } from '@/i18n'
 import {
-  ServiceHealthCard,
-  ResourceUsageCard,
-  ServiceStatusTable,
-  AlertList,
-  MonitorChart,
-  HeartbeatChart,
-  MetricStatCard
-} from '@/routes/system/ui/monitor'
+  getDiagnosticsSnapshot,
+  type DependencyDiagnostic,
+  type DiagnosticsSnapshot,
+} from '@/services/diagnostics-service'
+import { useUserStore } from '@/stores/user'
 
-// 导入数据生成器
-import {
-  generateSystemResources,
-  generateServices,
-  generateAlerts,
-  generateHeartbeatData,
-  generateChartOptions,
-  generateSystemAvailability,
-  generateServiceMetrics,
-  generateAlertStats
-} from '@/routes/system/ui/monitor/data-generator'
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`
+  if (bytes < 1024 ** 3) return `${Math.round(bytes / 1024 ** 2)} MB`
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+}
 
-import type { Service } from '@/routes/system/ui/monitor/service-status-table'
-import type { Alert } from '@/routes/system/ui/monitor/alert-list'
-import type { HeartbeatData } from '@/routes/system/ui/monitor/heartbeat-chart'
+const formatDuration = (seconds: number) => {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  const hours = Math.floor(seconds / 3600)
+  return `${hours}h ${Math.floor((seconds % 3600) / 60)}m`
+}
 
-function IndexPage() {
+function DependencyCard({ diagnostic }: { diagnostic: DependencyDiagnostic }) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState('overview')
-  const [refreshInterval, setRefreshInterval] = useState<string>('realtime')
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
-  
-  // 状态数据
-  const [systemResources, setSystemResources] = useState(generateSystemResources())
-  const [services, setServices] = useState<Service[]>(generateServices())
-  const [alerts, setAlerts] = useState<Alert[]>(generateAlerts())
-  const [heartbeatData, setHeartbeatData] = useState<HeartbeatData[]>(generateHeartbeatData())
-  const [chartOptions, setChartOptions] = useState(generateChartOptions())
-  const [systemAvailability, setSystemAvailability] = useState(generateSystemAvailability())
-  const [serviceMetrics, setServiceMetrics] = useState(generateServiceMetrics())
-  const [alertStats, setAlertStats] = useState(generateAlertStats(alerts))
-  
-  // 格式化日期
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  }
-  
-  // 刷新所有数据
-  const refreshData = useCallback(() => {
-    // 更新所有数据
-    const newSystemResources = generateSystemResources()
-    const newServices = generateServices()
-    const newAlerts = generateAlerts()
-    const newHeartbeatData = generateHeartbeatData()
-    const newChartOptions = generateChartOptions()
-    const newSystemAvailability = generateSystemAvailability()
-    const newServiceMetrics = generateServiceMetrics()
-    
-    setSystemResources(newSystemResources)
-    setServices(newServices)
-    setAlerts(newAlerts)
-    setHeartbeatData(newHeartbeatData)
-    setChartOptions(newChartOptions)
-    setSystemAvailability(newSystemAvailability)
-    setServiceMetrics(newServiceMetrics)
-    setAlertStats(generateAlertStats(newAlerts))
-    setLastRefreshed(new Date())
-  }, [])
-  
-  // 根据刷新间隔设置自动刷新
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null
-    
-    if (refreshInterval !== 'manual') {
-      const intervalMap: Record<string, number> = {
-        'realtime': 5000,
-        '30s': 30000,
-        '1m': 60000,
-        '5m': 300000
-      }
-      
-      // 立即刷新一次
-      refreshData()
-      
-      intervalId = setInterval(() => {
-        refreshData()
-      }, intervalMap[refreshInterval] || 60000)
-    }
-    
-    return () => {
-      if (intervalId) clearInterval(intervalId)
-    }
-  }, [refreshInterval, refreshData])
-
+  const Icon = diagnostic.name === 'database' ? Database : HardDrive
+  const healthy = diagnostic.status === 'healthy'
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold tracking-tight">系统监控</h3>
-          <p className="text-muted-foreground">
-            监控系统服务运行状态、性能指标和健康度
-          </p>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Icon className="size-4 text-primary" />
+            <CardTitle className="text-base">{t(`system.diagnostics.dependencies.${diagnostic.name}`)}</CardTitle>
+          </div>
+          <Badge variant={healthy ? 'success' : 'destructive'}>
+            {t(`system.diagnostics.status.${diagnostic.status}`)}
+          </Badge>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-muted-foreground mr-2">
-            最后更新: {lastRefreshed.toLocaleTimeString('zh-CN')}
-          </div>
-          <Button variant="outline" size="sm" onClick={refreshData}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            刷新数据
-          </Button>
-          <Select value={refreshInterval} onValueChange={setRefreshInterval}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="数据更新频率" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="realtime">实时更新 (5秒)</SelectItem>
-              <SelectItem value="30s">每30秒</SelectItem>
-              <SelectItem value="1m">每分钟</SelectItem>
-              <SelectItem value="5m">每5分钟</SelectItem>
-              <SelectItem value="manual">手动刷新</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
-          <TabsTrigger value="overview">系统概览</TabsTrigger>
-          <TabsTrigger value="services">服务监控</TabsTrigger>
-          <TabsTrigger value="alerts">告警管理</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="overview" className="mt-6 space-y-6">
-          {/* 系统健康状态概览 */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <ServiceHealthCard
-              status="healthy"
-              name="系统可用性"
-              value={systemAvailability.current}
-              icon={<Activity className="h-4 w-4 text-muted-foreground" />}
-              description={`过去24小时: ${systemAvailability.last24h}`}
-            />
-            <ResourceUsageCard
-              title="CPU使用率"
-              icon={<Cpu className="h-4 w-4" />}
-              usagePercentage={systemResources.cpu.usage}
-              details={[
-                { label: '核心数', value: `${systemResources.cpu.cores}` },
-                { label: '温度', value: `${systemResources.cpu.temperature}°C` }
-              ]}
-            />
-            <ResourceUsageCard
-              title="内存使用率"
-              icon={<MemoryStick className="h-4 w-4" />}
-              usagePercentage={systemResources.memory.usage}
-              details={[
-                { label: '已用', value: `${systemResources.memory.used}GB` },
-                { label: '总量', value: `${systemResources.memory.total}GB` }
-              ]}
-            />
-            <ResourceUsageCard
-              title="磁盘使用率"
-              icon={<HardDrive className="h-4 w-4" />}
-              usagePercentage={systemResources.disk.usage}
-              details={[
-                { label: '已用', value: `${systemResources.disk.used}GB` },
-                { label: '总量', value: `${systemResources.disk.total}GB` }
-              ]}
-            />
-          </div>
-          
-          {/* 性能指标图表 */}
-          <div className="grid gap-4 md:grid-cols-2 h-auto">
-            <MonitorChart
-              title="响应时间趋势"
-              description="各服务响应时间变化趋势"
-              options={chartOptions.responseTimeChartOptions}
-              className="h-100"
-            />
-            <MonitorChart
-              title="系统负载趋势"
-              description="CPU、内存和磁盘I/O使用率"
-              options={chartOptions.systemLoadChartOptions}
-              className="h-100"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <MonitorChart
-              title="请求量统计"
-              description="系统请求成功与失败数量"
-              options={chartOptions.requestCountChartOptions}
-              className="h-100"
-            />
-            <MonitorChart
-              title="错误率监控"
-              description="系统错误率变化趋势及警告阈值"
-              options={chartOptions.errorRateChartOptions}
-              className="h-100"
-            />
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="services" className="mt-6 space-y-6">
-          {/* 服务健康状态表格 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>服务健康状态</CardTitle>
-              <CardDescription>
-                所有关键服务的当前运行状态和可用性
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ServiceStatusTable services={services} />
-            </CardContent>
-          </Card>
-          
-          {/* 服务心跳图 */}
-          <HeartbeatChart
-            title="服务心跳监控"
-            data={heartbeatData}
-            description="过去24小时的服务可用性状态"
-          />
-          
-          {/* 关键指标 */}
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricStatCard
-              title="API请求量"
-              value={serviceMetrics.apiRequests}
-              icon={<Activity className="h-4 w-4" />}
-              change={serviceMetrics.apiRequestsChange}
-            />
-            <MetricStatCard
-              title="平均响应时间"
-              value={serviceMetrics.avgResponseTime}
-              icon={<Clock className="h-4 w-4" />}
-              change={serviceMetrics.avgResponseTimeChange}
-            />
-            <MetricStatCard
-              title="错误率"
-              value={serviceMetrics.errorRate}
-              icon={<Server className="h-4 w-4" />}
-              change={serviceMetrics.errorRateChange}
-            />
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="alerts" className="mt-6 space-y-6">
-          {/* 告警统计卡片 */}
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">活跃告警</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {alerts.filter(alert => alert.status === 'active').length}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  当前需要处理的告警数量
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">严重告警</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {alerts.filter(alert => alert.severity === 'critical' && alert.status === 'active').length}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  需要立即处理的严重告警
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">已解决告警</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {alerts.filter(alert => alert.status === 'resolved').length}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  过去24小时内已解决的告警
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-          
-          {/* 告警列表 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>系统告警</CardTitle>
-              <CardDescription>
-                当前活跃的系统告警及其状态
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AlertList alerts={alerts} formatDate={formatDate} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+      </CardHeader>
+      <CardContent className="space-y-1 text-sm">
+        <p className="text-muted-foreground">
+          {t('system.diagnostics.dependencies.latency', { value: diagnostic.latency_ms.toFixed(2) })}
+        </p>
+        {diagnostic.message && <p className="font-mono text-xs text-destructive">{diagnostic.message}</p>}
+      </CardContent>
+    </Card>
   )
 }
 
-export default IndexPage
+export default function DiagnosticsPage() {
+  const { t, i18n } = useTranslation()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const isOwner = currentUser?.workspace_role?.toLowerCase() === 'owner'
+  const [snapshot, setSnapshot] = useState<DiagnosticsSnapshot | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  const loadSnapshot = useCallback(async () => {
+    try {
+      setLoading(true)
+      setFailed(false)
+      setSnapshot(await getDiagnosticsSnapshot())
+    } catch (error) {
+      console.error('Failed to load diagnostics snapshot:', error)
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isOwner) return
+    void loadSnapshot()
+    const interval = window.setInterval(() => void loadSnapshot(), 30_000)
+    return () => window.clearInterval(interval)
+  }, [isOwner, loadSnapshot])
+
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+        {t('system.diagnostics.loadingUser')}
+      </div>
+    )
+  }
+
+  if (!isOwner) {
+    return (
+      <div className="mx-auto flex min-h-[50vh] max-w-xl flex-col items-center justify-center gap-3 p-6 text-center">
+        <ShieldAlert className="size-10 text-muted-foreground" />
+        <h1 className="text-xl font-bold">{t('system.diagnostics.access.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('system.diagnostics.access.description')}</p>
+      </div>
+    )
+  }
+
+  const workspaceMetrics = snapshot
+    ? [
+        ['agents', snapshot.workspace.agents],
+        ['workflows', snapshot.workspace.workflows],
+        ['knowledgeBases', snapshot.workspace.knowledge_bases],
+        ['plugins', snapshot.workspace.plugins],
+        ['models', snapshot.workspace.models],
+        ['threads', snapshot.workspace.threads],
+        ['activeRuns', snapshot.workspace.active_runs],
+        ['failedRuns24h', snapshot.workspace.failed_runs_24h],
+        ['openFeedback', snapshot.workspace.open_feedback],
+      ] as const
+    : []
+
+  return (
+    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <ServerCog className="size-5 text-primary" />
+            <h1 className="text-xl font-bold tracking-tight">{t('system.diagnostics.title')}</h1>
+          </div>
+          <p className="max-w-2xl text-sm text-muted-foreground">{t('system.diagnostics.description')}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void loadSnapshot()} disabled={loading}>
+          <RefreshCw className={`mr-2 size-4 ${loading ? 'animate-spin' : ''}`} />
+          {t('system.diagnostics.refresh')}
+        </Button>
+      </div>
+
+      {failed && !snapshot ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-destructive">{t('system.diagnostics.failed')}</CardContent>
+        </Card>
+      ) : snapshot ? (
+        <>
+          <Card>
+            <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`size-3 rounded-full ${snapshot.overall_status === 'healthy' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                <div>
+                  <p className="font-semibold">{t('system.diagnostics.liveSnapshot')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(snapshot.generated_at))}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={snapshot.overall_status === 'healthy' ? 'success' : 'warning'}>
+                  {t(`system.diagnostics.overall.${snapshot.overall_status}`)}
+                </Badge>
+                <Badge variant="outline">v{snapshot.version}</Badge>
+                <Badge variant="outline">{snapshot.environment}</Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="font-semibold">{t('system.diagnostics.sections.dependencies')}</h2>
+              <p className="text-sm text-muted-foreground">{t('system.diagnostics.sections.dependenciesDescription')}</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {snapshot.dependencies.map((item) => <DependencyCard key={item.name} diagnostic={item} />)}
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="font-semibold">{t('system.diagnostics.sections.process')}</h2>
+              <p className="text-sm text-muted-foreground">{t('system.diagnostics.sections.processDescription')}</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>{t('system.diagnostics.process.uptime')}</CardDescription></CardHeader>
+                <CardContent className="flex items-center gap-2 text-2xl font-bold"><Clock3 className="size-5 text-primary" />{formatDuration(snapshot.process.uptime_seconds)}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>{t('system.diagnostics.process.memory')}</CardDescription></CardHeader>
+                <CardContent className="flex items-center gap-2 text-2xl font-bold"><MemoryStick className="size-5 text-primary" />{formatBytes(snapshot.process.rss_bytes)}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>{t('system.diagnostics.process.threads')}</CardDescription></CardHeader>
+                <CardContent className="flex items-center gap-2 text-2xl font-bold"><Activity className="size-5 text-primary" />{snapshot.process.thread_count}</CardContent>
+              </Card>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="font-semibold">{t('system.diagnostics.sections.workspace')}</h2>
+              <p className="text-sm text-muted-foreground">{t('system.diagnostics.sections.workspaceDescription')}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {workspaceMetrics.map(([key, value]) => (
+                <Card key={key}>
+                  <CardContent className="flex items-center justify-between gap-4 p-4">
+                    <span className="text-sm text-muted-foreground">{t(`system.diagnostics.workspace.${key}`)}</span>
+                    <span className="text-xl font-bold tabular-nums">{value ?? '—'}</span>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : (
+        <div className="py-16 text-center text-sm text-muted-foreground">{t('system.diagnostics.loading')}</div>
+      )}
+    </div>
+  )
+}

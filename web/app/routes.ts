@@ -60,9 +60,11 @@ export default [
       route('audits', './routes/run/audits.tsx'),
       route('runs', './routes/run/index.tsx'),
       route('runs/:runId', './routes/run/detail.tsx'),
-      route('feedback', './routes/system/feedback.tsx'),
-      route('monitor', './routes/system/monitor.tsx'),
     ]),
+
+    route('/feedback', './routes/system/feedback.tsx'),
+    route('/search', './routes/search/index.tsx'),
+    route('/diagnostics', './routes/system/monitor.tsx'),
 
     // plugin module route.
     ...prefix('/plugins', [

@@ -80,3 +80,15 @@ def test_stream_chunk_exposes_tool_call_deltas_and_completed_calls():
 
     assert chunk.tool_call_deltas == [delta]
     assert chunk.tool_calls == [call]
+
+
+def test_chat_response_exposes_provider_reasoning():
+    response = ChatResponse(text="answer", reasoning="checked the constraints")
+
+    assert response.reasoning == "checked the constraints"
+
+
+def test_stream_chunk_exposes_provider_reasoning_delta():
+    chunk = ChatStreamChunk(reasoning_delta="checking constraints")
+
+    assert chunk.reasoning_delta == "checking constraints"

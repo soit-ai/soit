@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Index, Numeric, Text
+from sqlalchemy import DateTime, Index, Numeric, Text, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -159,6 +159,68 @@ class RunStep(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
+
+
+class RunStepToolCall(SQLModel, table=True):
+    """Execution-control record for one stable tool call and run step."""
+
+    __tablename__ = "run_step_tool_calls"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "run_step_id",
+            name="uq_run_step_tool_calls_scope_step",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "run_id",
+            "tool_call_id",
+            name="uq_run_step_tool_calls_scope_run_call",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "idempotency_key",
+            name="uq_run_step_tool_calls_scope_idempotency",
+        ),
+        Index("ix_run_step_tool_calls_run_status", "run_id", "status"),
+        Index("ix_run_step_tool_calls_lease", "status", "lease_expires_at"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"rstc_{generate_ulid()}")
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    run_id: str = Field(index=True)
+    run_step_id: str = Field(index=True)
+    tool_call_id: str = Field(index=True)
+    idempotency_key: str = Field(index=True)
+    request_hash: str = Field(index=True)
+    tool_ref: str = Field(index=True)
+    status: str = Field(default="claimed", index=True)
+    attempt_count: int = Field(default=1)
+    lease_owner: str | None = Field(default=None, index=True)
+    lease_expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
+    outbound_started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    parameters_summary_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
+    result_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    result_artifact_id: str | None = Field(default=None, index=True)
+    error_code: str | None = Field(default=None, index=True)
+    error_message: str | None = Field(default=None)
+    created_by: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = Field(default=None)
 
 
 class RunArtifact(SQLModel, table=True):

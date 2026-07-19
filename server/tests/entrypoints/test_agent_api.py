@@ -1,11 +1,13 @@
 """Entry-point tests for the Agent API."""
 
 from fastapi import status
+from sqlalchemy import select
 
 from app.api.v1.agent.dependencies import get_agent_application_service
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.runtime.db.models.runs import Run
+from app.kernel.ports.tools.policy import ToolPolicyGateway
+from app.kernel.runtime.db.models.runs import Run, RunStepToolCall
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
@@ -750,11 +752,16 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
                     ),
                 ]
             ),
-            tool_port=StubToolPort(),
+            tool_port=ToolPolicyGateway(
+                gateway=StubToolPort(),
+                ctx=ctx,
+                trace_writer=TraceWriter(db, ctx),
+                enable_egress_check=False,
+            ),
             memory_service=None,
         )
 
-    monkeypatch.setattr("app.modules.knowledge.application.tools.knowledge_query", fake_knowledge_query)
+    monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", fake_knowledge_query)
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
         workflow_response = client.post(
@@ -885,6 +892,9 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert detail_payload["response"]["usage_json"]["budget_exceeded"] is False
         tool_calls = {item["tool_name"]: item for item in detail_payload["tool_calls"]}
         external_tool_call = tool_calls["tool:test:ticket_lookup"]
+        assert external_tool_call["run_step_tool_call_id"]
+        assert external_tool_call["tool_call_id"] == "call_ticket_lookup"
+        assert external_tool_call["attempt_count"] == 1
         assert external_tool_call["tool_type"] == "builtin"
         assert external_tool_call["status"] == "completed"
         assert external_tool_call["arguments_json"] == {"ticket_id": "TCK-DEMO-1"}
@@ -892,6 +902,9 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert external_tool_call["result_json"]["result"]["parameters"] == {"ticket_id": "TCK-DEMO-1"}
 
         workflow_tool_call = tool_calls[workflow_ref_holder["ref"]]
+        assert workflow_tool_call["run_step_tool_call_id"]
+        assert workflow_tool_call["tool_call_id"] == "call_ticket_workflow"
+        assert workflow_tool_call["attempt_count"] == 1
         assert workflow_tool_call["tool_type"] == "workflow"
         assert workflow_tool_call["status"] == "completed"
         assert workflow_tool_call["result_json"]["result"]["workflow_run_id"].startswith("run_")
@@ -899,6 +912,16 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
             "ticket_id": "TCK-DEMO-1",
             "priority": "high",
         }
+        durable_tool_calls = db.execute(
+            select(RunStepToolCall).where(
+                RunStepToolCall.run_id == payload["run_id"]
+            )
+        ).scalars().all()
+        assert {item.tool_ref for item in durable_tool_calls} == {
+            "tool:test:ticket_lookup",
+            workflow_ref_holder["ref"],
+        }
+        assert all(item.status == "succeeded" for item in durable_tool_calls)
         event_types = [item["type"] for item in detail_payload["events"]]
         assert "tool.call.completed" in event_types
         assert "response.output_text.done" in event_types
@@ -1117,14 +1140,14 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
         messages = ThreadRepository(db, ctx).list_messages(thread.id)
         assistant_message = next(message for message in messages if message.role == "assistant")
         assert assistant_message.status == "failed"
-        assert assistant_message.content == "Agent execution failed: llm unavailable"
+        assert assistant_message.content == "Agent execution failed"
         assert assistant_message.error_code == "agent_execution_failed"
-        assert assistant_message.error_message == "llm unavailable"
+        assert assistant_message.error_message == "Agent execution failed"
         assert assistant_message.finish_reason == "agent_execution_failed"
         assert assistant_message.run_id == thread.latest_run_id
         assert assistant_message.response_id
         assert assistant_message.metadata_json["error_code"] == "agent_execution_failed"
-        assert assistant_message.metadata_json["error_message"] == "llm unavailable"
+        assert assistant_message.metadata_json["error_message"] == "Agent execution failed"
         assert assistant_message.metadata_json["tool_calls_count"] == 0
 
         thread_response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
@@ -1133,14 +1156,14 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
             message for message in thread_response.json()["data"]["messages"] if message["role"] == "assistant"
         )
         assert api_assistant_message["status"] == "failed"
-        assert api_assistant_message["content"] == "Agent execution failed: llm unavailable"
+        assert api_assistant_message["content"] == "Agent execution failed"
         assert api_assistant_message["error_code"] == "agent_execution_failed"
-        assert api_assistant_message["error_message"] == "llm unavailable"
+        assert api_assistant_message["error_message"] == "Agent execution failed"
         assert api_assistant_message["finish_reason"] == "agent_execution_failed"
         assert api_assistant_message["run_id"] == thread.latest_run_id
         assert api_assistant_message["response_id"] == assistant_message.response_id
         assert api_assistant_message["metadata_json"]["error_code"] == "agent_execution_failed"
-        assert api_assistant_message["metadata_json"]["error_message"] == "llm unavailable"
+        assert api_assistant_message["metadata_json"]["error_message"] == "Agent execution failed"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 

@@ -1,6 +1,6 @@
 [project]
 name = "soit"
-version = "0.1.0"
+version = "1.0.0"
 description = "A LLM platform with a built-in web application"
 readme = "README.md"
 authors = [
@@ -64,6 +64,7 @@ dependencies = [
     "opentelemetry-instrumentation-redis>=0.64b0",
     "mcp==1.28.1",
     "apprise==1.12.0",
+    "ag-ui-protocol==0.1.19",
 ]
 
 [project.optional-dependencies]
@@ -94,24 +95,22 @@ build-backend = "hatchling.build"
 dev = [
     "pytest<8.0.0,>=7.4.3",
     "pytest-asyncio>=0.23.8,<0.24.0",
-    "mypy<2.0.0,>=1.8.0",
     "ruff<1.0.0,>=0.2.2",
     "import-linter>=2.0,<3.0",
     "pre-commit<4.0.0,>=3.6.2",
     "types-passlib<2.0.0.0,>=1.7.7.20240106",
     "coverage<8.0.0,>=7.4.3",
     "pip-audit>=2.8.0,<3.0.0",
+    "pyright[nodejs]>=1.1.411,<2.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
-[tool.mypy]
-strict = true
-exclude = ["venv", ".venv", "alembic"]
-disallow_untyped_defs = false
-ignore_missing_imports = true
-ignore_attr_defined = true
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:'imghdr' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:apprise\\.utils\\.pgp",
+]
 
 [tool.ruff]
 target-version = "py311"

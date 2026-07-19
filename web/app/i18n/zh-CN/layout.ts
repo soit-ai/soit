@@ -52,6 +52,29 @@ const translation = {
       label: '设置',
     },
   },
+  search: {
+    title: '搜索工作区',
+    description: '查找当前工作区中的 Agent、工作流、知识库、插件、模型、会话和运行记录。',
+    inputLabel: '工作区搜索关键词',
+    action: '搜索',
+    filtersLabel: '资源类型筛选',
+    resultSummary: '“{{query}}”的搜索结果：{{count}} 条',
+    startHint: '输入至少两个字符开始搜索。',
+    loading: '正在搜索工作区...',
+    failed: '工作区搜索失败，请重试。',
+    emptyTitle: '没有匹配的资源',
+    emptyDescription: '请更换关键词，或清除资源类型筛选。',
+    kinds: {
+      all: '全部',
+      agent: 'Agent',
+      workflow: '工作流',
+      knowledge: '知识库',
+      plugin: '插件',
+      model: '模型',
+      thread: '会话',
+      run: '运行',
+    },
+  },
 }
 
 export default translation

@@ -47,6 +47,12 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Validate fresh-install migration baseline
+        run: |
+          test "$(find alembic/versions -maxdepth 1 -name '*.py' | wc -l)" -eq 1
+          test "$(uv run alembic heads)" = "20260718140000 (head)"
+          uv run pytest tests/unit/test_fresh_install_migration.py -q
+
       - name: Apply migrations
         run: uv run alembic upgrade head
 
@@ -136,8 +142,8 @@ jobs:
       - name: Ruff
         run: uv run ruff check app tests
 
-      - name: Mypy
-        run: uv run mypy --config-file mypy-core.ini
+      - name: Pyright
+        run: uv run pyright
 
   container-smoke:
     name: container-smoke

@@ -16,10 +16,10 @@ class ExecutionPlan:
     mode: str
     """Execution mode (chat/workflow/agent/knowledge/memory/etc.)."""
 
-    inputs: dict[str, Any] = field(default_factory=dict)
+    inputs: dict[str, Any] = field(default_factory=dict[str, Any])
     """Input parameters."""
 
-    plan_data: dict[str, Any] = field(default_factory=dict)
+    plan_data: dict[str, Any] = field(default_factory=dict[str, Any])
     """Plan data (workflow graph, agent config, etc.)."""
 
     run_id: str | None = None
@@ -53,7 +53,7 @@ class StepPlan:
     node_id: str | None = None
     """Optional node ID."""
 
-    input_data: dict[str, Any] = field(default_factory=dict)
+    input_data: dict[str, Any] = field(default_factory=dict[str, Any])
     """Input data for step."""
 
     config: dict[str, Any] | None = None

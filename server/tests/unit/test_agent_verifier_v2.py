@@ -17,8 +17,10 @@ class MockVerifierLLM(InMemoryLLMPort):
     def __init__(self, ok: bool, reason: str = ""):
         self._ok = ok
         self._reason = reason
+        self.messages = []
 
     async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        self.messages = messages
         return ChatResponse(
             text=None,
             tokens_prompt=10,
@@ -36,7 +38,8 @@ class MockVerifierLLM(InMemoryLLMPort):
 
 @pytest.mark.asyncio
 async def test_verifier_ok():
-    verifier = AgentVerifier(MockVerifierLLM(ok=True, reason="looks good"))
+    llm = MockVerifierLLM(ok=True, reason="looks good")
+    verifier = AgentVerifier(llm)
     result = await verifier.verify(
         messages=[ChatMessage(role="user", content="hello")],
         response="The answer is 42.",
@@ -46,6 +49,11 @@ async def test_verifier_ok():
     assert result.ok is True
     assert result.reason == "looks good"
     assert result.tokens_prompt == 10
+    review_prompt = llm.messages[-1].content
+    assert "Original conversation" in review_prompt
+    assert "user: hello" in review_prompt
+    assert "Candidate response" in review_prompt
+    assert "The answer is 42." in review_prompt
 
 
 @pytest.mark.asyncio

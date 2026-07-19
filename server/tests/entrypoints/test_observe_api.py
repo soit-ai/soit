@@ -104,7 +104,6 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
         "/api/v1/observe/feedback",
         json={
             "run_id": run.id,
-            "thread_id": "thr_contract",
             "agent_id": "agt_contract",
             "rating": 5,
             "category": "quality",
@@ -129,6 +128,21 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
     assert replay["approvals"][0]["id"] == approval_id
     assert replay["feedback"][0]["comment"] == "looks good"
     assert replay["trace_spec"]["run"]["run_id"] == run.id
+
+
+def test_observe_feedback_rejects_an_unscoped_run_reference(client):
+    response = client.post(
+        "/api/v1/observe/feedback",
+        json={
+            "run_id": "run_outside_workspace",
+            "rating": 1,
+            "category": "chat_response",
+            "metadata_json": {"message_id": "message_unknown"},
+        },
+        headers=_headers(),
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_workspace_audit_query_api_filters_governed_calls(client, db, ctx):

@@ -22,16 +22,20 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
 )
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.ports.tools.policy import ToolPolicyGateway
+from app.kernel.runtime.db.models.runs import Run, RunStep, RunStepToolCall
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
 )
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executor import WorkflowExecutor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
+from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
 
 
 class FakeLLMPort(LLMPort):
@@ -73,8 +77,22 @@ class FakeToolPort(ToolPort):
         self.calls: list[dict[str, Any]] = []
 
     async def invoke(self, tool_ref: str, parameters: dict[str, Any], **kwargs: Any) -> ToolResponse:
-        self.calls.append({"tool_ref": tool_ref, "parameters": parameters})
+        self.calls.append({"tool_ref": tool_ref, "parameters": parameters, "kwargs": kwargs})
         return ToolResponse(result={"tool_ref": tool_ref, "parameters": parameters}, success=True, metadata={})
+
+
+class ExplicitApprovalToolPort(FakeToolPort):
+    """Tool port exposing a required ToolSpec approval policy."""
+
+    def get_tool_policy(
+        self,
+        tool_ref: str,
+        ctx: RequestContext,
+    ) -> dict[str, Any]:
+        return {
+            "audit_level": "basic",
+            "approval": {"mode": "required", "risk_level": "high"},
+        }
 
 
 class FlakyToolPort(ToolPort):
@@ -216,12 +234,121 @@ async def test_workflow_executor_runs_nodes_and_records_steps(db: Session, ctx: 
 
     assert output["value"]
     assert {call["tool_ref"] for call in fake_tool.calls} == {"tool:function:time_now", "tool:http:request"}
+    assert all(call["kwargs"].get("tool_call_id") for call in fake_tool.calls)
+    assert all(call["kwargs"].get("idempotency_key") for call in fake_tool.calls)
 
     rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
     steps = _unwrap_steps(rows)
     status_by_node = {step.node_id: step.status for step in steps}
     for node_id in ("set1", "cond1", "tool1", "http1", "llm1", "out1"):
         assert status_by_node.get(node_id) == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_registry_workflow_node_passes_stable_tool_identity(db: Session, ctx: RequestContext) -> None:
+    from app.kernel.registry.deps import get_registry
+
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(mode="workflow", kind="workflow")
+    node_step = trace_writer.create_step(
+        run_id=run.id,
+        step_type="workflow_node",
+        step_id="node:plugin1",
+        node_id="plugin1",
+    )
+    fake_tool = FakeToolPort()
+    get_registry().register(
+        kind="workflow_node",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="node:test:echo",
+        version="1.0.0",
+        payload={
+            "node_spec": {
+                "input_schema": {"type": "object"},
+                "adapter": "tool",
+                "tool_ref": "tool:test:echo",
+            }
+        },
+    )
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id=node_step.id,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        llm_port=FakeLLMPort(),
+        tool_port=fake_tool,
+        vector_port=None,
+        plugin_runtime_port=None,
+        workflow_policy={},
+        workflow_run_id="wfr-1",
+    )
+
+    await RegistryNodeExecutor().execute(
+        {"id": "plugin1", "type": "node"},
+        context,
+        {"node_ref": "node:test:echo", "parameters": {"value": "hello"}},
+    )
+
+    assert len(fake_tool.calls) == 1
+    kwargs = fake_tool.calls[0]["kwargs"]
+    assert kwargs["tool_call_id"] == f"workflow:wfr-1:plugin1:{node_step.id}"
+    assert kwargs["idempotency_key"] == f"tool:{run.id}:{kwargs['tool_call_id']}"
+
+
+@pytest.mark.asyncio
+async def test_execution_engine_agent_passes_existing_tool_step_identity(
+    db: Session,
+    ctx: RequestContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class QueueAgentLLM(FakeLLMPort):
+        def __init__(self) -> None:
+            self.responses = [
+                ChatResponse(
+                    text='{"tool_call":{"tool_ref":"tool:test:echo","parameters":{"value":"one"}}}',
+                    model="model:test:primary",
+                    finish_reason="stop",
+                ),
+                ChatResponse(text="done", model="model:test:primary", finish_reason="stop"),
+            ]
+
+        async def chat(self, *args: Any, **kwargs: Any) -> ChatResponse:
+            return self.responses.pop(0)
+
+    fake_tool = FakeToolPort()
+    fake_llm = QueueAgentLLM()
+
+    class FakeContainer:
+        def get_llm_port(self, **kwargs: Any) -> LLMPort:
+            return fake_llm
+
+        def get_tool_port(self, **kwargs: Any) -> ToolPort:
+            return fake_tool
+
+    import app.wiring
+
+    monkeypatch.setattr(app.wiring, "get_container", lambda: FakeContainer())
+    trace_writer = TraceWriter(db, ctx)
+    engine = ExecutionEngine(db, ctx, trace_writer)
+    run = trace_writer.create_run(mode="agent", kind="agent")
+    plan = ExecutionPlan(
+        run_id=run.id,
+        mode="agent",
+        inputs={
+            "messages": [{"role": "user", "content": "use the tool"}],
+            "model": "model:test:primary",
+            "max_iterations": 2,
+            "tools": [{"ref": "tool:test:echo"}],
+        },
+    )
+
+    await engine._execute_agent(plan)
+
+    assert len(fake_tool.calls) == 1
+    kwargs = fake_tool.calls[0]["kwargs"]
+    assert kwargs["tool_call_id"] == kwargs["run_step_id"]
+    assert kwargs["idempotency_key"] == f"tool:{run.id}:{kwargs['tool_call_id']}"
 
 
 @pytest.mark.asyncio
@@ -513,7 +640,12 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
         ctx=ctx,
         trace_writer=trace_writer,
         llm_port=FakeLLMPort(),
-        tool_port=FakeToolPort(),
+        tool_port=ToolPolicyGateway(
+            gateway=FakeToolPort(),
+            ctx=ctx,
+            trace_writer=trace_writer,
+            enable_egress_check=False,
+        ),
         vector_port=None,
         plugin_runtime_port=None,
         response_service=response_service,
@@ -536,6 +668,23 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
     assert tool_calls[0]["status"] == "completed"
     assert tool_calls[0]["arguments_json"] == {"zone": "UTC"}
     assert tool_calls[0]["result_json"]["result"]["tool_ref"] == "tool:function:time_now"
+    node_step = db.execute(
+        select(RunStep).where(
+            RunStep.run_id == run.id,
+            RunStep.node_id == "tool1",
+            RunStep.step_type == "workflow_node",
+        )
+    ).scalars().one()
+    call_record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    tool_step = db.get(RunStep, call_record.run_step_id)
+    assert call_record.tool_call_id == f"workflow:{run.id}:tool1:{node_step.id}"
+    assert tool_step is not None
+    assert tool_step.step_type == "tool"
+    tool_events = [event for event in events if event.type.startswith("tool.call.")]
+    assert {event.payload_json["step_id"] for event in tool_events} == {tool_step.id}
+    assert {event.payload_json["run_step_id"] for event in tool_events} == {tool_step.id}
     assert [event.type for event in events] == [
         "response.created",
         "response.input.added",
@@ -599,7 +748,12 @@ async def test_workflow_tool_node_records_plugin_tool_type(db: Session, ctx: Req
         ctx=ctx,
         trace_writer=trace_writer,
         llm_port=FakeLLMPort(),
-        tool_port=PluginToolPort(),
+        tool_port=ToolPolicyGateway(
+            gateway=PluginToolPort(),
+            ctx=ctx,
+            trace_writer=trace_writer,
+            enable_egress_check=False,
+        ),
         vector_port=None,
         plugin_runtime_port=None,
         response_service=response_service,
@@ -619,6 +773,11 @@ async def test_workflow_tool_node_records_plugin_tool_type(db: Session, ctx: Req
     assert completed_event.payload_json["metadata"]["plugin_name"] == "demo-plugin"
     assert tool_calls[0]["tool_type"] == "plugin"
     assert tool_calls[0]["metadata_json"]["plugin_name"] == "demo-plugin"
+    call_record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    assert call_record.tool_ref == "tool:http:plugin_echo"
+    assert call_record.status == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -641,7 +800,13 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
         subject_id="wf_approval_tool",
         subject_version_id="ver_workflow",
     )
-    tool_port = FakeToolPort()
+    tool_backend = FakeToolPort()
+    tool_port = ToolPolicyGateway(
+        gateway=tool_backend,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
     approval_gateway = RequiredApprovalGateway()
     plan = ExecutionPlan(
         run_id=run.id,
@@ -662,7 +827,7 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
                     "type": "output",
                     "input": {
                         "value": {
-                            "status": "{{ steps.tool1.output.status }}",
+                            "tool_ref": "{{ steps.tool1.output.result.tool_ref }}",
                             "response_id": "{{ steps.tool1.output.response_id }}",
                         }
                     },
@@ -689,11 +854,13 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
     )
 
     output = await WorkflowExecutor(engine).execute(plan, context)
-    response_id = output["value"]["response_id"]
+    assert output["status"] == "waiting_approval"
+    checkpoint = output["_checkpoint"]
+    response_id = output["response_id"]
     events = response_service.list_response_events(response_id, limit=20, offset=0)
+    _, _, tool_calls = response_service.get_response_detail(response_id)
 
-    assert output["value"]["status"] == "waiting_approval"
-    assert tool_port.calls == []
+    assert tool_backend.calls == []
     assert approval_gateway.requests == [
         {
             "action": "invoke",
@@ -713,5 +880,168 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
         }
     ]
     assert any(event.type == "tool.call.approval_required" for event in events)
+    record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    tool_step = db.get(RunStep, record.run_step_id)
+    assert record.status == "waiting_approval"
+    assert record.outbound_started_at is None
+    assert tool_step is not None
+    assert tool_step.status == "waiting_approval"
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["run_step_tool_call_id"] == record.id
+    assert tool_calls[0]["tool_call_id"] == record.tool_call_id
+    assert tool_calls[0]["status"] == "waiting_approval"
+
+    resumed = await WorkflowExecutor(engine).execute(
+        plan,
+        context,
+        checkpoint=checkpoint,
+    )
+
+    assert resumed["value"]["tool_ref"] == "tool:http:prod_delete_user"
+    assert resumed["value"]["response_id"] == response_id
+    assert len(tool_backend.calls) == 1
+    assert tool_backend.calls[0]["kwargs"]["resume_approval"] is True
+    resumed_record = db.get(RunStepToolCall, record.id)
+    assert resumed_record is not None
+    assert resumed_record.status == "succeeded"
+    assert db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().all() == [resumed_record]
 
 
+@pytest.mark.asyncio
+async def test_workflow_tool_spec_approval_interrupts_without_optional_gateway(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_explicit_tool_approval",
+        subject_version_id="ver_workflow",
+    )
+    tool_port = ExplicitApprovalToolPort()
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id="workflow_attempt_explicit_approval",
+        ctx=ctx,
+        trace_writer=trace_writer,
+        tool_port=tool_port,
+    )
+
+    output = await ToolNodeExecutor().execute(
+        {"id": "tool1", "type": "tool"},
+        context,
+        {"tool_ref": "tool:test:explicit_approval", "value": "sensitive"},
+    )
+
+    assert output["status"] == "waiting_approval"
+    assert output["metadata"]["reason"] == "tool_spec_approval_required"
+    assert output["metadata"]["risk_level"] == "high"
+    assert tool_port.calls == []
+    record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    assert record.status == "waiting_approval"
+    assert record.outbound_started_at is None
+
+
+@pytest.mark.asyncio
+async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoint(
+    db: Session,
+    ctx: RequestContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    backend = ExplicitApprovalToolPort()
+    tool_port = ToolPolicyGateway(
+        gateway=backend,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+
+    class FakeContainer:
+        def get_llm_port(self, **_: Any) -> LLMPort:
+            return FakeLLMPort()
+
+        def get_tool_port(self, **_: Any) -> ToolPort:
+            return tool_port
+
+        def get_vector_port(self, **_: Any) -> None:
+            return None
+
+        def get_plugin_runtime_port(self, **_: Any) -> None:
+            return None
+
+    monkeypatch.setattr("app.wiring.get_container", lambda: FakeContainer())
+    engine = ExecutionEngine(db, ctx, trace_writer)
+    plan = ExecutionPlan(
+        run_id="",
+        mode="workflow",
+        inputs={"value": "approved"},
+        subject_kind="workflow",
+        subject_id="wf_durable_approval",
+        subject_version_id="ver_durable_approval",
+        plan_data={
+            "nodes": {
+                "tool1": {
+                    "id": "tool1",
+                    "type": "tool",
+                    "input": {
+                        "tool_ref": "tool:test:explicit_approval",
+                        "value": "{{ inputs.value }}",
+                    },
+                },
+                "out1": {
+                    "id": "out1",
+                    "type": "output",
+                    "input": {
+                        "value": "{{ steps.tool1.output.result.parameters.value }}"
+                    },
+                },
+            },
+            "edges": [{"from": "tool1", "to": "out1"}],
+            "execution_order": ["tool1", "out1"],
+            "semantics": {"concurrency": 1},
+            "policy": {},
+        },
+    )
+
+    waiting = await engine.execute(plan)
+
+    run = db.get(Run, plan.run_id)
+    workflow_run = db.execute(
+        select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id)
+    ).scalars().one()
+    record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
+    ).scalars().one()
+    assert waiting["status"] == "waiting_approval"
+    assert "_checkpoint" not in waiting
+    assert run is not None and run.status == "waiting_approval"
+    assert workflow_run.status == "waiting_approval"
+    assert workflow_run.checkpoint_json is not None
+    assert backend.calls == []
+
+    completed = await engine.resume_workflow(
+        plan,
+        workflow_run_id=workflow_run.id,
+        checkpoint=dict(workflow_run.checkpoint_json),
+    )
+
+    db.refresh(run)
+    db.refresh(workflow_run)
+    db.refresh(record)
+    assert completed == {"value": "approved"}
+    assert run.status == "succeeded"
+    assert workflow_run.status == "succeeded"
+    assert workflow_run.checkpoint_json is None
+    assert record.status == "succeeded"
+    assert len(backend.calls) == 1
+    assert db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
+    ).scalars().all() == [record]

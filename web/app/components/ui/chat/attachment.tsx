@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/ui/chat/tooltip-icon-button";
+import { fetchGovernedContent } from "@/services/attachment-service";
 import { Tooltip as TooltipPrimitive, Dialog as DialogPrimitive } from "radix-ui";
 
 const useFileSrc = (file: File | undefined) => {
@@ -47,6 +48,39 @@ const useFileSrc = (file: File | undefined) => {
 
 const EMPTY_ATTACHMENT_SRC: { file?: File; src?: string } = {};
 
+const useAuthorizedAttachmentSrc = (src: string | undefined) => {
+  const [resolvedSrc, setResolvedSrc] = useState<string | undefined>(src);
+
+  useEffect(() => {
+    if (!src || !src.includes("/attachments/")) {
+      setResolvedSrc(src);
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    void fetchGovernedContent(src, controller.signal)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Attachment preview failed with HTTP ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setResolvedSrc(objectUrl);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) console.error("Failed to load attachment preview:", error);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+
+  return resolvedSrc;
+};
+
 const useAttachmentSrc = () => {
   const { file, src } = useAuiState(({ attachment }): { file?: File; src?: string } => {
     if (attachment.type !== "image") return EMPTY_ATTACHMENT_SRC;
@@ -56,7 +90,9 @@ const useAttachmentSrc = () => {
     return { src };
   });
 
-  return useFileSrc(file) ?? src;
+  const localSrc = useFileSrc(file);
+  const authorizedSrc = useAuthorizedAttachmentSrc(src);
+  return localSrc ?? authorizedSrc;
 };
 
 type AttachmentPreviewProps = {

@@ -29,6 +29,7 @@ from app.kernel.runtime.runs.schemas import (
     RunStepMetricsSummaryResponse,
     RunStepResponse,
 )
+from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
 
 
 class RunService:
@@ -63,6 +64,22 @@ class RunService:
         )
         return [self._unwrap_row(row) for row in list(self.db.exec(query).all())]
 
+    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifact:
+        """Read one tenant/workspace-scoped Run artifact."""
+
+        query = select(RunArtifact).where(
+            and_(
+                RunArtifact.id == artifact_id,
+                RunArtifact.run_id == run_id,
+                RunArtifact.tenant_id == self.ctx.tenant_id,
+                RunArtifact.workspace_id == self.ctx.workspace_id,
+            )
+        )
+        artifact = self._unwrap_row(self.db.exec(query).first())
+        if artifact is None:
+            raise NotFoundError(f"Run artifact not found: {artifact_id}")
+        return artifact
+
     def _list_response_events_for_run(self, run_id: str) -> list[ResponseEventRead]:
         query = (
             select(ResponseEvent)
@@ -87,45 +104,16 @@ class RunService:
         steps: list[RunStepResponse],
         response_id: str | None,
     ) -> list[ToolCallRead]:
-        projections: list[ToolCallRead] = []
-        resolved_response_id = response_id or run_id
-        for step in steps:
-            tool_call = (
-                (step.metrics_json or {}).get("tool_call")
-                if isinstance(step.metrics_json, dict)
-                else None
-            ) or {}
-            if not tool_call and step.step_type != "tool":
-                continue
-            tool_name = tool_call.get("tool_name") or tool_call.get("tool_ref")
-            if not tool_name:
-                continue
-            projections.append(
-                ToolCallRead(
-                    id=step.id,
-                    tenant_id=self.ctx.tenant_id,
-                    workspace_id=self.ctx.workspace_id,
-                    response_id=resolved_response_id,
-                    run_id=run_id,
-                    step_id=step.id,
-                    thread_id=None,
-                    task_id=None,
-                    agent_id=None,
-                    tool_name=tool_name,
-                    tool_type=tool_call.get("tool_type", "builtin"),
-                    status=tool_call.get("status") or step.status,
-                    arguments_json=tool_call.get("arguments") or {},
-                    result_json=tool_call.get("result") or {},
-                    metadata_json=tool_call.get("metadata") or {},
-                    error_code=tool_call.get("error_code") or step.error_code,
-                    error_message=tool_call.get("error_message") or step.error_message,
-                    started_at=step.started_at,
-                    completed_at=step.ended_at,
-                    created_at=step.created_at,
-                    updated_at=step.ended_at or step.created_at,
-                )
+        return [
+            ToolCallRead.model_validate(item)
+            for item in project_run_tool_calls(
+                db=self.db,
+                ctx=self.ctx,
+                run_id=run_id,
+                steps=steps,
+                response_id=response_id or run_id,
             )
-        return projections
+        ]
 
     @staticmethod
     def _response_citations(responses: list[Response]) -> list[dict[str, Any]]:
@@ -429,16 +417,47 @@ class RunService:
         )
         has_egress_evidence = bool(egress_refs or has_egress_key or url_refs)
 
+        step_types = {step.step_type for step in steps}
+        has_tool_steps = "tool" in step_types
+        versioned_subject_applicable = bool(
+            {run.kind, run.mode, run.subject_kind} & {"agent", "workflow"}
+        )
+        tool_governance_applicable = bool(tool_calls or audits or has_tool_steps)
+        capability_binding_applicable = bool(
+            versioned_subject_applicable or tool_calls or child_runs
+        )
+        permission_scope_applicable = bool(
+            versioned_subject_applicable or tool_calls
+        )
+        secret_boundary_applicable = bool(
+            tool_governance_applicable or secret_refs or has_secret_key or leaked_secret
+        )
+        egress_policy_applicable = bool(
+            tool_governance_applicable or has_egress_evidence
+        )
+        cost_attribution_applicable = bool(
+            cost_entries or step_types & {"llm", "retrieval", "rerank"}
+        )
+        knowledge_citation_applicable = bool(
+            citations or step_types & {"retrieval", "rerank"}
+        )
+        response_timeline_applicable = bool(
+            {run.kind, run.mode, run.subject_kind}
+            & {"agent", "chat", "response", "thread"}
+        )
+
         replay_missing: list[str] = []
         if not steps:
             replay_missing.append("steps")
-        if not response_events:
+        if response_timeline_applicable and not response_events:
             replay_missing.append("response_events")
-        if not cost_entries:
+        if cost_attribution_applicable and not cost_entries:
             replay_missing.append("costs")
-        if not citations:
+        if knowledge_citation_applicable and not citations:
             replay_missing.append("citations")
-        if tool_calls and not audits:
+        if tool_governance_applicable and not tool_calls:
+            replay_missing.append("tool_calls")
+        if tool_governance_applicable and not audits:
             replay_missing.append("audits")
 
         return [
@@ -452,63 +471,169 @@ class RunService:
             ),
             self._evidence(
                 "subject_version",
-                status="fail" if subject_missing else "pass",
+                status=(
+                    "not_applicable"
+                    if not versioned_subject_applicable
+                    else "fail"
+                    if subject_missing
+                    else "pass"
+                ),
                 label="Subject version",
-                summary="Run is tied to a versioned subject." if not subject_missing else "Run is missing versioned subject fields.",
-                evidence_refs=[value for value in [run.subject_kind, run.subject_id, run.subject_version_id] if value],
-                missing=subject_missing,
+                summary=(
+                    "This run does not execute a versioned Agent or Workflow subject."
+                    if not versioned_subject_applicable
+                    else "Run is tied to a versioned subject."
+                    if not subject_missing
+                    else "Run is missing versioned subject fields."
+                ),
+                evidence_refs=(
+                    [value for value in [run.subject_kind, run.subject_id, run.subject_version_id] if value]
+                    if versioned_subject_applicable
+                    else []
+                ),
+                missing=subject_missing if versioned_subject_applicable else [],
             ),
             self._evidence(
                 "capability_binding",
-                status="pass" if capability_refs else "warning",
+                status=(
+                    "not_applicable"
+                    if not capability_binding_applicable
+                    else "pass"
+                    if capability_refs
+                    else "warning"
+                ),
                 label="Capability binding",
-                summary="Published capability binding evidence was recorded." if capability_refs else "No explicit capability binding evidence was recorded on run steps.",
+                summary=(
+                    "This run has no published capability surface."
+                    if not capability_binding_applicable
+                    else "Published capability binding evidence was recorded."
+                    if capability_refs
+                    else "No explicit capability binding evidence was recorded on run steps."
+                ),
                 evidence_refs=capability_refs,
-                missing=[] if capability_refs else ["capability_binding"],
+                missing=(
+                    []
+                    if not capability_binding_applicable or capability_refs
+                    else ["capability_binding"]
+                ),
             ),
             self._evidence(
                 "permission_scope",
-                status="pass" if permission_refs else "warning",
+                status=(
+                    "not_applicable"
+                    if not permission_scope_applicable
+                    else "pass"
+                    if permission_refs
+                    else "warning"
+                ),
                 label="Permission scope",
-                summary="Permission or policy decision evidence was recorded." if permission_refs else "No explicit permission decision evidence was recorded on run steps.",
+                summary=(
+                    "This run has no Agent, Workflow, or tool permission surface."
+                    if not permission_scope_applicable
+                    else "Permission or policy decision evidence was recorded."
+                    if permission_refs
+                    else "No explicit permission decision evidence was recorded on run steps."
+                ),
                 evidence_refs=permission_refs,
-                missing=[] if permission_refs else ["permission_scope"],
+                missing=(
+                    []
+                    if not permission_scope_applicable or permission_refs
+                    else ["permission_scope"]
+                ),
             ),
             self._evidence(
                 "secret_boundary",
-                status="fail" if leaked_secret else ("pass" if secret_refs or has_secret_key else "warning"),
+                status=(
+                    "not_applicable"
+                    if not secret_boundary_applicable
+                    else "fail"
+                    if leaked_secret
+                    else "pass"
+                    if secret_refs or has_secret_key
+                    else "warning"
+                ),
                 label="Secret boundary",
                 summary=(
-                    "Secret references are present and audit payloads do not expose obvious plaintext secrets."
+                    "This run has no governed tool secret surface."
+                    if not secret_boundary_applicable
+                    else "Secret references are present and audit payloads do not expose obvious plaintext secrets."
                     if secret_refs or has_secret_key
                     else "No secret reference evidence was recorded for this run."
                 ),
                 evidence_refs=secret_refs,
-                missing=(["redaction"] if leaked_secret else ([] if secret_refs or has_secret_key else ["secret_ref"])),
+                missing=(
+                    []
+                    if not secret_boundary_applicable
+                    else ["redaction"]
+                    if leaked_secret
+                    else []
+                    if secret_refs or has_secret_key
+                    else ["secret_ref"]
+                ),
             ),
             self._evidence(
                 "egress_policy",
-                status="pass" if has_egress_evidence else "warning",
+                status=(
+                    "not_applicable"
+                    if not egress_policy_applicable
+                    else "pass"
+                    if has_egress_evidence
+                    else "warning"
+                ),
                 label="Egress policy",
-                summary="Egress decision evidence was recorded." if has_egress_evidence else "No egress decision evidence was recorded for this run.",
+                summary=(
+                    "This run has no governed tool egress surface."
+                    if not egress_policy_applicable
+                    else "Egress decision evidence was recorded."
+                    if has_egress_evidence
+                    else "No egress decision evidence was recorded for this run."
+                ),
                 evidence_refs=[*egress_refs, *url_refs],
-                missing=[] if has_egress_evidence else ["egress_decision"],
+                missing=(
+                    []
+                    if not egress_policy_applicable or has_egress_evidence
+                    else ["egress_decision"]
+                ),
             ),
             self._evidence(
                 "audit_record",
-                status="pass" if audits else "fail",
+                status=(
+                    "not_applicable"
+                    if not tool_governance_applicable
+                    else "pass"
+                    if audits
+                    else "fail"
+                ),
                 label="Audit record",
-                summary=f"{len(audits)} audit record(s) are attached." if audits else "No gateway audit records are attached.",
+                summary=(
+                    "This run has no governed tool call requiring a gateway audit."
+                    if not tool_governance_applicable
+                    else f"{len(audits)} audit record(s) are attached."
+                    if audits
+                    else "No gateway audit records are attached."
+                ),
                 evidence_refs=[f"{audit.run_id}:{audit.step_id}" for audit in audits],
-                missing=[] if audits else ["audits"],
+                missing=[] if not tool_governance_applicable or audits else ["audits"],
             ),
             self._evidence(
                 "cost_attribution",
-                status="pass" if cost_entries else "fail",
+                status=(
+                    "not_applicable"
+                    if not cost_attribution_applicable
+                    else "pass"
+                    if cost_entries
+                    else "fail"
+                ),
                 label="Cost attribution",
-                summary=f"{len(cost_entries)} cost entry(s) are attached." if cost_entries else "No cost entries are attached.",
+                summary=(
+                    "This run has no metered model or retrieval step."
+                    if not cost_attribution_applicable
+                    else f"{len(cost_entries)} cost entry(s) are attached."
+                    if cost_entries
+                    else "No cost entries are attached."
+                ),
                 evidence_refs=[cost.id for cost in cost_entries],
-                missing=[] if cost_entries else ["costs"],
+                missing=[] if not cost_attribution_applicable or cost_entries else ["costs"],
             ),
             self._evidence(
                 "trace_timeline",
@@ -520,21 +645,50 @@ class RunService:
             ),
             self._evidence(
                 "tool_call",
-                status="pass" if tool_calls else "not_applicable",
+                status=(
+                    "pass"
+                    if tool_calls
+                    else "fail"
+                    if tool_governance_applicable
+                    else "not_applicable"
+                ),
                 label="Tool call",
-                summary=f"{len(tool_calls)} tool call(s) are attached." if tool_calls else "No tool calls were recorded for this run.",
+                summary=(
+                    f"{len(tool_calls)} tool call(s) are attached."
+                    if tool_calls
+                    else "A tool step exists, but no durable tool call record is attached."
+                    if tool_governance_applicable
+                    else "No tool calls were recorded for this run."
+                ),
                 evidence_refs=[tool_call.id for tool_call in tool_calls],
+                missing=(
+                    []
+                    if tool_calls or not tool_governance_applicable
+                    else ["tool_calls"]
+                ),
             ),
             self._evidence(
                 "knowledge_citation",
-                status="pass" if citations else "fail",
+                status=(
+                    "not_applicable"
+                    if not knowledge_citation_applicable
+                    else "pass"
+                    if citations
+                    else "fail"
+                ),
                 label="Knowledge citation",
-                summary=f"{len(citations)} citation(s) are attached." if citations else "No knowledge citations are attached.",
+                summary=(
+                    "This run has no knowledge retrieval or rerank step."
+                    if not knowledge_citation_applicable
+                    else f"{len(citations)} citation(s) are attached."
+                    if citations
+                    else "No knowledge citations are attached."
+                ),
                 evidence_refs=[
                     str(citation.get("chunk_id") or citation.get("document_id") or citation.get("knowledge_id") or index)
                     for index, citation in enumerate(citations)
                 ],
-                missing=[] if citations else ["citations"],
+                missing=[] if not knowledge_citation_applicable or citations else ["citations"],
             ),
             self._evidence(
                 "child_workflow",

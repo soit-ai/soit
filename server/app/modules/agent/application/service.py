@@ -3,11 +3,13 @@
 Agent domain service.
 """
 
+import hashlib
+import json
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.errors import KernelError, ValidationError
@@ -15,11 +17,23 @@ from app.kernel.commons.ids import generate_run_id
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.common.rate_limiter import RateLimiter
-from app.kernel.ports.llm.interface import ChatMessage, LLMPort, ToolDefinition
-from app.kernel.ports.tools.interface import ToolPort
+from app.kernel.ports.llm.interface import (
+    ChatMessage,
+    LLMPort,
+    ToolCall,
+    ToolDefinition,
+)
+from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.tool_calls import (
+    RuntimeToolExecutionService,
+    ToolExecutionCommand,
+    summarize_parameters,
+    summarize_tool_payload,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.tools.approval import tool_approval_rule
 from app.kernel.runtime.tools.resolver import ToolResolver
 from app.modules.agent.application.contracts import (
     AgentCapabilityCatalogPort,
@@ -28,10 +42,19 @@ from app.modules.agent.application.contracts import (
 from app.modules.agent.application.schemas import AgentRuntimeRequest
 from app.modules.agent.runtime.emitter import EventEmitter, noop_emitter
 from app.modules.agent.runtime.executor import AgentExecutor
-from app.modules.agent.runtime.planner import AgentPlanner
+from app.modules.agent.runtime.planner import AgentPlanner, PlanResult
 from app.modules.agent.runtime.verifier import AgentVerifier
 from app.modules.memory.application.service import MemoryService
 from app.settings.settings import settings
+
+
+class _AgentApprovalInterrupt(Exception):
+    """Internal control signal for a durable human approval checkpoint."""
+
+    def __init__(self, interrupt: dict[str, Any]) -> None:
+        self.interrupt = interrupt
+        self.checkpoint: dict[str, Any] | None = None
+        super().__init__(str(interrupt.get("message") or "Approval required"))
 
 
 class AgentService:
@@ -67,6 +90,7 @@ class AgentService:
         rate_limiter: RateLimiter | None = None,
         workflow_executor: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
+        approval_checkpoint_gateway: Any | None = None,
     ):
         self.db = db
         self.ctx = ctx
@@ -79,36 +103,218 @@ class AgentService:
         self.rate_limiter = rate_limiter or RateLimiter()
         self.workflow_executor = workflow_executor
         self.capability_catalog = capability_catalog or EmptyAgentCapabilityCatalog()
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.planner = AgentPlanner(llm_port)
         self.executor = AgentExecutor(tool_port)
         self.verifier = AgentVerifier(llm_port)
+
+    @staticmethod
+    def _approval_interrupt_id(
+        run_id: str,
+        tool_call_id: str,
+        tool_ref: str,
+        parameters: dict[str, Any],
+    ) -> str:
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "tool_call_id": tool_call_id,
+                    "tool_ref": tool_ref,
+                    "parameters": parameters,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+        return f"approval_{fingerprint}"
+
+    def _approval_response(
+        self,
+        data: AgentRuntimeRequest,
+        interrupt_id: str,
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                item
+                for item in data.approval_responses
+                if str(item.get("interrupt_id") or item.get("interruptId") or "")
+                == interrupt_id
+            ),
+            None,
+        )
+
+    def _require_tool_approval(
+        self,
+        *,
+        data: AgentRuntimeRequest,
+        run_id: str,
+        tool_call_id: str,
+        tool_ref: str,
+        tool_type: str,
+        parameters: dict[str, Any],
+        tool_policy: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        interrupt_id = self._approval_interrupt_id(
+            run_id,
+            tool_call_id,
+            tool_ref,
+            parameters,
+        )
+        resumed = self._approval_response(data, interrupt_id)
+        if resumed is not None:
+            payload = resumed.get("payload") if isinstance(resumed.get("payload"), dict) else {}
+            approved = resumed.get("status") == "resolved" and (
+                payload.get("decision", "approved") == "approved"
+                and payload.get("approved", True) is not False
+            )
+            edited_arguments = payload.get("editedArgs")
+            if approved and edited_arguments is not None and edited_arguments != parameters:
+                raise ValidationError("Edited tool arguments require a new approval")
+            return {
+                "approved": approved,
+                "parameters": parameters,
+            }
+        approval_rule = tool_approval_rule(tool_policy)
+        if self.approval_checkpoint_gateway is None and not approval_rule.required:
+            return None
+
+        request = {
+            "action": "invoke",
+            "resource_type": "tool",
+            "resource_ref": tool_ref,
+            "risk_level": approval_rule.risk_level,
+            "run_id": run_id,
+            "task_id": data.task_id,
+            "thread_id": data.thread_id,
+            "agent_id": data.agent_id,
+            "title": f"Approve tool call: {tool_ref}",
+            "details": {
+                "interrupt_id": interrupt_id,
+                "tool_call_id": tool_call_id,
+                "tool_ref": tool_ref,
+                "tool_type": tool_type,
+                "parameters": parameters,
+            },
+        }
+        decision = (
+            self.approval_checkpoint_gateway.evaluate(self.ctx, request)
+            if self.approval_checkpoint_gateway is not None
+            else None
+        )
+        gateway_requires_approval = bool(
+            getattr(decision, "requires_approval", False)
+        )
+        if not approval_rule.required and not gateway_requires_approval:
+            return None
+
+        reason = (
+            str(getattr(decision, "reason", "approval_required"))
+            if gateway_requires_approval
+            else "tool_spec_approval_required"
+        )
+        policy_ref = (
+            getattr(decision, "policy_ref", None)
+            if gateway_requires_approval
+            else f"tool_spec:{tool_ref}"
+        )
+
+        raise _AgentApprovalInterrupt(
+            {
+                "id": interrupt_id,
+                "reason": "tool_call",
+                "message": str(
+                    (getattr(decision, "approval_payload", None) or {}).get("title")
+                    or f"Approval required before calling {tool_ref}"
+                ),
+                "toolCallId": tool_call_id,
+                "responseSchema": {
+                    "type": "object",
+                    "properties": {
+                        "decision": {"type": "string", "enum": ["approved", "rejected"]},
+                    },
+                    "required": ["decision"],
+                },
+                "metadata": {
+                    "schemaVersion": 1,
+                    "toolRef": tool_ref,
+                    "toolType": tool_type,
+                    "arguments": summarize_parameters(parameters),
+                    "runId": run_id,
+                    "taskId": data.task_id,
+                    "threadId": data.thread_id,
+                    "agentId": data.agent_id,
+                    "policyRef": policy_ref,
+                    "reason": reason,
+                    "riskLevel": approval_rule.risk_level,
+                },
+            }
+        )
 
     def _resolve_agent_trace_subject(self) -> tuple[str, str]:
         return self.ctx.workspace_id, "agent-runtime:v1"
 
     @staticmethod
+    def _serialize_tool_call(tool_call: ToolCall) -> dict[str, Any]:
+        return {
+            "id": tool_call.id,
+            "name": tool_call.name,
+            "arguments": tool_call.arguments,
+        }
+
+    @classmethod
+    def _serialize_message(cls, message: ChatMessage) -> dict[str, Any]:
+        return {
+            "role": message.role,
+            "content": message.content,
+            "tool_call_id": message.tool_call_id,
+            "tool_calls": [cls._serialize_tool_call(item) for item in message.tool_calls or []],
+            "name": message.name,
+        }
+
+    @staticmethod
+    def _deserialize_tool_call(payload: dict[str, Any]) -> ToolCall:
+        return ToolCall(
+            id=str(payload.get("id") or ""),
+            name=str(payload.get("name") or ""),
+            arguments=dict(payload.get("arguments") or {}),
+        )
+
+    @classmethod
+    def _deserialize_message(cls, payload: dict[str, Any]) -> ChatMessage:
+        raw_tool_calls = payload.get("tool_calls")
+        return ChatMessage(
+            role=str(payload.get("role") or "user"),
+            content=payload.get("content") if isinstance(payload.get("content"), str) else None,
+            tool_call_id=(
+                str(payload.get("tool_call_id")) if payload.get("tool_call_id") else None
+            ),
+            tool_calls=(
+                [
+                    cls._deserialize_tool_call(item)
+                    for item in raw_tool_calls
+                    if isinstance(item, dict)
+                ]
+                if isinstance(raw_tool_calls, list) and raw_tool_calls
+                else None
+            ),
+            name=str(payload.get("name")) if payload.get("name") else None,
+        )
+
+    @staticmethod
     def _attachment_context(metadata: dict[str, Any] | None) -> str:
-        attachments = (metadata or {}).get("attachments")
-        if not isinstance(attachments, list):
+        contexts = (metadata or {}).get("_attachment_context")
+        if not isinstance(contexts, list):
             return ""
         blocks: list[str] = []
-        for index, attachment in enumerate(attachments, start=1):
-            if not isinstance(attachment, dict):
+        for index, context in enumerate(contexts, start=1):
+            if not isinstance(context, dict):
                 continue
-            name = attachment.get("name") or attachment.get("filename") or f"attachment-{index}"
-            content = attachment.get("content")
-            lines: list[str] = []
-            if isinstance(content, str):
-                lines.append(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if not isinstance(part, dict):
-                        continue
-                    text = part.get("text") or part.get("content")
-                    if isinstance(text, str) and text.strip():
-                        lines.append(text)
-            if lines:
-                blocks.append(f"[{name}]\n" + "\n".join(lines))
+            name = context.get("name") or f"attachment-{index}"
+            text = context.get("text")
+            if isinstance(text, str) and text.strip():
+                blocks.append(f"[{name}]\n{text}")
         if not blocks:
             return ""
         return "Attached context:\n" + "\n\n".join(blocks)
@@ -128,6 +334,7 @@ class AgentService:
         existing_run_id: str | None = None,
         response_id: str | None = None,
         event_emitter: EventEmitter | None = None,
+        emit_response_events: bool = True,
     ) -> dict[str, Any]:
         """Run agent loop."""
         if not isinstance(data, AgentRuntimeRequest):
@@ -165,14 +372,31 @@ class AgentService:
             )
             for m in data.messages
         ]
-        messages = self._apply_context_window(
-            messages,
-            max_messages=data.context_window_messages,
-            max_chars=data.context_window_chars,
-        )
-        memory_context = None
+        checkpoint = data.approval_checkpoint or {}
+        if checkpoint and checkpoint.get("schema_version") != 1:
+            raise ValidationError("Unsupported Agent approval checkpoint")
+        checkpoint_messages = checkpoint.get("messages")
+        if checkpoint:
+            if not isinstance(checkpoint_messages, list) or not checkpoint_messages:
+                raise ValidationError("Agent approval checkpoint has no message state")
+            messages = [
+                self._deserialize_message(item)
+                for item in checkpoint_messages
+                if isinstance(item, dict)
+            ]
+        else:
+            messages = self._apply_context_window(
+                messages,
+                max_messages=data.context_window_messages,
+                max_chars=data.context_window_chars,
+            )
+        memory_context = checkpoint.get("memory_context") if checkpoint else None
 
-        if self.memory_service and (data.memory_strategy or data.memory_query or data.memory_top_k):
+        if (
+            not checkpoint
+            and self.memory_service
+            and (data.memory_strategy or data.memory_query or data.memory_top_k)
+        ):
             query_text = data.memory_query or data.messages[-1].content
             try:
                 results = await self.memory_service.query_memory(
@@ -188,15 +412,19 @@ class AgentService:
             except Exception:
                 memory_context = None
 
-        if memory_context and data.memory_strategy in ("system_message", "user_message"):
+        if (
+            not checkpoint
+            and memory_context
+            and data.memory_strategy in ("system_message", "user_message")
+        ):
             role = "system" if data.memory_strategy == "system_message" else "user"
             messages = [ChatMessage(role=role, content=f"Memory context:\n{memory_context}")] + messages
             memory_context = None
 
         # RAG retrieval from knowledge bases
-        rag_context = None
-        rag_citations: list[dict[str, Any]] = []
-        if data.knowledge_refs:
+        rag_context = checkpoint.get("rag_context") if checkpoint else None
+        rag_citations: list[dict[str, Any]] = list(checkpoint.get("citations") or [])
+        if not checkpoint and data.knowledge_refs:
             query_text = data.messages[-1].content
             rag_context, rag_citations = await self._retrieve_rag_context(
                 knowledge_refs=data.knowledge_refs,
@@ -205,24 +433,51 @@ class AgentService:
                 run_id=run_id,
             )
 
-        if rag_context and data.rag_strategy == "system_message":
+        if not checkpoint and rag_context and data.rag_strategy == "system_message":
             messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}")] + messages
             rag_context = None
 
         model = data.model_ref
-        iterations = 0
-        final_response = ""
-        tokens_prompt = 0
-        tokens_completion = 0
-        finish_reason = None
-        tool_calls = 0
-        tool_call_details: list[dict[str, Any]] = []
-        llm_calls = 0
-        failures = 0
-        budget_exceeded = False
-        budget_reason = None
+        iterations = int(checkpoint.get("iterations") or 0)
+        final_response = str(checkpoint.get("final_response") or "")
+        reasoning_parts: list[str] = list(checkpoint.get("reasoning_parts") or [])
+        tokens_prompt = int(checkpoint.get("tokens_prompt") or 0)
+        tokens_completion = int(checkpoint.get("tokens_completion") or 0)
+        finish_reason = checkpoint.get("finish_reason")
+        tool_calls = int(checkpoint.get("tool_calls") or 0)
+        tool_call_details: list[dict[str, Any]] = list(
+            checkpoint.get("tool_call_details") or []
+        )
+        llm_calls = int(checkpoint.get("llm_calls") or 0)
+        failures = int(checkpoint.get("failures") or 0)
+        budget_exceeded = bool(checkpoint.get("budget_exceeded", False))
+        budget_reason = checkpoint.get("budget_reason")
         started_at = time.monotonic()
-        cost_total = 0.0
+        elapsed_before_resume = float(checkpoint.get("elapsed_seconds") or 0.0)
+        cost_total = float(checkpoint.get("cost_total") or 0.0)
+        pending_tool_calls = (
+            [
+                self._deserialize_tool_call(item)
+                for item in checkpoint.get("pending_tool_calls") or []
+                if isinstance(item, dict)
+            ]
+            if checkpoint
+            else []
+        )
+        if checkpoint and not pending_tool_calls:
+            raise ValidationError("Agent approval checkpoint has no pending tool call")
+        tool_lease_owner = str(self.ctx.request_id or f"agent:{run_id}")
+        runtime_tool_execution = (
+            RuntimeToolExecutionService(
+                db=self.db,
+                ctx=self.ctx,
+                trace_writer=self.trace_writer,
+                lease_owner=tool_lease_owner,
+                storage_port=getattr(self.executor.tool_port, "storage_port", None),
+            )
+            if self.trace_writer
+            else None
+        )
 
         def set_budget(reason: str) -> None:
             nonlocal budget_exceeded, budget_reason, final_response, finish_reason
@@ -235,7 +490,7 @@ class AgentService:
         def check_runtime_budget() -> bool:
             if data.max_runtime_seconds is None:
                 return False
-            elapsed = time.monotonic() - started_at
+            elapsed = elapsed_before_resume + (time.monotonic() - started_at)
             if elapsed >= data.max_runtime_seconds:
                 set_budget("time_budget_exceeded")
                 return True
@@ -281,9 +536,9 @@ class AgentService:
                     "tool_ref": tool_ref,
                     "tool_type": tool_type,
                     "status": status,
-                    "arguments": parameters or {},
-                    "result": result or {},
-                    "metadata": metadata or {},
+                    "arguments": summarize_parameters(parameters or {}),
+                    "result": summarize_tool_payload(result or {}),
+                    "metadata": summarize_tool_payload(metadata or {}),
                     "error_code": error_code,
                     "error_message": error_message,
                 }
@@ -304,90 +559,120 @@ class AgentService:
                 for ref in data.workflow_refs
             ]
             tool_definitions = [*(tool_definitions or []), *workflow_definitions]
+        tool_policies = {
+            definition.name: definition.policy or {}
+            for definition in tool_definitions or []
+        }
 
         try:
             await emit("agent.run.started", {"run_id": run_id})
-            while iterations < data.max_iterations:
+            while pending_tool_calls or iterations < data.max_iterations:
                 self._ensure_run_active(run_id)
                 if check_runtime_budget():
                     break
-                if data.max_llm_calls is not None and llm_calls >= data.max_llm_calls:
-                    set_budget("llm_budget_exceeded")
-                    break
-                iterations += 1
-                plan_step_id = None
-                if self.trace_writer:
-                    step = self.trace_writer.create_step(
-                        run_id=run_id,
-                        step_type="agent_plan",
-                        input_summary=f"iteration={iterations}",
+                resuming_pending_tools = bool(pending_tool_calls)
+                if resuming_pending_tools:
+                    plan = PlanResult(
+                        action="tool",
+                        tool_calls=list(pending_tool_calls),
+                        response=None,
+                        raw={},
+                        tokens_prompt=0,
+                        tokens_completion=0,
+                        finish_reason=finish_reason,
                     )
-                    plan_step_id = step.id
-                    self.trace_writer.update_step_status(plan_step_id, "running")
+                    pending_tool_calls = []
+                else:
+                    if data.max_llm_calls is not None and llm_calls >= data.max_llm_calls:
+                        set_budget("llm_budget_exceeded")
+                        break
+                    iterations += 1
+                    plan_step_id = None
+                    if self.trace_writer:
+                        step = self.trace_writer.create_step(
+                            run_id=run_id,
+                            step_type="agent_plan",
+                            input_summary=f"iteration={iterations}",
+                        )
+                        plan_step_id = step.id
+                        self.trace_writer.update_step_status(plan_step_id, "running")
 
-                await emit("agent.plan.started", {"iteration": iterations})
-                llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
-                try:
-                    plan = await self.planner.plan(
-                        messages=messages,
-                        tool_definitions=tool_definitions,
-                        model=model,
-                        temperature=data.temperature,
-                        run_id=run_id,
-                        memory_context=memory_context,
-                        rag_context=rag_context,
+                    await emit("agent.plan.started", {"iteration": iterations})
+                    llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
+                    try:
+                        plan = await self.planner.plan(
+                            messages=messages,
+                            tool_definitions=tool_definitions,
+                            model=model,
+                            temperature=data.temperature,
+                            run_id=run_id,
+                            memory_context=memory_context,
+                            rag_context=rag_context,
+                            reasoning_effort=data.reasoning_effort,
+                        )
+                    except Exception as exc:
+                        if self.trace_writer and plan_step_id:
+                            self.trace_writer.update_step_status(
+                                plan_step_id,
+                                "failed",
+                                error_message=str(exc),
+                            )
+                        raise
+                    llm_calls += 1
+                    self._ensure_run_active(run_id)
+                    tokens_prompt += plan.tokens_prompt
+                    tokens_completion += plan.tokens_completion
+                    finish_reason = plan.finish_reason or finish_reason
+                    await emit(
+                        "agent.plan.succeeded",
+                        {"action": plan.action, "iteration": iterations},
                     )
-                except Exception as exc:
+                    if data.show_reasoning and plan.reasoning:
+                        reasoning_parts.append(plan.reasoning)
+                        await emit(
+                            "agent.reasoning.completed",
+                            {
+                                "iteration": iterations,
+                                "content": plan.reasoning,
+                            },
+                        )
+                    if (
+                        self.trace_writer
+                        and plan_step_id
+                        and (plan.tokens_prompt or plan.tokens_completion)
+                        and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
+                    ):
+                        self.trace_writer.record_cost(
+                            run_id=run_id,
+                            step_id=plan_step_id,
+                            unit="tokens",
+                            quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
+                            currency=data.cost_currency,
+                            amount=0,
+                            model_ref=model,
+                            prompt_tokens=plan.tokens_prompt,
+                            completion_tokens=plan.tokens_completion,
+                            total_tokens=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
+                        )
+                    if check_cost_budget():
+                        break
+
                     if self.trace_writer and plan_step_id:
                         self.trace_writer.update_step_status(
                             plan_step_id,
-                            "failed",
-                            error_message=str(exc),
+                            "succeeded",
+                            output_summary=f"action={plan.action}",
+                            metrics={
+                                "tokens_prompt": plan.tokens_prompt,
+                                "tokens_completion": plan.tokens_completion,
+                            },
                         )
-                    raise
-                llm_calls += 1
-                self._ensure_run_active(run_id)
-                tokens_prompt += plan.tokens_prompt
-                tokens_completion += plan.tokens_completion
-                finish_reason = plan.finish_reason or finish_reason
-                await emit("agent.plan.succeeded", {"action": plan.action, "iteration": iterations})
-                if (
-                    self.trace_writer
-                    and plan_step_id
-                    and (plan.tokens_prompt or plan.tokens_completion)
-                    and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
-                ):
-                    self.trace_writer.record_cost(
-                        run_id=run_id,
-                        step_id=plan_step_id,
-                        unit="tokens",
-                        quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
-                        currency=data.cost_currency,
-                        amount=0,
-                        model_ref=model,
-                        prompt_tokens=plan.tokens_prompt,
-                        completion_tokens=plan.tokens_completion,
-                        total_tokens=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
-                    )
-                if check_cost_budget():
-                    break
 
-                if self.trace_writer and plan_step_id:
-                    self.trace_writer.update_step_status(
-                        plan_step_id,
-                        "succeeded",
-                        output_summary=f"action={plan.action}",
-                        metrics={
-                            "tokens_prompt": plan.tokens_prompt,
-                            "tokens_completion": plan.tokens_completion,
-                        },
-                    )
-
-                if data.max_tokens_total is not None:
-                    total_tokens = tokens_prompt + tokens_completion
-                    if total_tokens >= data.max_tokens_total:
-                        set_budget("token_budget_exceeded")
-                        break
+                    if data.max_tokens_total is not None:
+                        total_tokens = tokens_prompt + tokens_completion
+                        if total_tokens >= data.max_tokens_total:
+                            set_budget("token_budget_exceeded")
+                            break
 
                 if plan.action == "tool":
                     if not plan.tool_calls:
@@ -403,15 +688,15 @@ class AgentService:
                         set_budget("tool_budget_exceeded")
                         break
 
-                    # Append assistant message with tool_calls for LLM protocol
-                    messages.append(ChatMessage(
-                        role="assistant",
-                        content=None,
-                        tool_calls=plan.tool_calls,
-                    ))
+                    if not resuming_pending_tools:
+                        messages.append(ChatMessage(
+                            role="assistant",
+                            content=None,
+                            tool_calls=plan.tool_calls,
+                        ))
 
                     tool_failed_break = False
-                    for tc in plan.tool_calls:
+                    for tool_call_index, tc in enumerate(plan.tool_calls):
                         self._ensure_run_active(run_id)
                         allowed_refs = [*resolved_tool_refs, *(data.workflow_refs or [])]
                         if allowed_refs and tc.name not in allowed_refs:
@@ -424,18 +709,135 @@ class AgentService:
                             else (tc.arguments or {})
                         )
 
-                        tool_step_id = None
-                        if self.trace_writer:
-                            step = self.trace_writer.create_step(
+                        direct_tool_claim = None
+                        try:
+                            approval = self._require_tool_approval(
+                                data=data,
                                 run_id=run_id,
-                                step_type="tool",
-                                input_summary=f"tool_ref={tc.name}",
+                                tool_call_id=tc.id,
+                                tool_ref=tc.name,
+                                tool_type=tool_type,
+                                parameters=tool_arguments,
+                                tool_policy=tool_policies.get(tc.name),
                             )
-                            tool_step_id = step.id
-                            self.trace_writer.update_step_status(tool_step_id, "running")
+                        except _AgentApprovalInterrupt as approval_interrupt:
+                            if runtime_tool_execution is not None:
+                                waiting_claim = runtime_tool_execution.prepare_waiting_approval(
+                                    ToolExecutionCommand(
+                                        run_id=run_id,
+                                        tool_call_id=tc.id,
+                                        tool_ref=tc.name,
+                                        arguments=tool_arguments,
+                                        idempotency_key=f"tool:{run_id}:{tc.id}",
+                                        created_by=self.ctx.user_id,
+                                    )
+                                )
+                                approval_interrupt.interrupt.setdefault("metadata", {})[
+                                    "runStepId"
+                                ] = waiting_claim.run_step.id
+                            approval_interrupt.checkpoint = {
+                                "schema_version": 1,
+                                "messages": [
+                                    self._serialize_message(message) for message in messages
+                                ],
+                                "pending_tool_calls": [
+                                    self._serialize_tool_call(item)
+                                    for item in plan.tool_calls[tool_call_index:]
+                                ],
+                                "iterations": iterations,
+                                "final_response": final_response,
+                                "reasoning_parts": reasoning_parts,
+                                "tokens_prompt": tokens_prompt,
+                                "tokens_completion": tokens_completion,
+                                "finish_reason": finish_reason,
+                                "tool_calls": tool_calls,
+                                "tool_call_details": tool_call_details,
+                                "llm_calls": llm_calls,
+                                "failures": failures,
+                                "budget_exceeded": budget_exceeded,
+                                "budget_reason": budget_reason,
+                                "cost_total": cost_total,
+                                "elapsed_seconds": elapsed_before_resume
+                                + (time.monotonic() - started_at),
+                                "memory_context": memory_context,
+                                "rag_context": rag_context,
+                                "citations": rag_citations,
+                            }
+                            await emit(
+                                "agent.approval.required",
+                                {"run_id": run_id, "interrupt": approval_interrupt.interrupt},
+                            )
+                            raise
+
+                        if approval is not None:
+                            tool_arguments = dict(approval.get("parameters") or tool_arguments)
+
+                        tool_step_id = None
+                        existing_tool_claim = (
+                            runtime_tool_execution.get_by_call(
+                                run_id=run_id,
+                                tool_call_id=tc.id,
+                            )
+                            if runtime_tool_execution is not None
+                            else None
+                        )
+                        if existing_tool_claim is not None:
+                            tool_step_id = existing_tool_claim.run_step.id
+                        approval_rejected = bool(
+                            approval is not None and not approval.get("approved")
+                        )
+                        if (
+                            approval_rejected
+                            and runtime_tool_execution is not None
+                            and existing_tool_claim is not None
+                        ):
+                            rejected_claim = runtime_tool_execution.reject_approval(
+                                ToolExecutionCommand(
+                                    run_id=run_id,
+                                    run_step_id=tool_step_id,
+                                    tool_call_id=tc.id,
+                                    tool_ref=tc.name,
+                                    arguments=tool_arguments,
+                                    idempotency_key=f"tool:{run_id}:{tc.id}",
+                                    created_by=self.ctx.user_id,
+                                )
+                            )
+                            tool_step_id = rejected_claim.run_step.id
+                        if self.trace_writer:
+                            if tool_step_id is None:
+                                step = self.trace_writer.create_step(
+                                    run_id=run_id,
+                                    step_type="tool",
+                                    input_summary=f"tool_ref={tc.name}",
+                                )
+                                tool_step_id = step.id
+                        if runtime_tool_execution is not None and not approval_rejected:
+                            direct_tool_claim = runtime_tool_execution.claim(
+                                ToolExecutionCommand(
+                                    run_id=run_id,
+                                    run_step_id=tool_step_id,
+                                    tool_call_id=tc.id,
+                                    tool_ref=tc.name,
+                                    arguments=tool_arguments,
+                                    idempotency_key=f"tool:{run_id}:{tc.id}",
+                                    created_by=self.ctx.user_id,
+                                    resume_approval=bool(
+                                        approval is not None and approval.get("approved")
+                                    ),
+                                )
+                            )
+                            tool_step_id = direct_tool_claim.run_step.id
 
                         tool_calls += 1
-                        await emit("agent.tool.started", {"tool_ref": tc.name, "tool_call_id": tc.id})
+                        await emit(
+                            "agent.tool.rejected" if approval_rejected else "agent.tool.started",
+                            {
+                                "tool_ref": tc.name,
+                                "tool_type": tool_type,
+                                "tool_call_id": tc.id,
+                                "arguments": tool_arguments,
+                            },
+                        )
 
                         if self.trace_writer and tool_step_id:
                             self.trace_writer.update_step_metrics(
@@ -443,12 +845,12 @@ class AgentService:
                                 build_tool_metrics(
                                     tool_ref=tc.name,
                                     parameters=tool_arguments,
-                                    status="started",
+                                    status="rejected" if approval_rejected else "started",
                                     tool_type=tool_type,
                                     metadata={"source": "agent.tool", "iteration": iterations},
                                 ),
                             )
-                        if self.response_service and response_id:
+                        if emit_response_events and self.response_service and response_id:
                             response = self.response_service.get_response(response_id)
                             self.response_service.append_event(
                                 response=response,
@@ -465,52 +867,94 @@ class AgentService:
                                 },
                                 source="agent",
                             )
-                            self.response_service.append_event(
-                                response=response,
-                                event_type="tool.call.started",
-                                payload={
-                                    "response_id": response_id,
-                                    "run_id": run_id,
-                                    "tool_call_id": tc.id,
-                                    "tool_name": tc.name,
-                                    "tool_type": tool_type,
-                                    "step_id": tool_step_id,
-                                    "status": "started",
-                                },
-                                source="agent",
-                            )
+                            if not approval_rejected:
+                                self.response_service.append_event(
+                                    response=response,
+                                    event_type="tool.call.started",
+                                    payload={
+                                        "response_id": response_id,
+                                        "run_id": run_id,
+                                        "tool_call_id": tc.id,
+                                        "tool_name": tc.name,
+                                        "tool_type": tool_type,
+                                        "step_id": tool_step_id,
+                                        "status": "started",
+                                    },
+                                    source="agent",
+                                )
                         try:
-                            if is_workflow_call:
+                            if approval is not None and not approval.get("approved"):
+                                tool_response = ToolResponse(
+                                    result=None,
+                                    success=False,
+                                    error="Tool call was rejected by the approver",
+                                    metadata={"source": "agent.approval", "rejected": True},
+                                )
+                            elif is_workflow_call:
                                 if not self.workflow_executor:
                                     raise ValidationError(f"Workflow execution is not configured: {tc.name}")
-                                workflow_result = await self.workflow_executor(tc.name, tool_arguments)
-                                workflow_run_id = workflow_result.get("run_id")
-                                tool_response = type(
-                                    "WorkflowToolResponse",
-                                    (),
-                                    {
-                                        "success": True,
-                                        "result": {
+                                if direct_tool_claim is not None and direct_tool_claim.replayed:
+                                    cached_response = await runtime_tool_execution.load_cached_response(
+                                        direct_tool_claim
+                                    )
+                                    if cached_response is None:
+                                        raise RuntimeError("Durable workflow tool replay is unavailable")
+                                    tool_response = cached_response
+                                else:
+                                    if direct_tool_claim is not None:
+                                        runtime_tool_execution.mark_running(
+                                            direct_tool_claim.record.id
+                                        )
+                                    workflow_result = await self.workflow_executor(
+                                        tc.name,
+                                        tool_arguments,
+                                    )
+                                    workflow_run_id = workflow_result.get("run_id")
+                                    tool_response = ToolResponse(
+                                        result={
                                             "workflow_ref": tc.name,
                                             "workflow_run_id": workflow_run_id,
                                             "output": workflow_result.get("output"),
                                         },
-                                        "error": None,
-                                        "metadata": {
+                                        metadata={
                                             "source": "agent.workflow",
                                             "workflow_ref": tc.name,
                                             "workflow_run_id": workflow_run_id,
                                         },
-                                    },
-                                )()
+                                    )
                             else:
+                                if direct_tool_claim is not None and not direct_tool_claim.replayed:
+                                    runtime_tool_execution.mark_running(
+                                        direct_tool_claim.record.id
+                                    )
                                 tool_response = await self.executor.execute_tool(
                                     tool_ref=tc.name,
                                     parameters=tool_arguments,
                                     ctx=self.ctx,
                                     run_id=run_id,
+                                    tool_call_id=tc.id,
+                                    idempotency_key=f"tool:{run_id}:{tc.id}",
+                                    run_step_id=tool_step_id,
+                                    resume_approval=bool(
+                                        approval is not None and approval.get("approved")
+                                    ),
+                                    lease_owner=tool_lease_owner,
+                                )
+                            if direct_tool_claim is not None and not direct_tool_claim.replayed:
+                                await runtime_tool_execution.complete(
+                                    direct_tool_claim.record.id,
+                                    tool_response,
                                 )
                         except Exception as exc:
+                            if (
+                                runtime_tool_execution is not None
+                                and direct_tool_claim is not None
+                                and not direct_tool_claim.replayed
+                            ):
+                                runtime_tool_execution.fail(
+                                    direct_tool_claim.record.id,
+                                    exc,
+                                )
                             if self.trace_writer and tool_step_id:
                                 self.trace_writer.update_step_status(
                                     tool_step_id,
@@ -526,7 +970,7 @@ class AgentService:
                                     ),
                                     error_message=str(exc),
                                 )
-                            if self.response_service and response_id:
+                            if emit_response_events and self.response_service and response_id:
                                 response = self.response_service.get_response(response_id)
                                 self.response_service.append_event(
                                     response=response,
@@ -539,11 +983,15 @@ class AgentService:
                                         "tool_type": tool_type,
                                         "step_id": tool_step_id,
                                         "status": "failed",
-                                        "error": {"code": "tool_execution_failed", "message": str(exc)},
+                                        "error": {
+                                            "code": "tool_execution_failed",
+                                            "message": "Tool execution failed",
+                                        },
                                     },
                                     source="agent",
                                 )
                             raise
+
                         tool_content = (
                             str(tool_response.result)
                             if tool_response.success
@@ -564,8 +1012,12 @@ class AgentService:
                                 "tool_type": effective_tool_type,
                                 "tool_call_id": tc.id,
                                 "success": tool_response.success,
-                                "result": {"result": tool_response.result} if tool_response.success else {},
-                                "metadata": response_metadata,
+                                "result": summarize_tool_payload(
+                                    {"result": tool_response.result}
+                                    if tool_response.success
+                                    else {}
+                                ),
+                                "metadata": summarize_tool_payload(response_metadata),
                                 "error": None if tool_response.success else {
                                     "code": "tool_execution_failed",
                                     "message": tool_response.error,
@@ -578,9 +1030,13 @@ class AgentService:
                                 "tool_name": tc.name,
                                 "tool_type": effective_tool_type,
                                 "status": "completed" if tool_response.success else "failed",
-                                "arguments_json": tc.arguments or {},
-                                "result_json": {"result": tool_response.result} if tool_response.success else {},
-                                "metadata_json": response_metadata,
+                                "arguments_json": summarize_parameters(tc.arguments or {}),
+                                "result_json": summarize_tool_payload(
+                                    {"result": tool_response.result}
+                                    if tool_response.success
+                                    else {}
+                                ),
+                                "metadata_json": summarize_tool_payload(response_metadata),
                                 "error": None if tool_response.success else {
                                     "code": "tool_execution_failed",
                                     "message": tool_response.error,
@@ -588,12 +1044,20 @@ class AgentService:
                             }
                         )
 
-                        if self.trace_writer and tool_step_id:
+                        if self.trace_writer and tool_step_id and not approval_rejected:
                             status = "succeeded" if tool_response.success else "failed"
                             self.trace_writer.update_step_status(
                                 tool_step_id,
                                 status,
-                                output_summary=tool_content[:8192],
+                                output_summary=json.dumps(
+                                    summarize_tool_payload(
+                                        {"result": tool_response.result}
+                                        if tool_response.success
+                                        else {"error": tool_response.error}
+                                    ),
+                                    ensure_ascii=False,
+                                    default=str,
+                                )[:8192],
                                 metrics={
                                     **response_metadata,
                                     **build_tool_metrics(
@@ -609,7 +1073,7 @@ class AgentService:
                                 },
                                 error_message=None if tool_response.success else tool_response.error,
                             )
-                        if self.response_service and response_id:
+                        if emit_response_events and self.response_service and response_id:
                             response = self.response_service.get_response(response_id)
                             self.response_service.append_event(
                                 response=response,
@@ -622,8 +1086,12 @@ class AgentService:
                                     "tool_type": effective_tool_type,
                                     "step_id": tool_step_id,
                                     "status": "completed" if tool_response.success else "failed",
-                                    "result": {"result": tool_response.result} if tool_response.success else {},
-                                    "metadata": response_metadata,
+                                    "result": summarize_tool_payload(
+                                        {"result": tool_response.result}
+                                        if tool_response.success
+                                        else {}
+                                    ),
+                                    "metadata": summarize_tool_payload(response_metadata),
                                     "error": None if tool_response.success else {
                                         "code": "tool_execution_failed",
                                         "message": tool_response.error,
@@ -649,7 +1117,6 @@ class AgentService:
 
                 if plan.action == "respond":
                     final_response = str(plan.response or "")
-                    await emit("agent.response.succeeded", {"output": final_response})
                     break
 
                 failures += 1
@@ -745,6 +1212,7 @@ class AgentService:
                         finish_reason = "verification_failed"
 
             self._ensure_run_active(run_id)
+            await emit("agent.response.succeeded", {"output": final_response})
             await emit("agent.run.succeeded", {"run_id": run_id, "status": "succeeded"})
             if self.trace_writer:
                 self.trace_writer.update_run_status(
@@ -752,6 +1220,35 @@ class AgentService:
                     "succeeded",
                     output_summary=final_response[:8192],
                 )
+        except _AgentApprovalInterrupt as exc:
+            if self.trace_writer:
+                self.trace_writer.update_run_status(
+                    run_id,
+                    "waiting_approval",
+                    output_summary=str(exc)[:8192],
+                )
+            return {
+                "run_id": run_id,
+                "request_id": data.request_id,
+                "status": "waiting_approval",
+                "interrupt": exc.interrupt,
+                "checkpoint": exc.checkpoint,
+                "output": "",
+                "reasoning": "\n\n".join(reasoning_parts) or None,
+                "model": model,
+                "iterations": iterations,
+                "tokens_prompt": tokens_prompt,
+                "tokens_completion": tokens_completion,
+                "finish_reason": "interrupt",
+                "tool_calls": tool_calls,
+                "tool_call_details": tool_call_details,
+                "llm_calls": llm_calls,
+                "failures": failures,
+                "budget_exceeded": budget_exceeded,
+                "budget_reason": budget_reason,
+                "cost_total": cost_total,
+                "citations": rag_citations,
+            }
         except Exception as exc:
             canceled = isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED"
             if canceled:
@@ -768,6 +1265,7 @@ class AgentService:
             "run_id": run_id,
             "request_id": data.request_id,
             "output": final_response,
+            "reasoning": "\n\n".join(reasoning_parts) or None,
             "model": model,
             "iterations": iterations,
             "tokens_prompt": tokens_prompt,
@@ -785,7 +1283,7 @@ class AgentService:
 
     def _get_cost_total(self, run_id: str, currency: str) -> float:
         """Get total cost for a run."""
-        from sqlalchemy import and_, func
+        from sqlalchemy import func
 
         from app.kernel.runtime.db.models.runs import RunCostEntry
 
@@ -805,7 +1303,7 @@ class AgentService:
         """Count LLM token cost entries already written for this run."""
         if not self.trace_writer:
             return 0
-        from sqlalchemy import and_, func, select
+        from sqlalchemy import func, select
 
         from app.kernel.runtime.db.models.runs import RunCostEntry
 
@@ -858,7 +1356,7 @@ class AgentService:
         run_id: str | None = None,
     ) -> tuple[str | None, list[dict[str, Any]]]:
         """Retrieve context from knowledge bases for RAG injection."""
-        from app.modules.knowledge.application.tools import knowledge_query
+        from app.modules.knowledge.runtime.tool_entrypoint import knowledge_query
 
         chunks: list[str] = []
         citations: list[dict[str, Any]] = []
@@ -902,9 +1400,46 @@ class AgentService:
                     text = result.get("text") or result.get("content") or ""
                     if text:
                         chunks.append(text)
-                for citation in response_citations:
+                results_by_chunk = {
+                    str(result.get("chunk_id")): result
+                    for result in results
+                    if isinstance(result, dict) and result.get("chunk_id")
+                }
+                results_by_document = {
+                    str(result.get("document_id")): result
+                    for result in results
+                    if isinstance(result, dict) and result.get("document_id")
+                }
+                for index, citation in enumerate(response_citations):
                     if isinstance(citation, dict):
-                        citations.append({**citation, "knowledge_id": citation.get("knowledge_id") or kb_id})
+                        result = results_by_chunk.get(str(citation.get("chunk_id")))
+                        if result is None:
+                            result = results_by_document.get(
+                                str(citation.get("document_id"))
+                            )
+                        if result is None and index < len(results):
+                            candidate = results[index]
+                            result = candidate if isinstance(candidate, dict) else None
+                        metadata = dict((result or {}).get("metadata") or {})
+                        normalized = {
+                            **citation,
+                            "knowledge_id": citation.get("knowledge_id") or kb_id,
+                        }
+                        for field in (
+                            "title",
+                            "doc_key",
+                            "source_uri",
+                            "chunk_no",
+                            "page_no",
+                            "section_path",
+                        ):
+                            if normalized.get(field) is None:
+                                value = metadata.get(field)
+                                if value is None and result is not None:
+                                    value = result.get(field)
+                                if value is not None:
+                                    normalized[field] = value
+                        citations.append(normalized)
                 if self.trace_writer and step_id:
                     self.trace_writer.update_step_status(
                         step_id,

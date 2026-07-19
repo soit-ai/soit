@@ -31,7 +31,6 @@ const ProviderKindEnum = {
   ANTHROPIC: "anthropic",
   GEMINI: "gemini",
   OPENAI_COMPAT: "openai_compatible",
-  OPENAI_COMPAT_LEGACY: "openai_compat",
 } as const
 
 export interface ProviderListProps {

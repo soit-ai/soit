@@ -9,7 +9,12 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.common.audit import log_gateway_request
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
-from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
+from app.kernel.runtime.db.models.runs import (
+    Run,
+    RunCostEntry,
+    RunStep,
+    RunStepToolCall,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 
 
@@ -24,6 +29,33 @@ def _test_ctx() -> RequestContext:
         user_id="test-user",
         tenant_role="Owner",
         workspace_role="Owner",
+    )
+
+
+def _tool_call(
+    *,
+    run_id: str,
+    step: RunStep,
+    tool_ref: str,
+    status: str = "succeeded",
+    attempt_count: int = 1,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> RunStepToolCall:
+    tool_call_id = f"call_{step.id}"
+    return RunStepToolCall(
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        run_id=run_id,
+        run_step_id=step.id,
+        tool_call_id=tool_call_id,
+        idempotency_key=f"tool:{run_id}:{tool_call_id}",
+        request_hash=f"hash_{step.id}",
+        tool_ref=tool_ref,
+        status=status,
+        attempt_count=attempt_count,
+        error_code=error_code,
+        error_message=error_message,
     )
 
 
@@ -96,22 +128,36 @@ def test_observe_dashboard_returns_workspace_summary(client, db):
         completion_tokens=40,
         total_tokens=100,
     )
+    tool_call = RunStepToolCall(
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        run_id=run.id,
+        run_step_id=step.id,
+        tool_call_id="call_dashboard_observe",
+        idempotency_key="tool:run_dashboard_observe:call_dashboard_observe",
+        request_hash="hash_dashboard_observe",
+        tool_ref="mcp_tool:filesystem:read_file",
+        status="failed",
+        error_message="boom",
+    )
     db.add(run)
     db.add(step)
     db.add(retrieval_step)
     db.add(cost)
+    db.add(tool_call)
     db.commit()
 
     resp = client.get("/api/v1/observe/dashboard", headers=_headers())
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()["data"]
-    assert "workspace_summary" in data
-    assert "agent_summaries" in data
-    assert "model_costs" in data
-    assert "workflow_bottlenecks" in data
-    assert "tool_health" in data
-    assert "knowledge_quality" in data
-    assert "approvals_summary" in data
+    assert set(data) == {
+        "overview",
+        "metric_cards",
+        "priority_alert",
+        "tabs",
+        "section",
+        "recent_runs",
+    }
     assert data["recent_runs"][0]["run_id"] == run.id
     assert data["recent_runs"][0]["status"] == "failed"
     assert data["recent_runs"][0]["cost_usd"] == 0.25
@@ -121,29 +167,7 @@ def test_observe_dashboard_returns_workspace_summary(client, db):
     assert data["metric_cards"][0]["detail_url"] == f"/observe/runs/{run.id}"
     assert data["section"]["rows"][0]["latest_run_id"] == run.id
     assert data["section"]["rows"][0]["detail_url"] == f"/observe/runs/{run.id}"
-    assert data["tool_health"] == [
-        {
-            "tool_ref": "mcp_tool:filesystem:read_file",
-            "call_count": 1,
-            "failed_call_count": 1,
-            "failure_rate": 1.0,
-            "health_status": "critical",
-        }
-    ]
-    assert data["knowledge_quality"] == [
-        {
-            "knowledge_id": "knowledge:kb_support",
-            "query_count": 1,
-            "failed_query_count": 0,
-            "result_count": 3,
-            "citation_count": 2,
-            "avg_score": 0.75,
-            "failure_rate": 0.0,
-            "avg_results_per_query": 3.0,
-            "citation_rate": 0.6667,
-            "quality_status": "healthy",
-        }
-    ]
+    assert data["section"]["id"] == "agent_health"
 
 
 def test_observe_dashboard_default_range_includes_last_24h(client, db):
@@ -217,6 +241,13 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
                 "result": {"workflow_run_id": child.id},
             }
         },
+    )
+    db.add(
+        _tool_call(
+            run_id=parent.id,
+            step=step,
+            tool_ref="wf:ticket-triage",
+        )
     )
     db.add(
         RunCostEntry(
@@ -360,6 +391,17 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
     )
     db.add(run)
     db.add(tool_step)
+    db.add(
+        _tool_call(
+            run_id=run.id,
+            step=tool_step,
+            tool_ref="search_tool",
+            status="failed",
+            attempt_count=2,
+            error_code="timeout",
+            error_message="tool timeout",
+        )
+    )
     db.add(retrieval_step)
     db.add(cost)
     db.commit()
@@ -369,6 +411,12 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
         "workflow_bottlenecks": "tool-call",
         "tool_reliability": "search_tool",
         "knowledge_quality": "knowledge:kb_support",
+    }
+    expected_chart_keys = {
+        "agent_health": {"trend", "health_distribution", "alert_compression"},
+        "workflow_bottlenecks": {"bottleneck_flow", "queue_distribution", "latency_percentiles"},
+        "tool_reliability": {"trend", "error_distribution"},
+        "knowledge_quality": {"trend", "quality_score", "low_quality_sources"},
     }
     for tab, row_id in expected_sections.items():
         resp = client.get(
@@ -391,6 +439,7 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
         assert section["id"] == tab
         assert "summary_cards" in section
         assert "charts" in section
+        assert set(section["charts"]) == expected_chart_keys[tab]
         assert "rows" in section
         assert "page" in section
         assert "empty_state" in section
@@ -446,6 +495,8 @@ def test_observe_dashboard_filters_rows_by_search(client, db):
     db.add(run)
     db.add(matching)
     db.add(other)
+    db.add(_tool_call(run_id=run.id, step=matching, tool_ref="target_tool"))
+    db.add(_tool_call(run_id=run.id, step=other, tool_ref="other_tool"))
     db.commit()
 
     resp = client.get(
@@ -459,7 +510,7 @@ def test_observe_dashboard_filters_rows_by_search(client, db):
     assert [row["id"] for row in rows] == ["target_tool"]
 
 
-def test_observe_dashboard_counts_tool_call_metrics_even_when_step_type_is_not_tool(client, db):
+def test_observe_dashboard_ignores_legacy_tool_metrics_on_non_tool_steps(client, db):
     now = utc_now()
     run = Run(
         id="run_dashboard_tool_projection",
@@ -507,17 +558,7 @@ def test_observe_dashboard_counts_tool_call_metrics_even_when_step_type_is_not_t
 
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()["data"]
-    assert data["tool_health"] == [
-        {
-            "tool_ref": "search_tool",
-            "call_count": 1,
-            "failed_call_count": 0,
-            "failure_rate": 0.0,
-            "health_status": "healthy",
-        }
-    ]
-    assert data["section"]["rows"][0]["id"] == "search_tool"
-    assert data["section"]["rows"][0]["latest_run_id"] == run.id
+    assert all(row["id"] != "search_tool" for row in data["section"]["rows"])
 
 
 def test_observe_dashboard_builds_knowledge_quality_from_response_citations(client, db):
@@ -566,19 +607,5 @@ def test_observe_dashboard_builds_knowledge_quality_from_response_citations(clie
 
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()["data"]
-    assert data["knowledge_quality"] == [
-        {
-            "knowledge_id": "knowledge:kb_support",
-            "query_count": 1,
-            "failed_query_count": 0,
-            "result_count": 2,
-            "citation_count": 2,
-            "avg_score": None,
-            "failure_rate": 0.0,
-            "avg_results_per_query": 2.0,
-            "citation_rate": 1.0,
-            "quality_status": "healthy",
-        }
-    ]
     assert data["section"]["rows"][0]["id"] == "knowledge:kb_support"
     assert data["section"]["rows"][0]["latest_run_id"] == run.id

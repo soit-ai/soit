@@ -25,7 +25,7 @@ const providerIconLoaders: Record<ProviderIconName, () => Promise<{ default: Pro
 
 const normalizeProviderIconName = (name: string): ProviderIconName | null => {
   const normalized = name.trim().toLowerCase().replace(/[\s-]+/g, '_')
-  if (normalized === 'openai' || normalized === 'openai_compat' || normalized === 'openai_compatible') {
+  if (normalized === 'openai' || normalized === 'openai_compatible') {
     return 'openai'
   }
   if (normalized === 'deepseek') {

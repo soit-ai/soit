@@ -124,7 +124,7 @@ class MCPToolAdapter(ToolPort):
                 name=name,
                 endpoint=server.get("endpoint"),
                 transport=server.get("transport"),
-                auth_config=server.get("auth_config") or server.get("auth_config_json") or {},
+                auth_config=server.get("auth_config") or {},
             )
         return None
 

@@ -1,5 +1,7 @@
 """Unit tests for the standalone Agent repositories."""
 
+from datetime import UTC, datetime
+
 from app.modules.agent.domain.models import (
     Agent,
     AgentBinding,
@@ -124,3 +126,35 @@ def test_agent_binding_repository_create_many_preserves_order(db, tenant1_ctx):
         ("workflow", "wf:handoff"),
         ("tool", "tool:http:search"),
     ]
+
+
+def test_agent_publish_repository_orders_equal_timestamps_by_ledger_sequence(db, tenant1_ctx):
+    agent_repo = AgentRepository(db, tenant1_ctx)
+    version_repo = AgentVersionRepository(db, tenant1_ctx)
+    publish_repo = AgentPublishRepository(db, tenant1_ctx)
+    agent = agent_repo.create(Agent(name="release-order-agent"))
+    fixed_time = datetime(2026, 7, 18, tzinfo=UTC)
+
+    for version_number, status in enumerate(("published", "published", "rolled_back"), start=1):
+        version = version_repo.create(
+            AgentVersion(
+                agent_id=agent.id,
+                version=version_number,
+                status="published",
+                spec_schema="agent.v1",
+                spec_json={},
+            )
+        )
+        publish_repo.create(
+            AgentPublish(
+                agent_id=agent.id,
+                agent_version_id=version.id,
+                status=status,
+                created_at=fixed_time,
+            )
+        )
+
+    releases = publish_repo.list_by_agent(agent.id)
+
+    assert [release.status for release in releases] == ["rolled_back", "published", "published"]
+    assert [release.sequence for release in releases] == [3, 2, 1]

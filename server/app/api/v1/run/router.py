@@ -4,17 +4,19 @@ Run API routes (FastAPI).
 """
 
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.permissions import require_workspace_read_ctx
-from app.api.v1.run.dependencies import get_run_service
+from app.api.v1.run.dependencies import get_run_artifact_storage, get_run_service
 from app.api.v1.run.handlers import RunHandlers
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.streaming import SSEHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.runs.schemas import (
     RunAuditLogResponse,
     RunCostByModelResponse,
@@ -413,6 +415,32 @@ async def stream_run(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/{run_id}/artifacts/{artifact_id}/content", response_class=Response)
+async def download_run_artifact(
+    run_id: str,
+    artifact_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RunService = Depends(get_run_service),
+    storage: StoragePort = Depends(get_run_artifact_storage),
+):
+    """Download governed Run artifact content without exposing its storage key."""
+
+    del ctx
+    artifact = service.get_artifact(run_id, artifact_id)
+    content = await storage.get(artifact.storage_key)
+    metadata = artifact.meta_json or {}
+    filename = str(metadata.get("name") or metadata.get("filename") or artifact.id)
+    encoded_filename = quote(filename, safe="")
+    return Response(
+        content=content,
+        media_type=artifact.mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

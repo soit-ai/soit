@@ -11,8 +11,7 @@ async function mockRunDetailApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           run: {
             id: 'run-1',
             trace_id: 'trace-1',
@@ -219,8 +218,7 @@ async function mockRunDetailApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           run_id: 'run-1',
           items: [],
         },
@@ -232,8 +230,7 @@ async function mockRunDetailApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page: {
             page_size: 50,
@@ -255,8 +252,7 @@ async function mockRunListApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [
             {
               id: 'run-1',
@@ -300,7 +296,7 @@ async function mockRunListApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: route.request().url().includes('/summary') ? { tokens_prompt: 0, tokens_completion: 0, embedding_count: 0, rerank_count: 0, ms_total: 0, storage_bytes: 0 } : [] }),
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: route.request().url().includes('/summary') ? { tokens_prompt: 0, tokens_completion: 0, embedding_count: 0, rerank_count: 0, ms_total: 0, storage_bytes: 0 } : [] }),
     })
   })
 }
@@ -361,8 +357,7 @@ test('observe audit explorer queries governed tool records', async ({ page }) =>
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [
             {
               run_id: 'run-audit-1',

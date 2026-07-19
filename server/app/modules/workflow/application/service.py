@@ -39,6 +39,7 @@ from app.modules.workflow.application.versioning_adapter import (
 from app.modules.workflow.domain.models import (
     Workflow,
     WorkflowPublish,
+    WorkflowRun,
     WorkflowVersion,
 )
 from app.modules.workflow.infra.repository import (
@@ -74,6 +75,7 @@ class WorkflowService:
         self.publish_repo = publish_repo or WorkflowPublishRepository(db, ctx)
         self.trace_writer = TraceWriter(db, ctx, event_bus=event_bus)
         self.response_service = response_service
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.versioning = VersionControlService(
             WorkflowVersioningAdapter(
                 workflow_repo=self.workflow_repo,
@@ -89,6 +91,7 @@ class WorkflowService:
             ctx,
             trace_writer=self.trace_writer,
             response_service=self.response_service,
+            approval_checkpoint_gateway=approval_checkpoint_gateway,
         )
 
     def _resolve_workflow_create_id(self, data: WorkflowCreate, **kwargs) -> str:
@@ -558,10 +561,49 @@ class WorkflowService:
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def resume_run(self, workflow_id: str, run_id: str) -> dict:
         run = self._get_run_record(workflow_id, run_id)
-        if run.status != "paused":
-            raise ValidationError("Only paused runs can be resumed")
-        self.trace_writer.update_run_status(run.id, "running")
-        return {"run_id": run.id, "status": "running"}
+        if run.status == "paused":
+            self.trace_writer.update_run_status(run.id, "running")
+            return {"run_id": run.id, "status": "running"}
+        if run.status != "waiting_approval":
+            raise ValidationError(
+                "Only paused or approval-waiting runs can be resumed"
+            )
+        workflow_run = self.db.execute(
+            select(WorkflowRun).where(
+                and_(
+                    WorkflowRun.tenant_id == self.ctx.tenant_id,
+                    WorkflowRun.workspace_id == self.ctx.workspace_id,
+                    WorkflowRun.workflow_id == workflow_id,
+                    WorkflowRun.run_id == run.id,
+                )
+            )
+        ).scalars().first()
+        if workflow_run is None or not workflow_run.checkpoint_json:
+            raise ValidationError("Workflow approval checkpoint is missing")
+        if not run.subject_version_id:
+            raise ValidationError("Workflow run has no pinned version")
+        version = self.version_repo.get_by_id(run.subject_version_id)
+        if version is None or version.workflow_id != workflow_id:
+            raise ValidationError("Pinned workflow version is unavailable")
+        checkpoint = dict(workflow_run.checkpoint_json)
+        inputs = checkpoint.get("inputs")
+        if not isinstance(inputs, dict):
+            raise ValidationError("Workflow approval checkpoint inputs are invalid")
+        plan = self.compiler.compile(version.spec_json, inputs, run.id)
+        plan.subject_kind = "workflow"
+        plan.subject_id = workflow_id
+        plan.subject_version_id = version.id
+        result = await self.engine.resume_workflow(
+            plan,
+            workflow_run_id=workflow_run.id,
+            checkpoint=checkpoint,
+        )
+        refreshed = self._get_run_record(workflow_id, run_id)
+        return {
+            "run_id": run.id,
+            "status": refreshed.status,
+            "output": result,
+        }
 
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def cancel_run(
@@ -571,8 +613,10 @@ class WorkflowService:
         reason: str | None = None,
     ) -> dict:
         run = self._get_run_record(workflow_id, run_id)
-        if run.status not in ("queued", "running", "paused"):
-            raise ValidationError("Only queued, running, or paused runs can be canceled")
+        if run.status not in ("queued", "running", "paused", "waiting_approval"):
+            raise ValidationError(
+                "Only queued, running, paused, or approval-waiting runs can be canceled"
+            )
         message = reason or "Workflow run canceled by user"
         self.trace_writer.update_run_status(
             run.id,
@@ -593,8 +637,10 @@ class WorkflowService:
         error_message: str | None = None,
     ) -> dict:
         run = self._get_run_record(workflow_id, run_id)
-        if run.status not in ("queued", "running", "paused"):
-            raise ValidationError("Only queued, running, or paused runs can be marked failed")
+        if run.status not in ("queued", "running", "paused", "waiting_approval"):
+            raise ValidationError(
+                "Only queued, running, paused, or approval-waiting runs can be marked failed"
+            )
         message = error_message or "Workflow run marked failed by user"
         self.trace_writer.update_run_status(
             run.id,

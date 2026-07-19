@@ -27,7 +27,10 @@ class HTTPToolsPort(ToolPort):
         # Extract HTTP parameters
         url = parameters.get("url")
         method = parameters.get("method", "POST")
-        headers = parameters.get("headers", {})
+        headers = dict(parameters.get("headers", {}) or {})
+        idempotency_key = kwargs.get("idempotency_key")
+        if idempotency_key and method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            headers.setdefault("Idempotency-Key", str(idempotency_key))
         body = parameters.get("body", {})
         query = parameters.get("query", {})
         timeout_s = kwargs.get("timeout_s")

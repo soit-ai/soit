@@ -133,5 +133,9 @@ class WorkflowRun(SQLModel, table=True):
     completed_nodes: int = Field(default=0)
     failed_nodes: int = Field(default=0)
     waiting_nodes: int = Field(default=0)
+    checkpoint_json: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSON),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

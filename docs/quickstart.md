@@ -88,9 +88,9 @@ uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickst
 
 The verifier requires the full Docker service set, per-service healthy status and unique service evidence refs, startup within 10 minutes, API/Web/worker health evidence, demo seed evidence, Chain A smoke evidence, regression output evidence, unique check evidence refs, and local evidence files that exist under the repository root.
 
-## Upgrade and Migration
+## Fresh Installation Schema
 
-For the 1.0 Alembic migration validation path, including Empty Database Path and Development Database Path evidence, see [docs/release-migration.md](release-migration.md).
+SOIT 1.0 supports a single Alembic baseline on an empty PostgreSQL database. Existing development databases are not upgraded in place; see the [fresh-install migration runbook](release-migration.md).
 
 ## Model Provider Support
 

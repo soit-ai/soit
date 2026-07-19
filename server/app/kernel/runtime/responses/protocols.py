@@ -26,7 +26,14 @@ class ResponseEventRepositoryProtocol(Protocol):
 
     def next_sequence(self, response_id: str) -> int: ...
 
-    def list_for_response(self, response_id: str, *, limit: int, offset: int) -> list[ResponseEvent]: ...
+    def list_for_response(
+        self,
+        response_id: str,
+        *,
+        limit: int,
+        offset: int,
+        after_sequence: int | None = None,
+    ) -> list[ResponseEvent]: ...
 
     def list_for_run(self, run_id: str) -> list[ResponseEvent]: ...
 

@@ -260,7 +260,9 @@ async def stream_agent(
             await emitter.queue.put(("agent.result", result))
         except Exception as exc:
             if not isinstance(exc, KernelError) or exc.code != "AGENT_RUN_CANCELED":
-                await emitter.queue.put(("agent.error", {"error": str(exc)}))
+                await emitter.queue.put(
+                    ("agent.error", {"error": "Agent execution failed"})
+                )
         finally:
             await emitter.done()
 

@@ -293,6 +293,35 @@
             "full"
           ]
         },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "risk_level"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "required"
+              ]
+            },
+            "risk_level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "normal",
+                "high",
+                "critical"
+              ]
+            }
+          }
+        },
         "timeout_ms": {
           "type": [
             "integer",

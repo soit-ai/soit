@@ -1,524 +1,508 @@
-import { useTranslation } from '@/i18n'
-import { useState, useEffect } from 'react'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useCallback, useEffect, useState } from 'react'
+import { BarChart3, Inbox, MessageSquarePlus, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { toast } from '@/hooks/use-toast'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { MessageSquare, CheckCircle, AlertCircle, Clock, Filter, Search, Send, ThumbsUp } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
+import { useTranslation } from '@/i18n'
+import type { TFunction } from '@/i18n/types'
+import {
+  createFeedback,
+  getFeedbackSummary,
+  listFeedback,
+  updateFeedback,
+  type FeedbackCategory,
+  type FeedbackPriority,
+  type FeedbackStatus,
+  type FeedbackSummary,
+  type ProductFeedback,
+} from '@/services/feedback-service'
+import { useUserStore } from '@/stores/user'
 
-function IndexPage() {
-  const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState('submit')
-  
-  // 反馈表单状态
-  const [feedbackForm, setFeedbackForm] = useState({
-    title: '',
-    type: 'bug',
-    priority: 'medium',
-    description: '',
-    email: '',
-    attachments: []
-  })
-  
-  // 反馈列表
-  const [feedbackList, setFeedbackList] = useState([
-    {
-      id: 'FB-001',
-      title: '登录页面响应缓慢',
-      type: 'performance',
-      priority: 'high',
-      status: 'in-progress',
-      createdAt: '2025-05-28T10:30:00',
-      updatedAt: '2025-05-30T14:20:00',
-      submitter: 'user1@example.com'
-    },
-    {
-      id: 'FB-002',
-      title: '添加团队成员功能建议',
-      type: 'feature',
-      priority: 'medium',
-      status: 'open',
-      createdAt: '2025-05-29T09:15:00',
-      updatedAt: '2025-05-29T09:15:00',
-      submitter: 'user2@example.com'
-    },
-    {
-      id: 'FB-003',
-      title: '导出数据格式错误',
-      type: 'bug',
-      priority: 'high',
-      status: 'resolved',
-      createdAt: '2025-05-25T16:45:00',
-      updatedAt: '2025-05-31T11:10:00',
-      submitter: 'user3@example.com'
-    },
-    {
-      id: 'FB-004',
-      title: '移动端适配问题',
-      type: 'bug',
-      priority: 'medium',
-      status: 'in-progress',
-      createdAt: '2025-05-30T14:20:00',
-      updatedAt: '2025-05-31T09:30:00',
-      submitter: 'user1@example.com'
-    },
-    {
-      id: 'FB-005',
-      title: '集成第三方服务建议',
-      type: 'feature',
-      priority: 'low',
-      status: 'open',
-      createdAt: '2025-05-31T10:05:00',
-      updatedAt: '2025-05-31T10:05:00',
-      submitter: 'user4@example.com'
-    }
-  ])
-  
-  // 反馈统计数据
-  const [feedbackStats, setFeedbackStats] = useState({
-    total: 5,
-    open: 2,
-    inProgress: 2,
-    resolved: 1,
-    byType: {
-      bug: 2,
-      feature: 2,
-      performance: 1,
-      other: 0
-    },
-    byPriority: {
-      high: 2,
-      medium: 2,
-      low: 1
-    }
-  })
+type FeedbackTab = 'submit' | 'mine' | 'workspace' | 'stats'
 
-  // 处理表单输入变化
-  const handleInputChange = (field: string, value: string) => {
-    setFeedbackForm(prev => ({
-      ...prev,
-      [field]: value
-    }))
+const STATUS_OPTIONS: FeedbackStatus[] = ['open', 'in_progress', 'resolved', 'closed']
+const CATEGORY_OPTIONS: FeedbackCategory[] = ['bug', 'feature', 'performance', 'usability', 'other']
+const PRIORITY_OPTIONS: FeedbackPriority[] = ['low', 'medium', 'high', 'critical']
+
+const statusBadgeVariant = (status: FeedbackStatus) => {
+  if (status === 'resolved') return 'success' as const
+  if (status === 'closed') return 'secondary' as const
+  if (status === 'in_progress') return 'warning' as const
+  return 'outline' as const
+}
+
+const priorityBadgeVariant = (priority: FeedbackPriority) => {
+  if (priority === 'critical' || priority === 'high') return 'destructive' as const
+  if (priority === 'medium') return 'warning' as const
+  return 'secondary' as const
+}
+
+function FeedbackTable({
+  items,
+  loading,
+  canManage,
+  onManage,
+}: {
+  items: ProductFeedback[]
+  loading: boolean
+  canManage: boolean
+  onManage: (item: ProductFeedback) => void
+}) {
+  const { t, i18n } = useTranslation()
+  const formatTimestamp = (value: string) =>
+    new Intl.DateTimeFormat(i18n.language, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value))
+
+  if (loading) {
+    return <div className="py-12 text-center text-sm text-muted-foreground">{t('system.feedback.list.loading')}</div>
   }
 
-  // 提交反馈
-  const handleSubmitFeedback = () => {
-    // 这里应该有API调用来提交反馈
-    // 模拟提交成功
-    toast({
-      title: '反馈已提交',
-      description: '感谢您的反馈，我们会尽快处理',
-    })
-    
-    // 重置表单
-    setFeedbackForm({
-      title: '',
-      type: 'bug',
-      priority: 'medium',
-      description: '',
-      email: '',
-      attachments: []
-    })
-  }
-
-  // 获取状态对应的徽章颜色
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'open':
-        return <Badge variant="outline">待处理</Badge>
-      case 'in-progress':
-        return <Badge variant="secondary">处理中</Badge>
-      case 'resolved':
-        return <Badge variant="success">已解决</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
-    }
-  }
-
-  // 获取类型对应的徽章
-  const getTypeBadge = (type: string) => {
-    switch (type) {
-      case 'bug':
-        return <Badge variant="destructive">Bug</Badge>
-      case 'feature':
-        return <Badge variant="default">功能建议</Badge>
-      case 'performance':
-        return <Badge variant="warning">性能问题</Badge>
-      default:
-        return <Badge variant="outline">{type}</Badge>
-    }
-  }
-
-  // 获取优先级对应的徽章
-  const getPriorityBadge = (priority: string) => {
-    switch (priority) {
-      case 'high':
-        return <Badge variant="destructive">高</Badge>
-      case 'medium':
-        return <Badge variant="warning">中</Badge>
-      case 'low':
-        return <Badge variant="secondary">低</Badge>
-      default:
-        return <Badge variant="outline">{priority}</Badge>
-    }
-  }
-
-  // 格式化日期
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+  if (!items.length) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-12 text-center">
+        <Inbox className="size-8 text-muted-foreground" />
+        <p className="font-medium">{t('system.feedback.list.emptyTitle')}</p>
+        <p className="text-sm text-muted-foreground">{t('system.feedback.list.emptyDescription')}</p>
+      </div>
+    )
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold tracking-tight">系统反馈</h3>
-          <p className="text-sm text-muted-foreground">
-            提交问题反馈或功能建议，帮助我们改进系统
-          </p>
-        </div>
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
-          <TabsTrigger value="submit">提交反馈</TabsTrigger>
-          <TabsTrigger value="list">反馈列表</TabsTrigger>
-          <TabsTrigger value="stats">反馈统计</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="submit" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>提交新反馈</CardTitle>
-              <CardDescription>
-                请详细描述您遇到的问题或建议，以便我们更好地理解和处理
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="title">标题</Label>
-                  <Input
-                    id="title"
-                    placeholder="简要描述问题或建议"
-                    value={feedbackForm.title}
-                    onChange={(e) => handleInputChange('title', e.target.value)}
-                  />
+    <div className="overflow-x-auto">
+      <Table className="min-w-[860px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('system.feedback.list.columns.ticket')}</TableHead>
+            <TableHead>{t('system.feedback.list.columns.category')}</TableHead>
+            <TableHead>{t('system.feedback.list.columns.priority')}</TableHead>
+            <TableHead>{t('system.feedback.list.columns.status')}</TableHead>
+            <TableHead>{t('system.feedback.list.columns.created')}</TableHead>
+            {canManage && <TableHead className="text-right">{t('system.feedback.list.columns.actions')}</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="max-w-[360px]">
+                <div className="space-y-1">
+                  <p className="truncate font-medium">{item.title}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+                  <p className="font-mono text-[11px] text-muted-foreground">{item.id}</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">联系邮箱</Label>
-                  <Input
-                    id="email"
-                    placeholder="您的邮箱地址"
-                    type="email"
-                    value={feedbackForm.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="type">反馈类型</Label>
-                  <Select
-                    value={feedbackForm.type}
-                    onValueChange={(value) => handleInputChange('type', value)}
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">{t(`system.feedback.category.${item.category}`)}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={priorityBadgeVariant(item.priority)}>
+                  {t(`system.feedback.priority.${item.priority}`)}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={statusBadgeVariant(item.status)}>{t(`system.feedback.status.${item.status}`)}</Badge>
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                {formatTimestamp(item.created_at)}
+              </TableCell>
+              {canManage && (
+                <TableCell className="text-right">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={t('system.feedback.queue.manageAria', { title: item.title })}
+                    onClick={() => onManage(item)}
                   >
-                    <SelectTrigger id="type">
-                      <SelectValue placeholder="选择反馈类型" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bug">Bug报告</SelectItem>
-                      <SelectItem value="feature">功能建议</SelectItem>
-                      <SelectItem value="performance">性能问题</SelectItem>
-                      <SelectItem value="other">其他</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="priority">优先级</Label>
-                  <Select
-                    value={feedbackForm.priority}
-                    onValueChange={(value) => handleInputChange('priority', value)}
-                  >
-                    <SelectTrigger id="priority">
-                      <SelectValue placeholder="选择优先级" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="high">高</SelectItem>
-                      <SelectItem value="medium">中</SelectItem>
-                      <SelectItem value="low">低</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="description">详细描述</Label>
-                <Textarea
-                  id="description"
-                  placeholder="请详细描述您遇到的问题或建议..."
-                  rows={5}
-                  value={feedbackForm.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
-                />
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSubmitFeedback}>
-                <Send className="mr-2 h-4 w-4" />
-                提交反馈
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="list" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>反馈列表</CardTitle>
-              <CardDescription>
-                查看所有已提交的反馈及其处理状态
-              </CardDescription>
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center space-x-2">
-                  <Button variant="outline" size="sm">
-                    <Filter className="mr-2 h-4 w-4" />
-                    筛选
+                    {t('system.feedback.queue.manage')}
                   </Button>
-                  <Select defaultValue="all">
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="状态筛选" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">全部状态</SelectItem>
-                      <SelectItem value="open">待处理</SelectItem>
-                      <SelectItem value="in-progress">处理中</SelectItem>
-                      <SelectItem value="resolved">已解决</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="搜索反馈..."
-                    className="w-[250px] pl-8"
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>标题</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>优先级</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>提交时间</TableHead>
-                    <TableHead>更新时间</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {feedbackList.map((feedback) => (
-                    <TableRow key={feedback.id}>
-                      <TableCell>{feedback.id}</TableCell>
-                      <TableCell>{feedback.title}</TableCell>
-                      <TableCell>{getTypeBadge(feedback.type)}</TableCell>
-                      <TableCell>{getPriorityBadge(feedback.priority)}</TableCell>
-                      <TableCell>{getStatusBadge(feedback.status)}</TableCell>
-                      <TableCell>{formatDate(feedback.createdAt)}</TableCell>
-                      <TableCell>{formatDate(feedback.updatedAt)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <div className="text-sm text-muted-foreground">
-                显示 {feedbackList.length} 条记录（共 {feedbackList.length} 条）
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm" disabled>
-                  上一页
-                </Button>
-                <Button variant="outline" size="sm" disabled>
-                  下一页
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="stats" className="mt-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">总反馈数</CardTitle>
-                <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{feedbackStats.total}</div>
-                <p className="text-xs text-muted-foreground">所有已提交的反馈</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">待处理</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{feedbackStats.open}</div>
-                <p className="text-xs text-muted-foreground">尚未开始处理的反馈</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">处理中</CardTitle>
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{feedbackStats.inProgress}</div>
-                <p className="text-xs text-muted-foreground">正在处理的反馈</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">已解决</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{feedbackStats.resolved}</div>
-                <p className="text-xs text-muted-foreground">已成功解决的反馈</p>
-              </CardContent>
-            </Card>
-          </div>
-          
-          <div className="grid gap-4 md:grid-cols-2 mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>按类型分布</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">Bug</div>
-                    <div className="flex-1">
-                      <div className="bg-primary/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-primary h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byType.bug / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byType.bug}</div>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">功能建议</div>
-                    <div className="flex-1">
-                      <div className="bg-primary/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-primary h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byType.feature / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byType.feature}</div>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">性能问题</div>
-                    <div className="flex-1">
-                      <div className="bg-primary/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-primary h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byType.performance / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byType.performance}</div>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">其他</div>
-                    <div className="flex-1">
-                      <div className="bg-primary/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-primary h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byType.other / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byType.other}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>按优先级分布</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">高</div>
-                    <div className="flex-1">
-                      <div className="bg-destructive/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-destructive h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byPriority.high / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byPriority.high}</div>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">中</div>
-                    <div className="flex-1">
-                      <div className="bg-warning/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-warning h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byPriority.medium / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byPriority.medium}</div>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-16 text-sm">低</div>
-                    <div className="flex-1">
-                      <div className="bg-secondary/10 h-3 w-full rounded-full overflow-hidden">
-                        <div 
-                          className="bg-secondary h-3 rounded-full" 
-                          style={{ width: `${(feedbackStats.byPriority.low / feedbackStats.total) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="w-10 text-right text-sm">{feedbackStats.byPriority.low}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
 
-export default IndexPage
+function SummaryGroup({
+  title,
+  values,
+  label,
+}: {
+  title: string
+  values: Record<string, number>
+  label: (key: string) => string
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Object.entries(values).map(([key, value]) => (
+          <div key={key} className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">{label(key)}</span>
+            <span className="font-semibold tabular-nums">{value}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function FeedbackPage() {
+  const { t } = useTranslation()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const isOwner = currentUser?.workspace_role?.toLowerCase() === 'owner'
+  const [activeTab, setActiveTab] = useState<FeedbackTab>('submit')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [category, setCategory] = useState<FeedbackCategory>('bug')
+  const [priority, setPriority] = useState<FeedbackPriority>('medium')
+  const [submitting, setSubmitting] = useState(false)
+  const [items, setItems] = useState<ProductFeedback[]>([])
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [summary, setSummary] = useState<FeedbackSummary | null>(null)
+  const [loadingSummary, setLoadingSummary] = useState(false)
+  const [selectedFeedback, setSelectedFeedback] = useState<ProductFeedback | null>(null)
+  const [editStatus, setEditStatus] = useState<FeedbackStatus>('open')
+  const [editPriority, setEditPriority] = useState<FeedbackPriority>('medium')
+  const [resolutionNote, setResolutionNote] = useState('')
+  const [savingUpdate, setSavingUpdate] = useState(false)
+
+  const loadItems = useCallback(async (scope: 'mine' | 'workspace') => {
+    try {
+      setLoadingItems(true)
+      const response = await listFeedback({ scope, page_size: 50 })
+      setItems(response.items || [])
+    } catch (error) {
+      console.error('Failed to load product feedback:', error)
+      setItems([])
+      toast.error(t('system.feedback.toast.loadFailed'))
+    } finally {
+      setLoadingItems(false)
+    }
+  }, [t])
+
+  const loadSummary = useCallback(async () => {
+    try {
+      setLoadingSummary(true)
+      setSummary(await getFeedbackSummary('workspace'))
+    } catch (error) {
+      console.error('Failed to load feedback summary:', error)
+      setSummary(null)
+      toast.error(t('system.feedback.toast.loadFailed'))
+    } finally {
+      setLoadingSummary(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    if (!isOwner && (activeTab === 'workspace' || activeTab === 'stats')) {
+      setActiveTab('submit')
+      return
+    }
+    if (activeTab === 'mine') {
+      void loadItems('mine')
+    } else if (activeTab === 'workspace' && isOwner) {
+      void loadItems('workspace')
+    } else if (activeTab === 'stats' && isOwner) {
+      void loadSummary()
+    }
+  }, [activeTab, isOwner, loadItems, loadSummary])
+
+  const handleSubmit = async () => {
+    if (!title.trim() || !description.trim()) {
+      toast.error(t('system.feedback.toast.required'))
+      return
+    }
+    try {
+      setSubmitting(true)
+      await createFeedback({
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        priority,
+        context: {
+          page_path: window.location.pathname,
+          browser: navigator.userAgent.slice(0, 128),
+          os: navigator.platform.slice(0, 128),
+        },
+      })
+      setTitle('')
+      setDescription('')
+      setCategory('bug')
+      setPriority('medium')
+      toast.success(t('system.feedback.toast.submitted'))
+    } catch (error) {
+      console.error('Failed to submit product feedback:', error)
+      toast.error(t('system.feedback.toast.submitFailed'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openManager = (feedback: ProductFeedback) => {
+    setSelectedFeedback(feedback)
+    setEditStatus(feedback.status)
+    setEditPriority(feedback.priority)
+    setResolutionNote(feedback.resolution_note || '')
+  }
+
+  const handleUpdate = async () => {
+    if (!selectedFeedback) return
+    const requiresResolution = editStatus === 'resolved' || editStatus === 'closed'
+    if (requiresResolution && !resolutionNote.trim()) {
+      toast.error(t('system.feedback.toast.resolutionRequired'))
+      return
+    }
+    try {
+      setSavingUpdate(true)
+      const updated = await updateFeedback(selectedFeedback.id, {
+        status: editStatus,
+        priority: editPriority,
+        ...(requiresResolution ? { resolution_note: resolutionNote.trim() } : {}),
+      })
+      setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setSelectedFeedback(null)
+      toast.success(t('system.feedback.toast.updated'))
+    } catch (error) {
+      console.error('Failed to update product feedback:', error)
+      toast.error(t('system.feedback.toast.updateFailed'))
+    } finally {
+      setSavingUpdate(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <MessageSquarePlus className="size-5 text-primary" />
+            <h1 className="text-xl font-bold tracking-tight">{t('system.feedback.title')}</h1>
+          </div>
+          <p className="max-w-2xl text-sm text-muted-foreground">{t('system.feedback.description')}</p>
+        </div>
+        {(activeTab === 'mine' || activeTab === 'workspace') && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loadingItems}
+            onClick={() => void loadItems(activeTab === 'workspace' ? 'workspace' : 'mine')}
+          >
+            <RefreshCw className={`mr-2 size-4 ${loadingItems ? 'animate-spin' : ''}`} />
+            {t('system.feedback.actions.refresh')}
+          </Button>
+        )}
+      </div>
+
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FeedbackTab)}>
+        <TabsList className={`grid w-full max-w-2xl ${isOwner ? 'grid-cols-4' : 'grid-cols-2'}`}>
+          <TabsTrigger value="submit">{t('system.feedback.tabs.submit')}</TabsTrigger>
+          <TabsTrigger value="mine">{t('system.feedback.tabs.mine')}</TabsTrigger>
+          {isOwner && <TabsTrigger value="workspace">{t('system.feedback.tabs.workspace')}</TabsTrigger>}
+          {isOwner && <TabsTrigger value="stats">{t('system.feedback.tabs.stats')}</TabsTrigger>}
+        </TabsList>
+
+        <TabsContent value="submit" className="mt-6">
+          <Card className="max-w-4xl">
+            <CardHeader>
+              <CardTitle>{t('system.feedback.form.title')}</CardTitle>
+              <CardDescription>{t('system.feedback.form.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="feedback-title">{t('system.feedback.form.fields.title')}</Label>
+                <Input
+                  id="feedback-title"
+                  value={title}
+                  maxLength={200}
+                  placeholder={t('system.feedback.form.placeholders.title')}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="feedback-category">{t('system.feedback.form.fields.category')}</Label>
+                  <Select value={category} onValueChange={(value) => setCategory(value as FeedbackCategory)}>
+                    <SelectTrigger id="feedback-category">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORY_OPTIONS.map((value) => (
+                        <SelectItem key={value} value={value}>{t(`system.feedback.category.${value}`)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="feedback-priority">{t('system.feedback.form.fields.priority')}</Label>
+                  <Select value={priority} onValueChange={(value) => setPriority(value as FeedbackPriority)}>
+                    <SelectTrigger id="feedback-priority">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRIORITY_OPTIONS.map((value) => (
+                        <SelectItem key={value} value={value}>{t(`system.feedback.priority.${value}`)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="feedback-description">{t('system.feedback.form.fields.description')}</Label>
+                <Textarea
+                  id="feedback-description"
+                  value={description}
+                  maxLength={5000}
+                  rows={8}
+                  placeholder={t('system.feedback.form.placeholders.description')}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => void handleSubmit()} disabled={submitting}>
+                  {submitting ? t('system.feedback.actions.submitting') : t('system.feedback.actions.submit')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="mine" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('system.feedback.mine.title')}</CardTitle>
+              <CardDescription>{t('system.feedback.mine.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FeedbackTable items={items} loading={loadingItems} canManage={false} onManage={openManager} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {isOwner && (
+          <TabsContent value="workspace" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('system.feedback.queue.title')}</CardTitle>
+                <CardDescription>{t('system.feedback.queue.description')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FeedbackTable items={items} loading={loadingItems} canManage onManage={openManager} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {isOwner && (
+          <TabsContent value="stats" className="mt-6">
+            {loadingSummary ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">{t('system.feedback.stats.loading')}</div>
+            ) : summary ? (
+              <div className="space-y-4">
+                <Card>
+                  <CardContent className="flex items-center gap-4 p-6">
+                    <div className="rounded-lg bg-primary/10 p-3"><BarChart3 className="size-5 text-primary" /></div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">{t('system.feedback.stats.total')}</p>
+                      <p className="text-3xl font-bold tabular-nums">{summary.total}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <SummaryGroup
+                    title={t('system.feedback.stats.byStatus')}
+                    values={summary.by_status}
+                    label={(key) => t(`system.feedback.status.${key}` as Parameters<TFunction>[0])}
+                  />
+                  <SummaryGroup
+                    title={t('system.feedback.stats.byCategory')}
+                    values={summary.by_category}
+                    label={(key) => t(`system.feedback.category.${key}` as Parameters<TFunction>[0])}
+                  />
+                  <SummaryGroup
+                    title={t('system.feedback.stats.byPriority')}
+                    values={summary.by_priority}
+                    label={(key) => t(`system.feedback.priority.${key}` as Parameters<TFunction>[0])}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-sm text-muted-foreground">{t('system.feedback.stats.empty')}</div>
+            )}
+          </TabsContent>
+        )}
+      </Tabs>
+
+      <Dialog open={Boolean(selectedFeedback)} onOpenChange={(open) => !open && setSelectedFeedback(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('system.feedback.queue.dialogTitle')}</DialogTitle>
+            <DialogDescription>{selectedFeedback?.title}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="feedback-edit-status">{t('system.feedback.queue.status')}</Label>
+              <Select value={editStatus} onValueChange={(value) => setEditStatus(value as FeedbackStatus)}>
+                <SelectTrigger id="feedback-edit-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((value) => (
+                    <SelectItem key={value} value={value}>{t(`system.feedback.status.${value}`)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="feedback-edit-priority">{t('system.feedback.queue.priority')}</Label>
+              <Select value={editPriority} onValueChange={(value) => setEditPriority(value as FeedbackPriority)}>
+                <SelectTrigger id="feedback-edit-priority"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((value) => (
+                    <SelectItem key={value} value={value}>{t(`system.feedback.priority.${value}`)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="feedback-resolution-note">{t('system.feedback.queue.resolutionNote')}</Label>
+              <Textarea
+                id="feedback-resolution-note"
+                value={resolutionNote}
+                maxLength={2000}
+                rows={5}
+                placeholder={t('system.feedback.queue.resolutionPlaceholder')}
+                onChange={(event) => setResolutionNote(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedFeedback(null)}>{t('system.feedback.actions.cancel')}</Button>
+            <Button onClick={() => void handleUpdate()} disabled={savingUpdate}>
+              {savingUpdate ? t('system.feedback.actions.saving') : t('system.feedback.actions.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

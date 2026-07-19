@@ -1,0 +1,23 @@
+{
+  "include": [
+    "app/kernel/contracts",
+    "app/kernel/ports/http",
+    "app/kernel/identity/workspace_access.py",
+    "app/auth/context_resolver.py",
+    "app/infra/db/transaction.py",
+    "app/infra/telemetry.py",
+    "app/adapters/http/governed_fetch.py",
+    "app/kernel/events/envelope.py",
+    "app/kernel/events/publisher.py",
+    "app/kernel/events/dispatcher.py"
+  ],
+  "exclude": [
+    "alembic",
+    ".venv"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": "none"
+}

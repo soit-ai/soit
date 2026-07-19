@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from app.api.v1.modelhub.handlers import ModelHubHandlers
 from app.kernel.execution.state_machine import RunStatus, StepStatus
-from app.kernel.runtime.tasks.status import ExecutionStatus
+from app.kernel.runtime.status import ExecutionStatus
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.plugin.application.service import PluginService
 

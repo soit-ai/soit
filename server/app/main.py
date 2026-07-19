@@ -124,6 +124,25 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("outbox dispatcher", exc)
 
+    response_interaction_workers = []
+    if getattr(app_settings, "response_interaction_worker_enabled", False):
+        try:
+            from app.wiring.response_interaction_worker import (
+                GlobalResponseInteractionWorker,
+            )
+
+            response_interaction_workers = [
+                GlobalResponseInteractionWorker()
+                for _ in range(
+                    max(
+                        1,
+                        int(app_settings.response_interaction_worker_concurrency),
+                    )
+                )
+            ]
+        except Exception as exc:
+            _handle_startup_failure("response interaction worker", exc)
+
     background_tasks: list[asyncio.Task] = []
     try:
         if knowledge_worker is not None:
@@ -147,6 +166,17 @@ async def lifespan(app: FastAPI):
                             0.05,
                             float(app_settings.outbox_dispatcher_poll_interval),
                         ),
+                    )
+                )
+            )
+        for response_interaction_worker in response_interaction_workers:
+            background_tasks.append(
+                asyncio.create_task(
+                    response_interaction_worker.run_loop(
+                        poll_interval=max(
+                            0.05,
+                            float(app_settings.response_interaction_worker_poll_interval),
+                        )
                     )
                 )
             )
@@ -276,7 +306,10 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
 # Register routers
 from app.api.v1.agent.router import router as agent_router  # noqa: E402
 from app.api.v1.agent.thread_router import router as thread_router  # noqa: E402
+from app.api.v1.attachments.router import router as attachments_router  # noqa: E402
+from app.api.v1.diagnostics.router import router as diagnostics_router  # noqa: E402
 from app.api.v1.evaluation.router import router as evaluation_router  # noqa: E402
+from app.api.v1.feedback.router import router as feedback_router  # noqa: E402
 from app.api.v1.health.router import router as health_router  # noqa: E402
 from app.api.v1.identity.router import router as identity_router  # noqa: E402
 from app.api.v1.knowledge.router import router as knowledge_router  # noqa: E402
@@ -286,6 +319,7 @@ from app.api.v1.observe.router import router as observe_router  # noqa: E402
 from app.api.v1.plugin.router import router as plugin_router  # noqa: E402
 from app.api.v1.responses.router import router as responses_router  # noqa: E402
 from app.api.v1.run.router import router as run_router  # noqa: E402
+from app.api.v1.search.router import router as search_router  # noqa: E402
 from app.api.v1.secrets.router import router as secrets_router  # noqa: E402
 from app.api.v1.security.router import router as security_router  # noqa: E402
 from app.api.v1.task.router import router as task_router  # noqa: E402
@@ -307,8 +341,12 @@ app.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
 app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
 app.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
 app.include_router(evaluation_router, prefix="/api/v1/evaluations", tags=["evaluations"])
+app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["feedback"])
+app.include_router(diagnostics_router, prefix="/api/v1/diagnostics", tags=["diagnostics"])
+app.include_router(search_router, prefix="/api/v1/search", tags=["search"])
 app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
+app.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
 
 install_enveloped_openapi(app)
 

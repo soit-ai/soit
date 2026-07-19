@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -23,17 +24,19 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
     ToolCall,
 )
+from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.runs.service import RunService
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import AgentRunRequest
-from app.modules.knowledge.application import tools as knowledge_tools
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
 from app.modules.knowledge.domain.models import KnowledgeIndex
+from app.modules.knowledge.runtime import tool_entrypoint as knowledge_tools
 from app.wiring.container import reset_container
 from app.wiring.services import build_knowledge_runtime_service, build_response_service
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "support_ticket_golden_set.json"
+DEMO_TICKET_TOOL_REF = "builtin.ticket.create_review_ticket"
 
 
 @dataclass
@@ -279,6 +282,38 @@ def _workflow_inputs(db, bootstrap: BootstrapResult) -> dict[str, Any]:
     }
 
 
+def register_preapproved_evaluation_tool(ctx: RequestContext) -> None:
+    """Keep the deterministic evidence run non-interactive without changing production policy."""
+
+    router = RegistryToolRouterPort()
+    if not router.register_builtin(DEMO_TICKET_TOOL_REF, ctx):
+        raise RuntimeError("Support evaluation ticket tool is unavailable")
+    registry = get_registry()
+    registered = registry.get_latest(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=DEMO_TICKET_TOOL_REF,
+    )
+    if registered is None:
+        raise RuntimeError("Support evaluation ticket ToolSpec was not registered")
+    _, payload = registered
+    evaluation_payload = copy.deepcopy(payload)
+    policy = evaluation_payload["tool_spec"].setdefault("policy", {})
+    policy["approval"] = {
+        "mode": "none",
+        "reason": "deterministic_evaluation_preapproval",
+    }
+    registry.register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=DEMO_TICKET_TOOL_REF,
+        version="1.0.1",
+        payload=evaluation_payload,
+    )
+
+
 async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: SupportTicketGoldenCase) -> SupportTicketCaseReport:
     reset_container()
     start = time.perf_counter()
@@ -346,6 +381,7 @@ async def evaluate_support_ticket_regression(db, args: argparse.Namespace) -> di
         tenant_role="Owner",
         workspace_role="Owner",
     )
+    register_preapproved_evaluation_tool(ctx)
     knowledge_service = build_knowledge_runtime_service(db=db, ctx=ctx)
     original_knowledge_query = knowledge_tools.knowledge_query
 

@@ -27,6 +27,9 @@ class FakeContainer:
     def get_llm_port(self, **_kwargs):
         return object()
 
+    def get_storage_port(self, **_kwargs):
+        return object()
+
 
 def test_task_api_dependencies_use_runtime_task_services(db, ctx):
     assert isinstance(get_task_service(ctx=ctx, db=db), TaskQueryService)

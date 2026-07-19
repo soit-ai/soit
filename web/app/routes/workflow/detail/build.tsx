@@ -843,6 +843,8 @@ const BuildPage: React.FC<BuildPageProps> = () => {
               onImport={handleImportWorkflow}
               onNodesSet={handleNodesSet}
               onEdgesSet={handleEdgesSet}
+              workflowId={id || ''}
+              workflowName={workflowName}
             />
           </ReactFlowProvider>
         </div>

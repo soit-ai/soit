@@ -9,8 +9,8 @@ from app.kernel.commons.time import utc_now
 from app.kernel.events.dispatcher import OutboxDispatcher
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.status import ApprovalStatus, TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
-from app.kernel.runtime.tasks.status import ApprovalStatus, TaskStatus
 from app.modules.observe.domain.models import ApprovalRequest
 from app.modules.observe.infra.repository import ApprovalRepository
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers

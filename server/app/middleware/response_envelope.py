@@ -64,12 +64,7 @@ def is_enveloped(payload: Any) -> bool:
     """Check if payload already matches the standard envelope shape."""
     if not isinstance(payload, dict):
         return False
-    if {"success", "code", "message"}.issubset(payload.keys()):
-        return True
-    error = payload.get("error")
-    if isinstance(error, dict) and {"code", "message"}.issubset(error.keys()):
-        return True
-    return False
+    return {"success", "code", "message"}.issubset(payload.keys())
 
 
 class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):

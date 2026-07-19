@@ -92,7 +92,7 @@ def test_litellm_generic_provider_prefix_and_params_are_validated():
         )
 
 
-def test_capability_matrix_normalizes_legacy_values_and_merges_precedence():
+def test_capability_matrix_normalizes_sources_and_merges_precedence():
     matrix = normalize_capability_matrix(
         {
             "chat": {
@@ -107,7 +107,12 @@ def test_capability_matrix_normalizes_legacy_values_and_merges_precedence():
                 "runtime": True,
                 "user_override": "force_off",
             },
-            "vision": True,
+            "vision": {
+                "catalog": True,
+                "diagnostics": None,
+                "runtime": None,
+                "user_override": "auto",
+            },
             "reasoning": {
                 "catalog": "supported",
                 "diagnostics": "passed",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -12,10 +12,10 @@ class ToolCallRequest:
 
     id: str
     tool_ref: str
-    arguments: dict[str, Any] = field(default_factory=dict)
+    arguments: dict[str, Any] = field(default_factory=dict[str, Any])
     run_id: str | None = None
     step_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -42,7 +42,7 @@ class ToolCallError:
 
     code: str
     message: str
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -69,7 +69,7 @@ class ToolCallResult:
     success: bool
     result: Any = None
     error: ToolCallError | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -86,7 +86,11 @@ class ToolCallResult:
             tool_ref=str(data.get("tool_ref") or ""),
             success=bool(data.get("success")),
             result=data.get("result"),
-            error=ToolCallError.from_dict(error_data) if isinstance(error_data, dict) else None,
+            error=(
+                ToolCallError.from_dict(cast(dict[str, Any], error_data))
+                if isinstance(error_data, dict)
+                else None
+            ),
             metadata=dict(data.get("metadata") or {}),
         )
 

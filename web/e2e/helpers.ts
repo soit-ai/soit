@@ -5,8 +5,7 @@ export async function mockShellApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           id: 'user-1',
           email: 'user@example.com',
           name: 'Test User',
@@ -21,7 +20,7 @@ export async function mockShellApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: { count: 0 } }),
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { count: 0 } }),
     })
   })
 
@@ -29,8 +28,7 @@ export async function mockShellApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 20,
           next_page_token: null,
@@ -43,8 +41,7 @@ export async function mockShellApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 100,
           next_page_token: null,
@@ -59,8 +56,7 @@ export async function mockShellApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           action: 'cancel',
           response: {
             id: responseId,

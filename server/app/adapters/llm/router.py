@@ -77,10 +77,14 @@ def _default_native_factory(
     credentials: dict[str, str],
 ) -> LLMPort:
     api_key = credentials.get("api_key")
-    if config.kind in {"openai", "openai_compatible", "openai_compat"}:
+    if config.kind in {"openai", "openai_compatible"}:
         from app.adapters.llm.openai import OpenAILLMPort
 
-        return OpenAILLMPort(api_key=api_key, base_url=config.base_url)
+        return OpenAILLMPort(
+            api_key=api_key,
+            base_url=config.base_url,
+            use_responses_api=config.kind == "openai",
+        )
     if config.kind == "deepseek":
         from app.adapters.llm.deepseek import DeepSeekLLMPort
 
@@ -201,8 +205,6 @@ class LLMRouterPort(LLMPort):
         entry = config.capability_matrix.get(normalized)
         if entry is None and normalized == "embeddings":
             entry = config.capability_matrix.get("embedding")
-        if isinstance(entry, bool):
-            return entry
         if isinstance(entry, dict) and isinstance(entry.get("merged"), bool):
             return entry["merged"]
 

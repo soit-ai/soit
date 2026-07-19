@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/run_step_tool_call_spec.schema.json",
+  "title": "RunStepToolCallSpec",
+  "description": "Safe execution-control projection for one logical tool call linked to one RunStep.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "run_id",
+    "run_step_id",
+    "tool_call_id",
+    "idempotency_key",
+    "request_hash",
+    "tool_ref",
+    "status",
+    "attempt_count",
+    "parameters_summary",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "tenant_id": {"type": "string"},
+    "workspace_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "run_step_id": {"type": "string"},
+    "tool_call_id": {"type": "string"},
+    "idempotency_key": {"type": "string"},
+    "request_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tool_ref": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": [
+        "waiting_approval",
+        "claimed",
+        "running",
+        "retrying",
+        "succeeded",
+        "failed",
+        "rejected",
+        "in_doubt"
+      ]
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "parameters_summary": {
+      "type": "object",
+      "description": "Redacted and size-bounded parameter summary. Raw credentials are never exposed."
+    },
+    "result": {},
+    "result_artifact_id": {
+      "type": ["string", "null"]
+    },
+    "error_code": {
+      "type": ["string", "null"]
+    },
+    "error_message": {
+      "type": ["string", "null"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "outbound_started_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  },
+  "$comment": "SOIT kernel spec schema (v1)."
+}

@@ -37,6 +37,10 @@ class ExecutionContext:
         task_id: str | None = None,
         thread_id: str | None = None,
         agent_id: str | None = None,
+        resume_approval_node_id: str | None = None,
+        resume_tool_call_id: str | None = None,
+        resume_tool_run_step_id: str | None = None,
+        resume_response_id: str | None = None,
     ):
         """Initialize execution context.
 
@@ -72,6 +76,10 @@ class ExecutionContext:
         self.task_id = task_id
         self.thread_id = thread_id
         self.agent_id = agent_id
+        self.resume_approval_node_id = resume_approval_node_id
+        self.resume_tool_call_id = resume_tool_call_id
+        self.resume_tool_run_step_id = resume_tool_run_step_id
+        self.resume_response_id = resume_response_id
 
 
 class NodeExecutor(ABC):

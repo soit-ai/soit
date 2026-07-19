@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db
+from app.kernel.ports.storage.interface import StoragePort
+from app.wiring.container import get_container
 
 router = APIRouter()
 
@@ -29,6 +31,15 @@ class ReadyResponse(BaseModel):
     database: str
     """Database status: 'connected' or 'disconnected'."""
 
+    storage: str
+    """Object storage status: 'connected' or 'disconnected'."""
+
+
+def get_readiness_storage() -> StoragePort:
+    """Return the unscoped storage adapter used by readiness checks."""
+
+    return get_container().get("storage_port")
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -41,7 +52,10 @@ async def health_check():
 
 
 @router.get("/health/ready", response_model=ReadyResponse)
-async def readiness_check(db: Session = Depends(get_db)):
+async def readiness_check(
+    db: Session = Depends(get_db),
+    storage: StoragePort = Depends(get_readiness_storage),
+):
     """Readiness check endpoint (checks database connection).
 
     Args:
@@ -61,16 +75,20 @@ async def readiness_check(db: Session = Depends(get_db)):
             detail="Database is unavailable",
         )
 
-    from app.adapters.tools.mcp_migration import enabled_legacy_mcp_artifacts
-
-    legacy_artifacts = enabled_legacy_mcp_artifacts(db)
-    if legacy_artifacts:
+    try:
+        await storage.ensure_ready()
+        storage_status = "connected"
+    except Exception:
         raise HTTPException(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Enabled legacy MCP artifacts require migration: {len(legacy_artifacts)}",
+            detail="Object storage is unavailable",
         )
 
-    return ReadyResponse(status="ready", database=db_status)
+    return ReadyResponse(
+        status="ready",
+        database=db_status,
+        storage=storage_status,
+    )
 
 
 @router.get("/health/live", response_model=HealthResponse)

@@ -11,11 +11,6 @@ export const API_BASE_URL = BASE_URL
 const ERROR_CODES_OK = new Set([0, 200])
 const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized', 'forbidden', 'UNAUTHORIZED', 'FORBIDDEN'])
 const AUTO_REDIRECT_UNAUTHORIZED = true
-const API_ENVELOPE_KEYS = new Set(['success', 'code', 'message', 'data', 'request_id', 'run_id'])
-
-type LegacyApiEnvelope<T> = {
-  data: T
-}
 
 export const ContentType = {
   json: 'application/json',
@@ -48,29 +43,21 @@ export function buildAuthHeaders(existing?: Record<string, string>): Record<stri
   return headers
 }
 
-function isLegacyApiEnvelope<T>(
-  payload: ApiEnvelope<T> | LegacyApiEnvelope<T> | T,
-): payload is LegacyApiEnvelope<T> {
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
-    return false
+function unwrapApiEnvelope<T>(payload: ApiEnvelope<T> | null | undefined | ''): T {
+  if (payload === null || payload === undefined || payload === '') {
+    return undefined as T
   }
-  return Object.keys(payload).every((key) => API_ENVELOPE_KEYS.has(key))
-}
-
-function unwrapApiEnvelope<T>(payload: ApiEnvelope<T> | LegacyApiEnvelope<T> | T): T {
   if (
-    payload &&
     typeof payload === 'object' &&
     'success' in payload &&
     payload.success === true &&
+    typeof payload.code === 'string' &&
+    typeof payload.message === 'string' &&
     'data' in payload
   ) {
     return payload.data
   }
-  if (isLegacyApiEnvelope(payload)) {
-    return payload.data
-  }
-  return payload as T
+  throw new Error('Malformed API response envelope')
 }
 // Add request interceptors
 request.interceptors.request.use(

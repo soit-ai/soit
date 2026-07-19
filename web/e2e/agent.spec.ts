@@ -149,8 +149,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: [mockAgentVersion],
             page_size: 50,
             next_page_token: null,
@@ -164,8 +163,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             ...mockAgentVersion,
             id: 'ver-2',
             version: 2,
@@ -180,8 +178,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: [],
             page_size: 20,
             next_page_token: null,
@@ -195,8 +192,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: [],
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [],
         }),
       })
       return
@@ -206,7 +202,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockAgent }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockAgent }),
       })
       return
     }
@@ -215,8 +211,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: mockWorkbench.items,
             page_size: 1,
             next_page_token: null,
@@ -230,7 +225,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockWorkbench }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkbench }),
       })
       return
     }
@@ -239,7 +234,7 @@ async function mockAgentApi(page: Page) {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockAgent }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockAgent }),
       })
       return
     }
@@ -252,8 +247,7 @@ async function mockAgentApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [mockAgent],
           page_size: 20,
           next_page_token: null,
@@ -268,8 +262,7 @@ async function mockAgentDetailDependencies(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           id: 'report-1',
           tenant_id: 'tenant-1',
           workspace_id: 'workspace-1',
@@ -294,8 +287,7 @@ async function mockAgentDetailDependencies(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: mockCapabilities,
           page_size: 200,
           next_page_token: null,
@@ -314,8 +306,7 @@ async function mockAgentDetailDependencies(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 100,
           next_page_token: null,
@@ -328,8 +319,7 @@ async function mockAgentDetailDependencies(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           summary: {
             total_models: 1,
             available_models: 1,
@@ -382,8 +372,7 @@ async function mockAgentDetailDependencies(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 5,
           next_page_token: null,
@@ -424,8 +413,7 @@ test('agent detail binds plugin-exported tools as tool refs', async ({ page }) =
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           summary: {
             total_models: 1,
             available_models: 1,
@@ -482,8 +470,7 @@ test('agent detail binds plugin-exported tools as tool refs', async ({ page }) =
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           ...mockAgentVersion,
           id: 'ver-2',
           version: 2,

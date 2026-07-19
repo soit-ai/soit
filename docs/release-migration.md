@@ -1,8 +1,12 @@
-# SOIT 1.0 Upgrade and Migration Runbook
+# SOIT 1.0 Fresh Installation Migration Runbook
 
-Status: Phase 1 migration-documentation foundation. This runbook documents the required commands and evidence for the 1.0 release gate; it is not itself proof that both database paths have been executed.
+## Fresh Installation Only
 
-## Preflight
+SOIT 1.0 uses a single Alembic baseline and supports schema creation on an empty PostgreSQL database only. Upgrading a database created by an earlier development build is intentionally unsupported. Create a new database and reseed development data instead of reusing an old schema.
+
+This policy applies to the database schema. Do not delete `docker/data/` or any other persistent data directory unless an operator has explicitly chosen to reset that environment.
+
+## Single Baseline
 
 Run from `server/`:
 
@@ -12,113 +16,59 @@ uv run alembic heads
 uv run alembic history --verbose
 ```
 
-Expected before release:
+Expected output:
 
-- `uv run alembic heads` reports exactly one release head.
-- The release candidate branch contains no unreviewed migration files.
-- All migrations are committed and referenced in release notes.
+- `uv run alembic heads` reports `20260718140000 (head)`.
+- Alembic history contains one revision whose parent is `<base>`.
+- `server/alembic/versions/` contains only `20260718140000_fresh_install_baseline.py`.
 
-## Backup
+## Empty PostgreSQL Database
 
-Before upgrading a development or customer-like database:
-
-1. Export PostgreSQL with a timestamped dump.
-2. Record current `alembic_version`.
-3. Export `.env` or deployment environment settings.
-4. Snapshot object storage, vector store, and Vault data when the environment contains demo or customer-like data.
-5. Record the exact SOIT commit, Docker image tag, and operator.
-
-## Empty Database Path
-
-This path proves a fresh installation can initialize the schema from scratch.
+Provision a database with no SOIT application tables, configure `DATABASE_URL`, and run:
 
 ```bash
-cd server
 uv run alembic upgrade head
 uv run alembic current
-uv run pytest tests/unit/test_runtime_db_models.py tests/unit/test_feature_entitlements.py -q
+uv run pytest tests/unit/test_fresh_install_migration.py -q
 ```
 
-Required evidence:
+Required results:
 
-- Database starts with no SOIT application tables.
-- `uv run alembic upgrade head` exits 0.
-- `uv run alembic current` shows the same revision as `uv run alembic heads`.
-- Bootstrap and demo seed commands can run after migration:
+- `uv run alembic upgrade head` exits successfully.
+- `uv run alembic current` reports `20260718140000 (head)`.
+- The fresh-install migration contract test passes.
+- The created table set matches current SQLModel metadata.
+
+After schema creation, bootstrap the required local data:
 
 ```bash
 uv run python scripts/bootstrap_admin.py
 uv run python scripts/bootstrap_enterprise_mvp.py
 ```
 
-## Development Database Path
-
-This path proves an existing local development database can upgrade without destructive reset.
-
-```bash
-cd server
-uv run alembic current
-uv run alembic upgrade head
-uv run alembic current
-uv run pytest tests/integration/test_enterprise_agent_mvp.py -q
-```
-
-Required evidence:
-
-- Pre-upgrade revision is recorded.
-- Post-upgrade revision matches `head`.
-- Existing tenant/workspace/user rows remain readable.
-- Demo Chain A or Chain B still runs after migration.
-- No manual `docker/data/` cleanup or destructive reset was used.
-
 ## Evidence Verification
 
-Record the empty-database and development-database command output in the evidence format below:
+Copy `docs/deployment/release-migration-evidence.example.json` to a local evidence file, replace example output with the fresh run, and validate it from `server/`:
 
 ```bash
-docs/deployment/release-migration-evidence.example.json
+uv run python scripts/verify_release_migration_paths.py ../docs/deployment/release-migration-evidence.json
 ```
 
-Then verify it from `server/`:
+The verifier requires one Alembic head, an empty starting database, a successful upgrade to the current baseline, schema checks, smoke tests, bootstrap commands, and a release-note range of `base..20260718140000`. It rejects the removed development-database upgrade path.
 
-```bash
-uv run python scripts/verify_release_migration_paths.py ../docs/deployment/release-migration-evidence.example.json
-```
+Local command output, operator notes, and environment-specific evidence belong outside the open-source repository.
 
-Local migration drill records should be kept outside this open-source repository.
+## Failure Recovery
 
-Generate a fresh release-specific evidence file before publishing an immutable release tag.
-
-The verifier requires:
-
-- exactly one Alembic head;
-- empty-database migration output ending at the release head;
-- development-database pre-upgrade and post-upgrade revisions, where the pre-upgrade revision must be before the release head;
-- a backup timestamp, restore point, operator, and commit for the development database path;
-- no destructive reset for the development database path;
-- successful smoke/demo commands for both paths;
-- release notes listing the migration range.
-
-## Rollback
-
-Alembic downgrade support is migration-specific and should not be assumed for customer data. The supported rollback plan for 1.0 release validation is:
-
-1. Stop API, worker, and web processes.
-2. Restore PostgreSQL from the pre-upgrade dump.
-3. Restore object/vector/Vault snapshots when the failed migration touched related state.
-4. Restore previous image tags or commit.
-5. Run `uv run alembic current` and the relevant smoke test.
-
-If a migration has a verified Alembic `downgrade()` path, it may be used only in a disposable staging environment before relying on it operationally.
+Because the supported target is a new database, recover by discarding only that newly provisioned failed database, fixing the installation, and retrying against another empty database. Do not point a failed partial installation at an existing SOIT database, and do not delete shared persistent directories as a shortcut.
 
 ## Exit Evidence
 
-Do not check the roadmap migration item until these artifacts exist:
+Before release, retain:
 
-- `uv run alembic heads` output showing the release head.
-- Empty Database Path command output.
-- Development Database Path command output.
-- Backup timestamp and restore point for the development database path.
-- Smoke or integration test evidence after both paths.
-- Release notes listing the migration range.
-- `uv run python scripts/verify_release_migration_paths.py <release-evidence.json>` output showing `"passed": true`.
+- `uv run alembic heads` and `uv run alembic history --verbose` output;
+- fresh database `upgrade head` and `current` output;
+- the passing fresh-install migration contract test;
+- schema/table comparison output;
+- bootstrap and smoke-test output;
+- verifier output containing `"passed": true`.

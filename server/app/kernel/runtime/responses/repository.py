@@ -77,6 +77,20 @@ class ResponseEventRepository:
         self.ctx = ctx
 
     def next_sequence(self, response_id: str) -> int:
+        # Serialize sequence allocation with cancellation/replay writers. The
+        # response row is the stable lock target; aggregate rows cannot be
+        # locked safely and a plain MAX(sequence) + 1 races across sessions.
+        self.db.exec(
+            select(Response.id)
+            .where(
+                and_(
+                    Response.id == response_id,
+                    Response.tenant_id == self.ctx.tenant_id,
+                    Response.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .with_for_update()
+        ).first()
         query = select(func.max(ResponseEvent.sequence)).where(
             and_(
                 ResponseEvent.response_id == response_id,
@@ -99,16 +113,28 @@ class ResponseEventRepository:
         self.db.refresh(event)
         return event
 
-    def list_for_response(self, response_id: str, *, limit: int, offset: int) -> list[ResponseEvent]:
+    def list_for_response(
+        self,
+        response_id: str,
+        *,
+        limit: int,
+        offset: int,
+        after_sequence: int | None = None,
+        interaction_id: str | None = None,
+    ) -> list[ResponseEvent]:
+        filters = [
+            ResponseEvent.response_id == response_id,
+            ResponseEvent.tenant_id == self.ctx.tenant_id,
+            ResponseEvent.workspace_id == self.ctx.workspace_id,
+            ResponseEvent.visibility == "user",
+        ]
+        if after_sequence is not None:
+            filters.append(ResponseEvent.sequence > after_sequence)
+        if interaction_id is not None:
+            filters.append(ResponseEvent.interaction_id == interaction_id)
         query = (
             select(ResponseEvent)
-            .where(
-                and_(
-                    ResponseEvent.response_id == response_id,
-                    ResponseEvent.tenant_id == self.ctx.tenant_id,
-                    ResponseEvent.workspace_id == self.ctx.workspace_id,
-                )
-            )
+            .where(and_(*filters))
             .order_by(ResponseEvent.sequence.asc(), ResponseEvent.created_at.asc(), ResponseEvent.id.asc())
             .offset(offset)
             .limit(limit)

@@ -92,7 +92,12 @@ const capabilities = [
   },
 ]
 
-const envelope = <T,>(data: T) => ({ success: true, data })
+const envelope = <T,>(data: T) => ({
+  success: true,
+  code: 'OK',
+  message: 'OK',
+  data,
+})
 
 async function mockPluginApi(page: Page) {
   await page.route('**/api/v1/plugins**', async (route) => {
@@ -146,7 +151,7 @@ async function mockPluginApi(page: Page) {
     const parts = new URL(route.request().url()).pathname.split('/')
     const pluginId = parts[parts.length - 2]
     if (method === 'DELETE') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(envelope({})) })
       return
     }
     await route.fulfill({
@@ -176,8 +181,7 @@ async function mockPluginApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: [
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [
           {
             id: 'binding-1',
             agent_id: 'agent-1',
@@ -203,8 +207,7 @@ async function mockPluginApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [
             {
               id: 'agent-1',
@@ -232,8 +235,7 @@ async function mockPluginApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [
             {
               id: 'run-1',
@@ -298,7 +300,7 @@ test('plugin workbench actions call plugin lifecycle api', async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         id: 'installation-plugin-github',
         plugin_id: 'plugin-github',
         tenant_id: 'tenant-1',
@@ -307,7 +309,7 @@ test('plugin workbench actions call plugin lifecycle api', async ({ page }) => {
         state: 'installed',
         created_at: '2026-06-01T09:00:00.000Z',
         updated_at: '2026-06-02T10:00:00.000Z',
-      }),
+      })),
     })
   })
 
@@ -348,7 +350,7 @@ test('plugin workbench uploads packages and confirms same-version reinstall', as
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         action: mode === 'reinstall' ? 'reinstalled' : 'created',
         plugin: {
           id: 'plugin-local-skill',
@@ -373,7 +375,7 @@ test('plugin workbench uploads packages and confirms same-version reinstall', as
           manifest_path: '/tmp/plugins/local-skill/manifest.json',
           spec_path: '/tmp/plugins/local-skill/spec.json',
         },
-      }),
+      })),
     })
   })
 
@@ -422,11 +424,11 @@ test('plugin workbench keeps uploaded plugin visible after capabilities refresh'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         items: uploaded ? [weatherPlugin, ...plugins] : plugins,
         page_size: 100,
         next_page_token: null,
-      }),
+      })),
     })
   })
 
@@ -434,7 +436,7 @@ test('plugin workbench keeps uploaded plugin visible after capabilities refresh'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         items: uploaded
           ? [
               {
@@ -455,7 +457,7 @@ test('plugin workbench keeps uploaded plugin visible after capabilities refresh'
           : capabilities,
         page_size: 100,
         next_page_token: null,
-      }),
+      })),
     })
   })
 
@@ -464,7 +466,7 @@ test('plugin workbench keeps uploaded plugin visible after capabilities refresh'
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         action: 'created',
         plugin: weatherPlugin,
         install: {
@@ -473,7 +475,7 @@ test('plugin workbench keeps uploaded plugin visible after capabilities refresh'
           manifest_path: '/tmp/plugins/weather-query/manifest.json',
           spec_path: '/tmp/plugins/weather-query/spec.json',
         },
-      }),
+      })),
     })
   })
 
@@ -499,7 +501,7 @@ test('plugin workbench updates installed package and confirms uninstall', async 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
+      body: JSON.stringify(envelope({
         plugin: {
           ...plugins[0],
           version: '1.0.0',
@@ -511,7 +513,7 @@ test('plugin workbench updates installed package and confirms uninstall', async 
           manifest_path: '/tmp/plugins/github/manifest.json',
           spec_path: '/tmp/plugins/github/spec.json',
         },
-      }),
+      })),
     })
   })
 

@@ -83,12 +83,18 @@ class RegistryNodeExecutor(NodeExecutor):
         if not tool_ref:
             raise ValidationError(f"Workflow node '{node_ref}' missing tool_ref")
 
+        tool_call_id = (
+            f"workflow:{context.workflow_run_id or context.run_id}:"
+            f"{node.get('id') or node_ref}:{context.step_id or 'untraced'}"
+        )
         response = await context.tool_port.invoke(
             tool_ref=tool_ref,
             parameters=parameters,
             run_id=context.run_id,
             ctx=context.ctx,
             strict_registry=True,
+            tool_call_id=tool_call_id,
+            idempotency_key=f"tool:{context.run_id}:{tool_call_id}",
         )
         if not response.success:
             raise ValidationError(f"Node execution failed: {response.error}")

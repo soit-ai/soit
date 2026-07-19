@@ -4,7 +4,7 @@ Agent entry dependencies.
 """
 
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -12,6 +12,8 @@ from sqlmodel import Session as SQLModelSession
 
 from app.infra.db.session import get_db
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.auth import get_current_context
 from app.modules.agent.application.application_service import AgentApplicationService
@@ -21,10 +23,20 @@ from app.modules.memory.application.service import MemoryService
 from app.wiring import get_container
 from app.wiring.services import build_agent_service, build_memory_service
 
-AgentStreamExecutor = Callable[
-    [str, dict[str, Any], EventEmitter],
-    Awaitable[dict[str, Any]],
-]
+AgentResponseStarted = Callable[[Response, ResponseService], Awaitable[None]]
+
+
+class AgentStreamExecutor(Protocol):
+    """Execute an Agent stream in a session detached from the HTTP stream."""
+
+    def __call__(
+        self,
+        agent_id: str,
+        inputs: dict[str, Any],
+        event_emitter: EventEmitter,
+        on_response_started: AgentResponseStarted | None = None,
+        response_metadata: dict[str, Any] | None = None,
+    ) -> Awaitable[dict[str, Any]]: ...
 
 
 def get_agent_service(
@@ -67,6 +79,8 @@ def get_agent_stream_executor(
         agent_id: str,
         inputs: dict[str, Any],
         event_emitter: EventEmitter,
+        on_response_started: AgentResponseStarted | None = None,
+        response_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with SQLModelSession(bind=bind, expire_on_commit=False) as worker_db:
             service = build_agent_service(db=worker_db, ctx=ctx)
@@ -75,12 +89,22 @@ def get_agent_stream_executor(
                     agent_id,
                     inputs,
                     event_emitter,
+                    on_response_started=on_response_started,
+                    response_metadata=response_metadata,
                 )
-            except Exception:
+            except Exception as exc:
                 # The application service has already written terminal failure or
                 # cancellation evidence. Persist it before propagating the error.
+                await event_emitter(
+                    "agent.interaction.failed",
+                    {
+                        "code": getattr(exc, "code", None) or "agent_execution_failed",
+                        "message": "Agent execution failed",
+                    },
+                )
                 worker_db.commit()
                 raise
+            await event_emitter("agent.interaction.finished", {"result": result})
             worker_db.commit()
             return result
 

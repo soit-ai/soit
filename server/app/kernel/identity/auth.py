@@ -4,6 +4,7 @@ Auth primitives (JWT/session) used by entrypoints.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 
@@ -59,7 +60,7 @@ class JWTManager:
                 minutes=self.access_token_expire_minutes
             )
 
-        payload: dict[str, any] = {
+        payload: dict[str, Any] = {
             "sub": user_id,
             "tenant_id": tenant_id,
             "exp": expire,
@@ -75,7 +76,7 @@ class JWTManager:
 
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
-    def decode_token(self, token: str) -> dict[str, any]:
+    def decode_token(self, token: str) -> dict[str, Any]:
         """Decode and validate JWT token.
 
         Args:
@@ -203,7 +204,7 @@ def _get_jwt_manager() -> JWTManager:
     return _jwt_manager
 
 
-def decode_jwt_token(token: str) -> dict[str, any]:
+def decode_jwt_token(token: str) -> dict[str, Any]:
     """Decode and validate JWT token (convenience function).
 
     Args:
@@ -217,4 +218,3 @@ def decode_jwt_token(token: str) -> dict[str, any]:
     """
     jwt_manager = _get_jwt_manager()
     return jwt_manager.decode_token(token)
-

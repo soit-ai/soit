@@ -14,7 +14,12 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.execution.state_machine import RunStatus, StateMachine
+from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.tool_calls import (
+    summarize_parameters,
+    summarize_tool_payload,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 
 
@@ -27,6 +32,7 @@ class ExecutionEngine:
         ctx: RequestContext,
         trace_writer: TraceWriter,
         response_service: ResponseService | None = None,
+        approval_checkpoint_gateway: Any | None = None,
     ):
         """Initialize execution engine.
 
@@ -39,6 +45,7 @@ class ExecutionEngine:
         self.ctx = ctx
         self.trace_writer = trace_writer
         self.response_service = response_service
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.state_machine = StateMachine()
 
     @staticmethod
@@ -99,9 +106,9 @@ class ExecutionEngine:
                 "tool_ref": tool_ref,
                 "tool_type": "builtin",
                 "status": status,
-                "arguments": parameters,
-                "result": result or {},
-                "metadata": metadata or {},
+                "arguments": summarize_parameters(parameters),
+                "result": summarize_tool_payload(result or {}),
+                "metadata": summarize_tool_payload(metadata or {}),
                 "error_code": error_code,
                 "error_message": error_message,
             }
@@ -150,6 +157,22 @@ class ExecutionEngine:
             else:
                 raise ValueError(f"Unsupported mode: {plan.mode}")
 
+            if (
+                plan.mode == "workflow"
+                and isinstance(result, dict)
+                and result.get("status") == "waiting_approval"
+            ):
+                self.state_machine.transition_run(
+                    run,
+                    RunStatus.WAITING_APPROVAL.value,
+                )
+                self.trace_writer.update_run_status(
+                    run.id,
+                    run.status,
+                    output_summary="waiting_approval",
+                )
+                return result
+
             # Transition to succeeded (metrics are recorded in trace_writer)
             self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
             self.trace_writer.update_run_status(
@@ -164,19 +187,68 @@ class ExecutionEngine:
             self.state_machine.transition_run(run, RunStatus.CANCELED.value)
             self.trace_writer.update_run_status(run.id, run.status)
             raise
-        except Exception as e:
+        except Exception as exc:
             # Transition to failed (metrics are recorded in trace_writer)
-            error_message = str(e)
+            error_message = str(exc)
             self.state_machine.transition_run(run, RunStatus.FAILED.value)
             self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=error_message[:8192],
             )
-
-            # Re-raise the exception to propagate error
             raise
 
+    async def resume_workflow(
+        self,
+        plan: ExecutionPlan,
+        *,
+        workflow_run_id: str,
+        checkpoint: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resume one workflow from a durable approval checkpoint."""
+
+        run = self.db.get(Run, plan.run_id)
+        if (
+            run is None
+            or run.tenant_id != self.ctx.tenant_id
+            or run.workspace_id != self.ctx.workspace_id
+            or run.status != RunStatus.WAITING_APPROVAL.value
+        ):
+            raise ValueError("Workflow run is not waiting for approval")
+        self.state_machine.transition_run(run, RunStatus.RUNNING.value)
+        self.trace_writer.update_run_status(run.id, run.status)
+        try:
+            result = await self._execute_workflow(
+                plan,
+                workflow_run_id=workflow_run_id,
+                checkpoint=checkpoint,
+            )
+            if result.get("status") == "waiting_approval":
+                self.state_machine.transition_run(
+                    run,
+                    RunStatus.WAITING_APPROVAL.value,
+                )
+                self.trace_writer.update_run_status(
+                    run.id,
+                    run.status,
+                    output_summary="waiting_approval",
+                )
+                return result
+            self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
+            self.trace_writer.update_run_status(
+                run.id,
+                run.status,
+                output_summary=str(result)[:8192] if result else None,
+            )
+            return result
+        except Exception as exc:
+            self.state_machine.transition_run(run, RunStatus.FAILED.value)
+            self.trace_writer.update_run_status(
+                run.id,
+                run.status,
+                output_summary=str(exc)[:8192],
+            )
+            raise
     async def _execute_chat(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute chat mode.
 
@@ -316,7 +388,13 @@ class ExecutionEngine:
                 )
             raise
 
-    async def _execute_workflow(self, plan: ExecutionPlan) -> dict[str, Any]:
+    async def _execute_workflow(
+        self,
+        plan: ExecutionPlan,
+        *,
+        workflow_run_id: str | None = None,
+        checkpoint: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute workflow mode.
 
         Args:
@@ -332,20 +410,35 @@ class ExecutionEngine:
 
         nodes_dict = plan.plan_data.get("nodes") or {}
         total_nodes = len(nodes_dict)
-        workflow_run_row = WorkflowRun(
-            tenant_id=self.ctx.tenant_id,
-            workspace_id=self.ctx.workspace_id,
-            run_id=plan.run_id,
-            workflow_id=plan.subject_id,
-            total_nodes=total_nodes,
-            completed_nodes=0,
-            failed_nodes=0,
-            waiting_nodes=total_nodes,
-            status="running",
-        )
-        self.db.add(workflow_run_row)
-        self.db.flush()
-        workflow_run_id = workflow_run_row.id
+        if workflow_run_id:
+            workflow_run_row = self.db.get(WorkflowRun, workflow_run_id)
+            if (
+                workflow_run_row is None
+                or workflow_run_row.tenant_id != self.ctx.tenant_id
+                or workflow_run_row.workspace_id != self.ctx.workspace_id
+                or workflow_run_row.run_id != plan.run_id
+                or workflow_run_row.status != "waiting_approval"
+            ):
+                raise ValueError("Workflow approval checkpoint is not resumable")
+            workflow_run_row.status = "running"
+            workflow_run_row.updated_at = utc_now()
+            self.db.add(workflow_run_row)
+            self.db.flush()
+        else:
+            workflow_run_row = WorkflowRun(
+                tenant_id=self.ctx.tenant_id,
+                workspace_id=self.ctx.workspace_id,
+                run_id=plan.run_id,
+                workflow_id=plan.subject_id,
+                total_nodes=total_nodes,
+                completed_nodes=0,
+                failed_nodes=0,
+                waiting_nodes=total_nodes,
+                status="running",
+            )
+            self.db.add(workflow_run_row)
+            self.db.flush()
+            workflow_run_id = workflow_run_row.id
 
         # Get ports from container
         container = get_container()
@@ -382,10 +475,15 @@ class ExecutionEngine:
             response_service=self.response_service,
             workflow_policy=plan.plan_data.get("policy", {}),
             workflow_run_id=workflow_run_id,
+            approval_checkpoint_gateway=self.approval_checkpoint_gateway,
         )
 
         try:
-            result = await workflow_executor.execute(plan, context)
+            result = await workflow_executor.execute(
+                plan,
+                context,
+                checkpoint=checkpoint,
+            )
         except Exception:
             row = self.db.get(WorkflowRun, workflow_run_id)
             if row is not None:
@@ -397,7 +495,12 @@ class ExecutionEngine:
 
         row = self.db.get(WorkflowRun, workflow_run_id)
         if row is not None:
-            row.status = "succeeded"
+            if result.get("status") == "waiting_approval":
+                row.status = "waiting_approval"
+                row.checkpoint_json = dict(result.pop("_checkpoint"))
+            else:
+                row.status = "succeeded"
+                row.checkpoint_json = None
             row.updated_at = utc_now()
             self.db.add(row)
         self.db.commit()
@@ -551,7 +654,7 @@ class ExecutionEngine:
                                     "tool_type": "builtin",
                                     "step_id": tool_step.id,
                                     "status": "requested",
-                                    "arguments": parameters,
+                                    "arguments": summarize_parameters(parameters),
                                 },
                                 source="execution_engine",
                             )
@@ -586,6 +689,9 @@ class ExecutionEngine:
                                 parameters=parameters,
                                 run_id=plan.run_id,
                                 ctx=self.ctx,
+                                tool_call_id=tool_step.id,
+                                idempotency_key=f"tool:{plan.run_id}:{tool_step.id}",
+                                run_step_id=tool_step.id,
                             )
 
                             # Add tool result to messages
@@ -600,7 +706,15 @@ class ExecutionEngine:
                             self.trace_writer.update_step_status(
                                 tool_step.id,
                                 "succeeded",
-                                output_summary=str(tool_response.result)[:8192] if tool_response.success else tool_response.error,
+                                output_summary=(
+                                    json.dumps(
+                                        summarize_tool_payload(tool_response.result),
+                                        ensure_ascii=False,
+                                        default=str,
+                                    )[:8192]
+                                    if tool_response.success
+                                    else tool_response.error
+                                ),
                                 metrics=self._tool_metrics(
                                     tool_ref=tool_ref,
                                     parameters=parameters,
@@ -623,8 +737,14 @@ class ExecutionEngine:
                                         "tool_type": "builtin",
                                         "step_id": tool_step.id,
                                         "status": "completed" if tool_response.success else "failed",
-                                        "result": {"result": tool_response.result} if tool_response.success else {},
-                                        "metadata": tool_response.metadata or {},
+                                        "result": summarize_tool_payload(
+                                            {"result": tool_response.result}
+                                            if tool_response.success
+                                            else {}
+                                        ),
+                                        "metadata": summarize_tool_payload(
+                                            tool_response.metadata or {}
+                                        ),
                                         "error": None if tool_response.success else {
                                             "code": "tool_execution_failed",
                                             "message": tool_response.error,

@@ -57,11 +57,21 @@ class AgentVerifier:
 
         system = ChatMessage(
             role="system",
-            content="You are a response quality verifier. Use the verify_response tool to report your assessment.",
+            content=(
+                "You are a response quality verifier. Assess the candidate response against "
+                "the original conversation and use the verify_response tool to report your assessment."
+            ),
+        )
+        conversation = "\n".join(
+            f"{message.role}: {message.content}"
+            for message in messages
         )
         review = ChatMessage(
             role="user",
-            content=f"Response to verify:\n{response}",
+            content=(
+                f"Original conversation:\n{conversation}\n\n"
+                f"Candidate response:\n{response}"
+            ),
         )
         result = await self.llm_port.chat(
             messages=[system, review],

@@ -47,6 +47,61 @@ def test_tool_spec_validation_with_refs():
     assert validate_spec(tool_doc, "tool_spec") is True
 
 
+def test_tool_spec_validation_supports_explicit_approval_policy():
+    tool_doc = {
+        "name": "governed_ticket_tool",
+        "adapter": "function",
+        "input_schema": {"type": "object"},
+        "output_schema": {"type": "object"},
+        "policy": {
+            "audit_level": "full",
+            "approval": {"mode": "required", "risk_level": "high"},
+        },
+        "function": {"entrypoint": "app.utils.demo_ticket_tools:create_review_ticket"},
+    }
+
+    assert validate_spec(tool_doc, "tool_spec") is True
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                **tool_doc,
+                "policy": {
+                    "audit_level": "full",
+                    "approval": {"mode": "sometimes", "risk_level": "high"},
+                },
+            },
+            "tool_spec",
+        )
+
+
+def test_run_step_tool_call_spec_exposes_safe_execution_control_fields_only():
+    document = {
+        "id": "rstc_01JEXAMPLE",
+        "tenant_id": "tenant_01JEXAMPLE",
+        "workspace_id": "workspace_01JEXAMPLE",
+        "run_id": "run_01JEXAMPLE",
+        "run_step_id": "step_01JEXAMPLE",
+        "tool_call_id": "call_weather",
+        "idempotency_key": "tool:run_01JEXAMPLE:call_weather",
+        "request_hash": "a" * 64,
+        "tool_ref": "tool:function:get_weather",
+        "status": "succeeded",
+        "attempt_count": 1,
+        "parameters_summary": {"city": "Beijing"},
+        "result": {"temperature": 28},
+        "created_at": "2026-07-17T10:00:00Z",
+        "updated_at": "2026-07-17T10:00:01Z",
+        "completed_at": "2026-07-17T10:00:01Z",
+    }
+
+    assert validate_spec(document, "run_step_tool_call_spec") is True
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {**document, "parameters_json": {"api_key": "must-not-be-exposed"}},
+            "run_step_tool_call_spec",
+        )
+
+
 def test_plugin_spec_validation_with_refs():
     plugin_doc = {
         "name": "demo_plugin",

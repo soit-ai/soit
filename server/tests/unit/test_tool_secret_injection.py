@@ -3,8 +3,11 @@
 Unit tests for tool secret injection and redaction.
 """
 
+from datetime import UTC
+
 import pytest
 from sqlalchemy import select
+from tenacity import RetryError
 
 from app.adapters.tools.router import RegistryToolRouterPort
 from app.kernel.commons.errors import ForbiddenError, ValidationError
@@ -12,7 +15,7 @@ from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.ports.tools.policy import ToolPolicyGateway
 from app.kernel.runtime.db.models.audit import AuditEvent
-from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.runtime.db.models.runs import RunStep, RunStepToolCall
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
@@ -44,6 +47,54 @@ class DummyToolPort(ToolPort):
 
     async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
         self.last_parameters = parameters
+        return ToolResponse(result={"ok": True}, success=True, metadata={})
+
+
+class FailingToolPort(ToolPort):
+    """Tool port that fails after the governed claim is durable."""
+
+    async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
+        raise RuntimeError("upstream response was lost")
+
+
+class InspectingLeaseToolPort(ToolPort):
+    """Tool port that observes the durable lease at the outbound boundary."""
+
+    def __init__(self, db):
+        self.db = db
+        self.remaining_lease_seconds = 0.0
+
+    async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
+        record_result = self.db.exec(
+            select(RunStepToolCall).where(
+                RunStepToolCall.tool_call_id == kwargs["tool_call_id"]
+            )
+        ).one()
+        record = (
+            record_result
+            if isinstance(record_result, RunStepToolCall)
+            else record_result[0]
+        )
+        expires_at = record.lease_expires_at
+        assert expires_at is not None
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        from app.kernel.commons.time import utc_now
+
+        self.remaining_lease_seconds = (expires_at - utc_now()).total_seconds()
+        return ToolResponse(result={"ok": True}, success=True, metadata={})
+
+
+class RetryableToolPort(ToolPort):
+    """Return one durable failure followed by a success."""
+
+    def __init__(self):
+        self.call_count = 0
+
+    async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
+        self.call_count += 1
+        if self.call_count == 1:
+            return ToolResponse(result=None, success=False, error="temporary failure")
         return ToolResponse(result={"ok": True}, success=True, metadata={})
 
 
@@ -92,6 +143,7 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
         tool_ref="tool:http:demo",
         parameters=parameters,
         run_id=run.id,
+        tool_call_id="call-secret-redaction",
     )
 
     assert dummy_tool.last_parameters["headers"]["Authorization"] == "supersecret"
@@ -118,6 +170,20 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
     assert "secret:test_token" in audit_json
+    call_record_result = db.exec(
+        select(RunStepToolCall).where(
+            RunStepToolCall.run_id == run.id,
+            RunStepToolCall.tool_call_id == "call-secret-redaction",
+        )
+    ).one()
+    call_record = (
+        call_record_result
+        if isinstance(call_record_result, RunStepToolCall)
+        else call_record_result[0]
+    )
+    assert call_record.run_step_id == step.id
+    assert "supersecret" not in str(call_record.parameters_summary_json)
+    assert call_record.status == "succeeded"
     tool_call = (step.metrics_json or {}).get("tool_call")
     assert tool_call["tool_ref"] == "tool:http:demo"
     assert tool_call["status"] == "completed"
@@ -135,7 +201,113 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     _, _, tool_calls = response_service.get_response_detail(response.id)
     assert len(tool_calls) == 1
     assert tool_calls[0]["tool_name"] == "tool:http:demo"
+    assert tool_calls[0]["tool_call_id"] == "call-secret-redaction"
+    assert tool_calls[0]["run_step_tool_call_id"] == call_record.id
+    assert tool_calls[0]["attempt_count"] == 1
     assert tool_calls[0]["arguments_json"]["headers"]["Authorization"]["secret_ref"] == "secret:test_token"
+
+
+@pytest.mark.asyncio
+async def test_tool_policy_finishes_ledger_when_adapter_raises(db, ctx):
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(mode="workflow", kind="workflow")
+    gateway = ToolPolicyGateway(
+        gateway=FailingToolPort(),
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+
+    with pytest.raises(RetryError):
+        await gateway.invoke(
+            tool_ref="tool:function:unstable",
+            parameters={"value": "once"},
+            run_id=run.id,
+            tool_call_id="call-failed",
+            idempotency_key=f"tool:{run.id}:call-failed",
+        )
+
+    record_result = db.exec(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).one()
+    record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
+    step_result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).one()
+    step = step_result if isinstance(step_result, RunStep) else step_result[0]
+    assert record.status == "failed"
+    assert record.error_code == "TOOL_EXECUTION_FAILED"
+    assert record.error_message == "Tool execution failed"
+    assert step.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_tool_policy_lease_outlives_the_bounded_outbound_call(db, ctx):
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(mode="workflow", kind="workflow")
+    tool_port = InspectingLeaseToolPort(db)
+    gateway = ToolPolicyGateway(
+        gateway=tool_port,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+
+    await gateway.invoke(
+        tool_ref="tool:function:slow",
+        parameters={},
+        run_id=run.id,
+        tool_call_id="call-slow",
+        timeout_s=90,
+    )
+
+    assert tool_port.remaining_lease_seconds >= 95
+
+
+@pytest.mark.asyncio
+async def test_tool_policy_retries_a_failed_call_only_when_explicitly_requested(db, ctx):
+    trace_writer = TraceWriter(db, ctx)
+    run = trace_writer.create_run(mode="workflow", kind="workflow")
+    tool_port = RetryableToolPort()
+    gateway = ToolPolicyGateway(
+        gateway=tool_port,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+    call_kwargs = {
+        "run_id": run.id,
+        "tool_call_id": "call-explicit-retry",
+        "idempotency_key": f"tool:{run.id}:call-explicit-retry",
+    }
+
+    failed = await gateway.invoke(
+        tool_ref="tool:function:retryable",
+        parameters={"value": "one"},
+        **call_kwargs,
+    )
+    replayed = await gateway.invoke(
+        tool_ref="tool:function:retryable",
+        parameters={"value": "one"},
+        **call_kwargs,
+    )
+    succeeded = await gateway.invoke(
+        tool_ref="tool:function:retryable",
+        parameters={"value": "one"},
+        retry_failed=True,
+        **call_kwargs,
+    )
+
+    record_result = db.exec(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).one()
+    record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
+    assert failed.success is False
+    assert replayed.success is False
+    assert replayed.metadata["idempotent_replay"] is True
+    assert succeeded.success is True
+    assert tool_port.call_count == 2
+    assert record.status == "succeeded"
+    assert record.attempt_count == 2
+    assert len(db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()) == 1
 
 
 @pytest.mark.asyncio

@@ -257,12 +257,6 @@ class ModelHubService:
         },
     )
 
-    @staticmethod
-    def _normalize_provider_kind_for_support(provider_kind: str) -> str:
-        if provider_kind == "openai_compat":
-            return "openai_compatible"
-        return provider_kind
-
     def __init__(
         self,
         db: Session,
@@ -381,6 +375,8 @@ class ModelHubService:
         auth_config: dict[str, Any] | None,
         credential_ref: str | None,
     ) -> None:
+        if credential_ref and not credential_ref.startswith("secret:"):
+            raise ValidationError("Provider credential_ref must start with secret:")
         if adapter_backend != "litellm":
             return
         resolve_litellm_runtime_config(
@@ -422,7 +418,7 @@ class ModelHubService:
         providers = await self.list_providers(limit=500)
         providers_by_kind: dict[str, list[Provider]] = {}
         for provider in providers:
-            kind = self._normalize_provider_kind_for_support(provider.kind)
+            kind = provider.kind
             providers_by_kind.setdefault(kind, []).append(provider)
 
         matrix: list[dict[str, Any]] = []
@@ -750,6 +746,7 @@ class ModelHubService:
         return ModelWorkbenchModelRow(
             id=model.id,
             provider_id=model.provider_id,
+            provider_slug=provider.slug if provider and provider.slug else model.provider_kind,
             provider_name=provider_name,
             provider_kind=model.provider_kind,
             model_id=model.model_id,
@@ -936,8 +933,6 @@ class ModelHubService:
         if model.status != "active" or model.sync_status == "platform_removed":
             return "disabled"
         if provider and provider.status == "error":
-            return "abnormal"
-        if metrics.get("failed_run_ids"):
             return "abnormal"
         return "available"
 
@@ -1636,12 +1631,9 @@ class ModelHubService:
     async def _resolve_credential(self, credential_ref: str | None) -> str:
         if not credential_ref:
             raise ValidationError("Provider credential_ref is required")
-        secret_ref = credential_ref
-        if credential_ref.startswith("sec_"):
-            secret_ref = f"secret:{credential_ref}"
-        if not credential_ref.startswith("secret:") and credential_ref.startswith("sec_") is False:
-            secret_ref = credential_ref
-        return await self.secrets_port.get_secret(secret_ref=secret_ref)
+        if not credential_ref.startswith("secret:"):
+            raise ValidationError("Provider credential_ref must start with secret:")
+        return await self.secrets_port.get_secret(secret_ref=credential_ref)
 
     async def _resolve_litellm_credentials(self, provider: Provider) -> dict[str, str]:
         runtime = resolve_litellm_runtime_config(

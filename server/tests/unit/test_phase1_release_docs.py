@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import re
 import subprocess
@@ -211,256 +210,24 @@ def test_scripts_readme_documents_phase1_demo_seed() -> None:
         assert term in content
 
 
-def test_phase1_migration_runbook_documents_empty_and_dev_database_paths() -> None:
+def test_phase1_migration_runbook_documents_fresh_install_only() -> None:
     runbook = ROOT / "docs" / "release-migration.md"
 
     assert runbook.is_file()
 
     content = runbook.read_text(encoding="utf-8")
     required_terms = [
-        "SOIT 1.0 Upgrade and Migration Runbook",
-        "Empty Database Path",
-        "Development Database Path",
+        "SOIT 1.0 Fresh Installation Migration Runbook",
+        "Fresh Installation Only",
+        "Single Baseline",
         "uv run alembic heads",
         "uv run alembic upgrade head",
         "uv run alembic current",
-        "Backup",
-        "Rollback",
         "Exit Evidence",
     ]
     for term in required_terms:
         assert term in content
-
-
-def test_appcenter_projection_migration_allows_empty_database_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_path = ROOT / "server" / "alembic" / "versions" / "20260127090000_appcenter_proj.py"
-    spec = importlib.util.spec_from_file_location("appcenter_projection_migration", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class EmptyDatabaseInspector:
-        def get_table_names(self) -> list[str]:
-            return []
-
-        def get_columns(self, table_name: str) -> list[dict[str, str]]:
-            raise AssertionError(f"unexpected column reflection for missing table {table_name}")
-
-        def get_indexes(self, table_name: str) -> list[dict[str, str]]:
-            raise AssertionError(f"unexpected index reflection for missing table {table_name}")
-
-    class FakeOp:
-        created_tables: list[str] = []
-        added_columns: list[str] = []
-
-        @staticmethod
-        def get_bind() -> object:
-            return object()
-
-        @classmethod
-        def create_table(cls, name: str, *args: object, **kwargs: object) -> None:
-            cls.created_tables.append(name)
-
-        @classmethod
-        def add_column(cls, table_name: str, column: object) -> None:
-            cls.added_columns.append(table_name)
-
-        @staticmethod
-        def create_unique_constraint(*args: object, **kwargs: object) -> None:
-            return None
-
-        @staticmethod
-        def create_index(*args: object, **kwargs: object) -> None:
-            return None
-
-    monkeypatch.setattr(module.sa, "inspect", lambda connection: EmptyDatabaseInspector())
-    monkeypatch.setattr(module, "op", FakeOp)
-
-    module.upgrade()
-
-    assert FakeOp.added_columns == []
-    assert {
-        "app_components",
-        "app_component_edges",
-        "app_version_refs",
-    }.issubset(set(FakeOp.created_tables))
-
-
-def test_identity_profile_migration_skips_existing_baseline_columns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_path = ROOT / "server" / "alembic" / "versions" / "20260129090000_id_profile_ws.py"
-    spec = importlib.util.spec_from_file_location("identity_profile_migration", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class BaselineInspector:
-        def get_columns(self, table_name: str) -> list[dict[str, str]]:
-            columns = {
-                "users": ["id", "profile_json"],
-                "workspaces": ["id", "metadata_json"],
-            }
-            return [{"name": name} for name in columns[table_name]]
-
-    class FakeBatch:
-        def __enter__(self) -> FakeBatch:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def add_column(self, column: object) -> None:
-            raise AssertionError("existing baseline column must not be added again")
-
-    class FakeOp:
-        @staticmethod
-        def get_bind() -> object:
-            return object()
-
-        @staticmethod
-        def batch_alter_table(table_name: str) -> FakeBatch:
-            assert table_name in {"users", "workspaces"}
-            return FakeBatch()
-
-    monkeypatch.setattr(module.sa, "inspect", lambda connection: BaselineInspector())
-    monkeypatch.setattr(module, "op", FakeOp)
-
-    module.upgrade()
-
-
-def test_message_parent_migration_skips_missing_historical_messages_table(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_path = ROOT / "server" / "alembic" / "versions" / "20260211170000_message_parent_id.py"
-    spec = importlib.util.spec_from_file_location("message_parent_migration", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class EmptyInspector:
-        def get_table_names(self) -> list[str]:
-            return []
-
-    class FakeOp:
-        @staticmethod
-        def get_bind() -> object:
-            return object()
-
-        @staticmethod
-        def add_column(*args: object, **kwargs: object) -> None:
-            raise AssertionError("missing historical messages table must not be altered")
-
-        @staticmethod
-        def create_index(*args: object, **kwargs: object) -> None:
-            raise AssertionError("missing historical messages table must not be indexed")
-
-    monkeypatch.setattr(module.sa, "inspect", lambda connection: EmptyInspector())
-    monkeypatch.setattr(module, "op", FakeOp)
-
-    module.upgrade()
-
-
-def test_run_subject_migration_skips_removed_app_columns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_path = ROOT / "server" / "alembic" / "versions" / "20260307123000_run_subject_fields.py"
-    spec = importlib.util.spec_from_file_location("run_subject_migration", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class CurrentRunsInspector:
-        def get_columns(self, table_name: str) -> list[dict[str, str]]:
-            assert table_name == "runs"
-            return [
-                {"name": "tenant_id"},
-                {"name": "workspace_id"},
-                {"name": "subject_kind"},
-                {"name": "subject_id"},
-                {"name": "subject_version_id"},
-                {"name": "started_at"},
-            ]
-
-        def get_indexes(self, table_name: str) -> list[dict[str, str]]:
-            assert table_name == "runs"
-            return [
-                {"name": "ix_runs_subject_kind"},
-                {"name": "ix_runs_subject_id"},
-                {"name": "ix_runs_subject_version_id"},
-                {"name": "ix_runs_scope_subject_started"},
-            ]
-
-    class FakeOp:
-        @staticmethod
-        def get_bind() -> object:
-            return object()
-
-        @staticmethod
-        def add_column(*args: object, **kwargs: object) -> None:
-            raise AssertionError("existing subject columns must not be added again")
-
-        @staticmethod
-        def create_index(*args: object, **kwargs: object) -> None:
-            raise AssertionError("existing subject indexes must not be created again")
-
-        @staticmethod
-        def alter_column(table_name: str, column_name: str, **kwargs: object) -> None:
-            raise AssertionError(f"removed app column must not be altered: {table_name}.{column_name}")
-
-    monkeypatch.setattr(module.sa, "inspect", lambda connection: CurrentRunsInspector())
-    monkeypatch.setattr(module, "op", FakeOp)
-
-    module.upgrade()
-
-
-def test_knowledge_source_kind_migration_skips_current_column_shape(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_path = (
-        ROOT
-        / "server"
-        / "alembic"
-        / "versions"
-        / "20260603110000_knowledge_document_source_kind.py"
-    )
-    spec = importlib.util.spec_from_file_location("knowledge_source_kind_migration", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class CurrentKnowledgeDocumentInspector:
-        def get_table_names(self) -> list[str]:
-            return ["knowledge_documents"]
-
-        def get_columns(self, table_name: str) -> list[dict[str, str]]:
-            assert table_name == "knowledge_documents"
-            return [{"name": "id"}, {"name": "source_kind"}]
-
-    class FakeOp:
-        @staticmethod
-        def get_bind() -> object:
-            return object()
-
-        @staticmethod
-        def batch_alter_table(table_name: str) -> object:
-            raise AssertionError(f"current column shape must not be altered: {table_name}")
-
-    monkeypatch.setattr(
-        module.sa,
-        "inspect",
-        lambda connection: CurrentKnowledgeDocumentInspector(),
-    )
-    monkeypatch.setattr(module, "op", FakeOp)
-
-    module.upgrade()
+    assert "Development Database Path" not in content
 
 
 def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
@@ -477,18 +244,17 @@ def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
     report = validate_migration_evidence(evidence)
 
     assert report["passed"] is True
-    assert report["head_revision"] == "20260611120000_regression_evaluation_tables"
+    assert report["head_revision"] == "20260718140000"
     assert report["paths"] == {
-        "empty_database": "20260611120000_regression_evaluation_tables",
-        "development_database": "20260611120000_regression_evaluation_tables",
+        "fresh_install": "20260718140000",
     }
 
-    broken = dict(evidence)
-    broken["development_database"] = {
-        **evidence["development_database"],
-        "post_upgrade_revision": "20260608110000_provider_model_configuration_json",
+    broken = deepcopy(evidence)
+    broken["fresh_install"] = {
+        **evidence["fresh_install"],
+        "post_upgrade_revision": "wrong_revision",
     }
-    with pytest.raises(MigrationEvidenceError, match="development_database"):
+    with pytest.raises(MigrationEvidenceError, match="fresh_install"):
         validate_migration_evidence(broken)
 
     wrong_feature = dict(evidence)
@@ -496,12 +262,10 @@ def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
     with pytest.raises(MigrationEvidenceError, match="featureKey"):
         validate_migration_evidence(wrong_feature)
 
-    no_op_development_path = deepcopy(evidence)
-    no_op_development_path["development_database"]["pre_upgrade_revision"] = evidence[
-        "head_revision"
-    ]
-    with pytest.raises(MigrationEvidenceError, match="pre_upgrade_revision"):
-        validate_migration_evidence(no_op_development_path)
+    legacy_path = deepcopy(evidence)
+    legacy_path["development_database"] = {}
+    with pytest.raises(MigrationEvidenceError, match="no longer supported"):
+        validate_migration_evidence(legacy_path)
 
     invalid_window = dict(evidence)
     invalid_window["finishedAt"] = "2026-06-11T09:59:59Z"

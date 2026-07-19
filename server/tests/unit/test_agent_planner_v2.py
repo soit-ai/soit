@@ -17,8 +17,10 @@ class MockFCLLMPort(InMemoryLLMPort):
 
     def __init__(self, response: ChatResponse):
         self._response = response
+        self.kwargs = {}
 
     async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        self.kwargs = kwargs
         return self._response
 
 
@@ -67,6 +69,32 @@ async def test_planner_returns_respond_action_when_llm_returns_text():
     assert result.action == "respond"
     assert result.response == "The weather is sunny."
     assert result.tool_calls is None
+
+
+@pytest.mark.asyncio
+async def test_planner_returns_provider_reasoning_and_forwards_effort():
+    llm = MockFCLLMPort(
+        ChatResponse(
+            text="Done.",
+            reasoning="Checked the evidence.",
+            tokens_prompt=10,
+            tokens_completion=5,
+            finish_reason="stop",
+        )
+    )
+    planner = AgentPlanner(llm)
+
+    result = await planner.plan(
+        messages=[ChatMessage(role="user", content="Check this")],
+        tool_definitions=None,
+        model="test-model",
+        temperature=None,
+        run_id="run_1",
+        reasoning_effort="high",
+    )
+
+    assert result.reasoning == "Checked the evidence."
+    assert llm.kwargs["reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio

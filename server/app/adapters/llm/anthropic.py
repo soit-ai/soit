@@ -63,6 +63,7 @@ class AnthropicLLMPort(LLMPort):
         usage = body.get("usage") or {}
         return ChatResponse(
             text=self._extract_text(body),
+            reasoning=self._extract_reasoning(body),
             tokens_prompt=int(usage.get("input_tokens") or 0),
             tokens_completion=int(usage.get("output_tokens") or 0),
             model=body.get("model") or self._resolve_model_name(model),
@@ -111,6 +112,12 @@ class AnthropicLLMPort(LLMPort):
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
                     elif event_type == "content_block_delta":
                         delta = event.get("delta") or {}
+                        reasoning = delta.get("thinking") or ""
+                        if delta.get("type") == "thinking_delta" and reasoning:
+                            yield ChatStreamChunk(
+                                reasoning_delta=str(reasoning),
+                                model=model_name,
+                            )
                         text = delta.get("text") or ""
                         if text:
                             yield ChatStreamChunk(delta=text, model=model_name)
@@ -199,6 +206,19 @@ class AnthropicLLMPort(LLMPort):
             if isinstance(item, dict) and item.get("type") == "text" and item.get("text"):
                 parts.append(str(item["text"]))
         return "\n".join(parts).strip()
+
+    @staticmethod
+    def _extract_reasoning(payload: dict[str, Any]) -> str | None:
+        parts: list[str] = []
+        for item in payload.get("content", []) or []:
+            if (
+                isinstance(item, dict)
+                and item.get("type") == "thinking"
+                and item.get("thinking")
+            ):
+                parts.append(str(item["thinking"]))
+        reasoning = "\n".join(parts).strip()
+        return reasoning or None
 
     @staticmethod
     def _resolve_model_name(model: str) -> str:

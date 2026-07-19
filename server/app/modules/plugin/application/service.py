@@ -467,10 +467,7 @@ class PluginService:
                 platform_features = set(
                     resolve_enabled_features(
                         edition=self.settings.platform_edition,
-                        entitlement_keys=[
-                            *(self.settings.platform_entitlements or []),
-                            *(self.settings.platform_features or []),
-                        ],
+                        entitlement_keys=self.settings.platform_entitlements or [],
                         registry=feature_registry,
                     )
                 )
@@ -917,13 +914,15 @@ class PluginService:
         existing = self.installation_repo.get_by_plugin(plugin_id)
         if existing:
             raise ValidationError(f"Plugin '{plugin.name}' is already installed")
+        if not plugin.published_version_id:
+            raise ValidationError("Plugin must be published before installation")
 
         # Create installation
         installation = PluginInstallation(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             plugin_id=plugin_id,
-            plugin_version_id=plugin.published_version_id or plugin.current_version_id,
+            plugin_version_id=plugin.published_version_id,
             installed_by=self.ctx.user_id,
             config_json=install_request.config_json,
             enabled=True,

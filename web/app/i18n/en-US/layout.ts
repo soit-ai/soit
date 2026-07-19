@@ -52,6 +52,29 @@ const translation = {
       label: 'Settings',
     },
   },
+  search: {
+    title: 'Search workspace',
+    description: 'Find agents, workflows, knowledge, plugins, models, conversations, and runs in this workspace.',
+    inputLabel: 'Workspace search query',
+    action: 'Search',
+    filtersLabel: 'Resource type filters',
+    resultSummary: '{{count}} results for “{{query}}”',
+    startHint: 'Enter at least two characters to search.',
+    loading: 'Searching workspace...',
+    failed: 'Workspace search failed. Try again.',
+    emptyTitle: 'No matching resources',
+    emptyDescription: 'Try another term or clear the resource type filter.',
+    kinds: {
+      all: 'All',
+      agent: 'Agents',
+      workflow: 'Workflows',
+      knowledge: 'Knowledge',
+      plugin: 'Plugins',
+      model: 'Models',
+      thread: 'Conversations',
+      run: 'Runs',
+    },
+  },
 }
 
 export default translation

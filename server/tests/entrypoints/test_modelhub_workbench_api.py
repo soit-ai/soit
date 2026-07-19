@@ -223,14 +223,14 @@ def test_modelhub_workbench_overview_aggregates_runtime_data(client, db):
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
     assert payload["summary"]["total_models"] == 3
-    assert payload["summary"]["available_models"] == 1
+    assert payload["summary"]["available_models"] == 2
     assert payload["summary"]["total_providers"] == 2
     assert payload["summary"]["online_providers"] == 1
     assert payload["summary"]["month_calls"] == 2
     assert payload["summary"]["month_tokens"] == 410
     assert payload["summary"]["month_cost_amount"] == 2.5
     assert payload["summary"]["avg_latency_ms"] == 400
-    assert payload["summary"]["abnormal_models"] == 1
+    assert payload["summary"]["abnormal_models"] == 0
     assert payload["model_tabs"]["all"] == 3
     assert payload["model_tabs"]["embedding"] == 1
     assert payload["provider_tabs"]["error"] == 1
@@ -258,7 +258,9 @@ def test_modelhub_workbench_models_filters_and_paginates(client, db):
     assert payload["next_page_token"] is None
     assert [item["id"] for item in payload["items"]] == [seeded["chat_model"].id]
     assert payload["items"][0]["provider_name"] == "OpenAI Main"
-    assert payload["items"][0]["status"] == "abnormal"
+    assert payload["items"][0]["provider_slug"] == "openai-main"
+    assert payload["items"][0]["status"] == "available"
+    assert payload["items"][0]["recent_exception_count"] == 1
     assert payload["items"][0]["today_calls"] == 2
     assert payload["items"][0]["month_cost_amount"] == 2.0
     assert payload["items"][0]["unit_price"] is None

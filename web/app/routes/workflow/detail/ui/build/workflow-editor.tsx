@@ -198,7 +198,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
             <Controls showInteractive={false} />
             <MiniMap />
 
-            <Panel position="top-right" className="flex gap-2 p-2">
+            <Panel position="top-center" className="flex gap-2 p-2">
               <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm p-1 rounded-full shadow-sm">
                 <TooltipProvider>
                   <Tooltip delayDuration={300}>
@@ -216,7 +216,13 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                 <TooltipProvider>
                   <Tooltip delayDuration={300}>
                     <TooltipTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full" onClick={handleShowCallConfig}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-full"
+                        aria-label={t('workflow.build.actions.callConfig')}
+                        onClick={handleShowCallConfig}
+                      >
                         <Share2 className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>

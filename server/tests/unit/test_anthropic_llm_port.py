@@ -150,3 +150,87 @@ async def test_anthropic_llm_embed_and_rerank_are_unsupported():
 
     assert "Embeddings are not supported" in embed_error.value.message
     assert "Rerank is not supported" in rerank_error.value.message
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_chat_exposes_provider_thinking(monkeypatch):
+    class FakeHttpResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "model": "claude-sonnet-4-6",
+                "stop_reason": "end_turn",
+                "content": [
+                    {"type": "thinking", "thinking": "Checked the evidence."},
+                    {"type": "text", "text": "Done."},
+                ],
+                "usage": {"input_tokens": 3, "output_tokens": 2},
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            return FakeHttpResponse()
+
+    monkeypatch.setattr("app.adapters.llm.anthropic.httpx.AsyncClient", FakeClient)
+    port = AnthropicLLMPort(api_key="anthropic-key")
+
+    response = await port.chat(
+        [ChatMessage(role="user", content="Check this")],
+        model="model:anthropic:claude-sonnet-4-6",
+    )
+
+    assert response.reasoning == "Checked the evidence."
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_stream_exposes_thinking_delta(monkeypatch):
+    class FakeByteStream:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield 'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Checking."}}'
+            yield 'data: {"type":"message_stop"}'
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, *args, **kwargs):
+            return FakeByteStream()
+
+    monkeypatch.setattr("app.adapters.llm.anthropic.httpx.AsyncClient", FakeClient)
+    port = AnthropicLLMPort(api_key="anthropic-key")
+
+    chunks = [
+        chunk
+        async for chunk in port.stream_chat(
+            [ChatMessage(role="user", content="Check this")],
+            model="model:anthropic:claude-sonnet-4-6",
+        )
+    ]
+
+    assert chunks[0].reasoning_delta == "Checking."

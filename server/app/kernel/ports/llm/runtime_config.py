@@ -11,7 +11,6 @@ from app.kernel.commons.errors import ValidationError
 LITELLM_PROVIDER_PRESETS: dict[str, str] = {
     "openai": "openai",
     "openai_compatible": "openai",
-    "openai_compat": "openai",
     "anthropic": "anthropic",
     "deepseek": "deepseek",
     "gemini": "gemini",
@@ -25,12 +24,6 @@ LITELLM_PROVIDER_PRESETS: dict[str, str] = {
 PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
     "openai": {"chat": True, "embeddings": True, "rerank": False, "tools": True},
     "openai_compatible": {
-        "chat": True,
-        "embeddings": True,
-        "rerank": False,
-        "tools": True,
-    },
-    "openai_compat": {
         "chat": True,
         "embeddings": True,
         "rerank": False,
@@ -148,8 +141,12 @@ def resolve_litellm_runtime_config(
             raise ValidationError(f"Unsupported LiteLLM secret binding: {key}")
         if not isinstance(secret_ref, str) or not secret_ref.strip():
             raise ValidationError(f"LiteLLM secret binding must reference a secret: {key}")
+        if not secret_ref.startswith("secret:"):
+            raise ValidationError(f"LiteLLM secret binding must start with secret: {key}")
         secret_bindings[key] = secret_ref
     if credential_ref and "api_key" not in secret_bindings:
+        if not credential_ref.startswith("secret:"):
+            raise ValidationError("Provider credential_ref must start with secret:")
         secret_bindings["api_key"] = credential_ref
 
     return LiteLLMRuntimeConfig(
@@ -181,16 +178,10 @@ def normalize_capability_matrix(
     """Normalize capability sources and calculate the final merged support."""
     normalized_matrix: dict[str, dict[str, Any]] = {}
     for capability, raw_entry in (matrix or {}).items():
-        legacy_merged: bool | None = None
-        if isinstance(raw_entry, bool):
-            entry: dict[str, Any] = {"catalog": raw_entry}
-            legacy_merged = raw_entry
-        elif raw_entry is None:
+        if raw_entry is None:
             entry = {}
         elif isinstance(raw_entry, dict):
             entry = raw_entry
-            if isinstance(entry.get("merged"), bool):
-                legacy_merged = entry["merged"]
         else:
             raise ValidationError(f"Invalid capability matrix entry: {capability}")
 
@@ -211,7 +202,7 @@ def normalize_capability_matrix(
                     for value in (diagnostics, runtime, catalog)
                     if value is not None
                 ),
-                legacy_merged,
+                None,
             )
         else:
             raise ValidationError(f"Invalid capability user override: {user_override}")

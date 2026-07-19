@@ -9,32 +9,36 @@ from typing import Any
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.kernel.commons.errors import KernelError
 from app.kernel.commons.time import to_iso8601, utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken, parse_page_params
 from app.kernel.runtime.db.models.responses import Response
-from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
+from app.kernel.runtime.db.models.runs import (
+    Run,
+    RunCostEntry,
+    RunStep,
+    RunStepToolCall,
+)
 from app.kernel.runtime.runs.service import RunService
-from app.kernel.runtime.tasks.status import ApprovalStatus
+from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.application.dashboard_schemas import (
     AgentSummaryResponse,
     ApprovalsSummaryResponse,
     DashboardOverviewResponse,
     DashboardPageResponse,
-    DashboardSectionResponse,
     DashboardTabResponse,
     EmptyStateResponse,
     KnowledgeQualityResponse,
     MetricCardResponse,
-    ModelCostResponse,
     PriorityAlertResponse,
     RecentRunResponse,
     ToolHealthResponse,
     WorkflowBottleneckResponse,
     WorkspaceObserveDashboard,
-    WorkspaceSummaryResponse,
+    validate_dashboard_section_response,
 )
-from app.modules.observe.infra.repository import ApprovalRepository, FeedbackRepository
+from app.modules.observe.infra.repository import ApprovalRepository
 
 RANGE_SECONDS = {
     "1h": 60 * 60,
@@ -67,12 +71,10 @@ class ObserveDashboardService:
         db: Session,
         ctx: RequestContext,
         approval_repo: ApprovalRepository,
-        feedback_repo: FeedbackRepository,
     ) -> None:
         self.db = db
         self.ctx = ctx
         self.approval_repo = approval_repo
-        self.feedback_repo = feedback_repo
 
     @staticmethod
     def _duration(label: str, mapping: dict[str, int], default: str) -> timedelta:
@@ -187,6 +189,37 @@ class ObserveDashboardService:
             .all()
         )
 
+    def _tool_calls_by_step(self, steps: list[RunStep]) -> dict[str, RunStepToolCall]:
+        step_ids = [step.id for step in steps]
+        if not step_ids:
+            return {}
+        records = list(
+            self.db.execute(
+                select(RunStepToolCall).where(
+                    and_(
+                        RunStepToolCall.tenant_id == self.ctx.tenant_id,
+                        RunStepToolCall.workspace_id == self.ctx.workspace_id,
+                        RunStepToolCall.run_step_id.in_(step_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_step = {record.run_step_id: record for record in records}
+        missing = sorted(
+            step.id
+            for step in steps
+            if step.step_type == "tool" and step.id not in by_step
+        )
+        if missing:
+            raise KernelError(
+                "RUNTIME_CONTRACT_VIOLATION",
+                "Tool run step is missing a run_step_tool_calls record",
+                {"run_step_ids": missing},
+            )
+        return by_step
+
     def _responses_for_runs(self, run_ids: list[str]) -> list[Response]:
         if not run_ids:
             return []
@@ -218,21 +251,6 @@ class ObserveDashboardService:
             ).scalar_one()
             or 0
         )
-
-    def _resolve_tool_ref(self, step: RunStep) -> str | None:
-        metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
-        tool_call = metrics.get("tool_call") if isinstance(metrics.get("tool_call"), dict) else {}
-        tool_ref = tool_call.get("tool_ref") or tool_call.get("tool_name")
-        if isinstance(tool_ref, str) and tool_ref:
-            return tool_ref
-        if step.step_id and step.step_id.startswith(("tool:", "mcp_tool:")):
-            return step.step_id
-        return step.step_id if step.step_type == "tool" and step.step_id else None
-
-    @staticmethod
-    def _has_tool_projection(step: RunStep) -> bool:
-        metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
-        return step.step_type == "tool" or isinstance(metrics.get("tool_call"), dict)
 
     @staticmethod
     def _citation_knowledge_id(citation: Any) -> str | None:
@@ -363,7 +381,7 @@ class ObserveDashboardService:
         self,
         runs: list[Run],
         steps: list[RunStep],
-        costs: list[RunCostEntry],
+        tool_calls_by_step: dict[str, RunStepToolCall],
         responses: list[Response],
         *,
         window_start: datetime,
@@ -383,9 +401,6 @@ class ObserveDashboardService:
                 "last_run_at": None,
                 "last_error": None,
             }
-        )
-        model_cost_map: dict[str, dict[str, float | int]] = defaultdict(
-            lambda: {"total_cost_usd": 0.0, "total_tokens": 0}
         )
         workflow_map: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"step_count": 0, "failed_step_count": 0, "latencies": [], "affected_agents": set()}
@@ -426,12 +441,6 @@ class ObserveDashboardService:
                 if started_at and (summary["last_run_at"] is None or started_at > summary["last_run_at"]):
                     summary["last_run_at"] = started_at
 
-        for cost in costs:
-            if cost.model_ref:
-                bucket_cost = model_cost_map[cost.model_ref]
-                bucket_cost["total_cost_usd"] = float(bucket_cost["total_cost_usd"]) + float(cost.amount)
-                bucket_cost["total_tokens"] = int(bucket_cost["total_tokens"]) + int(cost.total_tokens or 0)
-
         for step in steps:
             metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
             run = run_by_id.get(step.run_id)
@@ -449,19 +458,21 @@ class ObserveDashboardService:
                 if agent_id:
                     workflow["affected_agents"].add(agent_id)
 
-            tool_ref = self._resolve_tool_ref(step)
-            if tool_ref and self._has_tool_projection(step):
+            tool_call = tool_calls_by_step.get(step.id)
+            if tool_call is not None:
+                tool_ref = tool_call.tool_ref
                 trend[bucket_key]["tool_count"] += 1
                 tool = tool_health_map[tool_ref]
                 tool["call_count"] += 1
-                if step.status == "failed":
+                if tool_call.status == "failed":
                     tool["failed_call_count"] += 1
                     trend[bucket_key]["tool_failed_count"] += 1
-                    code = step.error_code or "unknown"
+                    code = tool_call.error_code or step.error_code or "unknown"
                     tool["error_codes"][code] += 1
-                    if "timeout" in code.lower() or "timeout" in (step.error_message or "").lower():
+                    error_message = tool_call.error_message or step.error_message or ""
+                    if "timeout" in code.lower() or "timeout" in error_message.lower():
                         tool["timeout_count"] += 1
-                tool["retry_count"] += self._int_metric(metrics, "retry_count")
+                tool["retry_count"] += max(0, tool_call.attempt_count - 1)
                 if latency:
                     tool["latencies"].append(latency)
                 if agent_id:
@@ -515,7 +526,6 @@ class ObserveDashboardService:
 
         return {
             "agent_summary_map": agent_summary_map,
-            "model_cost_map": model_cost_map,
             "workflow_map": workflow_map,
             "tool_health_map": tool_health_map,
             "knowledge_map": knowledge_map,
@@ -573,16 +583,22 @@ class ObserveDashboardService:
 
         runs = self._scoped_runs(window_start, now)
         steps = self._scoped_steps(window_start, now)
+        tool_calls_by_step = self._tool_calls_by_step(steps)
         costs = self._scoped_costs(window_start, now)
         responses = self._responses_for_runs([run.id for run in runs])
         previous_runs = self._scoped_runs(previous_start, window_start)
         previous_costs = self._scoped_costs(previous_start, window_start)
         approvals = self.approval_repo.list(limit=500, offset=0)
-        feedback = self.feedback_repo.list(limit=500, offset=0)
 
-        aggregate = self._aggregate(runs, steps, costs, responses, window_start=window_start, bucket=bucket_delta)
+        aggregate = self._aggregate(
+            runs,
+            steps,
+            tool_calls_by_step,
+            responses,
+            window_start=window_start,
+            bucket=bucket_delta,
+        )
         agent_summary_map = aggregate["agent_summary_map"]
-        model_cost_map = aggregate["model_cost_map"]
         workflow_map = aggregate["workflow_map"]
         tool_health_map = aggregate["tool_health_map"]
         knowledge_map = aggregate["knowledge_map"]
@@ -608,9 +624,12 @@ class ObserveDashboardService:
                 continue
             if step.node_id:
                 latest_node_run[step.node_id] = self._latest_run(latest_node_run.get(step.node_id), run)  # type: ignore[assignment]
-            tool_ref = self._resolve_tool_ref(step) if self._has_tool_projection(step) else None
-            if tool_ref:
-                latest_tool_run[tool_ref] = self._latest_run(latest_tool_run.get(tool_ref), run)  # type: ignore[assignment]
+            tool_call = tool_calls_by_step.get(step.id)
+            if tool_call is not None:
+                latest_tool_run[tool_call.tool_ref] = self._latest_run(
+                    latest_tool_run.get(tool_call.tool_ref),
+                    run,
+                )  # type: ignore[assignment]
             if step.step_type in {"retrieval", "rerank"}:
                 metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
                 knowledge_id = metrics.get("knowledge_id")
@@ -658,10 +677,6 @@ class ObserveDashboardService:
             )
             for agent_id, summary in sorted(agent_summary_map.items())
         ]
-        model_costs = [
-            ModelCostResponse(model_ref=model_ref, **summary)
-            for model_ref, summary in sorted(model_cost_map.items())
-        ]
         workflow_bottlenecks = [
             WorkflowBottleneckResponse(
                 node_id=node_id,
@@ -699,15 +714,6 @@ class ObserveDashboardService:
             )
             for knowledge_id, summary in sorted(knowledge_map.items())
         ]
-
-        workspace_summary = WorkspaceSummaryResponse(
-            run_count=len(runs),
-            failed_run_count=failed_run_count,
-            active_run_count=active_run_count,
-            pending_approvals=approvals_summary.pending,
-            feedback_count=len(feedback),
-            total_cost_usd=total_cost_usd,
-        )
 
         active_alert_count = failed_run_count + sum(1 for item in tool_health if item.health_status == "critical") + sum(
             1 for item in knowledge_quality if item.quality_status == "critical"
@@ -819,16 +825,18 @@ class ObserveDashboardService:
         filtered_rows = self._filter_rows(section_rows_map[active_tab], q)
         paged_rows, page = self._paginate_rows(filtered_rows, page_token=page_token, page_size=page_size)
 
-        section = DashboardSectionResponse(
-            id=active_tab,  # type: ignore[arg-type]
-            summary_cards=self._section_summary(active_tab, agent_rows, workflow_rows, tool_rows, knowledge_rows),
-            charts=self._section_charts(active_tab, trend_rows, workflow_rows, tool_rows, knowledge_rows),
-            rows=paged_rows,
-            page=page,
-            empty_state=EmptyStateResponse(
-                title=f"暂无{TAB_LABELS[active_tab]}数据",
-                description="当前时间范围内没有对应应用观测数据。",
-            ),
+        section = validate_dashboard_section_response(
+            {
+                "id": active_tab,
+                "summary_cards": self._section_summary(active_tab, agent_rows, workflow_rows, tool_rows, knowledge_rows),
+                "charts": self._section_charts(active_tab, trend_rows, workflow_rows, tool_rows, knowledge_rows),
+                "rows": paged_rows,
+                "page": page,
+                "empty_state": EmptyStateResponse(
+                    title=f"暂无{TAB_LABELS[active_tab]}数据",
+                    description="当前时间范围内没有对应应用观测数据。",
+                ),
+            }
         )
 
         return WorkspaceObserveDashboard(
@@ -842,13 +850,6 @@ class ObserveDashboardService:
                 DashboardTabResponse(id="knowledge_quality", label=TAB_LABELS["knowledge_quality"], count=len(knowledge_rows)),
             ],
             section=section,
-            workspace_summary=workspace_summary,
-            agent_summaries=agent_summaries,
-            model_costs=model_costs,
-            workflow_bottlenecks=workflow_bottlenecks,
-            tool_health=tool_health,
-            knowledge_quality=knowledge_quality,
-            approvals_summary=approvals_summary,
             recent_runs=[
                 self._recent_run_payload(run, cost_by_run, observe_summaries)
                 for run in self._recent_mainline_runs(runs)

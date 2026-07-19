@@ -32,6 +32,14 @@ async def _run_sync_operation(operation_name: str, timeout_seconds: float | None
             f"Storage operation timed out: {operation_name}",
             {"operation": operation_name, "timeout_seconds": timeout_seconds},
         ) from exc
+    except KernelError:
+        raise
+    except Exception as exc:
+        raise KernelError(
+            "STORAGE_UNAVAILABLE",
+            f"Storage operation failed: {operation_name}",
+            {"operation": operation_name},
+        ) from exc
 
 
 class _AsyncFileReader:
@@ -94,8 +102,60 @@ class FsspecStoragePort(StreamingStoragePort):
             if operation_timeout_seconds is None
             else operation_timeout_seconds
         )
-        self.fs, root_path = fsspec.core.url_to_fs(self.base_url, **self.storage_options)
+        try:
+            self.fs, root_path = fsspec.core.url_to_fs(
+                self.base_url,
+                **self.storage_options,
+            )
+        except Exception as exc:
+            raise KernelError(
+                "STORAGE_CONFIG_ERROR",
+                "Storage backend initialization failed",
+                {"backend": self.base_url.split(":", 1)[0]},
+            ) from exc
         self.root_path = self._normalize_root_path(root_path)
+        self._ready = False
+        self._ready_lock = asyncio.Lock()
+
+    async def ensure_ready(self) -> None:
+        """Ensure the local root or object-storage bucket exists."""
+
+        if self._ready:
+            return
+        async with self._ready_lock:
+            if self._ready:
+                return
+            readiness_root = self._readiness_root()
+            if not readiness_root:
+                self._ready = True
+                return
+            exists = await _run_sync_operation(
+                "storage_ready",
+                self.operation_timeout_seconds,
+                self.fs.exists,
+                readiness_root,
+            )
+            if not exists and self.auto_mkdir:
+                await _run_sync_operation(
+                    "storage_initialize",
+                    self.operation_timeout_seconds,
+                    self.fs.makedirs,
+                    readiness_root,
+                    exist_ok=True,
+                )
+                exists = await _run_sync_operation(
+                    "storage_ready",
+                    self.operation_timeout_seconds,
+                    self.fs.exists,
+                    readiness_root,
+                )
+            if not exists:
+                raise KernelError(
+                    "STORAGE_NOT_READY",
+                    "Storage root is not ready",
+                    {"backend": self._backend_name(), "root": readiness_root},
+                )
+            self._ready = True
 
     @staticmethod
     def _default_local_base_url() -> str:
@@ -124,18 +184,22 @@ class FsspecStoragePort(StreamingStoragePort):
             return await reader.read()
 
     async def delete(self, key: str, **kwargs: Any) -> None:
+        await self.ensure_ready()
         normalized_key = self._normalize_key(key)
         path = self._resolve_path(normalized_key)
         exists = await _run_sync_operation("exists", self.operation_timeout_seconds, self.fs.exists, path)
         if exists:
-            await _run_sync_operation("delete", self.operation_timeout_seconds, self.fs.rm, path)
+            delete_object = getattr(self.fs, "rm_file", self.fs.rm)
+            await _run_sync_operation("delete", self.operation_timeout_seconds, delete_object, path)
 
     async def exists(self, key: str, **kwargs: Any) -> bool:
+        await self.ensure_ready()
         normalized_key = self._normalize_key(key)
         path = self._resolve_path(normalized_key)
         return await _run_sync_operation("exists", self.operation_timeout_seconds, self._is_file, path)
 
     async def open_reader(self, key: str, **kwargs: Any) -> StorageReader:
+        await self.ensure_ready()
         normalized_key = self._normalize_key(key)
         path = self._resolve_path(normalized_key)
         exists = await _run_sync_operation("exists", self.operation_timeout_seconds, self._is_file, path)
@@ -155,6 +219,7 @@ class FsspecStoragePort(StreamingStoragePort):
         metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> StorageWriter:
+        await self.ensure_ready()
         normalized_key = self._normalize_key(key)
         path = self._resolve_path(normalized_key)
         if self.auto_mkdir:
@@ -236,6 +301,17 @@ class FsspecStoragePort(StreamingStoragePort):
         if not self.root_path:
             return normalized_key
         return f"{self.root_path.rstrip('/')}/{normalized_key}"
+
+    def _backend_name(self) -> str:
+        protocol = getattr(self.fs, "protocol", None)
+        if isinstance(protocol, tuple | list):
+            protocol = protocol[0] if protocol else None
+        return str(protocol or self.base_url.split(":", 1)[0] or "unknown")
+
+    def _readiness_root(self) -> str:
+        if self._backend_name() in {"s3", "s3a"}:
+            return self.root_path.split("/", 1)[0]
+        return self.root_path
 
     @staticmethod
     def _parent_path(path: str) -> str:

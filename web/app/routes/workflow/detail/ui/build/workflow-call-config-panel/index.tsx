@@ -1,581 +1,307 @@
-import React, { useState, useEffect } from 'react';
-import { useClipboard } from 'use-clipboard-copy';
-import { useTheme } from '@/components/theme-provider';
-import { CodeOutlined, ApiOutlined, FunctionOutlined, CopyOutlined, ExperimentOutlined } from '@ant-design/icons';
-import TestAdapter from './test-adapter';
+import { useMemo, useRef, useState } from 'react'
+import { Copy, Play, Radio, RotateCcw, Send, Square } from 'lucide-react'
+import { toast } from 'sonner'
 
-// Import shadcn components
-import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Separator } from "@/components/ui/separator"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import * as z from "zod"
-import { message } from 'antd';
-import { API_BASE_URL } from '@/utils/request';
-import { highlightCodeToHtml, plainCodeToHtml } from '@/lib/shiki';
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
+import { useTranslation } from '@/i18n'
+import {
+  executeWorkflow,
+  streamWorkflowExecution,
+} from '@/services/workflow-service'
+import { API_BASE_URL } from '@/utils/request'
 
-// Add global styles.
-const codeLineNumbersStyle = `
-.shiki-with-line-numbers .line {
-  position: relative;
-  padding-left: 1rem;
-  counter-increment: line;
-}
+type PlaygroundMode = 'http' | 'sse'
 
-.shiki-with-line-numbers .line::before {
-  content: counter(line);
-  position: absolute;
-  left: -2rem;
-  width: 1.5rem;
-  text-align: right;
-  color: var(--tw-prose-captions);
-  opacity: 0.5;
-  font-size: 0.75rem;
-  user-select: none;
+type StreamEvent = {
+  event: string
+  data: unknown
 }
-.shiki.github-dark {
-  background-color: hsl(var(--muted-foreground) / 0.7) !important;
-}
-.shiki.github-light {
-  background-color: hsl(var(--muted-foreground) / 0.7) !important;
-}
-.shiki {
-  white-space: pre-wrap !important;
-  word-wrap: break-word !important;
-}
-.shiki code {
-  white-space: pre-wrap !important;
-  word-break: break-all !important;
-}
-`
 
 interface WorkflowCallConfigPanelProps {
-  workflowId: string;
-  workflowName: string;
-  visible: boolean;
-  onClose: () => void;
+  workflowId: string
+  workflowName: string
+  visible: boolean
+  onClose: () => void
 }
 
-const WorkflowCallConfigPanel: React.FC<WorkflowCallConfigPanelProps> = ({
+const DEFAULT_INPUTS = JSON.stringify({ input: 'Hello from SOIT' }, null, 2)
+
+const toAbsoluteUrl = (path: string) => {
+  if (path.startsWith('http')) return path
+  return `${window.location.origin}${path}`
+}
+
+const parseEventData = (data: string): unknown => {
+  try {
+    return JSON.parse(data)
+  } catch {
+    return data
+  }
+}
+
+export default function WorkflowCallConfigPanel({
   workflowId,
   workflowName,
   visible,
   onClose,
-}) => {
-  const [activeTab, setActiveTab] = useState('http');
-  const clipboard = useClipboard();
-  const { theme } = useTheme();
-  const [highlightedCode, setHighlightedCode] = useState<string>("");
-  const executeEndpointPath = `${API_BASE_URL}/workflows/${workflowId}/execute`;
-  const executeEndpointUrl = executeEndpointPath.startsWith('http')
-    ? executeEndpointPath
-    : `${window.location.origin}${executeEndpointPath}`;
+}: WorkflowCallConfigPanelProps) {
+  const { t } = useTranslation()
+  const [mode, setMode] = useState<PlaygroundMode>('http')
+  const [inputsText, setInputsText] = useState(DEFAULT_INPUTS)
+  const [running, setRunning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [httpResult, setHttpResult] = useState<unknown>(null)
+  const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([])
+  const abortController = useRef<AbortController | null>(null)
 
-  // Form schemas
-  const httpFormSchema = z.object({
-    authType: z.enum(["none", "token"]),
-    includeHeaders: z.boolean(),
-  });
+  const executeEndpoint = toAbsoluteUrl(`${API_BASE_URL}/workflows/${workflowId}/execute`)
+  const streamEndpoint = toAbsoluteUrl(`${API_BASE_URL}/workflows/${workflowId}/stream`)
+  const endpoint = mode === 'http' ? executeEndpoint : streamEndpoint
 
-  const functionFormSchema = z.object({
-    importType: z.enum(["esm", "commonjs"]),
-  });
-
-  const mcpFormSchema = z.object({
-    mcpVersion: z.string(),
-  });
-
-  // Initialize forms
-  const httpForm = useForm<z.infer<typeof httpFormSchema>>({
-    resolver: zodResolver(httpFormSchema),
-    defaultValues: {
-      authType: "none",
-      includeHeaders: true,
-    },
-  });
-
-  const functionForm = useForm<z.infer<typeof functionFormSchema>>({
-    resolver: zodResolver(functionFormSchema),
-    defaultValues: {
-      importType: "esm",
-    },
-  });
-
-  const mcpForm = useForm<z.infer<typeof mcpFormSchema>>({
-    resolver: zodResolver(mcpFormSchema),
-    defaultValues: {
-      mcpVersion: "1.0",
-    },
-  });
-
-  // Update code highlighting.
-  useEffect(() => {
-    let active = true;
-    const loadHighlightedCode = async () => {
-      const code = getCurrentSampleCode();
-      try {
-        const html = await highlightCodeToHtml({
-          code,
-          language: "javascript",
-          showLineNumbers: true,
-          theme: theme === "dark" ? "github-dark" : "github-light",
-        });
-        if (active) {
-          setHighlightedCode(`<style>${codeLineNumbersStyle}</style>${html}`);
-        }
-      } catch (error) {
-        console.error("Failed to highlight code:", error);
-        if (active) {
-          setHighlightedCode(plainCodeToHtml(code));
-        }
+  const parseInputs = (): Record<string, unknown> | null => {
+    try {
+      const value = JSON.parse(inputsText)
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        setError(t('workflow.detail.callConfig.playground.errors.objectRequired'))
+        return null
       }
-    };
-
-    void loadHighlightedCode();
-    return () => {
-      active = false;
-    };
-  }, [activeTab, httpForm, functionForm, mcpForm, theme]);
-
-  // HTTP sample code.
-  const getHttpSampleCode = () => {
-    const values = httpForm.watch();
-    const { authType, includeHeaders } = values;
-    
-    let headers = '{}';
-    if (includeHeaders) {
-      headers = `{
-  "Content-Type": "application/json"${authType === 'token' ? ',\n  "Authorization": "Bearer YOUR_API_TOKEN"' : ''}
-}`;
+      return value as Record<string, unknown>
+    } catch {
+      setError(t('workflow.detail.callConfig.playground.errors.invalidJson'))
+      return null
     }
-    
-    return `// Call workflow using fetch API
-const response = await fetch('${executeEndpointUrl}', {
-  method: 'POST',
-  headers: ${headers},
-  body: JSON.stringify({
-    // Add workflow input parameters here
-    "param1": "value1",
-    "param2": "value2"
-  })
-});
-
-const result = await response.json();
-console.info(result);`;
-  };
-
-  // Function call sample code.
-  const getFunctionSampleCode = () => {
-    const values = functionForm.watch();
-    const { importType } = values;
-    
-    if (importType === 'esm') {
-      return `// Import using ES modules
-import { WorkflowService } from '@your-org/soit-sdk';
-
-// Create workflow service instance
-const workflowService = new WorkflowService();
-
-// Execute workflow
-const result = await workflowService.execute({
-  workflow_id: '${workflowId}',
-  inputs: {
-    // Add workflow input parameters here
-    "param1": "value1",
-    "param2": "value2"
-  },
-  options: {
-    // Optional execution options
-    "timeout": 30,
-    "cache": false
   }
-});
 
-console.info(result);`;
-    } else {
-      return `// Import using CommonJS
-const { WorkflowService } = require('@your-org/soit-sdk');
-
-// Create workflow service instance
-const workflowService = new WorkflowService();
-
-// Execute workflow
-workflowService.execute({
-  workflow_id: '${workflowId}',
-  inputs: {
-    // Add workflow input parameters here
-    "param1": "value1",
-    "param2": "value2"
-  },
-  options: {
-    // Optional execution options
-    "timeout": 30,
-    "cache": false
-  }
-})
-  .then(result => {
-    console.info(result);
-  })
-  .catch(error => {
-    console.error(error);
-  });`;
+  const sample = useMemo(() => {
+    let formattedInputs = inputsText
+    try {
+      formattedInputs = JSON.stringify(JSON.parse(inputsText))
+    } catch {
+      formattedInputs = '{}'
     }
-  };
+    const body = mode === 'http'
+      ? formattedInputs
+      : JSON.stringify({ inputs: JSON.parse(formattedInputs) })
+    return [
+      `curl ${mode === 'sse' ? '-N ' : ''}-X POST '${endpoint}' \\`,
+      "  -H 'Content-Type: application/json' \\",
+      "  -H 'Authorization: Bearer YOUR_API_TOKEN' \\",
+      `  --data '${body}'`,
+    ].join('\n')
+  }, [endpoint, inputsText, mode])
 
-  // MCP sample code.
-  const getMcpSampleCode = () => {
-    const values = mcpForm.watch();
-    const { mcpVersion } = values;
-    
-    return `// Call workflow using MCP protocol
-const mcpRequest = {
-  version: "${mcpVersion || '1.0'}",
-  id: "request-${Date.now()}",
-  method: "workflow.execute",
-  workflow_id: "${workflowId}",
-  parameters: {
-    // Add workflow input parameters here
-    "param1": "value1",
-    "param2": "value2"
-  },
-  options: {
-    // Optional execution options
-    "timeout": 30,
-    "cache": false
-  }
-};
-
-// Send MCP request
-const response = await sendMcpRequest(mcpRequest);
-console.info(response);`;
-  };
-
-  // Get sample code for active tab.
-  const getCurrentSampleCode = () => {
-    switch (activeTab) {
-      case 'http':
-        return getHttpSampleCode();
-      case 'function':
-        return getFunctionSampleCode();
-      case 'mcp':
-        return getMcpSampleCode();
-      default:
-        return '';
+  const handleHttpRequest = async () => {
+    const inputs = parseInputs()
+    if (!inputs) return
+    setRunning(true)
+    setError(null)
+    setHttpResult(null)
+    try {
+      const started = performance.now()
+      const response = await executeWorkflow(workflowId, inputs)
+      setHttpResult({
+        duration_ms: Math.round((performance.now() - started) * 100) / 100,
+        response,
+      })
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : t('workflow.detail.callConfig.playground.errors.requestFailed'))
+    } finally {
+      setRunning(false)
     }
-  };
+  }
 
-  // Copy sample code to clipboard.
-  const handleCopyCode = () => {
-    clipboard.copy(getCurrentSampleCode());
-    message.success('Code copied to clipboard');
-  };
+  const handleSseRequest = async () => {
+    const inputs = parseInputs()
+    if (!inputs) return
+    abortController.current?.abort()
+    const controller = new AbortController()
+    abortController.current = controller
+    setRunning(true)
+    setError(null)
+    setStreamEvents([])
+    try {
+      for await (const event of streamWorkflowExecution(workflowId, inputs, { signal: controller.signal })) {
+        if (!event) continue
+        setStreamEvents((current) => [
+          ...current,
+          { event: event.event || 'message', data: parseEventData(event.data) },
+        ])
+      }
+    } catch (requestError) {
+      if (!controller.signal.aborted) {
+        setError(requestError instanceof Error ? requestError.message : t('workflow.detail.callConfig.playground.errors.requestFailed'))
+      }
+    } finally {
+      if (abortController.current === controller) abortController.current = null
+      setRunning(false)
+    }
+  }
 
-  if (!visible) {
-    return null;
+  const stopStream = () => {
+    abortController.current?.abort()
+    abortController.current = null
+    setRunning(false)
+  }
+
+  const reset = () => {
+    stopStream()
+    setInputsText(DEFAULT_INPUTS)
+    setError(null)
+    setHttpResult(null)
+    setStreamEvents([])
+  }
+
+  const close = () => {
+    stopStream()
+    onClose()
+  }
+
+  const copy = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(t('workflow.detail.callConfig.playground.toast.copied'))
+    } catch {
+      toast.error(t('workflow.detail.callConfig.playground.toast.copyFailed'))
+    }
   }
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <Card className="w-[80%] max-w-[900px] max-h-[90vh] overflow-hidden">
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-lg font-semibold">Workflow Call Configuration - {workflowName}</h2>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
-        </div>
-        
-        <ScrollArea className="h-[calc(90vh-8rem)]">
-          <div className="p-6">
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="http">
-                  <ApiOutlined className="mr-2" />
-                  HTTP API
-                </TabsTrigger>
-                <TabsTrigger value="function">
-                  <FunctionOutlined className="mr-2" />
-                  Function Call
-                </TabsTrigger>
-                <TabsTrigger value="mcp">
-                  <CodeOutlined className="mr-2" />
-                  MCP Protocol
-                </TabsTrigger>
+    <Dialog open={visible} onOpenChange={(open) => !open && close()}>
+      <DialogContent className="max-h-[92vh] gap-0 p-0 sm:max-w-4xl">
+        <DialogHeader className="border-b p-6">
+          <DialogTitle>{t('workflow.detail.callConfig.playground.title')}</DialogTitle>
+          <DialogDescription>
+            {t('workflow.detail.callConfig.playground.description', { name: workflowName })}
+          </DialogDescription>
+        </DialogHeader>
+
+        <ScrollArea className="max-h-[calc(92vh-9rem)]">
+          <div className="space-y-6 p-6">
+            <Tabs value={mode} onValueChange={(value) => setMode(value as PlaygroundMode)}>
+              <TabsList className="grid w-full max-w-sm grid-cols-2">
+                <TabsTrigger value="http"><Send className="mr-2 size-4" />HTTP</TabsTrigger>
+                <TabsTrigger value="sse"><Radio className="mr-2 size-4" />SSE</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="http">
-                <Form {...httpForm}>
-                  <form className="space-y-6">
-                    <FormField
-                      control={httpForm.control}
-                      name="authType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Authentication Type</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select authentication type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">No Authentication</SelectItem>
-                              <SelectItem value="token">Token Authentication</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={httpForm.control}
-                      name="includeHeaders"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel>Include Headers</FormLabel>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-
-                    <Separator />
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">API Endpoint</h3>
-                      <div className="flex items-center gap-2">
-                        <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
-                          {executeEndpointUrl}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            clipboard.copy(executeEndpointUrl);
-                            message.success('Endpoint copied to clipboard');
-                          }}
-                        >
-                          <CopyOutlined />
-                        </Button>
-                      </div>
-                    </div>
-                  </form>
-                </Form>
-
-                <Separator className="my-6" />
-
-                <Tabs defaultValue="sample">
-                  <TabsList>
-                    <TabsTrigger value="sample">Sample Code</TabsTrigger>
-                    <TabsTrigger value="test">
-                      <ExperimentOutlined className="mr-2" />
-                      Test Call
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="sample">
-                    <div className="relative">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-2"
-                        onClick={handleCopyCode}
-                      >
-                        <CopyOutlined />
-                      </Button>
-                      <div 
-                        className="shiki-container w-full shiki-with-line-numbers text-sm"
-                        dangerouslySetInnerHTML={{ __html: highlightedCode }} 
-                        style={{
-                          position: 'relative',
-                          paddingLeft: '3rem',
-                        }}
-                      />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="test">
-                    <TestAdapter workflowId={workflowId} adapterType="http" />
-                  </TabsContent>
-                </Tabs>
+              <TabsContent value="http" className="mt-4 text-sm text-muted-foreground">
+                {t('workflow.detail.callConfig.playground.modes.httpDescription')}
               </TabsContent>
-
-              <TabsContent value="function">
-                <Form {...functionForm}>
-                  <form className="space-y-6">
-                    <FormField
-                      control={functionForm.control}
-                      name="importType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Import Type</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select import type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="esm">ES Modules (import)</SelectItem>
-                              <SelectItem value="commonjs">CommonJS (require)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-
-                    <Separator />
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Workflow ID</h3>
-                      <div className="flex items-center gap-2">
-                        <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
-                          {workflowId}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            clipboard.copy(workflowId);
-                            message.success('Workflow ID copied to clipboard');
-                          }}
-                        >
-                          <CopyOutlined />
-                        </Button>
-                      </div>
-                    </div>
-                  </form>
-                </Form>
-
-                <Separator className="my-6" />
-
-                <Tabs defaultValue="sample">
-                  <TabsList>
-                    <TabsTrigger value="sample">Sample Code</TabsTrigger>
-                    <TabsTrigger value="test">
-                      <ExperimentOutlined className="mr-2" />
-                      Test Call
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="sample">
-                    <div className="relative">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-2"
-                        onClick={handleCopyCode}
-                      >
-                        <CopyOutlined />
-                      </Button>
-                      <div 
-                        className="shiki-container w-full shiki-with-line-numbers text-sm"
-                        dangerouslySetInnerHTML={{ __html: highlightedCode }} 
-                        style={{
-                          position: 'relative',
-                          paddingLeft: '3rem',
-                        }}
-                      />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="test">
-                    <TestAdapter workflowId={workflowId} adapterType="function" />
-                  </TabsContent>
-                </Tabs>
-              </TabsContent>
-
-              <TabsContent value="mcp">
-                <Form {...mcpForm}>
-                  <form className="space-y-6">
-                    <FormField
-                      control={mcpForm.control}
-                      name="mcpVersion"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>MCP Protocol Version</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select MCP protocol version" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="1.0">1.0</SelectItem>
-                              <SelectItem value="1.1">1.1</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-
-                    <Separator />
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Workflow ID</h3>
-                      <div className="flex items-center gap-2">
-                        <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
-                          {workflowId}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            clipboard.copy(workflowId);
-                            message.success('Workflow ID copied to clipboard');
-                          }}
-                        >
-                          <CopyOutlined />
-                        </Button>
-                      </div>
-                    </div>
-                  </form>
-                </Form>
-
-                <Separator className="my-6" />
-
-                <Tabs defaultValue="sample">
-                  <TabsList>
-                    <TabsTrigger value="sample">Sample Code</TabsTrigger>
-                    <TabsTrigger value="test">
-                      <ExperimentOutlined className="mr-2" />
-                      Test Call
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="sample">
-                    <div className="relative">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-2"
-                        onClick={handleCopyCode}
-                      >
-                        <CopyOutlined />
-                      </Button>
-                      <div 
-                        className="shiki-container w-full shiki-with-line-numbers text-sm"
-                        dangerouslySetInnerHTML={{ __html: highlightedCode }} 
-                        style={{
-                          position: 'relative',
-                          paddingLeft: '3rem',
-                        }}
-                      />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="test">
-                    <TestAdapter workflowId={workflowId} adapterType="mcp" />
-                  </TabsContent>
-                </Tabs>
+              <TabsContent value="sse" className="mt-4 text-sm text-muted-foreground">
+                {t('workflow.detail.callConfig.playground.modes.sseDescription')}
               </TabsContent>
             </Tabs>
+
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label>{t('workflow.detail.callConfig.playground.endpoint')}</Label>
+                <Button variant="ghost" size="sm" onClick={() => void copy(endpoint)}>
+                  <Copy className="mr-2 size-4" />
+                  {t('workflow.detail.callConfig.playground.actions.copy')}
+                </Button>
+              </div>
+              <code className="block overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs">{endpoint}</code>
+              <p className="text-xs text-muted-foreground">{t('workflow.detail.callConfig.playground.authHint')}</p>
+            </section>
+
+            <section className="space-y-2">
+              <Label htmlFor="workflow-playground-inputs">{t('workflow.detail.callConfig.playground.inputs')}</Label>
+              <Textarea
+                id="workflow-playground-inputs"
+                className="min-h-40 font-mono text-sm"
+                value={inputsText}
+                spellCheck={false}
+                onChange={(event) => setInputsText(event.target.value)}
+              />
+            </section>
+
+            <div className="flex flex-wrap gap-2">
+              {mode === 'http' ? (
+                <Button onClick={() => void handleHttpRequest()} disabled={running}>
+                  <Play className="mr-2 size-4" />
+                  {running
+                    ? t('workflow.detail.callConfig.playground.actions.sending')
+                    : t('workflow.detail.callConfig.playground.actions.sendHttp')}
+                </Button>
+              ) : running ? (
+                <Button variant="destructive" onClick={stopStream}>
+                  <Square className="mr-2 size-4" />
+                  {t('workflow.detail.callConfig.playground.actions.stopSse')}
+                </Button>
+              ) : (
+                <Button onClick={() => void handleSseRequest()}>
+                  <Radio className="mr-2 size-4" />
+                  {t('workflow.detail.callConfig.playground.actions.startSse')}
+                </Button>
+              )}
+              <Button variant="outline" onClick={reset}>
+                <RotateCcw className="mr-2 size-4" />
+                {t('workflow.detail.callConfig.playground.actions.reset')}
+              </Button>
+            </div>
+
+            {error && (
+              <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            {mode === 'http' && httpResult !== null && (
+              <section className="space-y-2">
+                <h3 className="font-semibold">{t('workflow.detail.callConfig.playground.httpResult')}</h3>
+                <pre className="max-h-72 overflow-auto rounded-lg border bg-muted/50 p-4 text-xs">
+                  {JSON.stringify(httpResult, null, 2)}
+                </pre>
+              </section>
+            )}
+
+            {mode === 'sse' && (
+              <section className="space-y-2">
+                <h3 className="font-semibold">{t('workflow.detail.callConfig.playground.sseEvents')}</h3>
+                {streamEvents.length ? (
+                  <div className="space-y-2">
+                    {streamEvents.map((event, index) => (
+                      <div key={`${event.event}:${index}`} className="rounded-lg border p-3">
+                        <Badge variant={event.event === 'error' ? 'destructive' : 'outline'}>{event.event}</Badge>
+                        <pre className="mt-2 overflow-x-auto text-xs">{JSON.stringify(event.data, null, 2)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('workflow.detail.callConfig.playground.emptyEvents')}</p>
+                )}
+              </section>
+            )}
+
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-semibold">{t('workflow.detail.callConfig.playground.curlSample')}</h3>
+                <Button variant="ghost" size="sm" onClick={() => void copy(sample)}>
+                  <Copy className="mr-2 size-4" />
+                  {t('workflow.detail.callConfig.playground.actions.copy')}
+                </Button>
+              </div>
+              <pre className="overflow-x-auto rounded-lg border bg-muted/50 p-4 text-xs">{sample}</pre>
+            </section>
           </div>
         </ScrollArea>
-      </Card>
-    </div>
-  );
-};
 
-export default WorkflowCallConfigPanel;
+        <DialogFooter className="border-t p-4">
+          <Button variant="outline" onClick={close}>{t('workflow.detail.callConfig.playground.actions.close')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

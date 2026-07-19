@@ -1,5 +1,4 @@
-import { get, post, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
-import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
+import { get, post } from '@/utils/request'
 
 export interface ResponseCreateRequest {
   model?: string
@@ -14,7 +13,6 @@ export interface ResponseCreateRequest {
   response_format?: Record<string, unknown>
   context?: Record<string, unknown>
   store?: boolean
-  stream?: boolean
   metadata?: Record<string, unknown>
 }
 
@@ -76,6 +74,10 @@ export interface ResponseCitationRead {
 
 export interface ToolCallRead {
   id: string
+  run_step_tool_call_id?: string | null
+  tool_call_id?: string | null
+  attempt_count?: number | null
+  result_artifact_id?: string | null
   tenant_id: string
   workspace_id: string
   response_id: string
@@ -111,13 +113,6 @@ export interface RunResponseTimelineRead {
 
 export const createResponse = (data: ResponseCreateRequest): Promise<ResponseRead> => {
   return post<ResponseRead>('/responses', data)
-}
-
-export const createStreamResponse = (
-  data: ResponseCreateRequest,
-  config?: FetchEventSourceInit
-): AsyncGenerator<SseEvent, void, unknown> => {
-  return sse(`${API_BASE_URL}/responses`, data, config)
 }
 
 export const getRunResponseTimeline = (runId: string): Promise<RunResponseTimelineRead> => {

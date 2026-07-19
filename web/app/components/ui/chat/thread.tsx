@@ -46,7 +46,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-import { Reasoning, ReasoningGroup } from "@/components/ui/chat/reasoning";
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 
@@ -62,6 +61,9 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent } from '@/components/ui/card'
 import { ToolFallback } from '@/components/ui/chat/tool-fallback'
+import { Reasoning, ReasoningGroup } from '@/components/ui/chat/reasoning'
+import { ApprovalInterrupts } from '@/components/ui/chat/approval-interrupts'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 import { Bold, Italic, Underline } from 'lucide-react'
 import { ModelIcon } from '@/components/ui/app/model-icon'
@@ -70,6 +72,15 @@ import { Toggle } from '../toggle'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from '@/hooks/use-navigate'
 import { debugLog } from '@/utils/debug'
+import { downloadGovernedFile } from '@/services/attachment-service'
+import {
+  isCodeInterpreterEnabled,
+  isWebSearchEnabled,
+  setCodeInterpreterEnabled,
+  setWebSearchEnabled,
+} from '@/components/ui/chat/defaults'
+
+const EMPTY_MESSAGE_METADATA: Readonly<Record<string, never>> = Object.freeze({})
 
 export type ThreadProps = ThreadPrimitive.Root.Props & {
   onSend?: (message: string) => void
@@ -147,6 +158,7 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
           </ThreadPrimitive.Viewport>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar />
+        <ApprovalInterrupts />
         <ThreadPrimitive.If empty={false}>
           <Composer className="bottom-0 w-full max-w-[var(--thread-max-width)] mx-2" />
         </ThreadPrimitive.If>
@@ -306,6 +318,10 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
     }
     return localStorage.getItem('chat_deep_thinking') === '1'
   })
+  const [webSearchEnabled, setWebSearchEnabledState] = useState(isWebSearchEnabled)
+  const [codeInterpreterEnabled, setCodeInterpreterEnabledState] = useState(
+    isCodeInterpreterEnabled
+  )
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const text = useAuiState(({ composer }) => composer.text)
   const { t } = useTranslation()
@@ -320,6 +336,16 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
     }
     localStorage.setItem('chat_deep_thinking', deepThinkingEnabled ? '1' : '0')
   }, [deepThinkingEnabled])
+
+  const handleWebSearchChange = (enabled: boolean) => {
+    setWebSearchEnabledState(enabled)
+    setWebSearchEnabled(enabled)
+  }
+
+  const handleCodeInterpreterChange = (enabled: boolean) => {
+    setCodeInterpreterEnabledState(enabled)
+    setCodeInterpreterEnabled(enabled)
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Tab') {
@@ -392,7 +418,8 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Toggle
-                      value="search"
+                      pressed={webSearchEnabled}
+                      onPressedChange={handleWebSearchChange}
                       size="sm"
                       aria-label="Toggle search"
                       className="transition-all duration-200 dark:data-[state=on]:bg-[#2a4a6d] data-[state=on]:text-[#0285ff] data-[state=on]:bg-[#daeeff] dark:data-[state=on]:text-[#48aaff] border-[1px] border-[#0d0d0d1a] dark:border-[#0d0d0d1a] rounded-lg hover:bg-muted"
@@ -411,7 +438,8 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Toggle
-                      value="code"
+                      pressed={codeInterpreterEnabled}
+                      onPressedChange={handleCodeInterpreterChange}
                       size="sm"
                       aria-label="Toggle code"
                       className="transition-all duration-200 dark:data-[state=on]:bg-[#2a4a6d] data-[state=on]:text-[#0285ff] data-[state=on]:bg-[#daeeff] dark:data-[state=on]:text-[#48aaff] border-[1px] border-[#0d0d0d1a] dark:border-[#0d0d0d1a] rounded-lg hover:bg-muted"
@@ -602,8 +630,8 @@ const AssistantMessage: FC = () => {
             <MessagePrimitive.Parts
               components={{
                 Text: MarkdownText,
-                Reasoning: Reasoning,
-                ReasoningGroup: ReasoningGroup,
+                Reasoning,
+                ReasoningGroup,
                 tools: { Fallback: ToolFallback },
               }}
             />
@@ -615,6 +643,7 @@ const AssistantMessage: FC = () => {
           </div>
           <AssistantMeta />
           <AssistantCitations />
+          <AssistantArtifacts />
         </div>
       </div>
 
@@ -638,6 +667,7 @@ const SystemMessage: FC = () => {
 }
 
 const AssistantActionBar: FC = () => {
+  const { t } = useTranslation()
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -670,10 +700,20 @@ const AssistantActionBar: FC = () => {
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
       <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Refresh">
+        <TooltipIconButton tooltip={t('chat.thread.actions.regenerate')}>
           <RefreshCwIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Reload>
+      <ActionBarPrimitive.FeedbackPositive asChild>
+        <TooltipIconButton tooltip={t('chat.thread.actions.helpful')}>
+          <ThumbsUpIcon />
+        </TooltipIconButton>
+      </ActionBarPrimitive.FeedbackPositive>
+      <ActionBarPrimitive.FeedbackNegative asChild>
+        <TooltipIconButton tooltip={t('chat.thread.actions.unhelpful')}>
+          <ThumbsDownIcon />
+        </TooltipIconButton>
+      </ActionBarPrimitive.FeedbackNegative>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
@@ -703,13 +743,21 @@ const AssistantActionBar: FC = () => {
 const AssistantMeta: FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const customMetadata = useAuiState(({ message }) => (message.metadata?.custom || {}) as Record<string, any>)
+  const selectedMetadata = useAuiState(({ message }) => message.metadata?.custom)
+  const customMetadata = (selectedMetadata ?? EMPTY_MESSAGE_METADATA) as Record<string, any>
   const runId =
     customMetadata.run_id ||
     customMetadata.runId ||
     customMetadata.id ||
     customMetadata.runID ||
     ''
+  const responseId = customMetadata.response_id ?? customMetadata.responseId ?? ''
+  const taskId = customMetadata.task_id ?? customMetadata.taskId ?? ''
+  const branchId = customMetadata.branch_id ?? customMetadata.branchId ?? ''
+  const modelRef = customMetadata.model_ref ?? customMetadata.modelRef ?? ''
+  const messageStatus = String(
+    customMetadata.message_status ?? customMetadata.status ?? 'completed'
+  ).toLowerCase()
   const tokensPrompt =
     customMetadata.tokens_prompt ??
     customMetadata.tokensPrompt ??
@@ -738,64 +786,170 @@ const AssistantMeta: FC = () => {
   const hasBudget = budgetExceeded !== null || budgetReason !== null
   const hasCost = typeof costTotal === 'number'
   const totalTokens = (tokensPrompt ?? 0) + (tokensCompletion ?? 0)
+  const toolCallCount = Array.isArray(customMetadata.tool_calls)
+    ? customMetadata.tool_calls.length
+    : typeof customMetadata.tool_calls === 'number'
+      ? customMetadata.tool_calls
+      : 0
+  const statusKey = ['completed', 'succeeded', 'success'].includes(messageStatus)
+    ? 'completed'
+    : ['failed', 'error'].includes(messageStatus)
+      ? 'failed'
+      : ['cancelled', 'canceled'].includes(messageStatus)
+        ? 'cancelled'
+        : ['running', 'in_progress', 'pending'].includes(messageStatus)
+          ? 'running'
+          : 'unknown'
+  const statusVariant = statusKey === 'completed'
+    ? 'success'
+    : statusKey === 'failed'
+      ? 'destructive'
+      : statusKey === 'running'
+        ? 'info'
+        : statusKey === 'cancelled'
+          ? 'warning'
+          : 'muted'
+  const finishReasonKey = finishReason ? `chat.thread.run.finishReasons.${finishReason}` : ''
+  const finishReasonTranslation = finishReasonKey ? t(finishReasonKey) : ''
+  const finishReasonText = finishReason
+    ? finishReasonTranslation !== finishReasonKey
+      ? finishReasonTranslation
+      : `${t('chat.thread.run.finishReasons._default')} (${finishReason})`
+    : ''
 
-  if (!runId && !hasTokens && !finishReason && !hasBudget && !hasCost) {
+  if (
+    !runId && !responseId && !taskId && !modelRef && !branchId &&
+    !hasTokens && !finishReason && !hasBudget && !hasCost && !toolCallCount
+  ) {
     return null
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground ml-1">
-      {runId ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs"
-          onClick={() => navigate(`/observe/runs/${runId}`)}
+    <Collapsible className="ml-1 mt-2 max-w-2xl overflow-hidden rounded-lg border border-border/60 bg-muted/20 text-xs">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('chat.thread.run.panelTitle')}
+          className="group flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-muted-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
-          <Activity className="mr-1 h-3 w-3" />
-          {t('chat.thread.run.viewRun')}
-        </Button>
-      ) : null}
-      {hasTokens ? (
-        <span>
-          {t('chat.thread.run.tokens', {
-            prompt: tokensPrompt ?? 0,
-            completion: tokensCompletion ?? 0,
-            total: totalTokens,
-          })}
-        </span>
-      ) : null}
-      {finishReason ? (
-        <span>
-          {(() => {
-            const reasonKey = `chat.thread.run.finishReasons.${finishReason}`
-            const translated = t(reasonKey)
-            const reasonText =
-              translated !== reasonKey
-                ? translated
-                : `${t('chat.thread.run.finishReasons._default')} (${finishReason})`
-            return `${t('chat.thread.run.finishReasonLabel')}: ${reasonText}`
-          })()}
-        </span>
-      ) : null}
-      {hasBudget ? (
-        <span>
-          {t('chat.thread.run.budget', {
-            status: budgetExceeded ? t('chat.thread.run.budgetExceeded') : t('chat.thread.run.budgetOk'),
-            reason: budgetReason || '-',
-          })}
-        </span>
-      ) : null}
-      {hasCost ? (
-        <span>{t('chat.thread.run.cost', { cost: Number(costTotal).toFixed(4) })}</span>
-      ) : null}
-    </div>
+          <Activity className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+          <span className="min-w-0 flex-1 font-medium text-foreground">
+            {t('chat.thread.run.panelTitle')}
+          </span>
+          {hasTokens ? (
+            <span className="hidden tabular-nums sm:inline">
+              {t('chat.thread.run.totalTokens', { total: totalTokens })}
+            </span>
+          ) : null}
+          <Badge variant={statusVariant} className="h-5 px-1.5 py-0">
+            {t(`chat.thread.run.status.${statusKey}`)}
+          </Badge>
+          <ChevronDownIcon
+            className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+            aria-hidden="true"
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden border-t border-border/50">
+        <div className="grid grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 px-3 py-3 text-muted-foreground">
+          {runId ? (
+            <>
+              <span>{t('chat.thread.run.fields.runId')}</span>
+              <code className="break-all font-mono text-foreground">{runId}</code>
+            </>
+          ) : null}
+          {responseId ? (
+            <>
+              <span>{t('chat.thread.run.fields.responseId')}</span>
+              <code className="break-all font-mono text-foreground">{responseId}</code>
+            </>
+          ) : null}
+          {taskId ? (
+            <>
+              <span>{t('chat.thread.run.fields.taskId')}</span>
+              <code className="break-all font-mono text-foreground">{taskId}</code>
+            </>
+          ) : null}
+          {modelRef ? (
+            <>
+              <span>{t('chat.thread.run.fields.model')}</span>
+              <span className="break-all text-foreground">{modelRef}</span>
+            </>
+          ) : null}
+          {branchId ? (
+            <>
+              <span>{t('chat.thread.run.fields.branch')}</span>
+              <code className="break-all font-mono text-foreground">{branchId}</code>
+            </>
+          ) : null}
+          {hasTokens ? (
+            <>
+              <span>{t('chat.thread.run.fields.usage')}</span>
+              <span className="text-foreground">
+                {t('chat.thread.run.tokens', {
+                  prompt: tokensPrompt ?? 0,
+                  completion: tokensCompletion ?? 0,
+                  total: totalTokens,
+                })}
+              </span>
+            </>
+          ) : null}
+          {toolCallCount ? (
+            <>
+              <span>{t('chat.thread.run.fields.tools')}</span>
+              <span className="text-foreground">
+                {t('chat.thread.run.toolCalls', { count: toolCallCount })}
+              </span>
+            </>
+          ) : null}
+          {finishReason ? (
+            <>
+              <span>{t('chat.thread.run.finishReasonLabel')}</span>
+              <span className="text-foreground">{finishReasonText}</span>
+            </>
+          ) : null}
+          {hasBudget ? (
+            <>
+              <span>{t('chat.thread.run.fields.governance')}</span>
+              <span className={budgetExceeded ? 'text-destructive' : 'text-foreground'}>
+                {t('chat.thread.run.budget', {
+                  status: budgetExceeded ? t('chat.thread.run.budgetExceeded') : t('chat.thread.run.budgetOk'),
+                  reason: budgetReason || '-',
+                })}
+              </span>
+            </>
+          ) : null}
+          {hasCost ? (
+            <>
+              <span>{t('chat.thread.run.fields.cost')}</span>
+              <span className="text-foreground">
+                {t('chat.thread.run.cost', { cost: Number(costTotal).toFixed(4) })}
+              </span>
+            </>
+          ) : null}
+        </div>
+        {runId ? (
+          <div className="border-t border-border/50 px-2 py-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => navigate(`/observe/runs/${runId}`)}
+            >
+              <Activity className="mr-1 h-3 w-3" />
+              {t('chat.thread.run.viewRun')}
+            </Button>
+          </div>
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
 const AssistantCitations: FC = () => {
   const { t } = useTranslation()
-  const customMetadata = useAuiState(({ message }) => (message.metadata?.custom || {}) as Record<string, any>)
+  const selectedMetadata = useAuiState(({ message }) => message.metadata?.custom)
+  const customMetadata = (selectedMetadata ?? EMPTY_MESSAGE_METADATA) as Record<string, any>
   const citations = Array.isArray(customMetadata.citations) ? customMetadata.citations : []
 
   if (!citations.length) {
@@ -813,11 +967,27 @@ const AssistantCitations: FC = () => {
             citation.document_id ||
             citation.chunk_id ||
             '-'
+          const candidateUrl = citation.url || citation.source_uri
+          const sourceUrl =
+            typeof candidateUrl === 'string' && /^https?:\/\//i.test(candidateUrl)
+              ? candidateUrl
+              : ''
           return (
             <div key={`${citation.chunk_id || citation.document_id || index}`} className="space-y-1">
               <div className="flex flex-wrap gap-2">
                 <span className="text-muted-foreground">#{index + 1}</span>
-                <span>{`${t('chat.thread.citations.source')}: ${source}`}</span>
+                {sourceUrl ? (
+                  <a
+                    href={sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    {`${t('chat.thread.citations.source')}: ${source}`}
+                  </a>
+                ) : (
+                  <span>{`${t('chat.thread.citations.source')}: ${source}`}</span>
+                )}
                 {citation.knowledge_id ? (
                   <span>{`${t('chat.thread.citations.knowledge')}: ${citation.knowledge_id}`}</span>
                 ) : null}
@@ -828,6 +998,64 @@ const AssistantCitations: FC = () => {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+const AssistantArtifacts: FC = () => {
+  const { t } = useTranslation()
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const selectedMetadata = useAuiState(({ message }) => message.metadata?.custom)
+  const customMetadata = (selectedMetadata ?? EMPTY_MESSAGE_METADATA) as Record<string, any>
+  const artifacts = Array.isArray(customMetadata.artifacts) ? customMetadata.artifacts : []
+
+  if (!artifacts.length) return null
+
+  const download = async (artifact: Record<string, any>) => {
+    const url = artifact.download_url
+    if (!url) return
+    setDownloadingId(String(artifact.id))
+    try {
+      await downloadGovernedFile(String(url), String(artifact.name || artifact.id || 'artifact'))
+    } catch (error) {
+      console.error('Failed to download Run artifact:', error)
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-border/50 bg-muted/40 px-3 py-2 text-xs">
+      <div className="mb-2 font-medium text-foreground">{t('chat.thread.artifacts.title')}</div>
+      <div className="space-y-2">
+        {artifacts.map((artifact: any) => (
+          <div key={artifact.id} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate font-medium text-foreground">{artifact.name || artifact.id}</div>
+              <div className="text-muted-foreground">
+                {artifact.mime || artifact.type || t('chat.thread.artifacts.file')}
+                {typeof artifact.size_bytes === 'number'
+                  ? ` · ${t('chat.thread.artifacts.bytes', { size: artifact.size_bytes })}`
+                  : ''}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!artifact.download_url || downloadingId === String(artifact.id)}
+              aria-label={t('chat.thread.artifacts.download', { name: artifact.name || artifact.id })}
+              onClick={() => void download(artifact)}
+            >
+              {downloadingId === String(artifact.id) ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <DownloadIcon className="size-3.5" />
+              )}
+            </Button>
+          </div>
+        ))}
       </div>
     </div>
   )

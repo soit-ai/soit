@@ -442,6 +442,12 @@ class _AgentRuntimeOptions(BaseModel):
     )
     """Failure handling strategy when max_failures is exceeded."""
 
+    show_reasoning: bool = False
+    """Expose provider-visible reasoning through the interaction protocol."""
+
+    reasoning_effort: str | None = Field(default=None, max_length=32)
+    """Optional provider reasoning effort hint."""
+
 
 class AgentRuntimeRequest(_AgentRuntimeOptions):
     """Internal runtime request resolved from a published agent version."""
@@ -466,6 +472,18 @@ class AgentRuntimeRequest(_AgentRuntimeOptions):
 
     system_prompt: str | None = Field(default=None, max_length=8000)
     """Resolved system prompt from the published agent version."""
+
+    task_id: str | None = None
+    """Authoritative Task used by runtime governance checkpoints."""
+
+    agent_id: str | None = None
+    """Authoritative Agent identity used by runtime governance checkpoints."""
+
+    approval_responses: list[dict[str, Any]] = Field(default_factory=list)
+    """Resolved AG-UI interrupt responses for a resumed execution segment."""
+
+    approval_checkpoint: dict[str, Any] | None = None
+    """Durable runtime state captured immediately before an approved side effect."""
 
 
 class AgentRunResponse(BaseModel):

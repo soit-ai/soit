@@ -6,8 +6,8 @@ from sqlmodel import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
-from app.kernel.runtime.tasks.status import TaskStatus
 from app.modules.observe.domain.models import ApprovalRequest
 
 

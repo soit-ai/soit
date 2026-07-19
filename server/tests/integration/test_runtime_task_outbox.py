@@ -5,9 +5,9 @@ from __future__ import annotations
 from sqlmodel import select
 
 from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.service import TaskService
-from app.kernel.runtime.tasks.status import TaskStatus
 
 
 def test_task_lifecycle_emits_outbox_event_types(db, tenant1_ctx) -> None:

@@ -485,7 +485,7 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
             ],
         }
 
-    monkeypatch.setattr("app.modules.knowledge.application.tools.knowledge_query", fake_knowledge_query)
+    monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", fake_knowledge_query)
 
     service = AgentApplicationService(
         db=db,

@@ -23,8 +23,9 @@ class ResponseCreateRequest(BaseModel):
     response_format: dict[str, Any] | None = None
     context: dict[str, Any] | None = None
     store: bool = True
-    stream: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ResponseRead(BaseModel):
@@ -68,9 +69,12 @@ class ResponseEventRead(BaseModel):
     thread_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None
+    interaction_id: str | None = None
     sequence: int
     type: str
     source: str
+    protocol_version: str
+    visibility: str
     payload_json: dict[str, Any]
     created_at: datetime
 
@@ -81,6 +85,10 @@ class ToolCallRead(BaseModel):
     """Serialized tool-call projection derived from run steps."""
 
     id: str
+    run_step_tool_call_id: str | None = None
+    tool_call_id: str | None = None
+    attempt_count: int | None = None
+    result_artifact_id: str | None = None
     tenant_id: str
     workspace_id: str
     response_id: str

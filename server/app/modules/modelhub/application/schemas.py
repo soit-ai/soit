@@ -290,6 +290,7 @@ class ModelWorkbenchModelRow(BaseModel):
 
     id: str
     provider_id: str
+    provider_slug: str
     provider_name: str
     provider_kind: str
     model_id: str

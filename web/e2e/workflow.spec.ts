@@ -100,8 +100,7 @@ async function mockWorkflowApi(page: Page) {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             ...mockWorkflow,
             id: 'workflow-ticket-template',
             name: 'Ticket triage',
@@ -117,8 +116,7 @@ async function mockWorkflowApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: mockWorkflowWorkbench.items,
             page_size: 1,
             next_page_token: null,
@@ -132,7 +130,7 @@ async function mockWorkflowApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockWorkflowWorkbench }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowWorkbench }),
       })
       return
     }
@@ -141,7 +139,7 @@ async function mockWorkflowApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockWorkflowVersion }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflowVersion }),
       })
       return
     }
@@ -150,7 +148,7 @@ async function mockWorkflowApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: mockWorkflow }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockWorkflow }),
       })
       return
     }
@@ -158,8 +156,7 @@ async function mockWorkflowApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 20,
           next_page_token: null,
@@ -196,4 +193,60 @@ test('workflow builder creates ticket triage template from templates tab', async
 
   await expect.poll(() => templateRequests).toBe(1)
   await expect(page).toHaveURL(/\/workflow\/workflow-ticket-template\/build$/)
+})
+
+test('workflow playground sends real HTTP and SSE requests without fake adapters', async ({ page }) => {
+  let httpPayload: Record<string, unknown> | null = null
+  let ssePayload: Record<string, unknown> | null = null
+  await page.route('**/api/v1/workflows/workflow-1/execute', async (route) => {
+    httpPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { run_id: 'run-http', status: 'succeeded', outputs: { accepted: true } },
+      }),
+    })
+  })
+  await page.route('**/api/v1/workflows/workflow-1/stream', async (route) => {
+    ssePayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      headers: { 'Cache-Control': 'no-cache' },
+      body: [
+        'event: start',
+        'data: {"run_id":"run-sse","status":"started"}',
+        '',
+        'event: complete',
+        'data: {"run_id":"run-sse","status":"succeeded"}',
+        '',
+        '',
+      ].join('\n'),
+    })
+  })
+
+  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Call config' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Workflow playground' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'HTTP' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'SSE' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Function Call' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'MCP Protocol' })).toHaveCount(0)
+
+  const input = page.getByLabel('Inputs JSON')
+  await input.fill('{"customer_id":"123"}')
+  await page.getByRole('button', { name: 'Send HTTP request' }).click()
+  await expect.poll(() => httpPayload).toEqual({ customer_id: '123' })
+  await expect(page.getByText('run-http')).toBeVisible()
+
+  await page.getByRole('tab', { name: 'SSE' }).click()
+  await page.getByRole('button', { name: 'Start SSE stream' }).click()
+  await expect.poll(() => ssePayload).toEqual({ inputs: { customer_id: '123' } })
+  await expect(page.getByText('start', { exact: true })).toBeVisible()
+  await expect(page.getByText('complete', { exact: true })).toBeVisible()
 })

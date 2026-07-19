@@ -6,18 +6,28 @@ import {
   type ExportedMessageRepositoryItem,
   type ModelContext,
 } from '@assistant-ui/react'
-import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
+import {
+  Suspense,
+  forwardRef,
+  lazy,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { Thread, type ThreadProps } from '@/components/ui/chat/thread'
-import { localRuntime } from '@/components/ui/chat/local-runtime'
+import { useSoitAgUiRuntime } from '@/components/ui/chat/agui-runtime'
 import { MessageConverter, type ChatLedgerMessage } from '@/components/ui/chat/message-adapter'
 import { useQuery } from '@/hooks/use-query'
 import { getThread, type ThreadMessage as RuntimeThreadMessage } from '@/services/thread-service'
-import { API_BASE_URL } from '@/utils/request'
 import {
   DEFAULT_CHAT_PROVIDER,
   resolveRuntimeChatModel,
   resolveStoredChatProvider,
   isDeepThinkingEnabled,
+  isCodeInterpreterEnabled,
+  isWebSearchEnabled,
 } from '@/components/ui/chat/defaults'
 
 const ChatDevTools = import.meta.env.DEV
@@ -90,35 +100,24 @@ const fetchThreadMessages = async (
       parent_id: message.parent_message_id || undefined,
       role: message.role,
       content: message.content,
-      model_ref:
-        message.model_ref ||
-        (typeof message.metadata_json?.model_ref === 'string' ? message.metadata_json.model_ref : undefined),
-      tokens_prompt:
-        typeof message.tokens_prompt === 'number'
-          ? message.tokens_prompt
-          : typeof message.metadata_json?.tokens_prompt === 'number'
-            ? message.metadata_json.tokens_prompt
-            : undefined,
-      tokens_completion:
-        typeof message.tokens_completion === 'number'
-          ? message.tokens_completion
-          : typeof message.metadata_json?.tokens_completion === 'number'
-            ? message.metadata_json.tokens_completion
-            : undefined,
-      finish_reason:
-        message.finish_reason ||
-        (typeof message.metadata_json?.finish_reason === 'string' ? message.metadata_json.finish_reason : undefined),
+      model_ref: message.model_ref,
+      tokens_prompt: message.tokens_prompt,
+      tokens_completion: message.tokens_completion,
+      finish_reason: message.finish_reason,
       run_id: message.run_id || undefined,
+      response_id: message.response_id,
+      task_id: message.task_id,
+      status: message.status,
+      sequence_no: message.sequence_no,
+      summary: message.summary,
+      citations_json: message.citations_json,
+      attachments_json: message.attachments_json,
+      tool_calls_json: message.tool_calls_json,
+      error_code: message.error_code,
+      error_message: message.error_message,
       created_by: message.created_by || undefined,
       metadata_json: {
         ...message.metadata_json,
-        citations: Array.isArray(message.citations_json) ? message.citations_json : message.metadata_json?.citations,
-        attachments: Array.isArray(message.attachments_json) ? message.attachments_json : message.metadata_json?.attachments,
-        tool_calls: Array.isArray(message.tool_calls_json) ? message.tool_calls_json : message.metadata_json?.tool_calls,
-        response_id: message.response_id || message.metadata_json?.response_id,
-        task_id: message.task_id || message.metadata_json?.task_id,
-        status: message.status || message.metadata_json?.status,
-        sequence_no: message.sequence_no,
       },
       created_at: message.created_at,
     }
@@ -141,10 +140,12 @@ const ThreadSyncEffect = ({
   agentId,
   threadId,
   historyReloadKey,
+  onReady,
 }: {
   agentId: string
   threadId?: string
   historyReloadKey?: number | string
+  onReady: () => void
 }) => {
   const aui = useAui()
   const importedAtRef = useRef<number>(0)
@@ -153,8 +154,9 @@ const ThreadSyncEffect = ({
     if (!threadId) {
       importedAtRef.current = 0
       aui.thread().import({ messages: [] })
+      onReady()
     }
-  }, [agentId, threadId, aui])
+  }, [agentId, threadId, aui, onReady])
 
   const { data: repository, dataUpdatedAt, error } = useQuery<ExportedMessageRepository>({
     queryKey: ['chat-messages', threadId || '', historyReloadKey || 0],
@@ -178,42 +180,52 @@ const ThreadSyncEffect = ({
     aui.thread().import({ messages: [] })
     aui.thread().import(repository ?? { messages: [], headId: null })
     importedAtRef.current = dataUpdatedAt
-  }, [aui, threadId, dataUpdatedAt, repository])
+    onReady()
+  }, [aui, threadId, dataUpdatedAt, repository, onReady])
 
   useEffect(() => {
     if (error) {
       console.error('Failed to load thread messages:', error)
+      onReady()
     }
-  }, [error])
+  }, [error, onReady])
 
   return null
 }
 
 export const ChatBox = forwardRef<AssistantClient, ChatBoxProps>(
   ({ agentId, threadId, modelName, historyReloadKey, ...threadProps }, ref) => {
-    const runtime = localRuntime({ agentId })
+    const syncIdentity = `${agentId}:${threadId || 'new'}`
+    const [readyIdentity, setReadyIdentity] = useState('')
+    const handleHistoryReady = useCallback(() => {
+      setReadyIdentity(syncIdentity)
+    }, [syncIdentity])
+    const resolvedModelName = resolveRuntimeChatModel(modelName, isDeepThinkingEnabled())
+    const runtime = useSoitAgUiRuntime({
+      agentId,
+      threadId,
+      modelRef: resolvedModelName,
+    })
 
     const getModelContext = useCallback((): ModelContext => {
       const deepThinkingEnabled = isDeepThinkingEnabled()
-      const resolvedModelName = resolveRuntimeChatModel(modelName, deepThinkingEnabled)
+      const requestModelName = resolveRuntimeChatModel(modelName, deepThinkingEnabled)
       return {
         config: {
-          agentId,
-          modelName: resolvedModelName,
-          provider: resolveStoredChatProvider() || DEFAULT_CHAT_PROVIDER,
-          apiKey: import.meta.env.VITE_ASSISTANT_API_KEY || 'demo-key',
-          baseUrl: '/responses',
-          streamBaseUrl: `${API_BASE_URL}/responses`,
-          authorization:
-            import.meta.env.VITE_ASSISTANT_HEADER_AUTH ||
-            'Bearer ' + (localStorage.getItem('token') || 'demo-token'),
-          stream: true,
-          deepThinking: deepThinkingEnabled,
-          reasoningEffort: deepThinkingEnabled ? 'high' : undefined,
-          thread_id: threadId,
+          soit: {
+            mode: agentId !== 'default' ? 'agent' : 'direct',
+            agentId: agentId !== 'default' ? agentId : undefined,
+            modelRef: agentId === 'default' ? requestModelName : undefined,
+            requestId: globalThis.crypto?.randomUUID?.(),
+            deepThinking: deepThinkingEnabled,
+            reasoningEffort: deepThinkingEnabled ? 'high' : undefined,
+            provider: resolveStoredChatProvider() || DEFAULT_CHAT_PROVIDER,
+            webSearch: agentId === 'default' ? isWebSearchEnabled() : undefined,
+            codeInterpreter: agentId === 'default' ? isCodeInterpreterEnabled() : undefined,
+          },
         } as any,
       }
-    }, [agentId, modelName, threadId])
+    }, [agentId, modelName])
 
     return (
       <AssistantRuntimeProvider runtime={runtime}>
@@ -228,8 +240,13 @@ export const ChatBox = forwardRef<AssistantClient, ChatBoxProps>(
           agentId={agentId}
           threadId={threadId}
           historyReloadKey={historyReloadKey}
+          onReady={handleHistoryReady}
         />
-        <Thread {...threadProps} />
+        {readyIdentity === syncIdentity ? (
+          <Thread {...threadProps} />
+        ) : (
+          <div className="h-full w-full" aria-busy="true" />
+        )}
       </AssistantRuntimeProvider>
     )
   }

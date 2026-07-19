@@ -20,3 +20,13 @@ test('community auth extension defaults to the existing login form without enter
   expect(extensionSource).not.toContain("better-auth")
   expect(extensionSource).not.toContain("soit-enterprise")
 })
+
+test('sign-in renders inside the application query client', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+
+  await page.goto('/sign-in', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('heading', { name: 'Sign in to SOIT' })).toBeVisible()
+  await expect(page.getByLabel('Email')).toBeVisible()
+  await expect(page.getByText('No QueryClient set')).toHaveCount(0)
+})

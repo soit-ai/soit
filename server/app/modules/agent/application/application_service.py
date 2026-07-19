@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from datetime import UTC
 from typing import Any
 
@@ -22,7 +24,9 @@ from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.registry.deps import get_registry
-from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.attachments.service import AttachmentService
+from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.db.models.runs import Run, RunArtifact
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
@@ -30,8 +34,8 @@ from app.kernel.runtime.responses.repository import (
 )
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
-from app.kernel.runtime.tasks.status import TaskStatus
 from app.kernel.runtime.threads.service import ThreadService
 from app.kernel.runtime.tools.resolver import (
     BuiltinToolRegistrationPort,
@@ -78,6 +82,9 @@ from app.modules.evaluation.application.service import (
 from app.modules.memory.application.service import MemoryService
 from app.modules.versioning.application.service import VersionControlService
 
+logger = logging.getLogger(__name__)
+_PUBLIC_AGENT_EXECUTION_ERROR = "Agent execution failed"
+
 
 class AgentApplicationService:
     """Agent CRUD, publish, and execution service backed by Agent tables."""
@@ -101,6 +108,7 @@ class AgentApplicationService:
         memory_service: MemoryService | None = None,
         trace_writer: TraceWriter | None = None,
         response_service: ResponseService | None = None,
+        attachment_service: AttachmentService | None = None,
         approval_checkpoint_gateway: Any | None = None,
         regression_evaluator: RegressionEvaluationService | None = None,
         plugin_runtime_port: PluginRuntimePort | None = None,
@@ -125,6 +133,8 @@ class AgentApplicationService:
             event_repo=ResponseEventRepository(db, ctx),
             trace_writer=self.trace_writer,
         )
+        self.attachment_service = attachment_service
+        self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.regression_evaluator = regression_evaluator
         self.plugin_runtime_port = plugin_runtime_port
         self.capability_catalog = capability_catalog or EmptyAgentCapabilityCatalog()
@@ -461,6 +471,7 @@ class AgentApplicationService:
             trace_writer=self.trace_writer,
             workflow_executor=execute_workflow_binding,
             capability_catalog=self.capability_catalog,
+            approval_checkpoint_gateway=self.approval_checkpoint_gateway,
         )
 
     def _resolve_thread_title(self, request: AgentRuntimeRequest) -> str | None:
@@ -483,12 +494,22 @@ class AgentApplicationService:
         request: AgentRuntimeRequest,
         thread: Any,
         current_message: ChatMessageInput,
+        *,
+        include_current: bool = True,
+        head_message_id: str | None = None,
     ) -> AgentRuntimeRequest:
         """Rebuild trusted runtime history from the scoped thread ledger."""
 
         system_messages = [message for message in request.messages if message.role == "system"]
         history: list[ChatMessageInput] = []
-        for message in self.thread_service.thread_repo.list_messages(thread.id):
+        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        resolved_head_id = head_message_id or (ledger_messages[-1].id if ledger_messages else None)
+        branch_messages = (
+            self.thread_service.thread_repo.message_lineage(thread.id, resolved_head_id)
+            if resolved_head_id
+            else []
+        )
+        for message in branch_messages:
             if message.status != "completed" or message.role not in {
                 "user",
                 "assistant",
@@ -506,7 +527,11 @@ class AgentApplicationService:
             )
         return request.model_copy(
             update={
-                "messages": [*system_messages, *history, current_message],
+                "messages": [
+                    *system_messages,
+                    *history,
+                    *([current_message] if include_current else []),
+                ],
                 "context_window_messages": (
                     request.context_window_messages or thread.max_history_messages
                 ),
@@ -536,6 +561,8 @@ class AgentApplicationService:
         }
         if result.get("citations"):
             payload["citations"] = result["citations"]
+        if result.get("artifacts"):
+            payload["artifacts"] = result["artifacts"]
         if result.get("finish_reason"):
             payload["finish_reason"] = result["finish_reason"]
         if result.get("iterations") is not None:
@@ -543,6 +570,8 @@ class AgentApplicationService:
         if result.get("budget_exceeded"):
             payload["budget_exceeded"] = True
             payload["budget_reason"] = result.get("budget_reason")
+        if result.get("reasoning"):
+            payload["reasoning"] = result["reasoning"]
         return payload
 
     def _response_usage_payload(self, result: dict[str, Any]) -> dict[str, Any]:
@@ -559,13 +588,49 @@ class AgentApplicationService:
             "budget_reason": result.get("budget_reason"),
         }
 
+    @staticmethod
+    def _persisted_message_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in (metadata or {}).items()
+            if key != "_attachment_context" and key != "_context_text"
+        }
+
+    def _run_artifact_descriptors(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            select(RunArtifact)
+            .where(
+                RunArtifact.run_id == run_id,
+                RunArtifact.tenant_id == self.ctx.tenant_id,
+                RunArtifact.workspace_id == self.ctx.workspace_id,
+            )
+            .order_by(RunArtifact.created_at)
+        ).scalars()
+        descriptors: list[dict[str, Any]] = []
+        for artifact in rows:
+            metadata = artifact.meta_json or {}
+            descriptors.append(
+                {
+                    "id": artifact.id,
+                    "type": artifact.type,
+                    "name": metadata.get("name") or metadata.get("filename") or artifact.id,
+                    "mime": artifact.mime,
+                    "size_bytes": artifact.size_bytes,
+                    "sha256": artifact.sha256,
+                    "download_url": (
+                        f"/api/v1/runs/{run_id}/artifacts/{artifact.id}/content"
+                    ),
+                }
+            )
+        return descriptors
+
     def _task_output_payload(
         self,
         result: dict[str, Any],
         *,
         response_id: str | None,
     ) -> dict[str, Any]:
-        return {
+        payload = {
             "output": result.get("output") or "",
             "response_id": response_id,
             "model": result.get("model"),
@@ -576,7 +641,12 @@ class AgentApplicationService:
             "cost_total": float(result.get("cost_total") or 0.0),
             "budget_exceeded": bool(result.get("budget_exceeded")),
             "budget_reason": result.get("budget_reason"),
+            "artifacts": result.get("artifacts") or [],
+            "branch_id": result.get("branch_id"),
         }
+        if result.get("reasoning"):
+            payload["reasoning"] = result["reasoning"]
+        return payload
 
     def _assistant_message_metadata(
         self,
@@ -586,7 +656,7 @@ class AgentApplicationService:
         *,
         response_id: str | None,
     ) -> dict[str, Any]:
-        return {
+        metadata: dict[str, Any] = {
             "agent_id": agent.id,
             "agent_version_id": version.id,
             "run_id": result.get("run_id"),
@@ -602,7 +672,11 @@ class AgentApplicationService:
             "budget_reason": result.get("budget_reason"),
             "cost_total": result.get("cost_total"),
             "citations": result.get("citations") or [],
+            "artifacts": result.get("artifacts") or [],
         }
+        if result.get("reasoning"):
+            metadata["reasoning"] = result["reasoning"]
+        return metadata
 
     def _append_failed_assistant_message(
         self,
@@ -615,8 +689,9 @@ class AgentApplicationService:
         response_id: str | None,
         error_code: str,
         error_message: str,
+        parent_message_id: str | None = None,
     ) -> None:
-        metadata = {
+        metadata: dict[str, Any] = {
             "agent_id": agent.id,
             "agent_version_id": version.id,
             "run_id": run_id,
@@ -631,10 +706,11 @@ class AgentApplicationService:
         self.thread_service.append_message(
             thread_id=thread_id,
             role="assistant",
-            content=f"Agent execution failed: {error_message}",
+            content=error_message,
             run_id=run_id,
             task_id=task_id,
             response_id=response_id,
+            parent_message_id=parent_message_id,
             status="failed",
             metadata=metadata,
             finish_reason=error_code,
@@ -1131,11 +1207,19 @@ class AgentApplicationService:
                 metadata={"source": "agent.execute", "agent_version_id": version.id},
             )
 
-        request = self._with_thread_history(request, thread, current_message)
-        self.thread_service.append_message(
+        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        user_parent_message_id = ledger_messages[-1].id if ledger_messages else None
+        request = self._with_thread_history(
+            request,
+            thread,
+            current_message,
+            head_message_id=user_parent_message_id,
+        )
+        stored_user_message = self.thread_service.append_message(
             thread_id=thread.id,
             role="user",
             content=current_message.content,
+            parent_message_id=user_parent_message_id,
             status="completed",
             metadata={
                 **(current_message.metadata or {}),
@@ -1194,6 +1278,7 @@ class AgentApplicationService:
         # cancellation request can resolve and close the active lifecycle.
         self.db.commit()
 
+        request = request.model_copy(update={"task_id": task.id, "agent_id": agent.id})
         runner = self._build_runner()
         try:
             result = await runner.run(request, existing_run_id=run.id, response_id=linked_response.id if linked_response else None)
@@ -1203,7 +1288,11 @@ class AgentApplicationService:
                     self.response_service.cancel_response(linked_response.id)
                 self.task_service.cancel_task(task_id=task.id)
                 raise
-            error_message = str(exc)
+            logger.exception(
+                "Agent execution failed",
+                extra={"agent_id": agent.id, "run_id": run.id, "task_id": task.id},
+            )
+            error_message = _PUBLIC_AGENT_EXECUTION_ERROR
             if linked_response:
                 linked_response = self.response_service.fail_response(
                     response=linked_response,
@@ -1220,6 +1309,7 @@ class AgentApplicationService:
                 response_id=linked_response.id if linked_response else None,
                 error_code="agent_execution_failed",
                 error_message=error_message,
+                parent_message_id=stored_user_message.id,
             )
             self.task_service.transition_task(
                 task_id=task.id,
@@ -1230,6 +1320,27 @@ class AgentApplicationService:
             raise
 
         response_id = linked_response.id if linked_response else None
+        if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
+            current_task = self.task_service.get_task(task.id)
+            if current_task.status != TaskStatus.WAITING_APPROVAL.value:
+                self.task_service.transition_task(
+                    task_id=task.id,
+                    status=TaskStatus.WAITING_APPROVAL.value,
+                    progress={"phase": "approval", "interrupt": result.get("interrupt")},
+                )
+            self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+            return {
+                **result,
+                "thread_id": thread.id,
+                "task_id": task.id,
+                "response_id": response_id,
+                "request_id": request.request_id,
+            }
+
+        result = {
+            **result,
+            "artifacts": self._run_artifact_descriptors(run.id),
+        }
         self.thread_service.append_message(
             thread_id=thread.id,
             role="assistant",
@@ -1237,7 +1348,9 @@ class AgentApplicationService:
             run_id=result.get("run_id"),
             task_id=task.id,
             response_id=response_id,
+            parent_message_id=stored_user_message.id,
             status="completed",
+            model_ref=result.get("model"),
             metadata=self._assistant_message_metadata(agent, version, result, response_id=response_id),
             citations_json=result.get("citations") or [],
             tokens_prompt=result.get("tokens_prompt"),
@@ -1336,6 +1449,8 @@ class AgentApplicationService:
         agent_id: str,
         inputs: dict[str, Any],
         event_emitter: EventEmitter,
+        on_response_started: Callable[[Response, ResponseService], Awaitable[None]] | None = None,
+        response_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute agent with event streaming via the provided emitter.
 
@@ -1343,9 +1458,36 @@ class AgentApplicationService:
         so callers can observe events in real time (e.g. SSE).
         """
         agent = self._get_agent(agent_id)
-        version = self._resolve_execution_version(agent)
-        request = self._request_from_version(version, inputs)
-        current_message = self._current_user_message(request)
+        internal_inputs = dict(inputs)
+        attachments = list(internal_inputs.pop("_attachments", []) or [])
+        attachment_context = list(internal_inputs.pop("_attachment_context", []) or [])
+        attachment_ids = list(internal_inputs.pop("_attachment_ids", []) or [])
+        agui_context = dict(internal_inputs.pop("_agui_context", {}) or {})
+        agui_options = dict(internal_inputs.pop("_agui_options", {}) or {})
+        approval_responses = list(internal_inputs.pop("_agui_resume", []) or [])
+        resume_execution = internal_inputs.pop("_resume_execution", None)
+        if resume_execution:
+            run = self.db.get(Run, str(resume_execution.get("run_id") or ""))
+            if (
+                run is None
+                or run.tenant_id != self.ctx.tenant_id
+                or run.workspace_id != self.ctx.workspace_id
+                or run.subject_id != agent.id
+            ):
+                raise NotFoundError("Approval execution run not found")
+            version = self._get_version(str(run.subject_version_id or ""))
+        else:
+            version = self._resolve_execution_version(agent)
+        request_updates: dict[str, Any] = {
+            "approval_responses": approval_responses,
+            "show_reasoning": bool(agui_options.get("show_reasoning")),
+        }
+        reasoning_effort = agui_options.get("reasoning_effort")
+        if isinstance(reasoning_effort, str) and reasoning_effort:
+            request_updates["reasoning_effort"] = reasoning_effort
+        request = self._request_from_version(version, internal_inputs).model_copy(
+            update=request_updates
+        )
         linked_response = None
 
         thread = self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
@@ -1365,69 +1507,185 @@ class AgentApplicationService:
                 metadata={"source": "agent.stream", "agent_version_id": version.id},
             )
 
-        request = self._with_thread_history(request, thread, current_message)
-        self.thread_service.append_message(
-            thread_id=thread.id,
-            role="user",
-            content=current_message.content,
-            status="completed",
-            metadata={
-                **(current_message.metadata or {}),
-                "request_id": request.request_id,
-            },
-        )
-
-        run = self.trace_writer.create_run(
-            mode="agent",
-            kind="agent",
-            subject_kind="agent",
-            subject_id=agent.id,
-            subject_version_id=version.id,
-            input_summary=current_message.content[:8192],
-            request_id=request.request_id,
-        )
-        task = self.task_service.create_task(
-            task_type="agent.stream",
-            status=TaskStatus.PREPARING.value,
-            agent_id=agent.id,
-            thread_id=thread.id,
-            run_id=run.id,
-            input_payload={
-                "agent_id": agent.id,
-                "agent_version_id": version.id,
-                "message_count": 1,
-                "request_id": request.request_id,
-            },
-        )
-        self.task_service.transition_task(
-            task_id=task.id,
-            status=TaskStatus.RUNNING.value,
-            progress={"phase": "agent_loop"},
-        )
-
-        if self.response_service:
-            linked_response = self.response_service.create_linked_response(
-                run_id=run.id,
+        if attachment_ids:
+            if self.attachment_service is None:
+                raise ValidationError("Attachment resolution is not configured")
+            resolved_attachments = await self.attachment_service.resolve_for_message(
+                attachment_ids,
                 thread_id=thread.id,
-                task_id=task.id,
-                agent_id=agent.id,
-                model=request.model_ref,
+            )
+            attachments = [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if not key.startswith("_")
+                }
+                for item in resolved_attachments
+            ]
+            attachment_context = [
+                {
+                    "id": str(item.get("id") or ""),
+                    "name": str(item.get("name") or item.get("filename") or "attachment"),
+                    "text": str(item.get("_context_text") or ""),
+                }
+                for item in resolved_attachments
+                if item.get("_context_text")
+            ]
+
+        if attachments or attachment_context:
+            messages = list(request.messages)
+            for index in range(len(messages) - 1, -1, -1):
+                message = messages[index]
+                if message.role != "user":
+                    continue
+                metadata = dict(message.metadata or {})
+                metadata["attachments"] = attachments
+                metadata["_attachment_context"] = attachment_context
+                messages[index] = message.model_copy(update={"metadata": metadata})
+                break
+            request = request.model_copy(update={"messages": messages})
+
+        current_message = self._current_user_message(request)
+
+        agui_message_id = str(agui_context.get("message_id") or "")
+        existing_user_message = (
+            self.thread_service.thread_repo.get_message(thread.id, agui_message_id)
+            if agui_message_id
+            else None
+        )
+        if existing_user_message is None and agui_message_id:
+            existing_user_message = next(
+                (
+                    message
+                    for message in self.thread_service.thread_repo.list_messages(thread.id)
+                    if (message.metadata_json or {}).get("agui_message_id") == agui_message_id
+                ),
+                None,
+            )
+        if existing_user_message is not None and existing_user_message.role != "user":
+            raise ValidationError("AG-UI message reuse requires an existing user message")
+        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        requested_parent_id = agui_context.get("parent_message_id")
+        if requested_parent_id is not None and not isinstance(requested_parent_id, str):
+            raise ValidationError("AG-UI parent message ID must be a string")
+        user_parent_message_id = (
+            existing_user_message.parent_message_id
+            if existing_user_message is not None
+            else requested_parent_id or (ledger_messages[-1].id if ledger_messages else None)
+        )
+        current_user_message_id = (
+            existing_user_message.id if existing_user_message is not None else None
+        )
+        history_head_message_id = (
+            existing_user_message.id if existing_user_message is not None else user_parent_message_id
+        )
+        request = self._with_thread_history(
+            request,
+            thread,
+            current_message,
+            include_current=not bool(resume_execution) and existing_user_message is None,
+            head_message_id=history_head_message_id,
+        )
+        if resume_execution:
+            task = self.task_service.get_task(str(resume_execution.get("task_id") or ""))
+            if task.run_id != run.id or task.agent_id != agent.id or task.thread_id != thread.id:
+                raise ValidationError("Approval resume resources do not belong to the Agent run")
+            approval_checkpoint = (task.progress_json or {}).get("checkpoint")
+            if not isinstance(approval_checkpoint, dict):
+                raise ValidationError("Agent approval run has no durable checkpoint")
+            if task.status == TaskStatus.WAITING_APPROVAL.value:
+                task = self.task_service.resume_task(task_id=task.id)
+            elif task.status != TaskStatus.RUNNING.value:
+                raise ValidationError(f"Agent approval run cannot resume from task status {task.status}")
+            self.trace_writer.update_run_status(run.id, "running")
+            if self.response_service:
+                linked_response = self.response_service.get_response(
+                    str(resume_execution.get("response_id") or "")
+                )
+                if (
+                    linked_response.run_id != run.id
+                    or linked_response.task_id != task.id
+                    or linked_response.thread_id != thread.id
+                    or linked_response.agent_id != agent.id
+                ):
+                    raise ValidationError("Approval resume response does not belong to the Agent run")
+                linked_response = self.response_service.mark_running(linked_response)
+        else:
+            if existing_user_message is None:
+                stored_user_message = self.thread_service.append_message(
+                    thread_id=thread.id,
+                    role="user",
+                    content=current_message.content,
+                    parent_message_id=user_parent_message_id,
+                    status="completed",
+                    metadata={
+                        **self._persisted_message_metadata(current_message.metadata),
+                        "request_id": request.request_id,
+                        "branch_id": agui_context.get("branch_id"),
+                        "agui_message_id": agui_message_id or None,
+                    },
+                )
+                current_user_message_id = stored_user_message.id
+
+            run = self.trace_writer.create_run(
+                mode="agent",
+                kind="agent",
+                subject_kind="agent",
+                subject_id=agent.id,
+                subject_version_id=version.id,
+                input_summary=current_message.content[:8192],
                 request_id=request.request_id,
-                input_json=self._response_input_payload(request, agent_version_id=version.id),
-                metadata_json={
-                    "source": "agent.stream",
+            )
+            task = self.task_service.create_task(
+                task_type="agent.stream",
+                status=TaskStatus.PREPARING.value,
+                agent_id=agent.id,
+                thread_id=thread.id,
+                run_id=run.id,
+                input_payload={
                     "agent_id": agent.id,
                     "agent_version_id": version.id,
-                    "thread_id": thread.id,
-                    "task_id": task.id,
+                    "message_count": 1,
+                    "request_id": request.request_id,
                 },
             )
-            linked_response = self.response_service.mark_running(linked_response)
+            self.task_service.transition_task(
+                task_id=task.id,
+                status=TaskStatus.RUNNING.value,
+                progress={"phase": "agent_loop"},
+            )
+
+            if self.response_service:
+                linked_response = self.response_service.create_linked_response(
+                    run_id=run.id,
+                    thread_id=thread.id,
+                    task_id=task.id,
+                    agent_id=agent.id,
+                    model=request.model_ref,
+                    request_id=request.request_id,
+                    input_json=self._response_input_payload(request, agent_version_id=version.id),
+                    metadata_json={
+                        "source": "agent.stream",
+                        "agent_id": agent.id,
+                        "agent_version_id": version.id,
+                        "thread_id": thread.id,
+                        "task_id": task.id,
+                        **(response_metadata or {}),
+                    },
+                    emit_initial_events=on_response_started is None,
+                )
+                linked_response = self.response_service.mark_running(linked_response)
 
         # The detached stream uses a worker session. Commit its execution linkage
         # before remote calls so the cancel endpoint can observe it immediately.
         self.db.commit()
+        if linked_response is not None and on_response_started is not None:
+            await on_response_started(linked_response, self.response_service)
 
+        request_update: dict[str, Any] = {"task_id": task.id, "agent_id": agent.id}
+        if resume_execution:
+            request_update["approval_checkpoint"] = approval_checkpoint
+        request = request.model_copy(update=request_update)
         runner = self._build_runner()
         try:
             result = await runner.run(
@@ -1435,20 +1693,29 @@ class AgentApplicationService:
                 existing_run_id=run.id,
                 response_id=linked_response.id if linked_response else None,
                 event_emitter=event_emitter,
+                emit_response_events=on_response_started is None,
             )
         except Exception as exc:
             if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
                 if linked_response:
-                    self.response_service.cancel_response(linked_response.id)
+                    self.response_service.cancel_response(
+                        linked_response.id,
+                        emit_event=on_response_started is None,
+                    )
                 self.task_service.cancel_task(task_id=task.id)
                 raise
-            error_message = str(exc)
+            logger.exception(
+                "Agent streaming execution failed",
+                extra={"agent_id": agent.id, "run_id": run.id, "task_id": task.id},
+            )
+            error_message = _PUBLIC_AGENT_EXECUTION_ERROR
             if linked_response:
                 linked_response = self.response_service.fail_response(
                     response=linked_response,
                     error_code="agent_execution_failed",
                     error_message=error_message,
                     source="agent",
+                    failed_event_type=None if on_response_started is not None else "response.failed",
                 )
             self._append_failed_assistant_message(
                 thread_id=thread.id,
@@ -1459,6 +1726,7 @@ class AgentApplicationService:
                 response_id=linked_response.id if linked_response else None,
                 error_code="agent_execution_failed",
                 error_message=error_message,
+                parent_message_id=current_user_message_id,
             )
             await event_emitter(
                 "agent.run.failed",
@@ -1480,14 +1748,47 @@ class AgentApplicationService:
             raise
 
         response_id = linked_response.id if linked_response else None
+        if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
+            current_task = self.task_service.get_task(task.id)
+            if current_task.status != TaskStatus.WAITING_APPROVAL.value:
+                self.task_service.transition_task(
+                    task_id=task.id,
+                    status=TaskStatus.WAITING_APPROVAL.value,
+                    progress={
+                        "phase": "approval",
+                        "interrupt": result.get("interrupt"),
+                        "checkpoint": result.get("checkpoint"),
+                    },
+                )
+            self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+            return {
+                **result,
+                "thread_id": thread.id,
+                "task_id": task.id,
+                "response_id": response_id,
+                "request_id": request.request_id,
+            }
+
+        result = {
+            **result,
+            "artifacts": self._run_artifact_descriptors(run.id),
+            "branch_id": agui_context.get("branch_id"),
+        }
         self.thread_service.append_message(
             thread_id=thread.id,
+            message_id=(
+                str(agui_context.get("assistant_message_id"))
+                if agui_context.get("assistant_message_id")
+                else None
+            ),
             role="assistant",
             content=result.get("output") or "",
             run_id=result.get("run_id"),
             task_id=task.id,
             response_id=response_id,
+            parent_message_id=current_user_message_id,
             status="completed",
+            model_ref=result.get("model"),
             metadata=self._assistant_message_metadata(agent, version, result, response_id=response_id),
             citations_json=result.get("citations") or [],
             tokens_prompt=result.get("tokens_prompt"),
@@ -1521,6 +1822,8 @@ class AgentApplicationService:
                     "usage": self._response_usage_payload(result),
                     "tool_calls": int(result.get("tool_calls") or 0),
                 },
+                output_event_type=None if on_response_started is not None else "response.output_text.done",
+                completed_event_type=None if on_response_started is not None else "response.succeeded",
             )
         return {
             **result,

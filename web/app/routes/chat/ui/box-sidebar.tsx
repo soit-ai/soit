@@ -135,10 +135,7 @@ export function BoxSidebar({
           ...item,
           created_at,
           updated_at,
-          default_model_ref:
-            typeof item.metadata_json?.default_model_ref === 'string'
-              ? item.metadata_json.default_model_ref
-              : undefined,
+          default_model_ref: item.default_model_ref,
         }
       })
 
@@ -155,7 +152,7 @@ export function BoxSidebar({
       agentId === 'default'
         ? allConversations
         : allConversations.filter(
-            (conversation) => conversation.agent_id === agentId || conversation.metadata_json?.agent_id === agentId
+            (conversation) => conversation.agent_id === agentId
           )
 
     if (!selectedProvider || !modelProviderMap?.size) {

@@ -141,6 +141,13 @@ class AgentPublish(SQLModel, table=True):
         Index("ix_agent_publishes_agent_id", "agent_id"),
         Index("ix_agent_publishes_version_id", "agent_version_id"),
         Index("ix_agent_publishes_scope_status", "scope", "status"),
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "agent_id",
+            "sequence",
+            name="uq_agent_publishes_scope_sequence",
+        ),
     )
 
     id: str = Field(primary_key=True, default_factory=generate_agent_publish_id)
@@ -148,6 +155,7 @@ class AgentPublish(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     agent_id: str = Field()
     agent_version_id: str = Field()
+    sequence: int = Field(default=0)
     scope: str = Field(default="workspace")
     status: str = Field(default="published")
     notes: str | None = Field(default=None, nullable=True)

@@ -27,4 +27,4 @@ class HttpFetchPort(Protocol):
         max_bytes: int,
     ) -> FetchedResource:
         """Fetch a bounded resource after enforcing all policies."""
-
+        ...

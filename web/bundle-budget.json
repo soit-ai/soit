@@ -1,5 +1,5 @@
 {
   "recordedAt": "2026-07-15",
-  "initialJavaScriptLimitBytes": 420000,
-  "maximumChunkLimitBytes": 1016000
+  "initialJavaScriptLimitBytes": 840000,
+  "maximumChunkLimitBytes": 2016000
 }

@@ -311,6 +311,24 @@ Suggested limits (tunable):
 - `run_step.input_summary/output_summary` <= 8KB
 - `run.input_summary/output_summary` <= 8KB
 
+### 5.4.1 Governed tool-call control records (MUST)
+
+Every governed outbound tool call MUST have exactly one `run_step_tool_calls` record linked to
+exactly one `run_steps` row with `step_type=tool`. The control record owns the logical
+`tool_call_id`, idempotency key, request hash, approval state, attempt count, execution lease,
+terminal result reference, and sanitized error state.
+
+- Agent, workflow, HTTP, function, plugin, MCP, and future batch entrypoints MUST invoke tools
+  through the same policy gateway and pass a stable `tool_call_id`.
+- Retries and approval resumes reuse the same control record and RunStep; they increment
+  `attempt_count` instead of creating duplicate logical calls.
+- Raw parameters and credentials MUST NOT be stored. Persist only a redacted, size-bounded
+  parameter summary and a canonical request hash.
+- Results larger than the inline limit MUST be stored as a `run_artifact`; the control record
+  stores only the artifact reference.
+- An expired lease after outbound execution started is `in_doubt` and MUST NOT be automatically
+  re-executed. Operator or tool-specific reconciliation is required.
+
 ### 5.5 Kernel ownership & placement (authoritative)
 These semantics are kernel-owned and MUST live under `app/kernel/`:
 
@@ -484,7 +502,7 @@ Recommended:
 
 Backend:
 - ruff (lint/format)
-- mypy (types)
+- Pyright (types)
 - pytest (unit)
 - migration sanity checks (alembic head)
 

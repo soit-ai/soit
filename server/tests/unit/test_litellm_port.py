@@ -264,3 +264,74 @@ async def test_litellm_port_supports_generic_provider_prefix_and_extra_params():
     assert completion.await_args is not None
     assert completion.await_args.kwargs["model"] == "openrouter/gpt-test"
     assert completion.await_args.kwargs["organization"] == "org-1"
+
+
+@pytest.mark.asyncio
+async def test_litellm_chat_exposes_provider_reasoning_content():
+    from app.adapters.llm.litellm import LiteLLMPort
+
+    completion = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="Done.",
+                        reasoning_content="Checked the request.",
+                        tool_calls=None,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=None,
+            model="reasoning-model",
+        )
+    )
+    port = LiteLLMPort(
+        provider_kind="openai_compatible",
+        completion_fn=completion,
+        embedding_fn=AsyncMock(),
+    )
+
+    response = await port.chat(
+        [ChatMessage(role="user", content="Check this")],
+        model="model:workspace-gateway:reasoning-model",
+    )
+
+    assert response.reasoning == "Checked the request."
+
+
+@pytest.mark.asyncio
+async def test_litellm_stream_exposes_provider_reasoning_delta():
+    from app.adapters.llm.litellm import LiteLLMPort
+
+    async def events():
+        yield SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        reasoning_content="Checking.",
+                        tool_calls=None,
+                    ),
+                    finish_reason=None,
+                )
+            ],
+            usage=None,
+            model="reasoning-model",
+        )
+
+    port = LiteLLMPort(
+        provider_kind="openai_compatible",
+        completion_fn=AsyncMock(return_value=events()),
+        embedding_fn=AsyncMock(),
+    )
+
+    chunks = [
+        chunk
+        async for chunk in port.stream_chat(
+            [ChatMessage(role="user", content="Check this")],
+            model="model:workspace-gateway:reasoning-model",
+        )
+    ]
+
+    assert chunks[0].reasoning_delta == "Checking."

@@ -308,8 +308,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           summary: mockSummary,
           model_tabs: { all: 1, text: 1, embedding: 0, multimodal: 0, rerank: 0, disabled: 0, abnormal: 0 },
           provider_tabs: { all: 1, online: 1, disabled: 0, error: 0 },
@@ -350,8 +349,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           summary: { ...mockSummary, total_models: providerModels.length, available_models: providerModels.filter((model) => model.status === 'active').length },
           tabs: { all: providerModels.length, text: providerModels.length, embedding: 0, multimodal: 0, rerank: 0, disabled: providerModels.filter((model) => model.status === 'disabled').length, abnormal: providerModels.filter((model) => model.status === 'error').length },
           items: rows,
@@ -370,8 +368,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           summary: { ...mockSummary, total_providers: providerRows.length, online_providers: providerRows.filter((provider) => provider.status === 'online').length },
           tabs: {
             all: providerRows.length,
@@ -391,8 +388,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           providers: [
             {
               provider_kind: 'openai',
@@ -481,7 +477,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({ data: created }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: created }),
       })
       return
     }
@@ -494,8 +490,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: existing,
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: existing,
         }),
       })
       return
@@ -512,8 +507,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: providerModels.filter((model) => model.provider_id === providerId),
           page_size: 200,
           next_page_token: null,
@@ -538,7 +532,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: { status: 'ok', message: 'healthcheck_ok', checked_at: '2026-05-31T09:00:00.000Z' } }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { status: 'ok', message: 'healthcheck_ok', checked_at: '2026-05-31T09:00:00.000Z' } }),
       })
       return
     }
@@ -548,8 +542,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             id: 'sync-job-1',
             provider_id: 'provider-1',
             status: 'succeeded',
@@ -570,8 +563,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             items: [{
               id: 'sync-job-1',
               provider_id: 'provider-1',
@@ -618,7 +610,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({ data: created }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: created }),
       })
       return
     }
@@ -632,8 +624,7 @@ async function mockModelApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: existing,
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: existing,
         }),
       })
       return
@@ -642,8 +633,7 @@ async function mockModelApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: providers,
           page_size: 200,
           next_page_token: null,

@@ -90,9 +90,9 @@ uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickst
 
 验证器要求完整 Docker 服务集、10 分钟内启动、API/Web/worker 健康证据、demo seed 证据、Chain A smoke 证据与 regression 输出证据。
 
-## 升级与迁移
+## 全新安装数据库
 
-1.0 Alembic 迁移验证路径，包括 Empty Database Path 与 Development Database Path 证据要求，见 [docs/release-migration.md](release-migration.md)。
+SOIT 1.0 仅支持在空 PostgreSQL 数据库上执行单一 Alembic 基线，不原地升级旧开发数据库；详见[全新安装迁移手册](release-migration.md)。
 
 ## 模型源支持
 

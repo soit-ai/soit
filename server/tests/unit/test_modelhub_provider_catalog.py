@@ -34,7 +34,7 @@ async def test_openai_chat_test_uses_openai_client(monkeypatch):
     monkeypatch.setattr("app.modules.modelhub.infra.providers.AsyncOpenAI", FakeClient)
 
     result = await adapter.test_chat(
-        provider_kind="openai_compat",
+        provider_kind="openai_compatible",
         api_key="test-key",
         base_url="https://example.com/v1",
         model_id="gpt-4o-mini",

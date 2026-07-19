@@ -29,7 +29,7 @@ SOIT 是一个企业级的AI可编排平台，提供完整的 AI 应用构建、
 - **包管理**: uv
 - **数据库迁移**: Alembic
 - **监控**: Sentry
-- **代码质量**: ruff (linting), mypy (type checking), pytest (testing)
+- **代码质量**: ruff (linting), Pyright (type checking), pytest (testing)
 
 
 ### 前端架构 (Web)
@@ -40,7 +40,7 @@ SOIT 是一个企业级的AI可编排平台，提供完整的 AI 应用构建、
 - **UI 库**: Radix UI + TailwindCSS 4
 - **状态管理**: Zustand + React Query
 - **国际化**: i18next
-- **图表**: ECharts + Recharts
+- **图表**: Recharts
 - **工作流可视化**: React Flow (@xyflow/react)
 - **代码高亮**: Shiki
 - **构建工具**: Vite 6

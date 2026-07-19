@@ -109,14 +109,15 @@ const data = {
   navSecondary: [
     {
       title: 'Feedback',
-      url: '/observe/feedback',
+      url: '/feedback',
       icon: Send,
     },
-    // {
-    //   title: 'Monitor',
-    //   url: '/observe/monitor',
-    //   icon: Activity,
-    // },
+    {
+      title: 'Diagnostics',
+      url: '/diagnostics',
+      icon: Activity,
+      ownerOnly: true,
+    },
     {
       title: 'Settings',
       url: '/settings',
@@ -133,6 +134,10 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
   // IRL you should use the url/router.
   const [activeItem, setActiveItem] = React.useState<any>(null)
   const user = useUserStore((state) => state.navUser)
+  const currentUser = useUserStore((state) => state.currentUser)
+  const secondaryItems = data.navSecondary.filter(
+    (item) => !(('ownerOnly' in item) && item.ownerOnly) || currentUser?.workspace_role?.toLowerCase() === 'owner'
+  )
   const { setOpen } = useSidebar()
   const navigate = useNavigate()
 
@@ -207,7 +212,7 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
             </SidebarGroup>
           </div>
         </ScrollArea>
-        <NavSecondary items={data.navSecondary||[]} className="mt-auto px-1" />
+        <NavSecondary items={secondaryItems} className="mt-auto px-1" />
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border/70 px-3 py-3 ">
         <NavUser user={user} />

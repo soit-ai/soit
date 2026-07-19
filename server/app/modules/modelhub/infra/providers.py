@@ -94,10 +94,34 @@ class ProviderCatalogAdapter:
                 **({"generation": generation} if generation else {}),
             },
             "capability_matrix_json": {
-                "chat": True,
-                "vision": True,
-                "embeddings": False,
-                "tool_calling": False,
+                "chat": {
+                    "catalog": True,
+                    "diagnostics": None,
+                    "runtime": None,
+                    "merged": True,
+                    "user_override": "auto",
+                },
+                "vision": {
+                    "catalog": True,
+                    "diagnostics": None,
+                    "runtime": None,
+                    "merged": True,
+                    "user_override": "auto",
+                },
+                "embeddings": {
+                    "catalog": False,
+                    "diagnostics": None,
+                    "runtime": None,
+                    "merged": False,
+                    "user_override": "auto",
+                },
+                "tool_calling": {
+                    "catalog": False,
+                    "diagnostics": None,
+                    "runtime": None,
+                    "merged": False,
+                    "user_override": "auto",
+                },
             },
             "parameter_config_json": {
                 "defaults": {"max_tokens": min(max_output_tokens or 1024, 1024)},
@@ -156,7 +180,7 @@ class ProviderCatalogAdapter:
         base_url: str | None = None,
     ) -> list[dict[str, Any]]:
         """List models for a provider kind."""
-        if provider_kind in {"openai", "openai_compat", "openai_compatible"}:
+        if provider_kind in {"openai", "openai_compatible"}:
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             response = await client.models.list()
             return [
@@ -231,7 +255,7 @@ class ProviderCatalogAdapter:
         input_text: str,
     ) -> dict[str, Any]:
         """Run a lightweight chat completion test."""
-        if provider_kind in {"openai", "openai_compat", "openai_compatible"}:
+        if provider_kind in {"openai", "openai_compatible"}:
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             token_limit_param = (
                 "max_completion_tokens"
@@ -320,7 +344,7 @@ class ProviderCatalogAdapter:
         input_text: str,
     ) -> dict[str, Any]:
         """Run a lightweight embeddings test."""
-        if provider_kind not in {"openai", "openai_compat", "openai_compatible"}:
+        if provider_kind not in {"openai", "openai_compatible"}:
             raise ValueError(f"Embedding test not supported for provider: {provider_kind}")
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         response = await client.embeddings.create(model=model_id, input=input_text)

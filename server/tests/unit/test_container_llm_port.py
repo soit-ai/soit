@@ -7,6 +7,13 @@ from app.adapters.llm.router import LLMRouterPort
 from app.wiring.container import Container
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_settings(monkeypatch):
+    monkeypatch.setattr("app.wiring.container.settings.openai_api_key", None)
+    monkeypatch.setattr("app.wiring.container.settings.deepseek_api_key", None)
+    monkeypatch.setattr("app.wiring.container.settings.anthropic_api_key", None)
+
+
 def test_create_llm_port_uses_deepseek_when_only_deepseek_key(monkeypatch) -> None:
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("SOIT_TESTING", raising=False)
@@ -34,6 +41,20 @@ def test_create_llm_port_keeps_test_provider_with_real_provider_keys(monkeypatch
     assert isinstance(port, LLMRouterPort)
     assert "openai" in port.providers
     assert isinstance(port.providers["test"], InMemoryLLMPort)
+
+
+def test_create_llm_port_uses_openai_key_loaded_by_settings(monkeypatch) -> None:
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("SOIT_TESTING", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("app.wiring.container.settings.openai_api_key", "settings-openai-key")
+
+    port = Container()._create_llm_port()
+
+    assert isinstance(port, LLMRouterPort)
+    assert "openai" in port.providers
 
 
 def test_create_llm_port_registers_anthropic_provider(monkeypatch) -> None:

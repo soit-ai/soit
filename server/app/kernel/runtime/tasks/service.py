@@ -11,10 +11,10 @@ from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
+from app.kernel.runtime.status import TaskStatus, validate_task_transition
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.protocols import TaskRepositoryProtocol
 from app.kernel.runtime.tasks.repository import TaskRepository
-from app.kernel.runtime.tasks.status import TaskStatus, validate_task_transition
 
 
 class TaskService:
@@ -166,7 +166,7 @@ class TaskService:
         return self.transition_task(
             task_id=task_id,
             status=TaskStatus.RUNNING.value,
-            progress={"action": "resume"},
+            progress={**(task.progress_json or {}), "action": "resume"},
         )
 
     def retry_task(self, *, task_id: str) -> Task:

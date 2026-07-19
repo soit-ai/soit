@@ -15,6 +15,8 @@ def _production_settings(**overrides) -> Settings:
         "vault_token": "vault-token",
         "openai_api_key": "provider-key",
         "event_bus_backend": "redis",
+        "response_interaction_inline_execution": False,
+        "response_interaction_worker_enabled": True,
         "otel_enabled": True,
         "otel_exporter_otlp_endpoint": "http://otel-collector:4318/v1/traces",
     }
@@ -33,6 +35,20 @@ def test_production_settings_reject_in_process_outbox_dispatcher() -> None:
     config = _production_settings(outbox_dispatcher_enabled=True)
 
     with pytest.raises(ValueError, match="dedicated outbox dispatcher"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_reject_inline_chat_execution() -> None:
+    config = _production_settings(response_interaction_inline_execution=True)
+
+    with pytest.raises(ValueError, match="inline chat interaction"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_require_durable_chat_worker() -> None:
+    config = _production_settings(response_interaction_worker_enabled=False)
+
+    with pytest.raises(ValueError, match="durable chat interaction worker"):
         config.validate_runtime_requirements()
 
 

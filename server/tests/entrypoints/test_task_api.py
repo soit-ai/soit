@@ -6,7 +6,7 @@ from fastapi import status
 
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
-from app.kernel.runtime.tasks.status import TaskStatus
+from app.kernel.runtime.status import TaskStatus
 
 
 def _headers() -> dict[str, str]:

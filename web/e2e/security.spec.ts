@@ -16,8 +16,7 @@ async function mockSettingsApi(page: Page, state: { savedEgressPayload: EgressPa
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [],
           page_size: 100,
           next_page_token: null,
@@ -30,8 +29,7 @@ async function mockSettingsApi(page: Page, state: { savedEgressPayload: EgressPa
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           scope: 'workspace',
           llm_rate_limit_per_minute: 60,
           tool_rate_limit_per_minute: 120,
@@ -49,8 +47,7 @@ async function mockSettingsApi(page: Page, state: { savedEgressPayload: EgressPa
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
             scope: 'workspace',
             ...payload,
           },
@@ -62,8 +59,7 @@ async function mockSettingsApi(page: Page, state: { savedEgressPayload: EgressPa
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           scope: 'workspace',
           allowlist: ['api.initial.example'],
           blocklist: ['*.blocked.initial'],
@@ -78,8 +74,7 @@ async function mockSettingsApi(page: Page, state: { savedEgressPayload: EgressPa
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [
             {
               id: 'audit-1',

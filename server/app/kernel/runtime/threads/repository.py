@@ -94,7 +94,25 @@ class ThreadRepository:
         return normalized[:280]
 
     def add_message(self, message: ThreadMessage) -> ThreadMessage:
-        thread = self.get_thread(message.thread_id)
+        thread_result = self.db.exec(
+            select(Thread)
+            .where(
+                and_(
+                    Thread.id == message.thread_id,
+                    Thread.tenant_id == self.ctx.tenant_id,
+                    Thread.workspace_id == self.ctx.workspace_id,
+                    Thread.deleted_at.is_(None),
+                )
+            )
+            .with_for_update()
+        ).first()
+        thread = (
+            thread_result
+            if isinstance(thread_result, Thread)
+            else thread_result[0]
+            if thread_result
+            else None
+        )
         if not thread:
             raise ValueError(f"Thread not found: {message.thread_id}")
 
@@ -149,6 +167,41 @@ class ThreadRepository:
         )
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, ThreadMessage) else item[0] for item in results]
+
+    def get_message(self, thread_id: str, message_id: str) -> ThreadMessage | None:
+        """Return one scoped message that belongs to the requested thread."""
+
+        query = select(ThreadMessage).where(
+            and_(
+                ThreadMessage.id == message_id,
+                ThreadMessage.thread_id == thread_id,
+                ThreadMessage.tenant_id == self.ctx.tenant_id,
+                ThreadMessage.workspace_id == self.ctx.workspace_id,
+                ThreadMessage.deleted_at.is_(None),
+            )
+        )
+        result = self.db.exec(query).first()
+        return result if isinstance(result, ThreadMessage) else result[0] if result else None
+
+    def message_lineage(self, thread_id: str, head_message_id: str) -> list[ThreadMessage]:
+        """Resolve one root-to-head conversation branch from the message ledger."""
+
+        messages = self.list_messages(thread_id)
+        by_id = {message.id: message for message in messages}
+        lineage: list[ThreadMessage] = []
+        seen: set[str] = set()
+        current_id: str | None = head_message_id
+        while current_id:
+            if current_id in seen:
+                raise ValueError("Thread message lineage contains a cycle")
+            seen.add(current_id)
+            current = by_id.get(current_id)
+            if current is None:
+                raise ValueError("Thread message lineage references an unknown message")
+            lineage.append(current)
+            current_id = current.parent_message_id
+        lineage.reverse()
+        return lineage
 
     def touch_thread(self, thread: Thread, *, latest_run_id: str | None = None) -> Thread:
         thread.updated_at = utc_now()

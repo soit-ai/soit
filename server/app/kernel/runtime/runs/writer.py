@@ -99,6 +99,17 @@ class TraceWriter:
         except Exception:
             return
 
+    def emit_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        run_id: str | None = None,
+    ) -> None:
+        """Emit a best-effort runtime notification after durable state is committed."""
+
+        self._emit_event(event_type, payload, run_id=run_id)
+
     def create_run(
         self,
         mode: str,

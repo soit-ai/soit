@@ -6,6 +6,7 @@ Comprehensive port policy enforcement tests.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tenacity import RetryError
 
 from app.kernel.commons.errors import ForbiddenError, TimeoutError, ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -333,6 +334,57 @@ async def test_tool_secret_injection_isolation(request_ctx):
     mock_secrets.get_secret.assert_called()
     call_args = mock_secrets.get_secret.call_args
     assert call_args.kwargs["secret_ref"] == "secret:demo"
+
+
+@pytest.mark.asyncio
+async def test_tool_policy_does_not_retry_a_durable_agent_invocation(request_ctx):
+    attempts = 0
+
+    class SideEffectingTool:
+        async def invoke(self, tool_ref, parameters, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            raise RuntimeError("response lost after side effect")
+
+    policy = ToolPolicyGateway(
+        gateway=SideEffectingTool(),
+        ctx=request_ctx,
+        max_retries=2,
+        enable_egress_check=False,
+    )
+
+    with pytest.raises(RetryError):
+        await policy.invoke(
+            tool_ref="tool:function:side_effect",
+            parameters={"value": "once"},
+            run_id="run_side_effect_once",
+            idempotency_key="agent-tool:run_side_effect_once:call_once",
+        )
+
+    assert attempts == 1
+
+
+def test_tool_policy_exposes_builtin_registration_for_agent_resolution(request_ctx):
+    class BuiltinToolGateway:
+        def __init__(self):
+            self.registered = []
+
+        def register_builtin(self, tool_ref, ctx):
+            self.registered.append((tool_ref, ctx))
+            return True
+
+        async def invoke(self, tool_ref, parameters, **kwargs):
+            return ToolResponse(result={}, success=True, metadata={})
+
+    inner = BuiltinToolGateway()
+    policy = ToolPolicyGateway(
+        gateway=inner,
+        ctx=request_ctx,
+        enable_egress_check=False,
+    )
+
+    assert policy.register_builtin("tool:function:time_now", request_ctx) is True
+    assert inner.registered == [("tool:function:time_now", request_ctx)]
 
 
 @pytest.mark.asyncio

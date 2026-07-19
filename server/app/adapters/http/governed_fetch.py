@@ -20,6 +20,7 @@ class AddressResolver(Protocol):
 
     async def resolve(self, hostname: str, port: int) -> list[str]:
         """Return all resolved IP addresses."""
+        ...
 
 
 class SocketAddressResolver:
@@ -33,7 +34,7 @@ class SocketAddressResolver:
             port,
             type=socket.SOCK_STREAM,
         )
-        return sorted({record[4][0] for record in records})
+        return sorted({str(record[4][0]) for record in records})
 
 
 @dataclass(frozen=True)

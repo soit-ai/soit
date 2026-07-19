@@ -18,14 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.infra.db.session import get_engine
 import app.kernel.runtime.db.models  # noqa: F401
-from app.modules.identity.domain import models as identity_models  # noqa: F401
-from app.modules.security.domain import models as security_models  # noqa: F401
-from app.modules.secrets.domain import models as secrets_models  # noqa: F401
-from app.modules.knowledge.domain import models as knowledge_models  # noqa: F401
-from app.modules.memory.domain import models as memory_models  # noqa: F401
-from app.modules.plugin.domain import models as plugin_models  # noqa: F401
-from app.modules.agent.domain import models as agent_models  # noqa: F401
-from app.modules.notification.domain import models as notification_models  # noqa: F401
+import app.modules  # noqa: F401
 from app.modules.modelhub.domain import models as modelhub_models  # noqa: F401
 from sqlmodel import SQLModel
 

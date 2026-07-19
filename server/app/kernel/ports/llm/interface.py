@@ -16,6 +16,7 @@ class ToolDefinition:
     name: str
     description: str
     parameters: dict[str, Any]  # JSON Schema
+    policy: dict[str, Any] | None = None
 
 
 @dataclass
@@ -35,6 +36,28 @@ class ToolCallDelta:
     id: str | None = None
     name: str | None = None
     arguments_delta: str = ""
+
+
+@dataclass(frozen=True)
+class HostedToolCall:
+    """Provider-executed hosted tool call returned by an LLM gateway."""
+
+    id: str
+    name: str
+    status: str
+    arguments: dict[str, Any]
+    result: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class HostedArtifact:
+    """Generated provider file that must be copied into governed storage."""
+
+    container_id: str
+    file_id: str
+    filename: str
+    content: bytes
+    mime: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,11 +113,16 @@ class ChatResponse:
         finish_reason: str | None = None,
         runtime_target: LLMRuntimeTarget | None = None,
         tool_calls: list[ToolCall] | None = None,
+        reasoning: str | None = None,
+        hosted_tool_calls: list[HostedToolCall] | None = None,
+        citations: list[dict[str, Any]] | None = None,
+        hosted_artifacts: list[HostedArtifact] | None = None,
     ):
         """Initialize chat response.
 
         Args:
             text: Generated text (may be None when tool_calls present).
+            reasoning: Provider-visible reasoning text, when explicitly returned.
             tokens_prompt: Prompt tokens used.
             tokens_completion: Completion tokens used.
             model: Model used.
@@ -102,12 +130,16 @@ class ChatResponse:
             tool_calls: Tool calls returned by the LLM.
         """
         self.text = text
+        self.reasoning = reasoning
         self.tokens_prompt = tokens_prompt
         self.tokens_completion = tokens_completion
         self.model = model
         self.finish_reason = finish_reason
         self.runtime_target = runtime_target
         self.tool_calls = tool_calls
+        self.hosted_tool_calls = hosted_tool_calls or []
+        self.citations = citations or []
+        self.hosted_artifacts = hosted_artifacts or []
 
 
 class ChatStreamChunk:
@@ -124,9 +156,14 @@ class ChatStreamChunk:
         finish_reason: str | None = None,
         tool_call_deltas: list[ToolCallDelta] | None = None,
         tool_calls: list[ToolCall] | None = None,
+        reasoning_delta: str = "",
+        hosted_tool_calls: list[HostedToolCall] | None = None,
+        citations: list[dict[str, Any]] | None = None,
+        hosted_artifacts: list[HostedArtifact] | None = None,
     ):
         """Initialize stream chunk."""
         self.delta = delta
+        self.reasoning_delta = reasoning_delta
         self.done = done
         self.tokens_prompt = tokens_prompt
         self.tokens_completion = tokens_completion
@@ -135,6 +172,9 @@ class ChatStreamChunk:
         self.finish_reason = finish_reason
         self.tool_call_deltas = tool_call_deltas
         self.tool_calls = tool_calls
+        self.hosted_tool_calls = hosted_tool_calls or []
+        self.citations = citations or []
+        self.hosted_artifacts = hosted_artifacts or []
 
 
 class EmbeddingResponse:

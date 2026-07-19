@@ -10,6 +10,11 @@ from typing import Any, Protocol, runtime_checkable
 class StoragePort(ABC):
     """Object storage port interface."""
 
+    async def ensure_ready(self) -> None:
+        """Verify that the configured storage root is ready for use."""
+
+        return None
+
     @abstractmethod
     async def put(
         self,

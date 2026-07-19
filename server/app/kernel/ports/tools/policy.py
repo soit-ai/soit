@@ -3,12 +3,14 @@
 Tool port policies: timeout/retry/rate-limit/audit/egress.
 """
 
+import math
 from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.trace import Tracer
 
 from app.kernel.commons.errors import TimeoutError, ValidationError
+from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.tool_call import (
@@ -26,6 +28,12 @@ from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.runtime.runs.tool_calls import (
+    RuntimeToolExecutionService,
+    ToolExecutionCommand,
+    summarize_parameters,
+    summarize_tool_payload,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.security.egress import check_egress_policy
 
@@ -38,6 +46,7 @@ def _provider_from_tool_ref(tool_ref: str) -> str | None:
         if len(parts) >= 2:
             return parts[1]
     return None
+
 
 class ToolPolicyGateway(ToolPort):
     """Tool port with policy enforcement."""
@@ -82,6 +91,25 @@ class ToolPolicyGateway(ToolPort):
         self.daily_quota = daily_quota
         self.rate_limiter = rate_limiter or RateLimiter()
         self.otel_tracer = otel_tracer or trace.get_tracer("soit.tools")
+
+    def register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
+        """Register a built-in tool through the wrapped gateway when supported."""
+        register = getattr(self.gateway, "register_builtin", None)
+        if register is None:
+            return False
+        return bool(register(tool_ref, ctx))
+
+    def get_tool_policy(
+        self,
+        tool_ref: str,
+        ctx: RequestContext,
+    ) -> dict[str, Any]:
+        """Return ToolSpec policy through the wrapped gateway when supported."""
+
+        get_policy = getattr(self.gateway, "get_tool_policy", None)
+        if get_policy is None:
+            return {}
+        return dict(get_policy(tool_ref, ctx) or {})
 
     def _contains_secret_ref(self, value: Any) -> bool:
         if isinstance(value, dict):
@@ -192,9 +220,9 @@ class ToolPolicyGateway(ToolPort):
                 "tool_ref": tool_ref,
                 "tool_type": _provider_from_tool_ref(tool_ref) or "tool",
                 "status": status,
-                "arguments": request.arguments,
-                "result": result_payload,
-                "metadata": call_result.metadata,
+                "arguments": summarize_parameters(request.arguments),
+                "result": summarize_tool_payload(result_payload),
+                "metadata": summarize_tool_payload(call_result.metadata),
                 "error_code": error.code if error else None,
                 "error_message": error.message if error else None,
             }
@@ -217,6 +245,9 @@ class ToolPolicyGateway(ToolPort):
             ToolResponse instance.
         """
         step = None
+        tool_execution_service = None
+        tool_execution_claim = None
+        timeout_seconds = float(kwargs.get("timeout_s") or self.timeout_seconds)
         redacted_parameters = parameters
         resolved_parameters = parameters
         if self._contains_secret_ref(parameters):
@@ -227,12 +258,49 @@ class ToolPolicyGateway(ToolPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
-                run_id=resolve_run_id(kwargs, self.ctx),
-                step_type="tool",
-                input_summary=f"tool={tool_ref}",
+            tool_call_id = str(kwargs.get("tool_call_id") or f"call_{generate_ulid()}")
+            idempotency_key = str(
+                kwargs.get("idempotency_key") or f"tool:{run_id}:{tool_call_id}"
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            tool_execution_service = RuntimeToolExecutionService(
+                db=self.trace_writer.db,
+                ctx=self.ctx,
+                trace_writer=self.trace_writer,
+                lease_owner=str(
+                    kwargs.get("lease_owner")
+                    or self.ctx.request_id
+                    or f"tool:{run_id}"
+                ),
+                lease_seconds=max(60, math.ceil(timeout_seconds) + 10),
+                storage_port=self.storage_port,
+            )
+            tool_execution_claim = tool_execution_service.claim(
+                ToolExecutionCommand(
+                    run_id=run_id,
+                    run_step_id=(str(kwargs["run_step_id"]) if kwargs.get("run_step_id") else None),
+                    tool_call_id=tool_call_id,
+                    tool_ref=tool_ref,
+                    arguments=redacted_parameters,
+                    idempotency_key=idempotency_key,
+                    created_by=self.ctx.user_id,
+                    resume_approval=bool(kwargs.get("resume_approval", False)),
+                    retry_failed=bool(kwargs.get("retry_failed", False)),
+                )
+            )
+            step = tool_execution_claim.run_step
+            if tool_execution_claim.replayed:
+                cached_response = await tool_execution_service.load_cached_response(
+                    tool_execution_claim
+                )
+                if cached_response is not None:
+                    return cached_response
+            tool_execution_service.mark_running(tool_execution_claim.record.id)
+            kwargs = {
+                **kwargs,
+                "tool_call_id": tool_call_id,
+                "idempotency_key": idempotency_key,
+                "run_step_id": step.id,
+            }
 
         start_time = utc_now()
         try:
@@ -259,13 +327,14 @@ class ToolPolicyGateway(ToolPort):
                 )
 
             async def _invoke():
+                if tool_execution_service and tool_execution_claim:
+                    tool_execution_service.renew_lease(tool_execution_claim.record.id)
                 return await self.gateway.invoke(
                     tool_ref=tool_ref,
                     parameters=resolved_parameters,
                     **kwargs,
                 )
 
-            timeout_seconds = kwargs.get("timeout_s") or self.timeout_seconds
             with self.otel_tracer.start_as_current_span(
                 "soit.tool.invoke",
                 attributes={
@@ -280,7 +349,9 @@ class ToolPolicyGateway(ToolPort):
                 response = await run_with_timeout_retry(
                     _invoke,
                     timeout_seconds=timeout_seconds,
-                    max_retries=self.max_retries,
+                    # Durable Agent calls are at-most-once at this boundary.
+                    # Not every downstream adapter can honor an idempotency key.
+                    max_retries=1 if kwargs.get("idempotency_key") else self.max_retries,
                     timeout_factory=lambda: TimeoutError(
                         f"Tool invocation timed out after {timeout_seconds} seconds",
                         {"timeout_seconds": timeout_seconds, "tool_ref": tool_ref},
@@ -354,6 +425,9 @@ class ToolPolicyGateway(ToolPort):
                     tool_ref=tool_ref,
                 )
 
+            if tool_execution_service and tool_execution_claim:
+                await tool_execution_service.complete(tool_execution_claim.record.id, response)
+
             return response
         except Exception as e:
             if step and self.trace_writer:
@@ -392,4 +466,6 @@ class ToolPolicyGateway(ToolPort):
                     error_message=str(e),
                     error_details=error_details(e),
                 )
+            if tool_execution_service and tool_execution_claim:
+                tool_execution_service.fail(tool_execution_claim.record.id, e)
             raise

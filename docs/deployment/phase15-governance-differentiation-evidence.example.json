@@ -43,7 +43,7 @@
       "complete": true,
       "evidence_refs": [
         "server/app/modules/evaluation/",
-        "server/alembic/versions/20260611120000_regression_evaluation_tables.py",
+        "server/alembic/versions/20260718140000_fresh_install_baseline.py",
         "server/tests/entrypoints/test_evaluation_api.py",
         "server/tests/unit/test_regression_evaluation_service.py",
         "web/e2e/agent.spec.ts"

@@ -385,18 +385,18 @@ class Container:
         from app.adapters.llm.openai import OpenAILLMPort
         from app.adapters.llm.router import LLMRouterPort
 
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY") or settings.openai_api_key
         if openai_api_key:
             providers["openai"] = OpenAILLMPort(api_key=openai_api_key)
 
-        deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+        deepseek_api_key = os.getenv("DEEPSEEK_API_KEY") or settings.deepseek_api_key
         if deepseek_api_key:
             providers["deepseek"] = DeepSeekLLMPort(
                 api_key=deepseek_api_key,
                 base_url=os.getenv("DEEPSEEK_BASE_URL") or settings.deepseek_base_url,
             )
 
-        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY") or settings.anthropic_api_key
         if anthropic_api_key:
             providers["anthropic"] = AnthropicLLMPort(
                 api_key=anthropic_api_key,

@@ -49,7 +49,7 @@ export interface ThreadMessage {
   response_id?: string | null
   parent_message_id?: string | null
   sequence_no: number
-  role: string
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
   message_type: string
   status: string

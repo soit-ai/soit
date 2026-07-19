@@ -8,6 +8,8 @@ From `server/`:
 
 ```bash
 uv sync
+uv run alembic heads
+uv run pytest tests/unit/test_fresh_install_migration.py -q
 uv run lint-imports --config importlinter.ini
 uv run ruff check app/modules/agent/application/schemas.py app/modules/agent/application/service.py app/modules/agent/application/application_service.py app/api/v1/agent/handlers.py tests/unit/test_agent_service.py tests/unit/test_agent_rag.py tests/integration/test_agent_publish_and_execute.py tests/entrypoints/test_agent_api.py tests/entrypoints/test_agent_stream_api.py --select F,E402,I
 uv run pytest tests/unit/test_agent_service.py tests/unit/test_agent_rag.py tests/integration/test_agent_publish_and_execute.py tests/entrypoints/test_agent_api.py tests/entrypoints/test_agent_stream_api.py -q
@@ -70,7 +72,7 @@ uv run python scripts/evaluate_support_ticket_regression.py --json-output ../art
 uv run pytest tests/integration/test_support_ticket_regression_evaluator.py -q
 ```
 
-This is a blocking non-Docker backend gate. Run it against a migrated local database or an existing local development database; GitHub Actions provisions PostgreSQL and runs Alembic migrations before this gate. The evaluator uses the deterministic `model:test:*` path, bootstraps the Enterprise MVP seed when needed, executes the fixed support/ticket golden prompt set, and exits non-zero if any case fails. The JSON report is machine readable and includes `pass/fail`, failure reasons, `run_id`, `response_id`, `tool_call_count`, `citation_count`, `cost`, and `latency_ms` for each case.
+This is a blocking non-Docker backend gate. Run it against a database initialized from the current fresh-install baseline; GitHub Actions provisions an empty PostgreSQL database and applies the single Alembic baseline before this gate. The evaluator uses the deterministic `model:test:*` path, bootstraps the Enterprise MVP seed when needed, executes the fixed support/ticket golden prompt set, and exits non-zero if any case fails. The JSON report is machine readable and includes `pass/fail`, failure reasons, `run_id`, `response_id`, `tool_call_count`, `citation_count`, `cost`, and `latency_ms` for each case.
 
 Every passing report must include at least one policy answer case with a citation to `refund-policy.md` and one ticket workflow case with a tool call, child workflow run, audit evidence, citation evidence, and cost evidence.
 
@@ -108,12 +110,12 @@ Expected: the API is ready, the web app responds, and `knowledge-ingest-worker` 
 
 ## Blocking Static Gates
 
-These checks are blocking in CI. The strict mypy scope is intentionally progressive; expand `server/mypy-core.ini` as typed boundaries are cleaned up, without weakening the existing set.
+These checks are blocking in CI. The strict Pyright scope is intentionally progressive; expand `server/pyrightconfig.json` as typed boundaries are cleaned up, without weakening the existing set.
 
 ```bash
 cd server
 uv run ruff check app tests
-uv run mypy --config-file mypy-core.ini
+uv run pyright
 uv run lint-imports --config importlinter.ini
 ```
 

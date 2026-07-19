@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.auth import JWTManager
+from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
@@ -356,7 +357,7 @@ def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplication
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
-    tool_port = container.get_tool_port(ctx=ctx)
+    tool_port = container.get_tool_port(ctx=ctx, trace_writer=trace_writer)
     skill_runtime_port = PluginRuntimePolicyGateway(
         gateway=DatabaseSkillRuntimePort(db),
         ctx=ctx,
@@ -369,6 +370,11 @@ def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplication
         memory_service=build_memory_service(db=db, ctx=ctx),
         trace_writer=trace_writer,
         response_service=build_response_service(db=db, ctx=ctx),
+        attachment_service=AttachmentService(
+            db=db,
+            ctx=ctx,
+            storage_port=container.get_storage_port(ctx=ctx),
+        ),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
         regression_evaluator=build_evaluation_service(db=db, ctx=ctx),
         plugin_runtime_port=skill_runtime_port,
@@ -457,6 +463,7 @@ def build_response_projection_coordinator(*, db: Session, ctx: RequestContext) -
         response_service=response_service,
         llm_port=container.get_llm_port(ctx=ctx, trace_writer=trace_writer),
         thread_service=ThreadService(db=db, ctx=ctx),
+        storage_port=container.get_storage_port(ctx=ctx, trace_writer=trace_writer),
     )
 
 

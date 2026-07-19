@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
+from app.kernel.runtime.db.models.threads import (
+    Thread,
+    ThreadMessage,
+    generate_thread_message_id,
+)
 from app.kernel.runtime.threads.protocols import ThreadRepositoryProtocol
 from app.kernel.runtime.threads.repository import ThreadRepository
 
@@ -140,6 +144,7 @@ class ThreadService:
         self,
         *,
         thread_id: str,
+        message_id: str | None = None,
         role: str,
         content: str,
         run_id: str | None = None,
@@ -167,28 +172,27 @@ class ThreadService:
         metadata_json = metadata or {}
         return self.thread_repo.add_message(
             ThreadMessage(
+                id=message_id or generate_thread_message_id(),
                 thread_id=thread_id,
                 run_id=run_id,
-                task_id=task_id or metadata_json.get("task_id"),
-                response_id=response_id or metadata_json.get("response_id"),
+                task_id=task_id,
+                response_id=response_id,
                 parent_message_id=parent_message_id,
                 role=role,
                 content=content,
                 message_type=message_type,
                 status=status,
-                model_ref=model_ref or metadata_json.get("model_ref") or metadata_json.get("model"),
-                tokens_prompt=tokens_prompt if tokens_prompt is not None else metadata_json.get("tokens_prompt"),
-                tokens_completion=(
-                    tokens_completion if tokens_completion is not None else metadata_json.get("tokens_completion")
-                ),
-                finish_reason=finish_reason or metadata_json.get("finish_reason"),
-                content_json=content_json or metadata_json.get("content_json") or {},
-                summary=summary or metadata_json.get("summary"),
-                citations_json=citations_json or metadata_json.get("citations") or [],
-                attachments_json=attachments_json or metadata_json.get("attachments") or [],
-                tool_calls_json=tool_calls_json or metadata_json.get("tool_calls") or [],
-                error_code=error_code or metadata_json.get("error_code"),
-                error_message=error_message or metadata_json.get("error_message"),
+                model_ref=model_ref,
+                tokens_prompt=tokens_prompt,
+                tokens_completion=tokens_completion,
+                finish_reason=finish_reason,
+                content_json=content_json or {},
+                summary=summary,
+                citations_json=citations_json or [],
+                attachments_json=attachments_json or [],
+                tool_calls_json=tool_calls_json or [],
+                error_code=error_code,
+                error_message=error_message,
                 metadata_json=metadata_json,
             )
         )

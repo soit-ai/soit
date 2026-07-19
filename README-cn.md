@@ -87,7 +87,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - **数据获取**: React Query (服务端状态管理)
 
 **可视化：**
-- **图表库**: ECharts + Recharts (数据可视化)
+- **图表库**: Recharts (数据可视化)
 - **工作流可视化**: React Flow (@xyflow/react) (DAG 图编辑)
 
 **其他工具：**

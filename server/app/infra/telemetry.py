@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI
 from opentelemetry import trace
@@ -73,7 +74,8 @@ def configure_telemetry(
     if not _libraries_instrumented:
         HTTPXClientInstrumentor().instrument(tracer_provider=_configured_provider)
         SQLAlchemyInstrumentor().instrument(tracer_provider=_configured_provider)
-        RedisInstrumentor().instrument(tracer_provider=_configured_provider)
+        redis_instrumentor: Any = RedisInstrumentor()
+        redis_instrumentor.instrument(tracer_provider=_configured_provider)
         CeleryInstrumentor().instrument(  # type: ignore[no-untyped-call]
             tracer_provider=_configured_provider
         )

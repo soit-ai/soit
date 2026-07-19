@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.tasks.status import ApprovalStatus
+from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.domain.models import ApprovalRequest, RunFeedback
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_approved_outbox,
@@ -48,6 +48,47 @@ class ApprovalRepository:
         self.db.commit()
         self.db.refresh(approval)
         return approval
+
+    def lock_by_ids(self, approval_ids: list[str]) -> list[ApprovalRequest]:
+        """Lock scoped approvals so a resume decision can be applied atomically."""
+
+        if not approval_ids:
+            return []
+        query = (
+            select(ApprovalRequest)
+            .where(
+                and_(
+                    ApprovalRequest.tenant_id == self.ctx.tenant_id,
+                    ApprovalRequest.workspace_id == self.ctx.workspace_id,
+                    ApprovalRequest.id.in_(approval_ids),
+                )
+            )
+            .with_for_update()
+        )
+        return list(self.db.execute(query).scalars().all())
+
+    def update_many(
+        self,
+        approvals: list[ApprovalRequest],
+        *,
+        commit: bool = True,
+    ) -> list[ApprovalRequest]:
+        """Persist validated approval decisions in one transaction."""
+
+        for approval in approvals:
+            approval.updated_at = utc_now()
+            self.db.add(approval)
+        self.db.flush()
+        for approval in approvals:
+            if approval.status == ApprovalStatus.APPROVED.value:
+                enqueue_approval_approved_outbox(self.db, self.ctx, approval=approval)
+            elif approval.status == ApprovalStatus.REJECTED.value:
+                enqueue_approval_rejected_outbox(self.db, self.ctx, approval=approval)
+        if commit:
+            self.db.commit()
+            for approval in approvals:
+                self.db.refresh(approval)
+        return approvals
 
     def get_by_id(self, approval_id: str) -> ApprovalRequest | None:
         query = select(ApprovalRequest).where(

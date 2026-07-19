@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockShellApi } from './helpers'
+import type { DashboardChartsByTab, ObserveTabId } from '../app/services/observe-service'
 
 const pageReadyTimeout = 45_000
 
@@ -13,24 +14,61 @@ const tabs = [
   { id: 'workflow_bottlenecks', label: '工作流瓶颈', rowId: 'tool-call' },
   { id: 'tool_reliability', label: '工具可靠性', rowId: 'search_tool' },
   { id: 'knowledge_quality', label: '知识质量', rowId: 'knowledge:kb_support' },
-]
+] satisfies Array<{ id: ObserveTabId; label: string; rowId: string }>
 
-function baseDashboard(tab: string, q = '') {
-  const rowsByTab: Record<string, Array<Record<string, unknown> & { id: string }>> = {
+function parseObserveTab(value: string | null): ObserveTabId {
+  if (
+    value === 'workflow_bottlenecks'
+    || value === 'tool_reliability'
+    || value === 'knowledge_quality'
+  ) return value
+  return 'agent_health'
+}
+
+function baseDashboard(
+  tab: ObserveTabId,
+  q = '',
+  options: { emptyErrorDistribution?: boolean } = {},
+) {
+  const rowsByTab = {
     agent_health: [
       { id: 'agent:support', name: 'agent:support', status: 'warning', run_count: 3, failed_run_count: 1, success_rate: 0.667, avg_latency_ms: 186, last_error: 'timeout', owner: 'Jude', last_run_at: '2026-06-01T20:45:00Z', latest_run_id: 'run-dashboard-latest', latest_run_status: 'failed', latest_run_cost_usd: 1.25, latest_failure_reason: 'timeout', detail_url: '/observe/runs/run-dashboard-latest' },
     ],
     workflow_bottlenecks: [
-      { id: 'tool-call', name: 'tool-call', stage: '工具调用', current_queue: 76, avg_wait_ms: 1400, failure_rate: 0.012, affected_agents: ['agent:support'], owner: 'Jude', latest_run_id: 'run-dashboard-workflow', latest_run_status: 'failed', latest_run_cost_usd: 0.8, latest_failure_reason: 'queue timeout', detail_url: '/observe/runs/run-dashboard-workflow' },
+      { id: 'tool-call', name: 'tool-call', description: 'Workflow stage', stage: '工具调用', current_queue: 76, avg_wait_ms: 1400, failure_rate: 0.012, affected_agents: ['agent:support'], owner: 'Jude', latest_run_id: 'run-dashboard-workflow', latest_run_status: 'failed', latest_run_cost_usd: 0.8, latest_failure_reason: 'queue timeout', detail_url: '/observe/runs/run-dashboard-workflow' },
     ],
     tool_reliability: [
       { id: 'search_tool', name: 'search_tool', type: '查询工具', call_count: 12, success_rate: 0.978, avg_latency_ms: 312, failure_reason: { timeout: 1 }, related_agents: ['agent:support'], owner: 'Alice', status: 'warning', latest_run_id: 'run-dashboard-tool', latest_run_status: 'failed', latest_run_cost_usd: 0.5, latest_failure_reason: 'tool timeout', detail_url: '/observe/runs/run-dashboard-tool' },
     ],
     knowledge_quality: [
-      { id: 'knowledge:kb_support', name: 'knowledge:kb_support', related_agents: ['agent:support'], hit_rate: 0.962, missing_answer_rate: 0.038, expired_chunks: 8, last_updated: '2026-06-01 18:20', status: 'healthy', owner: 'Jude', latest_run_id: 'run-dashboard-knowledge', latest_run_status: 'succeeded', latest_run_cost_usd: 0.3, latest_failure_reason: null, detail_url: '/observe/runs/run-dashboard-knowledge' },
+      { id: 'knowledge:kb_support', name: 'knowledge:kb_support', description: 'Knowledge retrieval quality', related_agents: ['agent:support'], hit_rate: 0.962, missing_answer_rate: 0.038, expired_chunks: 8, last_updated: '2026-06-01 18:20', status: 'healthy', owner: 'Jude', latest_run_id: 'run-dashboard-knowledge', latest_run_status: 'succeeded', latest_run_cost_usd: 0.3, latest_failure_reason: null, detail_url: '/observe/runs/run-dashboard-knowledge' },
     ],
   }
   const rows = rowsByTab[tab].filter((row) => !q || row.id.includes(q) || String(row.name).includes(q))
+  const trend = [
+    { bucket: '2026-06-01T20:30:00Z', run_count: 3, failed_run_count: 1, tool_count: 2, tool_failed_count: 1, retrieval_count: 2, retrieval_failed_count: 0, success_rate: 0.667 },
+  ]
+  const chartsByTab = {
+    agent_health: {
+      trend,
+      health_distribution: [{ status: 'healthy', count: 1 }],
+      alert_compression: { raw_alerts: 2, compressed_alerts: 1 },
+    },
+    workflow_bottlenecks: {
+      bottleneck_flow: rowsByTab.workflow_bottlenecks,
+      queue_distribution: rowsByTab.workflow_bottlenecks,
+      latency_percentiles: { p50: 1400, p95: 1400, p99: 1400 },
+    },
+    tool_reliability: {
+      trend,
+      error_distribution: options.emptyErrorDistribution ? [] : [{ type: 'timeout', count: 1 }],
+    },
+    knowledge_quality: {
+      trend,
+      quality_score: 92.4,
+      low_quality_sources: rowsByTab.knowledge_quality,
+    },
+  } satisfies DashboardChartsByTab
   return {
     overview: {
       workspace_health_score: 98.6,
@@ -86,40 +124,23 @@ function baseDashboard(tab: string, q = '') {
       summary_cards: [
         { id: `${tab}_summary`, label: '摘要', value: '1', delta: null, trend: [1], tone: 'green' },
       ],
-      charts: {
-        trend: [
-          { bucket: '2026-06-01T20:30:00Z', run_count: 3, failed_run_count: 1, tool_count: 2, tool_failed_count: 1, retrieval_count: 2, retrieval_failed_count: 0, success_rate: 0.667 },
-        ],
-        health_distribution: [{ status: 'healthy', count: 1 }],
-        alert_compression: { raw_alerts: 2, compressed_alerts: 1 },
-        queue_distribution: rows,
-        error_distribution: [{ type: 'timeout', count: 1 }],
-        quality_score: 92.4,
-        low_quality_sources: rows,
-      },
+      charts: chartsByTab[tab],
       rows,
       page: { page_size: rows.length, next_page_token: null, total_count: rows.length },
       empty_state: { title: '暂无数据', description: '当前时间范围内没有可展示的观测数据。' },
     },
-    workspace_summary: { run_count: 4, failed_run_count: 1, active_run_count: 1, pending_approvals: 2, feedback_count: 3, total_cost_usd: 1.25 },
-    agent_summaries: [],
-    model_costs: [],
-    workflow_bottlenecks: [],
-    tool_health: [],
-    knowledge_quality: [],
-    approvals_summary: { pending: 2, approved: 4, rejected: 1 },
   }
 }
 
 async function mockObserveApi(page: Page) {
   await page.route('**/api/v1/observe/dashboard**', async (route) => {
     const url = new URL(route.request().url())
-    const tab = url.searchParams.get('tab') || 'agent_health'
+    const tab = parseObserveTab(url.searchParams.get('tab'))
     const q = url.searchParams.get('q') || ''
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: baseDashboard(tab, q) }),
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: baseDashboard(tab, q) }),
     })
   })
 }
@@ -162,24 +183,23 @@ async function mockRunExplorerApi(page: Page) {
   }
 
   await page.route('**/api/v1/runs/costs/summary**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: costSummary }) })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: costSummary }) })
   })
   await page.route('**/api/v1/runs/costs/by-day**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ date: '2026-06-01', tokens_prompt: 12, tokens_completion: 18, embedding_count: 1, rerank_count: 0, ms_total: 1240, storage_bytes: 0 }] }) })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [{ date: '2026-06-01', tokens_prompt: 12, tokens_completion: 18, embedding_count: 1, rerank_count: 0, ms_total: 1240, storage_bytes: 0 }] }) })
   })
   await page.route('**/api/v1/runs/costs/by-provider**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ provider: 'test', ...costSummary }] }) })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [{ provider: 'test', ...costSummary }] }) })
   })
   await page.route('**/api/v1/runs/costs/by-model**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ model_ref: 'model:test:support-ticket', ...costSummary }] }) })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [{ model_ref: 'model:test:support-ticket', ...costSummary }] }) })
   })
   await page.route('**/api/v1/runs/*', async (route) => {
     const runId = new URL(route.request().url()).pathname.split('/').pop() || run.id
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           run: { ...run, id: runId },
           steps: [],
           artifacts: [],
@@ -199,46 +219,10 @@ async function mockRunExplorerApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: [run],
           page_size: 20,
           next_page_token: null,
-        },
-      }),
-    })
-  })
-}
-
-async function mockLegacyObserveApi(page: Page) {
-  await page.unroute('**/api/v1/observe/dashboard**')
-  await page.route('**/api/v1/observe/dashboard**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
-          workspace_summary: {
-            run_count: 10,
-            failed_run_count: 2,
-            active_run_count: 1,
-            pending_approvals: 3,
-            feedback_count: 0,
-            total_cost_usd: 4.5,
-          },
-          agent_summaries: [
-            {
-              agent_id: 'legacy-agent',
-              run_count: 10,
-              failed_run_count: 2,
-              last_run_at: '2026-06-01T20:45:00Z',
-            },
-          ],
-          model_costs: [],
-          workflow_bottlenecks: [],
-          tool_health: [],
-          knowledge_quality: [],
-          approvals_summary: { pending: 3, approved: 0, rejected: 0 },
         },
       }),
     })
@@ -249,19 +233,32 @@ async function mockEmptyObserveApi(page: Page) {
   await page.unroute('**/api/v1/observe/dashboard**')
   await page.route('**/api/v1/observe/dashboard**', async (route) => {
     const url = new URL(route.request().url())
-    const tab = url.searchParams.get('tab') || 'agent_health'
+    const tab = parseObserveTab(url.searchParams.get('tab'))
+    const emptyChartsByTab = {
+      agent_health: {
+        trend: [],
+        health_distribution: [],
+        alert_compression: { raw_alerts: 0, compressed_alerts: 0 },
+      },
+      workflow_bottlenecks: {
+        bottleneck_flow: [],
+        queue_distribution: [],
+        latency_percentiles: { p50: 0, p95: 0, p99: 0 },
+      },
+      tool_reliability: { trend: [], error_distribution: [] },
+      knowledge_quality: { trend: [], quality_score: 100, low_quality_sources: [] },
+    } satisfies DashboardChartsByTab
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           ...baseDashboard(tab),
           recent_runs: [],
           tabs: tabs.map((item) => ({ id: item.id, label: item.label, count: 0 })),
           section: {
             id: tab,
             summary_cards: [],
-            charts: { trend: [], health_distribution: [], queue_distribution: [], error_distribution: [], low_quality_sources: [] },
+            charts: emptyChartsByTab[tab],
             rows: [],
             page: { page_size: 0, next_page_token: null, total_count: 0 },
             empty_state: {
@@ -269,12 +266,26 @@ async function mockEmptyObserveApi(page: Page) {
               description: '当前时间范围内没有对应应用观测数据。',
             },
           },
-          workspace_summary: { run_count: 0, failed_run_count: 0, active_run_count: 0, pending_approvals: 0, feedback_count: 0, total_cost_usd: 0 },
-          agent_summaries: [],
-          workflow_bottlenecks: [],
-          tool_health: [],
-          knowledge_quality: [],
         },
+      }),
+    })
+  })
+}
+
+async function mockEmptyErrorDistributionApi(page: Page) {
+  await page.unroute('**/api/v1/observe/dashboard**')
+  await page.route('**/api/v1/observe/dashboard**', async (route) => {
+    const url = new URL(route.request().url())
+    const tab = parseObserveTab(url.searchParams.get('tab'))
+    const q = url.searchParams.get('q') || ''
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: baseDashboard(tab, q, { emptyErrorDistribution: true }),
       }),
     })
   })
@@ -357,16 +368,6 @@ test('observe dashboard surfaces recent run observability summary', async ({ pag
   await expect(page).toHaveURL(/\/observe\/runs\/run-dashboard-latest/)
 })
 
-test('observe dashboard renders legacy payloads without the new section fields', async ({ page }) => {
-  await mockLegacyObserveApi(page)
-
-  await page.goto('/observe?tab=agent_health', { waitUntil: 'domcontentloaded' })
-
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
-  await expect(page.getByText('80%').first()).toBeVisible()
-  await expect(page.getByRole('row').filter({ hasText: 'legacy-agent' })).toBeVisible()
-})
-
 test('observe tabs show diagnostic empty state with run explorer entry', async ({ page }) => {
   await mockEmptyObserveApi(page)
 
@@ -375,4 +376,25 @@ test('observe tabs show diagnostic empty state with run explorer entry', async (
   await expect(page.getByText('当前时间范围内没有对应应用观测数据。')).toBeVisible({ timeout: pageReadyTimeout })
   await page.getByRole('link', { name: '打开 Run Explorer' }).first().click()
   await expect(page).toHaveURL(/\/observe\/runs/)
+})
+
+test('observe error distribution exposes a labeled legend', async ({ page }) => {
+  await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
+
+  const legend = page.getByRole('list', { name: '错误类型分布图例' })
+  await expect(legend).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(legend.getByRole('listitem')).toHaveCount(1)
+  await expect(legend).toContainText('timeout')
+  await expect(legend).toContainText('1 · 100%')
+})
+
+test('observe error distribution legend exposes an honest empty state', async ({ page }) => {
+  await mockEmptyErrorDistributionApi(page)
+  await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
+
+  const legend = page.getByRole('list', { name: '错误类型分布图例' })
+  await expect(legend).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(legend.getByRole('listitem')).toHaveCount(1)
+  await expect(legend).toContainText('暂无数据')
+  await expect(legend).toContainText('0 · 0%')
 })

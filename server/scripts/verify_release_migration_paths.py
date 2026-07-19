@@ -1,4 +1,4 @@
-"""Verify SOIT 1.0 release migration path evidence."""
+"""Verify SOIT 1.0 fresh-install migration evidence."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ class MigrationEvidenceError(ValueError):
 
 def load_evidence(path: Path) -> dict[str, Any]:
     """Load a migration evidence JSON document."""
+
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict):
@@ -43,7 +44,9 @@ def _require_bool(parent: dict[str, Any], key: str, *, section: str) -> bool:
     return value
 
 
-def _require_passed_records(parent: dict[str, Any], key: str, *, section: str) -> list[dict[str, Any]]:
+def _require_passed_records(
+    parent: dict[str, Any], key: str, *, section: str
+) -> list[dict[str, Any]]:
     records = parent.get(key)
     if not isinstance(records, list) or not records:
         raise MigrationEvidenceError(f"{section}.{key} must be a non-empty list")
@@ -62,68 +65,44 @@ def _validate_alembic_heads(evidence: dict[str, Any], head_revision: str) -> Non
     reported_revision = _require_string(heads, "revision", section="alembic_heads")
     if reported_revision != head_revision:
         raise MigrationEvidenceError(
-            f"alembic_heads.revision {reported_revision!r} does not match head_revision {head_revision!r}"
+            f"alembic_heads.revision {reported_revision!r} does not match "
+            f"head_revision {head_revision!r}"
         )
     if _require_bool(heads, "single_head", section="alembic_heads") is not True:
         raise MigrationEvidenceError("alembic_heads.single_head must be true")
 
 
-def _validate_backup(section: dict[str, Any]) -> None:
-    backup = _require_mapping(section, "backup")
-    for key in (
-        "timestamp_utc",
-        "postgres_dump",
-        "restore_point",
-        "operator",
-        "soit_commit",
-    ):
-        _require_string(backup, key, section="development_database.backup")
-
-
-def _validate_empty_database(section: dict[str, Any], head_revision: str) -> str:
-    if _require_bool(section, "started_empty", section="empty_database") is not True:
-        raise MigrationEvidenceError("empty_database.started_empty must be true")
+def _validate_fresh_install(section: dict[str, Any], head_revision: str) -> str:
+    _require_string(section, "database_kind", section="fresh_install")
+    if _require_bool(section, "started_empty", section="fresh_install") is not True:
+        raise MigrationEvidenceError("fresh_install.started_empty must be true")
     post_revision = _require_string(
-        section, "post_upgrade_revision", section="empty_database"
+        section, "post_upgrade_revision", section="fresh_install"
     )
     if post_revision != head_revision:
         raise MigrationEvidenceError(
-            f"empty_database.post_upgrade_revision {post_revision!r} does not match head_revision {head_revision!r}"
+            f"fresh_install.post_upgrade_revision {post_revision!r} does not match "
+            f"head_revision {head_revision!r}"
         )
-    _require_passed_records(section, "commands", section="empty_database")
-    _require_passed_records(section, "smoke_tests", section="empty_database")
-    _require_passed_records(section, "demo_seed_commands", section="empty_database")
-    return post_revision
-
-
-def _validate_development_database(section: dict[str, Any], head_revision: str) -> str:
-    _validate_backup(section)
-    pre_revision = _require_string(
-        section, "pre_upgrade_revision", section="development_database"
-    )
-    if pre_revision == head_revision:
-        raise MigrationEvidenceError(
-            "development_database.pre_upgrade_revision must be before head_revision"
-        )
-    post_revision = _require_string(
-        section, "post_upgrade_revision", section="development_database"
-    )
-    if post_revision != head_revision:
-        raise MigrationEvidenceError(
-            f"development_database.post_upgrade_revision {post_revision!r} does not match head_revision {head_revision!r}"
-        )
-    if _require_bool(section, "destructive_reset_used", section="development_database"):
-        raise MigrationEvidenceError("development_database.destructive_reset_used must be false")
-    _require_passed_records(section, "commands", section="development_database")
-    _require_passed_records(section, "existing_data_checks", section="development_database")
-    _require_passed_records(section, "smoke_tests", section="development_database")
+    _require_passed_records(section, "commands", section="fresh_install")
+    _require_passed_records(section, "schema_checks", section="fresh_install")
+    _require_passed_records(section, "smoke_tests", section="fresh_install")
+    _require_passed_records(section, "demo_seed_commands", section="fresh_install")
     return post_revision
 
 
 def validate_migration_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
-    """Validate empty-database and development-database migration evidence."""
-    if evidence.get("featureKey") != "phase1.release_migration":
-        raise MigrationEvidenceError("featureKey must be phase1.release_migration")
+    """Validate the supported fresh-install-only migration evidence."""
+
+    if evidence.get("featureKey") != "release.fresh_install_migration":
+        raise MigrationEvidenceError(
+            "featureKey must be release.fresh_install_migration"
+        )
+    if "development_database" in evidence:
+        raise MigrationEvidenceError(
+            "development database upgrades are no longer supported"
+        )
+
     started_at = _parse_timestamp(_require_string(evidence, "startedAt", section="root"))
     finished_at = _parse_timestamp(_require_string(evidence, "finishedAt", section="root"))
     if finished_at <= started_at:
@@ -131,24 +110,25 @@ def validate_migration_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
 
     head_revision = _require_string(evidence, "head_revision", section="root")
     _validate_alembic_heads(evidence, head_revision)
-    empty_revision = _validate_empty_database(
-        _require_mapping(evidence, "empty_database"), head_revision
-    )
-    development_revision = _validate_development_database(
-        _require_mapping(evidence, "development_database"), head_revision
+    fresh_revision = _validate_fresh_install(
+        _require_mapping(evidence, "fresh_install"), head_revision
     )
 
     release_notes = _require_mapping(evidence, "release_notes")
     _require_string(release_notes, "path", section="release_notes")
-    _require_string(release_notes, "migration_range", section="release_notes")
+    migration_range = _require_string(
+        release_notes, "migration_range", section="release_notes"
+    )
+    expected_range = f"base..{head_revision}"
+    if migration_range != expected_range:
+        raise MigrationEvidenceError(
+            f"release_notes.migration_range must be {expected_range}"
+        )
 
     return {
         "passed": True,
         "head_revision": head_revision,
-        "paths": {
-            "empty_database": empty_revision,
-            "development_database": development_revision,
-        },
+        "paths": {"fresh_install": fresh_revision},
     }
 
 
@@ -162,7 +142,7 @@ def _parse_timestamp(value: str) -> datetime:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify SOIT 1.0 empty and development database migration evidence."
+        description="Verify SOIT 1.0 fresh-install migration evidence."
     )
     parser.add_argument("evidence", type=Path)
     return parser.parse_args()

@@ -10,7 +10,7 @@ from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
-from app.kernel.runtime.tasks.status import TaskStatus
+from app.kernel.runtime.status import TaskStatus
 
 
 def generate_task_id() -> str:

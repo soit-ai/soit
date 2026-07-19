@@ -292,23 +292,23 @@ def test_agent_stream_persists_failed_assistant_message_for_chat_history(client,
         assert failed_event["task_id"]
         assert failed_event["response_id"]
         assert failed_event["error_code"] == "agent_execution_failed"
-        assert failed_event["error_message"] == "stream llm unavailable"
+        assert failed_event["error_message"] == "Agent execution failed"
         error_event = next(data for name, data in events if name == "agent.error")
-        assert error_event["error"] == "stream llm unavailable"
+        assert error_event["error"] == "Agent execution failed"
 
         thread = ThreadRepository(db, ctx).list_threads(agent_id=agent_id)[0]
         assert failed_event["thread_id"] == thread.id
         messages = ThreadRepository(db, ctx).list_messages(thread.id)
         assistant_message = next(message for message in messages if message.role == "assistant")
         assert assistant_message.status == "failed"
-        assert assistant_message.content == "Agent execution failed: stream llm unavailable"
+        assert assistant_message.content == "Agent execution failed"
         assert assistant_message.error_code == "agent_execution_failed"
-        assert assistant_message.error_message == "stream llm unavailable"
+        assert assistant_message.error_message == "Agent execution failed"
         assert assistant_message.finish_reason == "agent_execution_failed"
         assert assistant_message.run_id == thread.latest_run_id == failed_event["run_id"]
         assert assistant_message.response_id == failed_event["response_id"]
         assert assistant_message.metadata_json["error_code"] == "agent_execution_failed"
-        assert assistant_message.metadata_json["error_message"] == "stream llm unavailable"
+        assert assistant_message.metadata_json["error_message"] == "Agent execution failed"
         assert assistant_message.metadata_json["tool_calls_count"] == 0
 
         thread_response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
@@ -317,14 +317,14 @@ def test_agent_stream_persists_failed_assistant_message_for_chat_history(client,
             message for message in thread_response.json()["data"]["messages"] if message["role"] == "assistant"
         )
         assert api_assistant_message["status"] == "failed"
-        assert api_assistant_message["content"] == "Agent execution failed: stream llm unavailable"
+        assert api_assistant_message["content"] == "Agent execution failed"
         assert api_assistant_message["error_code"] == "agent_execution_failed"
-        assert api_assistant_message["error_message"] == "stream llm unavailable"
+        assert api_assistant_message["error_message"] == "Agent execution failed"
         assert api_assistant_message["finish_reason"] == "agent_execution_failed"
         assert api_assistant_message["run_id"] == thread.latest_run_id
         assert api_assistant_message["response_id"] == assistant_message.response_id
         assert api_assistant_message["metadata_json"]["error_code"] == "agent_execution_failed"
-        assert api_assistant_message["metadata_json"]["error_message"] == "stream llm unavailable"
+        assert api_assistant_message["metadata_json"]["error_message"] == "Agent execution failed"
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
         app.dependency_overrides.pop(get_agent_stream_executor, None)

@@ -24,7 +24,7 @@ Useful backend checks:
 uv run pytest
 uv run lint-imports --config importlinter.ini
 uv run ruff check app tests
-uv run mypy app tests
+uv run pyright
 ```
 
 ## Frontend

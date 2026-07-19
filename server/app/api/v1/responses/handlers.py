@@ -6,7 +6,6 @@ from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.responses.schemas import (
     ResponseCancelResult,
-    ResponseCreateRequest,
     ResponseDetailRead,
     ResponseEventRead,
     ResponseRead,
@@ -22,10 +21,6 @@ class ResponseHandlers:
 
     def __init__(self, service: ResponseService) -> None:
         self.service = service
-
-    async def create_response(self, ctx: RequestContext, payload: ResponseCreateRequest) -> ResponseRead:
-        del ctx
-        return ResponseRead.model_validate(self.service.create_response(payload))
 
     async def get_response(self, ctx: RequestContext, response_id: str) -> ResponseRead:
         del ctx
@@ -62,12 +57,18 @@ class ResponseHandlers:
         *,
         page_token: str | None,
         page_size: int,
+        after_sequence: int | None = None,
     ) -> PaginatedResponse[ResponseEventRead]:
         del ctx
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
-        events = self.service.list_response_events(response_id, limit=limit_plus, offset=offset)
+        events = self.service.list_response_events(
+            response_id,
+            limit=limit_plus,
+            offset=offset,
+            after_sequence=after_sequence,
+        )
         has_next = len(events) > limit
         items = [ResponseEventRead.model_validate(item) for item in events[:limit]]
         next_offset = offset + len(items) if has_next else None

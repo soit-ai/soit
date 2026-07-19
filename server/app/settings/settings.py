@@ -142,6 +142,21 @@ class Settings(BaseSettings):
     agent_rate_limit_per_minute: int | None = None
     """Optional rate limit for agent runs (per minute)."""
 
+    response_interaction_inline_execution: bool = True
+    """Execute claimed chat interactions inline; development and tests only."""
+
+    response_interaction_worker_enabled: bool = False
+    """Enable the durable database-backed chat interaction worker."""
+
+    response_interaction_worker_poll_interval: float = 0.25
+    """Polling interval for the durable chat interaction worker."""
+
+    response_interaction_worker_concurrency: int = 4
+    """Number of durable chat interaction workers in each API process."""
+
+    response_interaction_lease_seconds: int = 90
+    """Lease duration for one durable chat interaction claim."""
+
     # Knowledge ingest worker
     knowledge_ingest_worker_enabled: bool = False
     """Enable background knowledge ingestion worker."""
@@ -184,11 +199,8 @@ class Settings(BaseSettings):
     plugin_runtime_allow_localhost: bool = False
     """Allow plugin runtime to run on localhost (development only)."""
 
-    platform_version: str = "0.1.0"
+    platform_version: str = "1.0.0"
     """Platform version for plugin compatibility checks."""
-
-    platform_features: list[str] = []
-    """Legacy explicit feature keys for plugin compatibility checks."""
 
     platform_edition: str = "community"
     """Current product edition: community, enterprise, or cloud."""
@@ -269,6 +281,10 @@ class Settings(BaseSettings):
             raise ValueError("Production requires the Redis event bus backend")
         if self.outbox_dispatcher_enabled:
             raise ValueError("Production requires the dedicated outbox dispatcher process")
+        if self.response_interaction_inline_execution:
+            raise ValueError("Production forbids inline chat interaction execution")
+        if not self.response_interaction_worker_enabled:
+            raise ValueError("Production requires the durable chat interaction worker")
         if not self.otel_enabled:
             raise ValueError("Production requires OpenTelemetry tracing")
         if not (self.otel_exporter_otlp_endpoint or "").strip():

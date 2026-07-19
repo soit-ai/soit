@@ -1,7 +1,4 @@
-""" errors
-
-Kernel error types and error envelope helpers.
-"""
+"""Kernel error types."""
 
 from typing import Any
 
@@ -68,36 +65,3 @@ class TimeoutError(KernelError):
 
     def __init__(self, message: str = "Operation timeout", details: dict[str, Any] | None = None):
         super().__init__("TIMEOUT", message, details)
-
-
-def error_envelope(
-    code: str,
-    message: str,
-    details: dict[str, Any] | None = None,
-    request_id: str | None = None,
-    run_id: str | None = None,
-) -> dict[str, Any]:
-    """Create error envelope according to API conventions.
-
-    Args:
-        code: Error code.
-        message: Human-readable message.
-        details: Optional additional details.
-        request_id: Optional request ID for tracing.
-        run_id: Optional run ID for tracing.
-
-    Returns:
-        Error envelope dictionary.
-    """
-    envelope: dict[str, Any] = {
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details or {},
-        }
-    }
-    if request_id:
-        envelope["request_id"] = request_id
-    if run_id:
-        envelope["run_id"] = run_id
-    return envelope

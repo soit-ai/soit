@@ -1,8 +1,8 @@
 """Unit tests for runtime thread and task services."""
 
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
+from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
-from app.kernel.runtime.tasks.status import TaskStatus
 from app.kernel.runtime.threads.service import ThreadService
 
 
@@ -76,6 +76,7 @@ def test_thread_service_accepts_repository_protocols(tenant1_ctx):
         role="user",
         content="hello protocol",
         metadata={"citations": [{"id": "c1"}]},
+        citations_json=[{"id": "c1"}],
     )
 
     assert isinstance(thread, Thread)
@@ -101,6 +102,7 @@ def test_thread_service_creates_thread_and_messages(db, tenant1_ctx):
         role="user",
         content="hello core",
         metadata={"citations": [{"id": "c1"}]},
+        citations_json=[{"id": "c1"}],
     )
 
     assert thread.id.startswith("thr_")

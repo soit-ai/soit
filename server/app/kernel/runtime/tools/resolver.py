@@ -88,6 +88,7 @@ class ToolResolver:
                     name=ref,
                     description=spec.get("description") or spec.get("name") or ref,
                     parameters=spec.get("input_schema") or {"type": "object"},
+                    policy=spec.get("policy") or {},
                 )
             )
         return definitions

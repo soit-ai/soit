@@ -237,7 +237,7 @@ function IndexPage() {
     if (!payload || payload.agentId !== agentId) {
       return
     }
-    if (payload.threadId && (payload.threadId === threadId || payload.threadId === chat.threadId)) {
+    if (payload.threadId) {
       chat.refreshHistory()
     }
     emit('refresh_chat_sidebar')

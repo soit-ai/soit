@@ -194,9 +194,9 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
                                 "provider": "anthropic",
                             },
                             "capability_matrix_json": {
-                                "chat": True,
-                                "vision": True,
-                                "embeddings": False,
+                                "chat": {"catalog": True},
+                                "vision": {"catalog": True},
+                                "embeddings": {"catalog": False},
                             },
                             "parameter_config_json": {
                                 "defaults": {"max_tokens": 1024},
@@ -236,7 +236,11 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
         "provider": "anthropic",
     }
     assert model.capability_matrix_json == normalize_capability_matrix(
-        {"chat": True, "vision": True, "embeddings": False}
+        {
+            "chat": {"catalog": True},
+            "vision": {"catalog": True},
+            "embeddings": {"catalog": False},
+        }
     )
     assert model.parameter_config_json["limits"]["max_output_tokens"] == 128_000
     assert model.pricing_json == {

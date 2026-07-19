@@ -1,30 +1,37 @@
 {
-  "featureKey": "phase1.release_migration",
+  "featureKey": "release.fresh_install_migration",
   "release": "v1.0.0-rc",
-  "startedAt": "2026-06-11T10:00:00Z",
-  "finishedAt": "2026-06-11T10:30:00Z",
-  "head_revision": "20260611120000_regression_evaluation_tables",
+  "startedAt": "2026-07-18T06:00:00Z",
+  "finishedAt": "2026-07-18T06:30:00Z",
+  "head_revision": "20260718140000",
   "alembic_heads": {
     "command": "uv run alembic heads",
     "exit_code": 0,
-    "revision": "20260611120000_regression_evaluation_tables",
+    "revision": "20260718140000",
     "single_head": true,
-    "stdout_excerpt": "20260611120000_regression_evaluation_tables (head)"
+    "stdout_excerpt": "20260718140000 (head)"
   },
-  "empty_database": {
+  "fresh_install": {
     "database_kind": "postgresql",
     "started_empty": true,
-    "post_upgrade_revision": "20260611120000_regression_evaluation_tables",
+    "post_upgrade_revision": "20260718140000",
     "commands": [
       {
         "command": "uv run alembic upgrade head",
         "exit_code": 0,
-        "stdout_excerpt": "Running upgrade ... 20260611120000_regression_evaluation_tables"
+        "stdout_excerpt": "Running upgrade -> 20260718140000"
       },
       {
         "command": "uv run alembic current",
         "exit_code": 0,
-        "stdout_excerpt": "20260611120000_regression_evaluation_tables"
+        "stdout_excerpt": "20260718140000 (head)"
+      }
+    ],
+    "schema_checks": [
+      {
+        "command": "uv run pytest tests/unit/test_fresh_install_migration.py -q",
+        "exit_code": 0,
+        "stdout_excerpt": "3 passed"
       }
     ],
     "smoke_tests": [
@@ -47,52 +54,8 @@
       }
     ]
   },
-  "development_database": {
-    "database_kind": "postgresql",
-    "pre_upgrade_revision": "20260608110000_provider_model_configuration_json",
-    "post_upgrade_revision": "20260611120000_regression_evaluation_tables",
-    "destructive_reset_used": false,
-    "backup": {
-      "timestamp_utc": "2026-06-11T00:00:00Z",
-      "postgres_dump": "backups/soit-dev-20260611T000000Z.dump",
-      "restore_point": "soit-dev-pre-v1.0.0-rc",
-      "operator": "release-operator",
-      "soit_commit": "replace-with-release-commit"
-    },
-    "commands": [
-      {
-        "command": "uv run alembic current",
-        "exit_code": 0,
-        "stdout_excerpt": "20260608110000_provider_model_configuration_json"
-      },
-      {
-        "command": "uv run alembic upgrade head",
-        "exit_code": 0,
-        "stdout_excerpt": "Running upgrade ... 20260611120000_regression_evaluation_tables"
-      },
-      {
-        "command": "uv run alembic current",
-        "exit_code": 0,
-        "stdout_excerpt": "20260611120000_regression_evaluation_tables"
-      }
-    ],
-    "existing_data_checks": [
-      {
-        "command": "select tenant, workspace, and user rows after upgrade",
-        "passed": true,
-        "stdout_excerpt": "tenant_count=1 workspace_count=1 user_count=1"
-      }
-    ],
-    "smoke_tests": [
-      {
-        "command": "uv run pytest tests/integration/test_enterprise_agent_mvp.py -q",
-        "exit_code": 0,
-        "stdout_excerpt": "passed"
-      }
-    ]
-  },
   "release_notes": {
     "path": "docs/releases/v1.0.0.md",
-    "migration_range": "base..20260611120000_regression_evaluation_tables"
+    "migration_range": "base..20260718140000"
   }
 }

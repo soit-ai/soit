@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
-import { ThemeProvider } from '@/components/theme-provider'
 import type { Route } from './+types/root'
 import stylesheet from './app.css?url'
+
+const AppProviders = lazy(() => import('@/components/app-providers'))
 
 export const links: Route.LinksFunction = () => [
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -45,11 +46,12 @@ export function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-
   return (
-    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-      <Outlet />
-    </ThemeProvider>
+    <Suspense fallback={<HydrateFallback />}>
+      <AppProviders>
+        <Outlet />
+      </AppProviders>
+    </Suspense>
   )
 }
 

@@ -97,7 +97,7 @@ async def test_rag_system_message_strategy(db, ctx):
         verify=False,
     )
 
-    with patch("app.modules.knowledge.application.tools.knowledge_query", mock_knowledge_query):
+    with patch("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", mock_knowledge_query):
         result = await service.run(request)
 
     assert result["output"] == "rag answer"
@@ -120,6 +120,65 @@ async def test_rag_system_message_strategy(db, ctx):
     assert retrieval_step.metrics_json["citation_count"] == 1
     assert retrieval_step.metrics_json["avg_score"] == pytest.approx(0.7)
     assert result["citations"] == [expected_citation]
+
+
+@pytest.mark.asyncio
+async def test_rag_citation_inherits_source_metadata_from_matching_result(db, ctx):
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=StubToolPort(),
+        tool_resolver=_make_resolver(),
+        trace_writer=TraceWriter(db, ctx),
+    )
+    mock_knowledge_query = AsyncMock(
+        return_value={
+            "results": [
+                {
+                    "chunk_id": "chunk_ops_1",
+                    "document_id": "doc_ops",
+                    "text": "Operations guidance",
+                    "score": 0.91,
+                    "metadata": {
+                        "title": "Operations Manual",
+                        "doc_key": "operations.pdf",
+                        "source_uri": "s3://kb/operations.pdf",
+                    },
+                }
+            ],
+            "citations": [
+                {
+                    "chunk_id": "chunk_ops_1",
+                    "document_id": "doc_ops",
+                    "rank": 1,
+                    "score": 0.91,
+                }
+            ],
+        }
+    )
+
+    with patch(
+        "app.modules.knowledge.runtime.tool_entrypoint.knowledge_query",
+        mock_knowledge_query,
+    ):
+        _, citations = await service._retrieve_rag_context(
+            ["knowledge:kb_ops"],
+            "How do I operate this?",
+        )
+
+    assert citations == [
+        {
+            "chunk_id": "chunk_ops_1",
+            "document_id": "doc_ops",
+            "rank": 1,
+            "score": 0.91,
+            "knowledge_id": "kb_ops",
+            "title": "Operations Manual",
+            "doc_key": "operations.pdf",
+            "source_uri": "s3://kb/operations.pdf",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -152,7 +211,7 @@ async def test_rag_planner_context_strategy(db, ctx):
         verify=False,
     )
 
-    with patch("app.modules.knowledge.application.tools.knowledge_query", mock_knowledge_query):
+    with patch("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", mock_knowledge_query):
         result = await service.run(request)
 
     assert result["output"] == "planner rag answer"
@@ -205,7 +264,7 @@ async def test_rag_retrieval_failure_graceful(db, ctx):
         verify=False,
     )
 
-    with patch("app.modules.knowledge.application.tools.knowledge_query", mock_knowledge_query):
+    with patch("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", mock_knowledge_query):
         result = await service.run(request)
 
     # Agent should still produce output despite RAG failure

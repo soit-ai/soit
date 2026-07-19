@@ -1,0 +1,1 @@
+"""Workspace global search module."""

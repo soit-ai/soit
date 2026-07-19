@@ -130,7 +130,7 @@ async function mockTaskApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: taskWorkbench }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: taskWorkbench }),
       })
       return
     }
@@ -139,7 +139,7 @@ async function mockTaskApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: taskWorkbench }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: taskWorkbench }),
       })
       return
     }
@@ -148,7 +148,7 @@ async function mockTaskApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: taskHandling }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: taskHandling }),
       })
       return
     }
@@ -158,7 +158,7 @@ async function mockTaskApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ data: { action: 'retry', task: taskHandling.task } }),
+        body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: { action: 'retry', task: taskHandling.task } }),
       })
       return
     }
@@ -166,8 +166,7 @@ async function mockTaskApi(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
           items: taskRows,
           page_size: 2,
           next_page_token: null,

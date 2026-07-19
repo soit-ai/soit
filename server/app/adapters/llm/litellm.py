@@ -33,6 +33,15 @@ def _value(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+def _reasoning_value(obj: Any) -> str | None:
+    """Return only reasoning content explicitly exposed by LiteLLM."""
+
+    value = _value(obj, "reasoning_content")
+    if not isinstance(value, str):
+        value = _value(obj, "reasoning")
+    return value if isinstance(value, str) and value else None
+
+
 class LiteLLMPort(LLMPort):
     """Provider-scoped LiteLLM adapter without process-global environment mutation."""
 
@@ -215,6 +224,7 @@ class LiteLLMPort(LLMPort):
         usage = _value(response, "usage")
         return ChatResponse(
             text=None if parsed_calls else _value(message, "content"),
+            reasoning=_reasoning_value(message),
             tokens_prompt=int(_value(usage, "prompt_tokens", 0) or 0),
             tokens_completion=int(_value(usage, "completion_tokens", 0) or 0),
             model=_value(response, "model", params["model"]),
@@ -259,6 +269,7 @@ class LiteLLMPort(LLMPort):
             choice = choices[0] if choices else None
             raw_delta = _value(choice, "delta") if choice else None
             delta = _value(raw_delta, "content", "") if raw_delta else ""
+            reasoning_delta = _reasoning_value(raw_delta) if raw_delta else None
             tool_call_deltas: list[ToolCallDelta] = []
             for position, raw_call in enumerate(
                 _value(raw_delta, "tool_calls", []) or []
@@ -303,6 +314,7 @@ class LiteLLMPort(LLMPort):
                     )
             yield ChatStreamChunk(
                 delta=delta or "",
+                reasoning_delta=reasoning_delta or "",
                 done=finish_reason is not None or (not choices and usage is not None),
                 tokens_prompt=int(_value(usage, "prompt_tokens", 0) or 0),
                 tokens_completion=int(_value(usage, "completion_tokens", 0) or 0),

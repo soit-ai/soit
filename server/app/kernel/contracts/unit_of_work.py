@@ -9,6 +9,7 @@ class UnitOfWork(Protocol):
 
     def __enter__(self) -> Self:
         """Enter the transaction boundary."""
+        ...
 
     def __exit__(
         self,
@@ -17,10 +18,12 @@ class UnitOfWork(Protocol):
         traceback: TracebackType | None,
     ) -> bool | None:
         """Commit success or roll back failure."""
+        ...
 
     def commit(self) -> None:
         """Commit staged changes."""
+        ...
 
     def rollback(self) -> None:
         """Roll back staged changes."""
-
+        ...

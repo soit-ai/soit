@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.kernel.runtime.runs.schemas import RunObserveSummaryResponse
 
@@ -16,26 +16,11 @@ DashboardTabId = Literal[
 ]
 
 
-class WorkspaceSummaryResponse(BaseModel):
-    run_count: int = 0
-    failed_run_count: int = 0
-    active_run_count: int = 0
-    pending_approvals: int = 0
-    feedback_count: int = 0
-    total_cost_usd: float = 0.0
-
-
 class AgentSummaryResponse(BaseModel):
     agent_id: str
     run_count: int = 0
     failed_run_count: int = 0
     last_run_at: str | None = None
-
-
-class ModelCostResponse(BaseModel):
-    model_ref: str
-    total_cost_usd: float = 0.0
-    total_tokens: int = 0
 
 
 class WorkflowBottleneckResponse(BaseModel):
@@ -100,7 +85,7 @@ class MetricCardResponse(BaseModel):
     label: str
     value: str
     delta: str | None = None
-    trend: list[float] = Field(default_factory=list)
+    trend: list[float] = Field(default_factory=list[float])
     tone: str = "blue"
     run_id: str | None = None
     detail_url: str | None = None
@@ -136,27 +121,146 @@ class EmptyStateResponse(BaseModel):
     description: str
 
 
-class DashboardSectionResponse(BaseModel):
-    id: DashboardTabId
-    summary_cards: list[MetricCardResponse] = Field(default_factory=list)
-    charts: dict[str, Any] = Field(default_factory=dict)
-    rows: list[dict[str, Any]] = Field(default_factory=list)
+class DashboardChartModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DashboardTrendPointResponse(DashboardChartModel):
+    bucket: str
+    run_count: int
+    failed_run_count: int
+    success_rate: float
+    tool_count: int
+    tool_failed_count: int
+    retrieval_count: int
+    retrieval_failed_count: int
+
+
+class HealthDistributionPointResponse(DashboardChartModel):
+    status: str
+    count: int
+
+
+class AlertCompressionResponse(DashboardChartModel):
+    raw_alerts: int
+    compressed_alerts: int
+
+
+class ErrorDistributionPointResponse(DashboardChartModel):
+    type: str
+    count: int
+
+
+class DashboardChartRunFieldsResponse(DashboardChartModel):
+    latest_run_id: str | None = None
+    latest_run_status: str | None = None
+    latest_run_cost_usd: float = 0.0
+    latest_failure_reason: str | None = None
+    detail_url: str | None = None
+
+
+class WorkflowQueuePointResponse(DashboardChartRunFieldsResponse):
+    id: str
+    name: str
+    description: str
+    stage: str
+    current_queue: int
+    avg_wait_ms: int
+    failure_rate: float
+    affected_agents: list[str] = Field(default_factory=list[str])
+    owner: str
+
+
+class KnowledgeSourcePointResponse(DashboardChartRunFieldsResponse):
+    id: str
+    name: str
+    description: str
+    related_agents: list[str] = Field(default_factory=list[str])
+    hit_rate: float
+    missing_answer_rate: float
+    expired_chunks: int
+    last_updated: str | None = None
+    status: str
+    owner: str
+
+
+class LatencyPercentilesResponse(DashboardChartModel):
+    p50: int
+    p95: int
+    p99: int
+
+
+class AgentHealthChartsResponse(DashboardChartModel):
+    trend: list[DashboardTrendPointResponse]
+    health_distribution: list[HealthDistributionPointResponse]
+    alert_compression: AlertCompressionResponse
+
+
+class WorkflowBottlenecksChartsResponse(DashboardChartModel):
+    bottleneck_flow: list[WorkflowQueuePointResponse]
+    queue_distribution: list[WorkflowQueuePointResponse]
+    latency_percentiles: LatencyPercentilesResponse
+
+
+class ToolReliabilityChartsResponse(DashboardChartModel):
+    trend: list[DashboardTrendPointResponse]
+    error_distribution: list[ErrorDistributionPointResponse]
+
+
+class KnowledgeQualityChartsResponse(DashboardChartModel):
+    trend: list[DashboardTrendPointResponse]
+    quality_score: float
+    low_quality_sources: list[KnowledgeSourcePointResponse]
+
+
+class DashboardSectionBaseResponse(BaseModel):
+    summary_cards: list[MetricCardResponse] = Field(default_factory=list[MetricCardResponse])
+    rows: list[dict[str, Any]] = Field(default_factory=list[dict[str, Any]])
     page: DashboardPageResponse
     empty_state: EmptyStateResponse
 
 
+class AgentHealthDashboardSectionResponse(DashboardSectionBaseResponse):
+    id: Literal["agent_health"]
+    charts: AgentHealthChartsResponse
+
+
+class WorkflowBottlenecksDashboardSectionResponse(DashboardSectionBaseResponse):
+    id: Literal["workflow_bottlenecks"]
+    charts: WorkflowBottlenecksChartsResponse
+
+
+class ToolReliabilityDashboardSectionResponse(DashboardSectionBaseResponse):
+    id: Literal["tool_reliability"]
+    charts: ToolReliabilityChartsResponse
+
+
+class KnowledgeQualityDashboardSectionResponse(DashboardSectionBaseResponse):
+    id: Literal["knowledge_quality"]
+    charts: KnowledgeQualityChartsResponse
+
+
+DashboardSectionResponse: TypeAlias = Annotated[
+    AgentHealthDashboardSectionResponse
+    | WorkflowBottlenecksDashboardSectionResponse
+    | ToolReliabilityDashboardSectionResponse
+    | KnowledgeQualityDashboardSectionResponse,
+    Field(discriminator="id"),
+]
+
+_DASHBOARD_SECTION_ADAPTER: TypeAdapter[DashboardSectionResponse] = TypeAdapter(
+    DashboardSectionResponse
+)
+
+
+def validate_dashboard_section_response(data: dict[str, Any]) -> DashboardSectionResponse:
+    return _DASHBOARD_SECTION_ADAPTER.validate_python(data)
+
+
 class WorkspaceObserveDashboard(BaseModel):
     overview: DashboardOverviewResponse
-    metric_cards: list[MetricCardResponse] = Field(default_factory=list)
+    metric_cards: list[MetricCardResponse] = Field(default_factory=list[MetricCardResponse])
     priority_alert: PriorityAlertResponse | None = None
-    tabs: list[DashboardTabResponse] = Field(default_factory=list)
+    tabs: list[DashboardTabResponse] = Field(default_factory=list[DashboardTabResponse])
     section: DashboardSectionResponse
-
-    workspace_summary: WorkspaceSummaryResponse
-    agent_summaries: list[AgentSummaryResponse] = Field(default_factory=list)
-    model_costs: list[ModelCostResponse] = Field(default_factory=list)
-    workflow_bottlenecks: list[WorkflowBottleneckResponse] = Field(default_factory=list)
-    tool_health: list[ToolHealthResponse] = Field(default_factory=list)
-    knowledge_quality: list[KnowledgeQualityResponse] = Field(default_factory=list)
-    approvals_summary: ApprovalsSummaryResponse
-    recent_runs: list[RecentRunResponse] = Field(default_factory=list)
+    recent_runs: list[RecentRunResponse] = Field(default_factory=list[RecentRunResponse])

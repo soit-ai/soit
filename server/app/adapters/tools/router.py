@@ -156,6 +156,7 @@ class RegistryToolRouterPort(ToolPort):
                 },
                 "policy": {
                     "audit_level": "full",
+                    "approval": {"mode": "required", "risk_level": "high"},
                     "secret_refs": ["secret:ticket_api_key"],
                     "egress": {"allow": ["tickets.example.local"]},
                 },
@@ -179,9 +180,31 @@ class RegistryToolRouterPort(ToolPort):
         )
         return True
 
-    def _register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
-        """Backward-compatible alias for older adapter callers."""
-        return self.register_builtin(tool_ref, ctx)
+    def get_tool_policy(
+        self,
+        tool_ref: str,
+        ctx: RequestContext,
+    ) -> dict[str, Any]:
+        """Return the registered ToolSpec policy without invoking the tool."""
+
+        registry = get_registry()
+        found = registry.get_latest(
+            kind="tool",
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            name=tool_ref,
+        )
+        if not found and self.register_builtin(tool_ref, ctx):
+            found = registry.get_latest(
+                kind="tool",
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                name=tool_ref,
+            )
+        if not found:
+            return {}
+        _, payload = found
+        return dict(((payload or {}).get("tool_spec") or {}).get("policy") or {})
 
     async def _resolve_api_key(
         self,
@@ -328,7 +351,7 @@ class RegistryToolRouterPort(ToolPort):
         reg = get_registry()
         found = reg.get_latest(kind="tool", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=tool_ref)
         if not found:
-            if self._register_builtin(tool_ref, ctx):
+            if self.register_builtin(tool_ref, ctx):
                 found = reg.get_latest(
                     kind="tool",
                     tenant_id=ctx.tenant_id,

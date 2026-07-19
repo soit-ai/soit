@@ -7,13 +7,10 @@ import pytest
 from app.kernel.runtime.status import (
     ExecutionStatus,
     RuntimeTransitionError,
+    TaskStatus,
     validate_response_transition,
     validate_run_transition,
     validate_step_transition,
-)
-from app.kernel.runtime.tasks.status import (
-    TaskStatus,
-    TaskTransitionError,
     validate_task_transition,
 )
 
@@ -68,10 +65,10 @@ def test_task_transition_allows_retry_from_terminal_statuses():
 
 
 def test_task_transition_rejects_terminal_status_to_running():
-    with pytest.raises(TaskTransitionError, match="Invalid task transition"):
+    with pytest.raises(RuntimeTransitionError, match="Invalid task transition"):
         validate_task_transition(TaskStatus.SUCCEEDED.value, TaskStatus.RUNNING.value)
 
 
 def test_task_transition_rejects_queue_to_terminal_without_running():
-    with pytest.raises(TaskTransitionError, match="Invalid task transition"):
+    with pytest.raises(RuntimeTransitionError, match="Invalid task transition"):
         validate_task_transition(TaskStatus.QUEUED.value, TaskStatus.SUCCEEDED.value)

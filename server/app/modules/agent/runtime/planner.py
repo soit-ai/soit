@@ -25,6 +25,7 @@ class PlanResult:
     tokens_prompt: int
     tokens_completion: int
     finish_reason: str | None
+    reasoning: str | None = None
 
 
 class AgentPlanner:
@@ -42,6 +43,7 @@ class AgentPlanner:
         run_id: str,
         memory_context: str | None = None,
         rag_context: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> PlanResult:
         """Plan next action using native function calling."""
         planning_messages = list(messages)
@@ -69,6 +71,7 @@ class AgentPlanner:
             tools=tool_definitions if tool_definitions else None,
             tool_choice="auto" if tool_definitions else None,
             run_id=run_id,
+            reasoning_effort=reasoning_effort,
         )
 
         if response.tool_calls:
@@ -80,6 +83,7 @@ class AgentPlanner:
                 tokens_prompt=response.tokens_prompt,
                 tokens_completion=response.tokens_completion,
                 finish_reason=response.finish_reason,
+                reasoning=response.reasoning,
             )
 
         return PlanResult(
@@ -90,4 +94,5 @@ class AgentPlanner:
             tokens_prompt=response.tokens_prompt,
             tokens_completion=response.tokens_completion,
             finish_reason=response.finish_reason,
+            reasoning=response.reasoning,
         )

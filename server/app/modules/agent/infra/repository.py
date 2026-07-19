@@ -200,6 +200,19 @@ class AgentPublishRepository:
         publish.tenant_id = self.ctx.tenant_id
         publish.workspace_id = self.ctx.workspace_id
         publish.created_by = self.ctx.user_id
+        query = select(func.max(AgentPublish.sequence)).where(
+            and_(
+                AgentPublish.agent_id == publish.agent_id,
+                AgentPublish.tenant_id == self.ctx.tenant_id,
+                AgentPublish.workspace_id == self.ctx.workspace_id,
+            )
+        )
+        max_value = self.db.exec(query).one()
+        if hasattr(max_value, "_mapping"):
+            max_value = max_value[0]
+        elif isinstance(max_value, tuple):
+            max_value = max_value[0]
+        publish.sequence = int(max_value or 0) + 1
         self.db.add(publish)
         self.db.commit()
         self.db.refresh(publish)
@@ -215,7 +228,7 @@ class AgentPublishRepository:
                     AgentPublish.workspace_id == self.ctx.workspace_id,
                 )
             )
-            .order_by(desc(AgentPublish.created_at))
+            .order_by(desc(AgentPublish.sequence))
         )
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, AgentPublish) else item[0] for item in results]

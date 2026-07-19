@@ -138,6 +138,7 @@ export interface ModelWorkbenchProviderTabs {
 export interface ModelWorkbenchModelRow {
   id: string
   provider_id: string
+  provider_slug: string
   provider_name: string
   provider_kind: string
   model_id: string
@@ -559,9 +560,9 @@ export async function listModels(params?: { provider?: string }) {
   return (response?.items || []).map((model): ModelLibraryItem => ({
     id: model.id,
     name: model.display_name || model.model_id,
-    modelName: model.model_id,
+    modelName: `model:${model.provider_slug}:${model.model_id}`,
     modelType: model.model_type,
-    provider: model.provider_name,
+    provider: model.provider_slug,
     description: model.description || undefined,
     contextLength: model.context_window || undefined,
     capabilities: [],

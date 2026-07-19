@@ -22,6 +22,22 @@ from app.modules.workflow.runtime.workflow_outbox_emit import (
 )
 
 
+class WorkflowApprovalRequired(Exception):
+    """Control signal that checkpoints a workflow before a governed tool call."""
+
+    def __init__(
+        self,
+        *,
+        node_id: str,
+        run_step_id: str,
+        output: dict[str, Any],
+    ) -> None:
+        self.node_id = node_id
+        self.run_step_id = run_step_id
+        self.output = output
+        super().__init__(f"Workflow node {node_id} is waiting for approval")
+
+
 def _emit_workflow_node_completed_outbox(
     context: ExecutionContext,
     *,
@@ -91,6 +107,8 @@ class WorkflowExecutor:
         self,
         plan: ExecutionPlan,
         context: ExecutionContext,
+        *,
+        checkpoint: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute workflow DAG.
 
@@ -112,16 +130,30 @@ class WorkflowExecutor:
         edge_map = self._build_edge_map(edges)
         reverse_edge_map = self._build_reverse_edge_map(edges)
 
-        # Track node states and outputs
-        node_states: dict[str, str] = {}  # node_id -> status
-        node_outputs: dict[str, dict[str, Any]] = {}  # node_id -> output
+        checkpoint = checkpoint or {}
+        restored_states = dict(checkpoint.get("node_states") or {})
+        # Waiting nodes are re-entered; only terminal progress is restored.
+        node_states: dict[str, str] = {
+            str(node_id): str(status)
+            for node_id, status in restored_states.items()
+            if status in {"succeeded", "skipped"}
+        }
+        node_outputs: dict[str, dict[str, Any]] = {
+            str(node_id): dict(output)
+            for node_id, output in dict(checkpoint.get("node_outputs") or {}).items()
+            if isinstance(output, dict)
+        }
+        resume_node_id = str(checkpoint.get("waiting_node_id") or "") or None
+        resume_workflow_step_id = (
+            str(checkpoint.get("workflow_run_step_id") or "") or None
+        )
         in_degree = {node_id: len(reverse_edge_map.get(node_id, [])) for node_id in nodes}
         incoming_active = dict.fromkeys(nodes, 0)
         has_incoming = {node_id: in_degree[node_id] > 0 for node_id in nodes}
 
         # Execution queue (nodes ready to execute)
-        ready_queue = deque([node_id for node_id, degree in in_degree.items() if degree == 0])
-        queued_nodes: set[str] = set(ready_queue)
+        ready_queue: deque[str] = deque()
+        queued_nodes: set[str] = set()
 
         class CompensationRequested(Exception):
             def __init__(self, node_id: str, error_message: str):
@@ -142,6 +174,7 @@ class WorkflowExecutor:
         semaphore = asyncio.Semaphore(concurrency)
         compensation_requested = False
         compensation_error: CompensationRequested | None = None
+        approval_required: WorkflowApprovalRequired | None = None
 
         def resolve_edge_condition(condition: Any) -> bool:
             if condition is None:
@@ -189,6 +222,18 @@ class WorkflowExecutor:
                     else:
                         mark_skipped(to_id)
 
+        for node_id, degree in in_degree.items():
+            if degree == 0 and node_id not in node_states:
+                ready_queue.append(node_id)
+                queued_nodes.add(node_id)
+        for node_id in execution_order:
+            restored_status = node_states.get(node_id)
+            if restored_status in {"succeeded", "skipped"}:
+                resolve_outgoing_edges(
+                    node_id,
+                    allow_edges=restored_status == "succeeded",
+                )
+
         async def execute_node(node_id: str):
             """Execute a single node."""
             async with semaphore:
@@ -225,6 +270,28 @@ class WorkflowExecutor:
 
                 def create_attempt_step(attempt: int):
                     """Create a run step for this attempt."""
+                    if (
+                        attempt == 1
+                        and node_id == resume_node_id
+                        and resume_workflow_step_id
+                    ):
+                        resumed_step = context.trace_writer.db.get(
+                            RunStep,
+                            resume_workflow_step_id,
+                        )
+                        if (
+                            resumed_step is None
+                            or resumed_step.run_id != context.run_id
+                            or resumed_step.node_id != node_id
+                            or resumed_step.status != "waiting_approval"
+                        ):
+                            raise ValidationError(
+                                "Workflow approval checkpoint is not resumable"
+                            )
+                        return context.trace_writer.update_step_status(
+                            resumed_step.id,
+                            status="running",
+                        )
                     step_key = step_id_base if attempt == 1 else f"{step_id_base}_retry{attempt}"
                     run_step = context.trace_writer.create_step(
                         run_id=context.run_id,
@@ -261,6 +328,10 @@ class WorkflowExecutor:
                     task_id=context.task_id,
                     thread_id=context.thread_id,
                     agent_id=context.agent_id,
+                    resume_approval_node_id=resume_node_id,
+                    resume_tool_call_id=checkpoint.get("tool_call_id"),
+                    resume_tool_run_step_id=checkpoint.get("tool_run_step_id"),
+                    resume_response_id=checkpoint.get("response_id"),
                 )
                 final_error_recorded = False
                 try:
@@ -283,7 +354,18 @@ class WorkflowExecutor:
                         try:
                             step_context.step_id = run_step.id
                             output = await _run_once()
+                            if (
+                                isinstance(output, dict)
+                                and output.get("status") == "waiting_approval"
+                            ):
+                                raise WorkflowApprovalRequired(
+                                    node_id=node_id,
+                                    run_step_id=run_step.id,
+                                    output=output,
+                                )
                             break
+                        except WorkflowApprovalRequired:
+                            raise
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
@@ -343,6 +425,20 @@ class WorkflowExecutor:
 
                     resolve_outgoing_edges(node_id, allow_edges=True)
 
+                except WorkflowApprovalRequired:
+                    node_states[node_id] = "waiting_approval"
+                    context.trace_writer.update_step_status(
+                        run_step.id,
+                        status="waiting_approval",
+                        output_summary="waiting_approval",
+                        metrics={
+                            "attempts": attempt,
+                            "node_type": node_type,
+                            "node_id": node_id,
+                            "max_retries": max_retries,
+                        },
+                    )
+                    raise
                 except asyncio.CancelledError:
                     node_states[node_id] = "canceled"
                     elapsed_ms = int((time.monotonic() - exec_started) * 1000)
@@ -525,6 +621,19 @@ class WorkflowExecutor:
                 for task in done:
                     try:
                         await task
+                    except WorkflowApprovalRequired as exc:
+                        approval_required = exc
+                        for pending_task in tasks:
+                            pending_task.cancel()
+                        for pending_task in tasks:
+                            try:
+                                await pending_task
+                            except asyncio.CancelledError:
+                                pass
+                            except Exception:
+                                pass
+                        tasks = []
+                        break
                     except CompensationRequested as exc:
                         compensation_requested = True
                         compensation_error = exc
@@ -543,8 +652,30 @@ class WorkflowExecutor:
                             raise
                         # Otherwise, continue
 
-            if compensation_requested:
+            if compensation_requested or approval_required:
                 break
+
+        if approval_required:
+            approval_output = dict(approval_required.output)
+            approval_output["_checkpoint"] = {
+                "inputs": plan.inputs,
+                "node_states": {
+                    node_id: status
+                    for node_id, status in node_states.items()
+                    if status in {"succeeded", "skipped"}
+                },
+                "node_outputs": {
+                    node_id: output
+                    for node_id, output in node_outputs.items()
+                    if node_states.get(node_id) == "succeeded"
+                },
+                "waiting_node_id": approval_required.node_id,
+                "workflow_run_step_id": approval_required.run_step_id,
+                "tool_call_id": approval_output.get("tool_call_id"),
+                "tool_run_step_id": approval_output.get("tool_run_step_id"),
+                "response_id": approval_output.get("response_id"),
+            }
+            return approval_output
 
         if compensation_requested:
             await _execute_compensation_nodes()
