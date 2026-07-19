@@ -237,7 +237,6 @@ function Page() {
       }
       const version = await createWorkflowVersion(workflowId, {
         graph_json: dslPayload.dsl as Record<string, any>,
-        created_by: 'web-ui',
       })
       await publishWorkflowVersion(workflowId, version.id)
       toast.success(t('workflow.detail.publish.toast.publishSuccess'))

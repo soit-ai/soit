@@ -172,7 +172,7 @@ export const deleteWorkflow = (workflowId: string): Promise<void> => {
 
 export const createWorkflowVersion = (
   workflowId: string,
-  data: { graph_json: Record<string, any>; created_by: string }
+  data: { graph_json: Record<string, unknown> }
 ): Promise<WorkflowVersion> => {
   return post(`/workflows/${workflowId}/versions`, data)
 }
@@ -220,7 +220,7 @@ export const exportWorkflowDsl = (
 
 export const importWorkflowDsl = (
   workflowId: string,
-  data: { dsl: Record<string, any> | string; created_by: string; format?: 'json' | 'yaml' }
+  data: { dsl: Record<string, unknown> | string; format?: 'json' | 'yaml' }
 ): Promise<WorkflowVersion> => {
   return post(`/workflows/${workflowId}/dsl`, data)
 }
