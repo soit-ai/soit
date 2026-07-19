@@ -124,6 +124,7 @@ class WorkflowExecutor:
         execution_order = plan.plan_data["execution_order"]
         semantics = plan.plan_data.get("semantics", {})
         policy = plan.plan_data.get("policy", {})
+        context.workflow_inputs = dict(plan.inputs or {})
         context_payload = asdict(context.ctx) if context.ctx else {}
 
         # Build graph for dependency tracking
@@ -322,6 +323,7 @@ class WorkflowExecutor:
                     plugin_runtime_port=context.plugin_runtime_port,
                     response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
+                    workflow_inputs=context.workflow_inputs,
                     steps_outputs=node_outputs,
                     workflow_run_id=context.workflow_run_id,
                     approval_checkpoint_gateway=context.approval_checkpoint_gateway,
@@ -565,6 +567,7 @@ class WorkflowExecutor:
                     plugin_runtime_port=context.plugin_runtime_port,
                     response_service=context.response_service,
                     workflow_policy=context.workflow_policy,
+                    workflow_inputs=context.workflow_inputs,
                     steps_outputs=node_outputs,
                     workflow_run_id=context.workflow_run_id,
                     approval_checkpoint_gateway=context.approval_checkpoint_gateway,
@@ -682,15 +685,16 @@ class WorkflowExecutor:
             error_message = compensation_error.error_message if compensation_error else "Compensation triggered"
             raise ValidationError(f"Workflow compensated after failure: {error_message}")
 
-        # Find output node
-        output_node_id = None
-        for node_id, node in nodes.items():
-            if node["type"] == "output":
-                output_node_id = node_id
-                break
-
-        if output_node_id and output_node_id in node_outputs:
-            return node_outputs[output_node_id]
+        output_node_ids = [node_id for node_id, node in nodes.items() if node["type"] == "output"]
+        if output_node_ids:
+            active_output_node_ids = [
+                node_id
+                for node_id in output_node_ids
+                if node_states.get(node_id) == "succeeded" and node_id in node_outputs
+            ]
+            if len(active_output_node_ids) != 1:
+                raise ValidationError("Workflow must produce exactly one active output")
+            return node_outputs[active_output_node_ids[0]]
 
         # If no output node, return last node's output
         if execution_order and execution_order[-1] in node_outputs:
@@ -774,9 +778,18 @@ class WorkflowExecutor:
         return bool(condition)
 
     def _get_condition_value(self, expr: str, inputs: dict[str, Any]) -> Any:
-        expr = expr.strip().strip('"').strip("'")
+        raw_expr = expr.strip()
+        is_quoted = (
+            len(raw_expr) >= 2
+            and raw_expr[0] == raw_expr[-1]
+            and raw_expr[0] in ('"', "'")
+        )
+        expr = raw_expr.strip('"').strip("'")
         if expr in inputs:
             return inputs[expr]
+        normalized = expr.lower()
+        if not is_quoted and normalized in ("true", "false"):
+            return normalized == "true"
         try:
             if "." in expr:
                 return float(expr)

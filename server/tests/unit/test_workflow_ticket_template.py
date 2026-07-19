@@ -18,7 +18,7 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
         "approval",
         "ticket_tool",
         "response",
-        "end",
+        "reject",
     ]
 
     node_id_set = set(node_ids)
@@ -38,6 +38,40 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
     assert ticket_node["params"]["tool_ref"] == "builtin.ticket.create_review_ticket"
     assert ticket_node["params"]["customer_id"] == "{{ steps.start.output.customer_id }}"
     assert "parameters" not in ticket_node["params"]
+
+    approval_node = next(node for node in nodes if node["id"] == "approval")
+    assert approval_node["params"]["condition"] == '{{ inputs.priority }} != "low"'
+
+    approval_edges = [edge for edge in spec["graph"]["edges"] if edge["from"] == "approval"]
+    assert approval_edges == [
+        {
+            "id": "e_approval_ticket",
+            "from": "approval",
+            "to": "ticket_tool",
+            "condition": "{{ steps.approval.output.result }}",
+        },
+        {
+            "id": "e_approval_reject",
+            "from": "approval",
+            "to": "reject",
+            "condition": "{{ steps.approval.output.result }} == false",
+        },
+    ]
+    conditions = [edge.get("condition") for edge in spec["graph"]["edges"] if edge["from"] == "approval"]
+    assert "{{ steps.approval.output.result }}" in conditions
+    assert "{{ steps.approval.output.result }} == false" in conditions
+    assert conditions.count("true") == 0
+    assert conditions.count("false") == 0
+
+    reject_node = next(node for node in nodes if node["id"] == "reject")
+    assert reject_node["type"] == "output"
+    assert reject_node["params"] == {
+        "ticket_id": "",
+        "status": "rejected",
+        "response": "Ticket creation skipped because the approval condition was not met.",
+        "citations": "{{ steps.knowledge_search.output.citations }}",
+    }
+    assert all(edge["from"] != "response" for edge in spec["graph"]["edges"])
 
 
 @pytest.mark.asyncio
@@ -59,5 +93,5 @@ async def test_workflow_service_creates_ticket_triage_draft(db, ctx):
         "approval",
         "ticket_tool",
         "response",
-        "end",
+        "reject",
     ]

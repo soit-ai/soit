@@ -30,11 +30,13 @@ from app.kernel.runtime.responses.repository import (
 )
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.workflow.application.capabilities import get_workflow_node_capabilities
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executor import WorkflowExecutor
-from app.modules.workflow.runtime.executors import _executor_registry
+from app.modules.workflow.runtime.executors import _executor_registry, get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.modules.workflow.runtime.executors.input import InputNodeExecutor
 from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
 from app.modules.workflow.runtime.executors.tool import ToolNodeExecutor
 from tests.fixtures.workflow_specs import CANONICAL_NODE_TYPES, canonical_workflow_spec
@@ -45,6 +47,7 @@ def test_workflow_executor_registry_records_current_node_types() -> None:
     assert set(_executor_registry) == {
         "condition",
         "http",
+        "input",
         "llm",
         "node",
         "output",
@@ -53,6 +56,17 @@ def test_workflow_executor_registry_records_current_node_types() -> None:
         "tool",
         "transform",
     }
+
+
+def test_every_executable_capability_resolves_to_a_registered_executor() -> None:
+    executable_node_types = {
+        capability.type
+        for capability in get_workflow_node_capabilities()
+        if capability.executable
+    }
+
+    assert executable_node_types <= set(_executor_registry)
+    assert all(get_executor(node_type) is _executor_registry[node_type] for node_type in executable_node_types)
 
 
 def test_canonical_node_types_document_the_approved_target() -> None:
@@ -214,6 +228,233 @@ def _unwrap_steps(rows: list[Any]) -> list[RunStep]:
         if hasattr(row, "_mapping"):
             steps.append(row[0])
     return steps
+
+
+def _branching_output_execution(
+    db: Session,
+    ctx: RequestContext,
+    *,
+    approved: bool,
+    true_when: str = "{{ steps.condition.output.result }}",
+    false_when: str = "{{ steps.condition.output.result }} == false",
+) -> tuple[Run, ExecutionPlan, WorkflowExecutor, ExecutionContext]:
+    trace_writer = TraceWriter(db, ctx)
+    engine = ExecutionEngine(db, ctx, trace_writer)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_active_output",
+        subject_version_id="ver_workflow",
+    )
+    plan = ExecutionPlan(
+        run_id=run.id,
+        mode="workflow",
+        inputs={"approved": approved},
+        plan_data={
+            "nodes": {
+                "false_output": {
+                    "id": "false_output",
+                    "type": "output",
+                    "input": {"path": "false"},
+                },
+                "condition": {
+                    "id": "condition",
+                    "type": "condition",
+                    "input": {"condition": "{{ inputs.approved }}"},
+                },
+                "true_output": {
+                    "id": "true_output",
+                    "type": "output",
+                    "input": {"path": "true"},
+                },
+            },
+            "edges": [
+                {"from": "condition", "to": "true_output", "when": true_when},
+                {"from": "condition", "to": "false_output", "when": false_when},
+            ],
+            "execution_order": ["condition", "true_output", "false_output"],
+            "semantics": {"concurrency": 1},
+            "policy": {},
+        },
+    )
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id=None,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        llm_port=FakeLLMPort(),
+        tool_port=FakeToolPort(),
+        vector_port=None,
+        plugin_runtime_port=None,
+        workflow_policy={},
+    )
+    return run, plan, WorkflowExecutor(engine), context
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ('False == "false"', False),
+        ('"false"', True),
+        ("False == false", True),
+        ("false", False),
+    ],
+)
+def test_workflow_executor_distinguishes_quoted_boolean_literals(
+    db: Session,
+    ctx: RequestContext,
+    expression: str,
+    expected: bool,
+) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    executor = WorkflowExecutor(ExecutionEngine(db, ctx, trace_writer))
+
+    assert executor._evaluate_condition(expression, {}) is expected
+
+
+@pytest.mark.asyncio
+async def test_input_node_exposes_validated_workflow_inputs(db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(db, ctx)
+    engine = ExecutionEngine(db, ctx, trace_writer)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_input",
+        subject_version_id="ver_workflow",
+    )
+    plan = ExecutionPlan(
+        run_id=run.id,
+        mode="workflow",
+        inputs={"ticket_id": "T-100", "ignored": "not-exposed"},
+        plan_data={
+            "nodes": {
+                "start": {
+                    "id": "start",
+                    "type": "input",
+                    "input": {"select": ["ticket_id"]},
+                },
+                "out": {
+                    "id": "out",
+                    "type": "output",
+                    "input": {"value": "{{ steps.start.output.ticket_id }}"},
+                },
+            },
+            "edges": [{"from": "start", "to": "out"}],
+            "execution_order": ["start", "out"],
+            "semantics": {"concurrency": 1},
+            "policy": {},
+        },
+    )
+    context = ExecutionContext(
+        run_id=run.id,
+        step_id=None,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        llm_port=FakeLLMPort(),
+        tool_port=FakeToolPort(),
+        vector_port=None,
+        plugin_runtime_port=None,
+        workflow_policy={},
+    )
+
+    result = await WorkflowExecutor(engine).execute(plan, context)
+
+    assert result == {"value": "T-100"}
+    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    start_step = next(step for step in _unwrap_steps(rows) if step.node_id == "start")
+    assert "T-100" in (start_step.output_summary or "")
+    assert "ignored" not in (start_step.output_summary or "")
+    assert "not-exposed" not in (start_step.output_summary or "")
+
+
+@pytest.mark.asyncio
+async def test_input_node_safely_ignores_malformed_select(db: Session, ctx: RequestContext) -> None:
+    context = ExecutionContext(
+        run_id="run_input_malformed",
+        step_id="step_input_malformed",
+        ctx=ctx,
+        trace_writer=TraceWriter(db, ctx),
+        workflow_inputs={"ticket_id": "T-100"},
+    )
+
+    result = await InputNodeExecutor().execute({}, context, {"select": 42})
+
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_input_node_ignores_malformed_select_entries(db: Session, ctx: RequestContext) -> None:
+    context = ExecutionContext(
+        run_id="run_input_mixed_select",
+        step_id="step_input_mixed_select",
+        ctx=ctx,
+        trace_writer=TraceWriter(db, ctx),
+        workflow_inputs={"ticket_id": "T-100"},
+    )
+
+    result = await InputNodeExecutor().execute(
+        {},
+        context,
+        {"select": [{}, 42, "ticket_id", "missing"]},
+    )
+
+    assert result == {"ticket_id": "T-100"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("approved", "expected_output", "inactive_output"),
+    [
+        (True, {"path": "true"}, "false_output"),
+        (False, {"path": "false"}, "true_output"),
+    ],
+)
+async def test_workflow_executor_returns_only_the_active_output(
+    db: Session,
+    ctx: RequestContext,
+    approved: bool,
+    expected_output: dict[str, str],
+    inactive_output: str,
+) -> None:
+    run, plan, executor, context = _branching_output_execution(db, ctx, approved=approved)
+
+    result = await executor.execute(plan, context)
+
+    assert result == expected_output
+    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    status_by_node = {step.node_id: step.status for step in _unwrap_steps(rows)}
+    assert status_by_node[inactive_output] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_workflow_executor_rejects_zero_active_outputs(db: Session, ctx: RequestContext) -> None:
+    _, plan, executor, context = _branching_output_execution(
+        db,
+        ctx,
+        approved=True,
+        true_when="false",
+        false_when="false",
+    )
+
+    with pytest.raises(ValidationError, match="^Workflow must produce exactly one active output$"):
+        await executor.execute(plan, context)
+
+
+@pytest.mark.asyncio
+async def test_workflow_executor_rejects_more_than_one_active_output(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    _, plan, executor, context = _branching_output_execution(
+        db,
+        ctx,
+        approved=True,
+        true_when="true",
+        false_when="true",
+    )
+
+    with pytest.raises(ValidationError, match="^Workflow must produce exactly one active output$"):
+        await executor.execute(plan, context)
 
 
 @pytest.mark.asyncio

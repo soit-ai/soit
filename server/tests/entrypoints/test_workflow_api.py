@@ -384,7 +384,7 @@ class TestWorkflowAPI:
             "approval",
             "ticket_tool",
             "response",
-            "end",
+            "reject",
         ]
 
     def test_list_workflows(self, client):

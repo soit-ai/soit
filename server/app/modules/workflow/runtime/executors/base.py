@@ -41,6 +41,7 @@ class ExecutionContext:
         resume_tool_call_id: str | None = None,
         resume_tool_run_step_id: str | None = None,
         resume_response_id: str | None = None,
+        workflow_inputs: dict[str, Any] | None = None,
     ):
         """Initialize execution context.
 
@@ -59,6 +60,7 @@ class ExecutionContext:
             task_id: Optional runtime task id for checkpoint pause integration.
             thread_id: Optional runtime thread id for checkpoint context.
             agent_id: Optional agent id for checkpoint context.
+            workflow_inputs: Validated workflow invocation payload.
         """
         self.run_id = run_id
         self.step_id = step_id
@@ -70,6 +72,7 @@ class ExecutionContext:
         self.plugin_runtime_port = plugin_runtime_port
         self.response_service = response_service
         self.workflow_policy = workflow_policy or {}
+        self.workflow_inputs = dict(workflow_inputs or {})
         self.steps_outputs = steps_outputs or {}
         self.workflow_run_id = workflow_run_id
         self.approval_checkpoint_gateway = approval_checkpoint_gateway

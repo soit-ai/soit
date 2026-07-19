@@ -6,6 +6,7 @@ Workflow node executors.
 from app.modules.workflow.runtime.executors.base import NodeExecutor
 from app.modules.workflow.runtime.executors.condition import ConditionNodeExecutor
 from app.modules.workflow.runtime.executors.http import HttpNodeExecutor
+from app.modules.workflow.runtime.executors.input import InputNodeExecutor
 from app.modules.workflow.runtime.executors.llm import LLMNodeExecutor
 from app.modules.workflow.runtime.executors.node import RegistryNodeExecutor
 from app.modules.workflow.runtime.executors.output import OutputNodeExecutor
@@ -47,6 +48,7 @@ def get_executor(node_type: str) -> type[NodeExecutor]:
 
 
 # Register default executors
+register_executor("input", InputNodeExecutor)
 register_executor("llm", LLMNodeExecutor)
 register_executor("retrieve", RetrieveNodeExecutor)
 register_executor("tool", ToolNodeExecutor)
