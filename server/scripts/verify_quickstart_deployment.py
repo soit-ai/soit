@@ -21,6 +21,14 @@ REQUIRED_SERVICES = {
     "web",
     "knowledge-ingest-worker",
 }
+# One-shot init containers run a command and exit; they are never long-running or
+# healthy. Their success state is "exited"/"complete" with exit code 0.
+INIT_SERVICES = {"migrate", "bootstrap"}
+# Long-running services that define a Docker healthcheck; they must be running and healthy.
+HEALTHCHECKED_SERVICES = {"postgres", "redis", "minio", "etcd", "milvus", "vault", "api", "web"}
+# Remaining long-running services have no healthcheck; running is their success state.
+RUNNING_ONLY_SERVICES = REQUIRED_SERVICES - INIT_SERVICES - HEALTHCHECKED_SERVICES
+INIT_COMPLETED_STATUSES = {"exited", "complete", "completed"}
 
 
 class QuickstartDeploymentEvidenceError(ValueError):
@@ -93,15 +101,27 @@ def validate_quickstart_deployment(
     if missing:
         raise QuickstartDeploymentEvidenceError(f"missing docker services: {sorted(missing)}")
     for name in REQUIRED_SERVICES:
-        if services_by_name[name].get("status") != "running":
-            raise QuickstartDeploymentEvidenceError(f"docker.services.{name}.status must be running")
-        if services_by_name[name].get("health") != "healthy":
-            raise QuickstartDeploymentEvidenceError(f"docker.services.{name}.health must be healthy")
-        if not isinstance(services_by_name[name].get("evidenceRef"), str) or not services_by_name[name]["evidenceRef"].strip():
+        service = services_by_name[name]
+        evidence_ref = service.get("evidenceRef")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
             raise QuickstartDeploymentEvidenceError(
                 f"docker.services.{name}.evidenceRef must be a non-empty string"
             )
-        _require_text(services_by_name[name], "evidenceRef")
+        if name in INIT_SERVICES:
+            # One-shot init container: must have completed and exited with code 0.
+            if service.get("status") not in INIT_COMPLETED_STATUSES:
+                raise QuickstartDeploymentEvidenceError(
+                    f"docker.services.{name}.status must be exited/complete for a one-shot init container"
+                )
+            if service.get("exitCode") != 0:
+                raise QuickstartDeploymentEvidenceError(
+                    f"docker.services.{name}.exitCode must be 0"
+                )
+        else:
+            if service.get("status") != "running":
+                raise QuickstartDeploymentEvidenceError(f"docker.services.{name}.status must be running")
+            if name in HEALTHCHECKED_SERVICES and service.get("health") != "healthy":
+                raise QuickstartDeploymentEvidenceError(f"docker.services.{name}.health must be healthy")
     _require_unique_evidence_refs(
         [services_by_name[name] for name in REQUIRED_SERVICES],
         "docker.services",

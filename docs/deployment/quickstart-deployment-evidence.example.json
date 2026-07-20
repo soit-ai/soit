@@ -17,11 +17,11 @@
       {"name": "etcd", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/etcd.log"},
       {"name": "milvus", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/milvus.log"},
       {"name": "vault", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/vault.log"},
-      {"name": "migrate", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/migrate.log"},
-      {"name": "bootstrap", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/bootstrap.log"},
+      {"name": "migrate", "status": "exited", "exitCode": 0, "evidenceRef": "evidence/quickstart/services/migrate.log"},
+      {"name": "bootstrap", "status": "exited", "exitCode": 0, "evidenceRef": "evidence/quickstart/services/bootstrap.log"},
       {"name": "api", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/api.log"},
       {"name": "web", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/web.log"},
-      {"name": "knowledge-ingest-worker", "status": "running", "health": "healthy", "evidenceRef": "evidence/quickstart/services/knowledge-ingest-worker.log"}
+      {"name": "knowledge-ingest-worker", "status": "running", "evidenceRef": "evidence/quickstart/services/knowledge-ingest-worker.log"}
     ]
   },
   "checks": {

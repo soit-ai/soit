@@ -607,6 +607,21 @@ def test_quickstart_deployment_evidence_template_is_machine_verifiable() -> None
     with pytest.raises(QuickstartDeploymentEvidenceError, match="finishedAt"):
         validate_quickstart_deployment(invalid_window)
 
+    init_still_running = deepcopy(evidence)
+    for service in init_still_running["docker"]["services"]:
+        if service["name"] == "migrate":
+            service["status"] = "running"
+            service.pop("exitCode", None)
+    with pytest.raises(QuickstartDeploymentEvidenceError, match="one-shot init container"):
+        validate_quickstart_deployment(init_still_running)
+
+    init_nonzero_exit = deepcopy(evidence)
+    for service in init_nonzero_exit["docker"]["services"]:
+        if service["name"] == "bootstrap":
+            service["exitCode"] = 1
+    with pytest.raises(QuickstartDeploymentEvidenceError, match="bootstrap.exitCode must be 0"):
+        validate_quickstart_deployment(init_nonzero_exit)
+
 
 def test_quickstart_deployment_strict_mode_requires_existing_evidence_refs(tmp_path: Path) -> None:
     from scripts.verify_quickstart_deployment import (
