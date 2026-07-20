@@ -78,12 +78,8 @@ class LiteLLMPort(LLMPort):
         self.max_retries = max_retries
 
         if load_sdk_defaults and (completion_fn is None or embedding_fn is None):
-            try:
-                import litellm
-            except ModuleNotFoundError as exc:
-                raise RuntimeError(
-                    "LiteLLM adapter requires the llm-litellm optional dependency"
-                ) from exc
+            import litellm
+
             completion_fn = completion_fn or litellm.acompletion
             embedding_fn = embedding_fn or litellm.aembedding
             rerank_fn = rerank_fn or getattr(litellm, "arerank", None)

@@ -3466,6 +3466,7 @@ dependencies = [
     { name = "hvac" },
     { name = "jinja2" },
     { name = "jsonschema" },
+    { name = "litellm" },
     { name = "mcp" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -3510,9 +3511,6 @@ dependencies = [
 [package.optional-dependencies]
 knowledge-worker = [
     { name = "docling", extra = ["rapidocr"] },
-]
-llm-litellm = [
-    { name = "litellm" },
 ]
 local-embedding = [
     { name = "huggingface-hub" },
@@ -3564,7 +3562,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.4,<4.0.0" },
     { name = "jsonschema", specifier = ">=4.0.0,<5.0.0" },
     { name = "langchain-huggingface", marker = "extra == 'local-embedding'", specifier = ">=0.0.6" },
-    { name = "litellm", marker = "extra == 'llm-litellm'", specifier = "==1.91.1" },
+    { name = "litellm", specifier = "==1.91.1" },
     { name = "mcp", specifier = "==1.28.1" },
     { name = "openai", specifier = "==2.20.0" },
     { name = "openpyxl", specifier = ">=3.1.5,<4.0.0" },
@@ -3610,7 +3608,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'local-embedding'", specifier = ">=4.52.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0,<1.0.0" },
 ]
-provides-extras = ["local-embedding", "operations", "llm-litellm", "knowledge-worker"]
+provides-extras = ["local-embedding", "operations", "knowledge-worker"]
 
 [package.metadata.requires-dev]
 dev = [

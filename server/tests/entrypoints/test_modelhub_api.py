@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi import status
 
-from app.kernel.commons.errors import ConflictError, ValidationError
+from app.kernel.commons.errors import ConflictError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
     ChatResponse,
@@ -83,7 +83,6 @@ def _modelhub_service(
     catalog=None,
     litellm_factory=None,
     provider_cache_invalidator=None,
-    litellm_runtime_available=None,
     runtime_llm_port=None,
     model_reference_usage=None,
 ) -> ModelHubService:
@@ -98,7 +97,6 @@ def _modelhub_service(
         catalog or _ModelTestCatalog(),
         litellm_port_factory=litellm_factory,
         provider_cache_invalidator=provider_cache_invalidator,
-        litellm_runtime_available=litellm_runtime_available,
         runtime_llm_port=runtime_llm_port,
         model_reference_usage=model_reference_usage,
     )
@@ -371,21 +369,6 @@ async def test_provider_mutations_invalidate_runtime_provider_cache(db, ctx):
         "renamed-provider",
         "renamed-provider",
     ]
-
-
-@pytest.mark.asyncio
-async def test_provider_create_rejects_unavailable_litellm_runtime(db, ctx):
-    service = _modelhub_service(db, ctx, litellm_runtime_available=False)
-
-    with pytest.raises(ValidationError, match="llm-litellm optional dependency"):
-        await service.create_provider(
-            ProviderCreate(
-                slug="missing-litellm",
-                kind="openai_compatible",
-                adapter_backend="litellm",
-                name="Missing LiteLLM",
-            )
-        )
 
 
 def test_create_provider_persists_slug_and_configuration_json(client):
@@ -1091,8 +1074,8 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
     assert by_kind["anthropic"]["catalog_supported"] is True
     assert by_kind["gemini"]["support_status"] == "unavailable"
     assert by_adapter["native"]["available"] is True
-    assert isinstance(by_adapter["litellm"]["available"], bool)
-    assert by_adapter["litellm"]["install_hint"] == "uv sync --extra llm-litellm"
+    assert by_adapter["litellm"]["available"] is True
+    assert by_adapter["litellm"]["install_hint"] is None
     assert presets["azure_openai"]["litellm_provider"] == "azure"
     assert presets["bedrock"]["litellm_provider"] == "bedrock"
     assert presets["openrouter"]["litellm_provider"] == "openrouter"

@@ -1,13 +1,11 @@
-"""Smoke test for the optional LiteLLM runtime dependency."""
+"""Smoke test for the LiteLLM runtime dependency."""
 
 from importlib.metadata import version
 
-import pytest
+import litellm
 
 
-def test_litellm_optional_dependency_exposes_required_async_apis():
-    litellm = pytest.importorskip("litellm")
-
+def test_litellm_dependency_exposes_required_async_apis():
     assert version("litellm") == "1.91.1"
     assert callable(litellm.acompletion)
     assert callable(litellm.aembedding)

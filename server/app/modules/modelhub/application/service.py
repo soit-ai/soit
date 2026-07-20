@@ -8,7 +8,6 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from importlib.util import find_spec
 from typing import Any
 
 from sqlalchemy import and_, desc, select
@@ -269,7 +268,6 @@ class ModelHubService:
         catalog_adapter: ProviderCatalogAdapter,
         litellm_port_factory: Callable[[Provider, dict[str, str]], LLMPort] | None = None,
         provider_cache_invalidator: Callable[..., Awaitable[None]] | None = None,
-        litellm_runtime_available: bool | None = None,
         runtime_llm_port: LLMPort | None = None,
         model_reference_usage: ModelReferenceUsagePort | None = None,
     ):
@@ -283,11 +281,6 @@ class ModelHubService:
         self.catalog_adapter = catalog_adapter
         self.litellm_port_factory = litellm_port_factory
         self.provider_cache_invalidator = provider_cache_invalidator
-        self.litellm_runtime_available = (
-            find_spec("litellm") is not None
-            if litellm_runtime_available is None
-            else litellm_runtime_available
-        )
         self.runtime_llm_port = runtime_llm_port
         self.model_reference_usage = model_reference_usage
 
@@ -340,12 +333,6 @@ class ModelHubService:
         if self.provider_cache_invalidator is None or not provider.slug:
             return
         await self.provider_cache_invalidator(self.ctx, provider.slug, model_id)
-
-    def _ensure_adapter_backend_available(self, adapter_backend: str) -> None:
-        if adapter_backend == "litellm" and not self.litellm_runtime_available:
-            raise ValidationError(
-                "LiteLLM adapter requires the llm-litellm optional dependency"
-            )
 
     def _ensure_preset_supports_adapter(
         self,
@@ -457,8 +444,8 @@ class ModelHubService:
             {
                 "adapter_backend": "litellm",
                 "display_name": "LiteLLM SDK",
-                "available": self.litellm_runtime_available,
-                "install_hint": "uv sync --extra llm-litellm",
+                "available": True,
+                "install_hint": None,
             },
         ]
 
@@ -975,7 +962,6 @@ class ModelHubService:
     @workspace_guard("write")
     async def create_provider(self, data: ProviderCreate) -> Provider:
         """Create a provider."""
-        self._ensure_adapter_backend_available(data.adapter_backend)
         self._ensure_preset_supports_adapter(data.kind, data.adapter_backend)
         self._validate_provider_runtime_configuration(
             provider_kind=data.kind,
@@ -1015,8 +1001,6 @@ class ModelHubService:
     @workspace_guard("write")
     async def update_provider(self, provider_id: str, data: ProviderUpdate) -> Provider:
         """Update provider."""
-        if data.adapter_backend is not None:
-            self._ensure_adapter_backend_available(data.adapter_backend)
         provider = self._get_provider(provider_id)
         self._ensure_preset_supports_adapter(
             data.kind or provider.kind,

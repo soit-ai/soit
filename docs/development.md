@@ -12,11 +12,7 @@ uv sync
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 9200
 ```
 
-For workspace-managed LiteLLM providers, install the optional runtime adapter:
-
-```powershell
-uv sync --extra llm-litellm
-```
+The LiteLLM runtime adapter ships as a core dependency, so `uv sync` installs everything workspace-managed LiteLLM providers need.
 
 Useful backend checks:
 

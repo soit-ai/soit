@@ -15,12 +15,12 @@ COPY ./ /app/
 FROM base AS knowledge-worker
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    /bin/uv sync --frozen --no-dev --extra llm-litellm --extra knowledge-worker
+    /bin/uv sync --frozen --no-dev --extra knowledge-worker
 
 FROM base AS runtime
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    /bin/uv sync --frozen --no-dev --extra llm-litellm
+    /bin/uv sync --frozen --no-dev
 
 # Expose the port
 EXPOSE 9200
