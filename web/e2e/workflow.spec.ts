@@ -1240,7 +1240,7 @@ test('settings reject an old delete confirmation after the workflow ID changes',
   await staleConfirm!.evaluate((element: HTMLButtonElement) => element.click())
   await page.waitForTimeout(200)
   expect(deleteRequests).toEqual([])
-  expect(await page.getByRole('alertdialog').count()).toBe(0)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page).toHaveURL(/\/workflow\/workflow-b\/setting$/)
 })
 
