@@ -271,7 +271,7 @@ class ObserveDashboardService:
     def _cost_by_run(costs: list[RunCostEntry]) -> dict[str, float]:
         totals: dict[str, float] = defaultdict(float)
         for cost in costs:
-            totals[cost.run_id] += float(cost.amount)
+            totals[cost.run_id] += float(cost.amount or 0)
         return totals
 
     @staticmethod
@@ -663,8 +663,8 @@ class ObserveDashboardService:
             approved=sum(1 for item in approvals if item.status == ApprovalStatus.APPROVED.value),
             rejected=sum(1 for item in approvals if item.status == ApprovalStatus.REJECTED.value),
         )
-        total_cost_usd = sum(float(cost.amount) for cost in costs)
-        previous_cost_usd = sum(float(cost.amount) for cost in previous_costs)
+        total_cost_usd = sum(float(cost.amount or 0) for cost in costs)
+        previous_cost_usd = sum(float(cost.amount or 0) for cost in previous_costs)
         previous_run_count = len(previous_runs)
         previous_failed_run_count = sum(1 for run in previous_runs if run.status == "failed")
 

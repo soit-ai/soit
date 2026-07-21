@@ -170,6 +170,48 @@ def test_observe_dashboard_returns_workspace_summary(client, db):
     assert data["section"]["id"] == "agent_health"
 
 
+def test_observe_dashboard_tolerates_null_cost_amount(client, db):
+    # Regression: a RunCostEntry with a NULL amount must not 500 the dashboard.
+    run = Run(
+        id="run_dashboard_null_cost",
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        user_id="test-user",
+        trace_id="trace_dashboard_null_cost",
+        mode="agent",
+        kind="agent",
+        subject_kind="agent",
+        subject_id="agt_null_cost",
+        subject_version_id="agtv_null_cost",
+        status="succeeded",
+        input_summary="hi",
+        output_summary="ok",
+        duration_ms=50,
+    )
+    cost = RunCostEntry(
+        run_id=run.id,
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        amount=None,
+        unit="tokens",
+        quantity=Decimal("10"),
+        provider="openai",
+        model_ref="model:openai:gpt-5.1",
+        prompt_tokens=6,
+        completion_tokens=4,
+        total_tokens=10,
+    )
+    db.add(run)
+    db.add(cost)
+    db.commit()
+
+    resp = client.get("/api/v1/observe/dashboard", headers=_headers())
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()["data"]
+    row = next(item for item in data["recent_runs"] if item["run_id"] == run.id)
+    assert row["cost_usd"] == 0
+
+
 def test_observe_dashboard_default_range_includes_last_24h(client, db):
     now = utc_now()
     run = Run(
