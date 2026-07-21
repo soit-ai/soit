@@ -40,3 +40,23 @@ async def test_readiness_returns_service_unavailable_when_storage_is_down() -> N
 
     assert error.value.status_code == 503
     assert error.value.detail == "Object storage is unavailable"
+
+
+def test_metrics_open_by_default(client) -> None:
+    assert client.get("/metrics").status_code == 200
+
+
+def test_metrics_requires_token_when_configured(client) -> None:
+    from app.settings.settings import settings
+
+    previous = settings.metrics_token
+    settings.metrics_token = "scrape-secret"
+    try:
+        assert client.get("/metrics").status_code == 401
+        assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert (
+            client.get("/metrics", headers={"Authorization": "Bearer scrape-secret"}).status_code
+            == 200
+        )
+    finally:
+        settings.metrics_token = previous

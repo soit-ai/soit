@@ -192,6 +192,14 @@ class Settings(BaseSettings):
     outbox_dispatcher_metrics_port: int = 9201
     """Prometheus and liveness HTTP port for the dedicated dispatcher."""
 
+    metrics_token: str | None = None
+    """Optional bearer token required to scrape GET /metrics. When unset, /metrics is
+    open and must be protected at the network layer (internal interface / firewall)."""
+
+    allow_public_registration: bool = True
+    """Allow unauthenticated POST /register self-signup. Enterprise deployments can set
+    this to false to require admin-provisioned users (also removes email enumeration)."""
+
     # Plugins
     plugins_dir: str = "./var/plugins"
     """Filesystem directory for plugin packages and extracted installs."""

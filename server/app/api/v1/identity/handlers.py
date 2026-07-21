@@ -47,6 +47,13 @@ async def register(
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
     """Register a new user and create a tenant."""
+    from app.settings.settings import settings
+
+    if not settings.allow_public_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled",
+        )
     try:
         _, _, access_token, workspace_id = service.register_user(
             user_data,

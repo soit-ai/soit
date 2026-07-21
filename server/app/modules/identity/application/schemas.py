@@ -15,7 +15,7 @@ class UserCreate(BaseModel):
 
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., min_length=8, description="User password")
-    name: str | None = Field(None, description="User display name")
+    name: str | None = Field(None, max_length=255, description="User display name")
 
 
 class UserLogin(BaseModel):
@@ -56,7 +56,7 @@ class UserProfileUpdate(BaseModel):
     """Schema for updating current user profile."""
 
     email: EmailStr | None = Field(None, description="User email")
-    name: str | None = Field(None, description="User display name")
+    name: str | None = Field(None, max_length=255, description="User display name")
     profile: dict[str, Any] | None = Field(default=None, description="User profile metadata")
 
 

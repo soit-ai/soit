@@ -45,6 +45,25 @@ def test_register_rejects_duplicate_email(client):
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
+def test_register_disabled_returns_403(client):
+    """Public registration can be disabled by operators."""
+    from app.settings.settings import settings
+
+    previous = settings.allow_public_registration
+    settings.allow_public_registration = False
+    try:
+        response = client.post("/api/v1/register", json=_register_payload("register_off"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+    finally:
+        settings.allow_public_registration = previous
+
+
+def test_update_profile_rejects_overlong_name(client):
+    """Profile name is length-bounded (schema validation): 300 chars > max_length 255."""
+    response = client.patch("/api/v1/me", json={"name": "n" * 300})
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 def test_login_success_and_failure(client):
     """Login succeeds for valid credentials and fails for invalid password."""
     payload = _register_payload("login_ok")

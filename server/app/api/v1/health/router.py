@@ -3,7 +3,9 @@
 Health check and monitoring endpoints.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -102,8 +104,12 @@ async def liveness_check():
 
 
 @router.get("/metrics")
-async def metrics():
+async def metrics(request: Request):
     """Prometheus metrics endpoint.
+
+    When ``settings.metrics_token`` is set, a matching ``Authorization: Bearer``
+    header is required (for Prometheus ``bearer_token`` scrape configs). When it is
+    unset, the endpoint is open and must be protected at the network layer.
 
     Returns:
         Prometheus metrics in text format.
@@ -111,7 +117,15 @@ async def metrics():
     from fastapi import Response
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-    # Generate Prometheus metrics
+    from app.settings.settings import settings
+
+    expected_token = getattr(settings, "metrics_token", None)
+    if expected_token:
+        auth_header = request.headers.get("Authorization", "")
+        provided = auth_header[7:] if auth_header.startswith("Bearer ") else None
+        if not provided or not secrets.compare_digest(provided, expected_token):
+            return Response(status_code=http_status.HTTP_401_UNAUTHORIZED)
+
     metrics_output = generate_latest()
 
     return Response(
