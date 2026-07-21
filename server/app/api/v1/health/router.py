@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db
 from app.kernel.ports.storage.interface import StoragePort
+from app.kernel.ports.vector.interface import VectorPort
 from app.wiring.container import get_container
 
 router = APIRouter()
@@ -36,11 +37,20 @@ class ReadyResponse(BaseModel):
     storage: str
     """Object storage status: 'connected' or 'disconnected'."""
 
+    vector: str = "unknown"
+    """Vector store status: 'connected' or 'unavailable' (reported, non-gating)."""
+
 
 def get_readiness_storage() -> StoragePort:
     """Return the unscoped storage adapter used by readiness checks."""
 
     return get_container().get("storage_port")
+
+
+def get_readiness_vector() -> VectorPort:
+    """Return the unscoped vector adapter used by readiness checks."""
+
+    return get_container().get("vector_port")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -57,11 +67,14 @@ async def health_check():
 async def readiness_check(
     db: Session = Depends(get_db),
     storage: StoragePort = Depends(get_readiness_storage),
+    vector: VectorPort = Depends(get_readiness_vector),
 ):
-    """Readiness check endpoint (checks database connection).
+    """Readiness check endpoint.
 
-    Args:
-        db: Database session.
+    Database and object storage are hard readiness gates (503 when down). The vector
+    store is probed and reported but does not gate readiness: the platform degrades
+    gracefully when it is down (non-vector endpoints keep serving), so a vector
+    outage is surfaced without pulling the instance out of rotation.
 
     Returns:
         Readiness status.
@@ -86,10 +99,17 @@ async def readiness_check(
             detail="Object storage is unavailable",
         )
 
+    try:
+        await vector.check_ready()
+        vector_status = "connected"
+    except Exception:
+        vector_status = "unavailable"
+
     return ReadyResponse(
         status="ready",
         database=db_status,
         storage=storage_status,
+        vector=vector_status,
     )
 
 

@@ -34,6 +34,14 @@ class VectorQueryResult:
 class VectorPort(ABC):
     """Vector database port interface."""
 
+    async def check_ready(self) -> None:
+        """Probe connectivity; raise if the vector store is unreachable.
+
+        Default is a no-op (always ready). Adapters backed by an external store
+        override this so readiness checks can report the store's availability.
+        """
+        return None
+
     @abstractmethod
     async def ensure_collection(
         self,
