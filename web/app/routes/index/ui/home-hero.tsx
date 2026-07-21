@@ -12,10 +12,11 @@ type HomeHeroProps = {
   summary: DashboardSummary
   isRefreshing: boolean
   partialFailure: boolean
+  isInitialError?: boolean
   onRefresh: () => void
 }
 
-export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: HomeHeroProps) {
+export function HomeHero({ summary, isRefreshing, partialFailure, isInitialError = false, onRefresh }: HomeHeroProps) {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const { formatNumber, formatCompact } = useHomeFormatters()
@@ -90,13 +91,32 @@ export function HomeHero({ summary, isRefreshing, partialFailure, onRefresh }: H
             <span className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
               {t('agent.home.hero.commandRail')}
             </span>
-            {partialFailure && (
+            {partialFailure && !isInitialError && (
               <Badge variant="destructive" className="gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 {t('agent.home.hero.partialFailure')}
               </Badge>
             )}
           </div>
+
+          {isInitialError && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-destructive/40 bg-destructive/10 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                {t('agent.home.hero.loadFailedTitle')}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={isRefreshing}
+                onClick={onRefresh}
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {t('agent.home.hero.loadFailedRetry')}
+              </Button>
+            </div>
+          )}
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {railMetrics.map((metric) => (

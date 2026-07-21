@@ -28,6 +28,7 @@ export default function HomePage() {
           isRefreshing={dashboard.isRefreshing}
           onRefresh={dashboard.refetchAll}
           partialFailure={dashboard.partialFailure}
+          isInitialError={dashboard.isInitialError}
         />
 
         <SectionHeading

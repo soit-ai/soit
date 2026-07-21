@@ -16,6 +16,8 @@ const translation = {
       badge: 'SOIT Workspace',
       mode: 'Enterprise Agent OS',
       partialFailure: 'Some data is temporarily unavailable',
+      loadFailedTitle: 'Failed to load workspace data — the numbers below may be inaccurate',
+      loadFailedRetry: 'Retry',
       title: 'Operate the whole agent workspace from one command deck.',
       description:
         'Track release posture, retrieval health, execution pressure, and next actions without dropping into raw detail too early.',

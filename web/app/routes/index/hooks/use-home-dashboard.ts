@@ -186,6 +186,13 @@ export function useHomeDashboard() {
       costsQuery.error
   )
 
+  // A total failure with nothing loaded: the zero counts are misleading (they look
+  // like an empty workspace), so surface a clear error rather than empty-looking data.
+  const hasAnyData = Boolean(
+    agents.length || knowledgeBases.length || workflows.length || tasks.length || runs.length
+  )
+  const isInitialError = partialFailure && !hasAnyData && !isInitialLoading
+
   const refetchAll = () => {
     void agentsQuery.refetch()
     void knowledgeQuery.refetch()
@@ -208,6 +215,7 @@ export function useHomeDashboard() {
     isInitialLoading,
     isRefreshing,
     partialFailure,
+    isInitialError,
     refetchAll,
   }
 }

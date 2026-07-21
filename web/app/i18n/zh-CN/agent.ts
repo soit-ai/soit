@@ -16,6 +16,8 @@ const translation = {
       badge: 'SOIT 工作区',
       mode: '企业级 Agent 操作台',
       partialFailure: '部分数据暂时不可用',
+      loadFailedTitle: '工作区数据加载失败，下方数字可能不准确',
+      loadFailedRetry: '重试',
       title: '用一张指挥台管理整个 Agent 工作区。',
       description:
         '先判断发布姿态、检索健康度、执行压力和下一步动作，再决定进入哪条业务链路。',
