@@ -28,13 +28,30 @@ class MilvusVectorPort(VectorPort):
     def __init__(self, host: str | None = None, port: int | None = None):
         """Initialize Milvus gateway.
 
+        The Milvus connection is established lazily on first use (not here), so that
+        constructing the port during request dependency injection does not fail when
+        the vector store is temporarily unavailable.
+
         Args:
             host: Milvus host (defaults to settings).
             port: Milvus port (defaults to settings).
         """
         self.host = host or settings.milvus_host
         self.port = port or settings.milvus_port
+
+    def _ensure_connected(self) -> None:
+        """Connect to Milvus on demand (idempotent)."""
+        try:
+            if connections.has_connection("default"):
+                return
+        except Exception:
+            pass
         connections.connect("default", host=self.host, port=self.port)
+
+    async def check_ready(self) -> None:
+        """Probe vector-store connectivity; raise if unreachable (for readiness checks)."""
+        self._ensure_connected()
+        utility.get_server_version()
 
     @staticmethod
     def _normalize_collection_name(name: str) -> str:
@@ -112,6 +129,7 @@ class MilvusVectorPort(VectorPort):
     ) -> None:
         """Ensure Milvus collection exists."""
         del index_ref, run_id
+        self._ensure_connected()
         milvus_metric = self._to_milvus_metric(metric_type)
         self._ensure_collection(
             collection_name=collection,
@@ -140,6 +158,7 @@ class MilvusVectorPort(VectorPort):
         Returns:
             VectorQueryResult instance.
         """
+        self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
         if not utility.has_collection(collection_name):
             return VectorQueryResult(ids=[], scores=[])
@@ -234,6 +253,7 @@ class MilvusVectorPort(VectorPort):
         if len(vectors) != len(ids):
             raise ValueError("Vectors and IDs must have the same length")
 
+        self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
 
         dimension = len(vectors[0])
@@ -269,6 +289,7 @@ class MilvusVectorPort(VectorPort):
         if not ids:
             return
 
+        self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
         coll = Collection(collection_name)
         coll.load()
