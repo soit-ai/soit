@@ -53,6 +53,18 @@ class FakeVectorPort(VectorPort):
         return None
 
 
+class FakeConnections:
+    """Stub for pymilvus.connections so lazy _ensure_connected is a no-op in tests."""
+
+    @staticmethod
+    def has_connection(alias: str) -> bool:
+        return True
+
+    @staticmethod
+    def connect(*args, **kwargs) -> None:
+        return None
+
+
 class FakeLLMPort(LLMPort):
     async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):
         raise NotImplementedError
@@ -138,6 +150,7 @@ async def test_milvus_ensure_collection_is_idempotent_and_maps_metrics(monkeypat
 
     monkeypatch.setattr(milvus_module, "utility", FakeUtility)
     monkeypatch.setattr(milvus_module, "Collection", FakeCollection)
+    monkeypatch.setattr(milvus_module, "connections", FakeConnections)
 
     await port.ensure_collection(
         collection="knowledge:kb-1:index-1",
@@ -216,6 +229,7 @@ async def test_milvus_insert_query_delete_use_same_normalized_collection(monkeyp
 
     monkeypatch.setattr(milvus_module, "utility", FakeUtility)
     monkeypatch.setattr(milvus_module, "Collection", FakeCollection)
+    monkeypatch.setattr(milvus_module, "connections", FakeConnections)
     monkeypatch.setattr(port, "_ensure_collection", fake_ensure_collection)
 
     await port.insert(
