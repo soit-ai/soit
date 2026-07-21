@@ -132,11 +132,18 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             # Get status code from mapping
             status_code = ERROR_CODE_TO_STATUS.get(e.code, 500)
 
-            # Filter sensitive data from details
-            filtered_details = filter_sensitive_data(e.details) if e.details else {}
+            import os
+            is_dev = os.getenv("ENVIRONMENT", "production").lower() == "development"
 
-            # Sanitize error message
-            sanitized_message = sanitize_error_message(e.message)
+            if status_code >= 500 and not is_dev:
+                # Server errors can wrap internal exceptions (e.g. a vector-store
+                # MilvusException). Do not expose that to clients; the full detail is
+                # already logged above with the request_id for correlation.
+                sanitized_message = "Internal server error"
+                filtered_details = {}
+            else:
+                filtered_details = filter_sensitive_data(e.details) if e.details else {}
+                sanitized_message = sanitize_error_message(e.message)
 
             request_id, run_id = self._resolve_trace_ids(request)
             error_response = error_envelope(

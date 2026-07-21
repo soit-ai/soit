@@ -96,10 +96,12 @@ class JWTManager:
                 options={"verify_exp": True},
             )
             return payload
-        except jwt.ExpiredSignatureError:
-            raise UnauthorizedError("Token has expired")
+        except jwt.ExpiredSignatureError as e:
+            raise UnauthorizedError("Token has expired") from e
         except jwt.InvalidTokenError as e:
-            raise UnauthorizedError(f"Invalid token: {str(e)}")
+            # Keep the client-facing message generic; the underlying decode error is
+            # preserved as the exception cause for server-side logs.
+            raise UnauthorizedError("Invalid token") from e
 
     def extract_user_id(self, token: str) -> str:
         """Extract user ID from token.
