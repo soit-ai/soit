@@ -5,6 +5,7 @@ Identity domain DB models (users/tenants/workspaces/memberships).
 
 from datetime import datetime
 
+from sqlalchemy import PrimaryKeyConstraint
 from sqlmodel import JSON, Column, Field, Index, SQLModel, UniqueConstraint
 
 from app.kernel.commons.ids import generate_ulid
@@ -156,7 +157,7 @@ class TenantMembership(SQLModel, table=True):
     __tablename__ = "tenant_memberships"
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "user_id", name="uq_tenant_membership"),
+        PrimaryKeyConstraint("tenant_id", "user_id", name="uq_tenant_membership"),
     )
 
     tenant_id: str = Field(primary_key=True)
@@ -178,7 +179,12 @@ class WorkspaceMembership(SQLModel, table=True):
     __tablename__ = "workspace_memberships"
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "workspace_id", "user_id", name="uq_workspace_membership"),
+        PrimaryKeyConstraint(
+            "tenant_id",
+            "workspace_id",
+            "user_id",
+            name="uq_workspace_membership",
+        ),
     )
 
     tenant_id: str = Field(primary_key=True)
