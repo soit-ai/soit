@@ -9,7 +9,6 @@ from typing import Any
 from apprise import Apprise
 from sqlalchemy.orm import Session
 
-from app.adapters.secrets.vault import VaultSecretsPort
 from app.kernel.commons.time import utc_now
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.runtime.db.models.events import EventOutbox
@@ -78,8 +77,9 @@ async def handle_notification_delivery_outbox(
     delivery.updated_at = utc_now()
     db.add(delivery)
     try:
-        secrets = secrets_port or VaultSecretsPort()
-        url = await secrets.get_secret(secret_ref=endpoint.secret_ref)
+        if secrets_port is None:
+            raise RuntimeError("Scoped secrets port is unavailable")
+        url = await secrets_port.get_secret(secret_id=endpoint.secret_id)
         delivered = await (sender or _send_apprise)(
             url,
             title=notification.title,

@@ -61,7 +61,7 @@ class DatabaseProviderResolver:
                 runtime_config=getattr(provider, "runtime_config_json", None),
                 connection_config=connection,
                 auth_config=getattr(provider, "auth_config_json", None),
-                credential_ref=provider.credential_ref,
+                credential_secret_id=provider.credential_secret_id,
             )
         return RuntimeProviderConfig(
             provider_id=provider.id,
@@ -70,7 +70,7 @@ class DatabaseProviderResolver:
             adapter_backend=provider.adapter_backend,
             status=provider.status,
             base_url=provider.base_url,
-            credential_ref=provider.credential_ref,
+            credential_secret_id=provider.credential_secret_id,
             timeout=float(timeout_ms) / 1000 if timeout_ms is not None else 60.0,
             max_retries=int(retry_policy.get("max_retries", 3)),
             retry_backoff=str(retry_policy.get("backoff", "exponential")),

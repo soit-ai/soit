@@ -21,14 +21,8 @@ class StubSecretsPort(SecretsPort):
         self.value = value
         self.get_secret_mock = AsyncMock(return_value=value)
 
-    async def get_secret(self, secret_ref: str, **kwargs):
-        return await self.get_secret_mock(secret_ref=secret_ref, **kwargs)
-
-    async def set_secret(self, secret_ref: str, value: str, **kwargs):
-        raise NotImplementedError
-
-    async def delete_secret(self, secret_ref: str, **kwargs):
-        raise NotImplementedError
+    async def get_secret(self, secret_id: str, **kwargs):
+        return await self.get_secret_mock(secret_id=secret_id, **kwargs)
 
 
 class StubSessionFactory:
@@ -123,7 +117,7 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
     _seed_artifact(
         db,
         ctx,
-        auth_config={"type": "bearer", "secret_ref": "secret:mcp-token"},
+        auth_config={"type": "bearer", "secret_id": "sec_mcp_token"},
     )
 
     response = await MCPToolAdapter(session_factory=factory).invoke(
@@ -146,7 +140,7 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
             "timeout": 30.0,
         }
     ]
-    secrets.get_secret_mock.assert_awaited_once_with(secret_ref="secret:mcp-token")
+    secrets.get_secret_mock.assert_awaited_once_with(secret_id="sec_mcp_token")
 
 
 @pytest.mark.asyncio
@@ -191,5 +185,5 @@ async def test_plaintext_mcp_credentials_are_rejected(db, ctx):
     )
 
     assert response.success is False
-    assert "secret_ref" in response.error
+    assert "secret_id" in response.error
     assert factory.calls == []

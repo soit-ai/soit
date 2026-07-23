@@ -10,6 +10,7 @@ from pathlib import Path
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_ROOT = SERVER_ROOT / "alembic" / "versions"
 BASELINE_PATH = VERSIONS_ROOT / "20260718140000_fresh_install_baseline.py"
+SCOPED_SECRET_PATH = VERSIONS_ROOT / "20260723160000_scoped_secret_ids.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -26,12 +27,21 @@ def _load_baseline():
 
 def test_fresh_install_has_one_root_revision() -> None:
     assert sorted(path.name for path in VERSIONS_ROOT.glob("*.py")) == [
-        BASELINE_PATH.name
+        BASELINE_PATH.name,
+        SCOPED_SECRET_PATH.name,
     ]
 
     module = _load_baseline()
     assert module.revision == "20260718140000"
     assert module.down_revision is None
+
+    spec = importlib.util.spec_from_file_location(
+        "scoped_secret_ids", SCOPED_SECRET_PATH
+    )
+    assert spec and spec.loader
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == module.revision
 
 
 def test_fresh_install_baseline_is_an_explicit_n1_schema_snapshot() -> None:

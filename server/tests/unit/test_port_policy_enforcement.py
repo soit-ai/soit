@@ -326,14 +326,14 @@ async def test_tool_secret_injection_isolation(request_ctx):
 
     await policy.invoke(
         tool_ref="tool:http:demo",
-        parameters={"input": {"secret_ref": "secret:demo"}},
+        parameters={"input": {"secret_id": "sec_demo"}},
         run_id="run_123",
     )
 
     # Verify secrets were requested for correct tenant
     mock_secrets.get_secret.assert_called()
     call_args = mock_secrets.get_secret.call_args
-    assert call_args.kwargs["secret_ref"] == "secret:demo"
+    assert call_args.kwargs["secret_id"] == "sec_demo"
 
 
 @pytest.mark.asyncio

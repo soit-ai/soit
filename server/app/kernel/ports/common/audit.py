@@ -25,13 +25,13 @@ def filter_sensitive_data(data: Any) -> Any:
         for key, value in data.items():
             # Check if key contains sensitive field name
             key_lower = key.lower()
-            if key_lower in {"secret_ref", "signing_policy_ref"}:
+            if key_lower in {"secret_id", "secret_ids", "signing_policy_ref"}:
                 filtered[key] = filter_sensitive_data(value)
                 continue
-            if isinstance(value, dict) and "secret_ref" in value:
+            if isinstance(value, dict) and "secret_id" in value:
                 filtered[key] = filter_sensitive_data(value)
                 continue
-            if isinstance(value, list) and any(isinstance(item, dict) and "secret_ref" in item for item in value):
+            if isinstance(value, list) and any(isinstance(item, dict) and "secret_id" in item for item in value):
                 filtered[key] = filter_sensitive_data(value)
                 continue
             sensitive_fields = {

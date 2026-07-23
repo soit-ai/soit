@@ -6,7 +6,7 @@ Unit tests for agent ref extraction.
 from app.kernel.projections.agent_projection import build_agent_refs
 
 
-def test_build_agent_refs_extracts_bindings_and_inline_secret_refs():
+def test_build_agent_refs_extracts_bindings_and_inline_secret_ids():
     spec = {
         "runtime": "agent_runtime_v1",
         "bindings": {
@@ -15,7 +15,7 @@ def test_build_agent_refs_extracts_bindings_and_inline_secret_refs():
             "tool_refs": ["tool:http:demo"],
         },
         "tools": {
-            "configs": {"auth": {"secret_ref": "secret:demo"}},
+            "configs": {"auth": {"secret_id": "sec_demo"}},
         },
     }
     refs = build_agent_refs(spec)
@@ -23,7 +23,7 @@ def test_build_agent_refs_extracts_bindings_and_inline_secret_refs():
     assert ("model", "model:openai:gpt-4", None) in types
     assert ("tool", "tool:http:demo", None) in types
     assert ("knowledge", "knowledge:kb_1", None) in types
-    assert ("secret", "secret:demo", None) in types
+    assert ("secret", None, "sec_demo") in types
 
 
 def test_build_agent_refs_ignores_legacy_binding_fields():

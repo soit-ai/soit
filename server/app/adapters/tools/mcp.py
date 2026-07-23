@@ -139,27 +139,27 @@ class MCPToolAdapter(ToolPort):
         if auth_type not in {"bearer", "api_key"}:
             raise ValueError(f"Unsupported MCP authentication type: {auth_type}")
         if "token" in auth_config or "value" in auth_config:
-            raise ValueError("MCP credentials must use secret_ref")
+            raise ValueError("MCP credentials must use secret_id")
 
         if auth_type == "bearer":
-            secret_ref = auth_config.get("secret_ref")
+            secret_id = auth_config.get("secret_id")
             header_name = "Authorization"
             prefix = "Bearer "
         else:
             api_key = auth_config.get("api_key") or {}
             if "value" in api_key:
-                raise ValueError("MCP credentials must use secret_ref")
+                raise ValueError("MCP credentials must use secret_id")
             if api_key.get("in", "header") != "header":
                 raise ValueError("MCP API keys are supported only in headers")
-            secret_ref = api_key.get("secret_ref")
+            secret_id = api_key.get("secret_id")
             header_name = str(api_key.get("name") or "X-API-Key")
             prefix = ""
 
-        if not secret_ref:
-            raise ValueError("MCP authentication requires secret_ref")
+        if not secret_id:
+            raise ValueError("MCP authentication requires secret_id")
         if secrets_port is None:
             raise ValueError("MCP authentication requires a secrets port")
-        secret = await secrets_port.get_secret(secret_ref=str(secret_ref))
+        secret = await secrets_port.get_secret(secret_id=str(secret_id))
         return {header_name: f"{prefix}{secret}"}
 
     async def invoke(

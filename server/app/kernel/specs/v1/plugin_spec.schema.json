@@ -190,7 +190,7 @@
             "null"
           ],
           "items": {
-            "$ref": "refs.schema.json#/$defs/SecretRef"
+            "$ref": "refs.schema.json#/$defs/SecretId"
           }
         }
       }
@@ -404,7 +404,7 @@
           "api.zendesk.com"
         ],
         "secrets": [
-          "secret:zendesk_token"
+          "sec_zendesk_token"
         ]
       },
       "integrity": {

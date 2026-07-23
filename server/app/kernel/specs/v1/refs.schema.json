@@ -40,10 +40,10 @@
       "pattern": "^skill:[A-Za-z0-9_.:-]+$",
       "description": "Skill reference. Format: skill:{skill_id_or_key}"
     },
-    "SecretRef": {
+    "SecretId": {
       "type": "string",
-      "pattern": "^secret:[A-Za-z0-9_.:-]+$",
-      "description": "Secret reference. Format: secret:{secret_name_or_id}"
+      "pattern": "^sec_[A-Za-z0-9][A-Za-z0-9_-]{2,124}$",
+      "description": "Opaque workspace-scoped secret identifier."
     },
     "EndpointRef": {
       "type": "string",

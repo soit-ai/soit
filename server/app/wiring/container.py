@@ -11,7 +11,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.events import EventBus
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.plugins.interface import PluginRuntimePort
-from app.kernel.ports.secrets.interface import SecretsPort
+from app.kernel.ports.secrets.interface import SecretsPort, SecretValueStore
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.ports.vector.interface import VectorPort
@@ -122,7 +122,7 @@ class Container:
 
         # Secrets Gateway factory
         self.register_factory(
-            "secrets_port",
+            "secret_value_store",
             lambda: self._create_secrets_port(),
         )
 
@@ -264,7 +264,10 @@ class Container:
             ctx=ctx,
             trace_writer=trace_writer,
             storage_port=base_storage,
-            secrets_port=self.get_secrets_port(ctx),
+            secrets_port=self.get_secrets_port(
+                ctx,
+                db=trace_writer.db if trace_writer is not None else None,
+            ),
             rate_limit_per_minute=ctx.tool_rate_limit_per_minute,
             daily_quota=ctx.tool_daily_quota,
         )
@@ -322,6 +325,8 @@ class Container:
     def get_secrets_port(
         self,
         ctx: RequestContext,
+        *,
+        db=None,
     ) -> SecretsPort:
         """Get Secrets gateway instance with policy enforcement.
 
@@ -332,12 +337,21 @@ class Container:
             SecretsPort instance wrapped with policy gateway.
         """
         from app.kernel.ports.secrets.policy import SecretsPolicyGateway
+        from app.modules.secrets.infra.scoped_port import ScopedSecretsPort
 
-        base_gateway = self.get("secrets_port")
+        base_gateway = ScopedSecretsPort(
+            ctx=ctx,
+            value_store=self.get_secret_value_store(),
+            db=db,
+        )
         return SecretsPolicyGateway(
             gateway=base_gateway,
             ctx=ctx,
         )
+
+    def get_secret_value_store(self) -> SecretValueStore:
+        """Get the trusted low-level secret value store."""
+        return self.get("secret_value_store")
 
     def get_plugin_runtime_port(
         self,
@@ -468,36 +482,36 @@ class Container:
 
         return GovernedHttpFetchPort()
 
-    def _create_secrets_port(self) -> SecretsPort:
-        """Create Secrets gateway instance.
+    def _create_secrets_port(self) -> SecretValueStore:
+        """Create the trusted secret value store.
 
         Returns:
-            SecretsPort instance.
+            SecretValueStore instance.
         """
         if self._is_explicit_test_runtime():
-            from app.adapters.secrets.memory import InMemorySecretsPort
-            return InMemorySecretsPort()
+            from app.adapters.secrets.memory import InMemorySecretValueStore
+            return InMemorySecretValueStore()
         if not settings.vault_url or not settings.vault_token:
             if self._allows_in_memory_adapters():
-                from app.adapters.secrets.memory import InMemorySecretsPort
+                from app.adapters.secrets.memory import InMemorySecretValueStore
 
-                return InMemorySecretsPort()
+                return InMemorySecretValueStore()
             raise RuntimeError(
                 "Production requires Vault URL and token for the secrets adapter"
             )
         try:
-            from app.adapters.secrets.vault import VaultSecretsPort
+            from app.adapters.secrets.vault import VaultSecretValueStore
         except ModuleNotFoundError as exc:
             if self._allows_in_memory_adapters():
                 logger = logging.getLogger(__name__)
                 logger.warning(
                     "Vault client is unavailable; using the development in-memory adapter"
                 )
-                from app.adapters.secrets.memory import InMemorySecretsPort
+                from app.adapters.secrets.memory import InMemorySecretValueStore
 
-                return InMemorySecretsPort()
+                return InMemorySecretValueStore()
             raise RuntimeError("Production Vault client is not installed") from exc
-        return VaultSecretsPort()
+        return VaultSecretValueStore()
 
     def _create_plugin_runtime_port(self) -> PluginRuntimePort:
         """Create Plugin runtime port instance."""

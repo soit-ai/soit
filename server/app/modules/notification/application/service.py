@@ -20,7 +20,6 @@ from app.kernel.contracts.notification import (
 from app.kernel.events.envelope import DomainEventEnvelope
 from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.publisher import OutboxPublisher
-from app.kernel.ports.secrets.interface import SecretsPort
 from app.modules.notification.application.schemas import (
     NotificationCreate,
     NotificationEndpointCreate,
@@ -35,6 +34,8 @@ from app.modules.notification.domain.models import (
     NotificationPreference,
 )
 from app.modules.notification.infra.repository import NotificationRepository
+from app.modules.secrets.application.schemas import SecretCreate, SecretUpdate
+from app.modules.secrets.application.service import SecretsService
 
 
 class NotificationService:
@@ -59,12 +60,12 @@ class NotificationService:
         db: Session,
         ctx: RequestContext,
         repo: NotificationRepository,
-        secrets_port: SecretsPort | None = None,
+        secrets_service: SecretsService | None = None,
     ):
         self.db = db
         self.ctx = ctx
         self.repo = repo
-        self.secrets_port = secrets_port
+        self.secrets_service = secrets_service
 
     def create_notification(self, data: NotificationCreate) -> Notification:
         target_user_id = data.user_id or self.ctx.user_id
@@ -150,13 +151,18 @@ class NotificationService:
         return preference
 
     async def create_endpoint(self, data: NotificationEndpointCreate) -> NotificationEndpoint:
-        if self.secrets_port is None:
+        if self.secrets_service is None:
             raise ValidationError("Notification secrets port is unavailable")
         self._validate_apprise_url(data.url)
         now = utc_now()
         endpoint_id = f"nep_{generate_ulid()}"
-        secret_ref = f"secret:notification_endpoint_{endpoint_id}"
-        await self.secrets_port.set_secret(secret_ref=secret_ref, value=data.url)
+        secret = await self.secrets_service.create_secret(
+            SecretCreate(
+                name=f"notification-endpoint-{endpoint_id}",
+                description="Managed notification endpoint credential",
+                value=data.url,
+            )
+        )
         endpoint = NotificationEndpoint(
             id=endpoint_id,
             tenant_id=self.ctx.tenant_id,
@@ -164,7 +170,7 @@ class NotificationService:
             user_id=self.ctx.user_id,
             name=data.name,
             kind=data.kind,
-            secret_ref=secret_ref,
+            secret_id=secret.id,
             display_target=self._mask_target(data.url),
             status="active",
             created_at=now,
@@ -185,10 +191,13 @@ class NotificationService:
         if endpoint is None:
             raise NotFoundError("Notification endpoint not found")
         if data.url is not None:
-            if self.secrets_port is None:
+            if self.secrets_service is None:
                 raise ValidationError("Notification secrets port is unavailable")
             self._validate_apprise_url(data.url)
-            await self.secrets_port.set_secret(secret_ref=endpoint.secret_ref, value=data.url)
+            await self.secrets_service.update_secret(
+                endpoint.secret_id,
+                SecretUpdate(value=data.url),
+            )
             endpoint.display_target = self._mask_target(data.url)
         if data.name is not None:
             endpoint.name = data.name
@@ -206,8 +215,9 @@ class NotificationService:
         endpoint = self.repo.get_endpoint(endpoint_id)
         if endpoint is None:
             raise NotFoundError("Notification endpoint not found")
-        if self.secrets_port is not None:
-            await self.secrets_port.delete_secret(secret_ref=endpoint.secret_ref)
+        if self.secrets_service is None:
+            raise ValidationError("Notification secrets port is unavailable")
+        await self.secrets_service.delete_secret(endpoint.secret_id)
         self.db.delete(endpoint)
         self.db.commit()
 

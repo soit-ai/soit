@@ -19,7 +19,7 @@ from app.modules.modelhub.infra.repository import (
 
 
 class _Secrets:
-    async def get_secret(self, *, secret_ref: str) -> str:
+    async def get_secret(self, *, secret_id: str) -> str:
         return "test-key"
 
 
@@ -54,7 +54,7 @@ def _seed_removed_platform_model(db, ctx: RequestContext, *, recreate_deleted: b
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
         sync_policy_json={"recreate_deleted": recreate_deleted},
     )
@@ -120,7 +120,7 @@ async def test_sync_adds_new_platform_model_and_records_diff(db, ctx):
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI Add",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
         sync_policy_json={"default_enabled": True},
     )
@@ -164,7 +164,7 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
         workspace_id=ctx.workspace_id,
         kind="anthropic",
         name="Claude",
-        credential_ref="secret:anthropic",
+        credential_secret_id="sec_anthropic",
         status="active",
         sync_policy_json={"default_enabled": True},
     )
@@ -265,7 +265,7 @@ async def test_sync_updates_existing_platform_model_and_records_diff(db, ctx):
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI Update",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     platform = PlatformModel(
@@ -329,7 +329,7 @@ async def test_sync_marks_provider_model_platform_removed_when_catalog_omits_mod
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI Platform Removed",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     platform = PlatformModel(
@@ -374,7 +374,7 @@ async def test_sync_include_model_ids_limits_provider_model_changes(db, ctx):
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI Include",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     db.add(provider)
@@ -412,7 +412,7 @@ async def test_sync_failure_records_failed_job_without_mutating_existing_models(
         workspace_id=ctx.workspace_id,
         kind="openai",
         name="OpenAI Failure",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     model = ProviderModel(

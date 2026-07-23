@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 from sqlalchemy import and_, select
 
-from app.adapters.secrets.memory import InMemorySecretsPort
 from app.adapters.tools.router import RegistryToolRouterPort
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
@@ -19,6 +18,7 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
     ToolCall,
 )
+from app.kernel.ports.secrets.interface import SecretLocator, SecretsPort
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.responses.repository import ResponseEventRepository
@@ -43,10 +43,11 @@ from app.modules.modelhub.infra.repository import (
     ProviderRepository,
     SyncJobRepository,
 )
+from app.modules.secrets.domain.models import Secret
 from app.modules.workflow.application.schemas import WorkflowVersionCreate
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import WorkflowRun
-from app.wiring.container import reset_container
+from app.wiring.container import get_container, reset_container
 from app.wiring.services import build_knowledge_runtime_service
 from scripts.evaluate_support_ticket_regression import (
     register_preapproved_evaluation_tool,
@@ -82,6 +83,13 @@ class StubMemoryService:
         return [SimpleNamespace(memory=SimpleNamespace(content_summary="enterprise mvp", content={}), score=0.1)]
 
 
+class EmptySecretsPort(SecretsPort):
+    """Runtime resolver stub for a provider that has no credential binding."""
+
+    async def get_secret(self, secret_id: str, **kwargs: Any) -> str:
+        raise AssertionError(f"Unexpected secret resolution: {secret_id}")
+
+
 def _unwrap(row: Any) -> Any:
     if row is None:
         return None
@@ -109,7 +117,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             platform_model_repo=PlatformModelRepository(db, tenant1_ctx),
             provider_model_repo=ProviderModelRepository(db, tenant1_ctx),
             sync_job_repo=SyncJobRepository(db, tenant1_ctx),
-            secrets_port=InMemorySecretsPort(),
+            secrets_port=EmptySecretsPort(),
             catalog_adapter=ProviderCatalogAdapter(),
         )
         provider = await modelhub_service.create_provider(
@@ -195,6 +203,22 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
         workflow = await workflow_service.publish_version(workflow.id, configured_version.id)
         workflow_ref = f"wf:{workflow.id}"
 
+        ticket_secret = Secret(
+            id="sec_enterprise_mvp_ticket",
+            tenant_id=tenant1_ctx.tenant_id,
+            workspace_id=tenant1_ctx.workspace_id,
+            name="Enterprise MVP ticket credential",
+            secret_ref="secret:sec_enterprise_mvp_ticket",
+            created_by=tenant1_ctx.user_id,
+            updated_by=tenant1_ctx.user_id,
+        )
+        db.add(ticket_secret)
+        db.commit()
+        await get_container().get_secret_value_store().set_secret_value(
+            locator=SecretLocator(ticket_secret.secret_ref),
+            value="enterprise-mvp-token",
+        )
+
         agent_llm = QueueLLMPort(
             [
                 ChatResponse(
@@ -211,6 +235,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                                 "customer_message": "Customer requests a refund escalation.",
                                 "customer_id": "customer-123",
                                 "priority": "high",
+                                "ticket_secret_id": ticket_secret.id,
                             },
                         )
                     ],

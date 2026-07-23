@@ -10,25 +10,25 @@ from app.kernel.ports.llm.runtime_config import (
 
 
 @pytest.mark.parametrize(
-    ("kind", "runtime", "connection", "auth", "credential_ref", "expected_provider"),
+    ("kind", "runtime", "connection", "auth", "credential_secret_id", "expected_provider"),
     [
-        ("azure_openai", {}, {"api_version": "2026-01-01"}, {}, "secret:azure", "azure"),
+        ("azure_openai", {}, {"api_version": "2026-01-01"}, {}, "sec_azure", "azure"),
         (
             "bedrock",
             {"litellm_params": {"aws_region_name": "us-east-1"}},
             {},
             {
                 "secret_bindings": {
-                    "aws_access_key_id": "secret:aws-access-key",
-                    "aws_secret_access_key": "secret:aws-secret-key",
+                    "aws_access_key_id": "sec_aws_access_key",
+                    "aws_secret_access_key": "sec_aws_secret_key",
                 }
             },
             None,
             "bedrock",
         ),
-        ("openrouter", {}, {}, {}, "secret:openrouter", "openrouter"),
+        ("openrouter", {}, {}, {}, "sec_openrouter", "openrouter"),
         ("ollama", {}, {}, {}, None, "ollama_chat"),
-        ("dashscope", {}, {}, {}, "secret:dashscope", "dashscope"),
+        ("dashscope", {}, {}, {}, "sec_dashscope", "dashscope"),
     ],
 )
 def test_litellm_provider_presets(
@@ -36,7 +36,7 @@ def test_litellm_provider_presets(
     runtime,
     connection,
     auth,
-    credential_ref,
+    credential_secret_id,
     expected_provider,
 ):
     config = resolve_litellm_runtime_config(
@@ -44,12 +44,12 @@ def test_litellm_provider_presets(
         runtime_config=runtime,
         connection_config=connection,
         auth_config=auth,
-        credential_ref=credential_ref,
+        credential_secret_id=credential_secret_id,
     )
 
     assert config.provider == expected_provider
-    if credential_ref:
-        assert config.secret_bindings["api_key"] == credential_ref
+    if credential_secret_id:
+        assert config.secret_bindings["api_key"] == credential_secret_id
     if kind == "azure_openai":
         assert config.params["api_version"] == "2026-01-01"
 
@@ -62,13 +62,13 @@ def test_litellm_generic_provider_prefix_and_params_are_validated():
             "litellm_params": {"organization": "org-1"},
         },
         connection_config={},
-        auth_config={"secret_bindings": {"api_key": "secret:gateway"}},
-        credential_ref=None,
+        auth_config={"secret_bindings": {"api_key": "sec_gateway"}},
+        credential_secret_id=None,
     )
 
     assert config.provider == "custom-provider"
     assert config.params == {"organization": "org-1"}
-    assert config.secret_bindings == {"api_key": "secret:gateway"}
+    assert config.secret_bindings == {"api_key": "sec_gateway"}
 
     with pytest.raises(ValidationError, match="reserved LiteLLM parameter"):
         resolve_litellm_runtime_config(
@@ -79,7 +79,22 @@ def test_litellm_generic_provider_prefix_and_params_are_validated():
             },
             connection_config={},
             auth_config={},
-            credential_ref=None,
+            credential_secret_id=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy_value",
+    ["secret:gateway", "kv/team/provider", "sec_gateway:value"],
+)
+def test_litellm_runtime_config_rejects_non_opaque_secret_ids(legacy_value):
+    with pytest.raises(ValidationError, match="opaque secret_id"):
+        resolve_litellm_runtime_config(
+            provider_kind="openai",
+            runtime_config={},
+            connection_config={},
+            auth_config={"secret_bindings": {"api_key": legacy_value}},
+            credential_secret_id=None,
         )
 
     with pytest.raises(ValidationError, match="Invalid LiteLLM provider prefix"):
@@ -88,7 +103,7 @@ def test_litellm_generic_provider_prefix_and_params_are_validated():
             runtime_config={"litellm_provider": "Invalid Provider"},
             connection_config={},
             auth_config={},
-            credential_ref=None,
+            credential_secret_id=None,
         )
 
 

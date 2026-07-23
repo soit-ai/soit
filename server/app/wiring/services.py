@@ -243,7 +243,7 @@ def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubServi
     provider_model_repo = ProviderModelRepository(db, ctx)
     sync_job_repo = SyncJobRepository(db, ctx)
     container = get_container()
-    secrets_port = container.get_secrets_port(ctx)
+    secrets_port = container.get_secrets_port(ctx, db=db)
     provider_resolver = container.get("llm_provider_resolver")
     catalog_adapter = ProviderCatalogAdapter()
 
@@ -259,7 +259,7 @@ def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubServi
             runtime_config=provider.runtime_config_json,
             connection_config=connection,
             auth_config=provider.auth_config_json,
-            credential_ref=provider.credential_ref,
+            credential_secret_id=provider.credential_secret_id,
         )
         extra_credentials = {
             key: value for key, value in credentials.items() if key != "api_key"
@@ -414,7 +414,7 @@ def build_notification_service(*, db: Session, ctx: RequestContext) -> Notificat
         db=db,
         ctx=ctx,
         repo=notification_repo,
-        secrets_port=get_container().get_secrets_port(ctx),
+        secrets_service=build_secrets_service(db=db, ctx=ctx),
     )
 
 
@@ -438,8 +438,8 @@ def build_secrets_service(*, db: Session, ctx: RequestContext) -> SecretsService
     """SecretsService factory."""
     secret_repo = SecretRepository(db, ctx)
     container = get_container()
-    secrets_port = container.get_secrets_port(ctx)
-    return SecretsService(ctx=ctx, repo=secret_repo, secrets_port=secrets_port)
+    value_store = container.get_secret_value_store()
+    return SecretsService(ctx=ctx, repo=secret_repo, value_store=value_store)
 
 
 def build_response_service(*, db: Session, ctx: RequestContext) -> ResponseService:

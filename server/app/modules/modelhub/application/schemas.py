@@ -19,7 +19,7 @@ class ProviderCreate(BaseModel):
     slug: str | None = None
     name: str
     base_url: str | None = None
-    credential_ref: str | None = None
+    credential_secret_id: str | None = None
     status: str = "active"
     sync_policy_json: dict[str, Any] | None = None
     connection_config_json: dict[str, Any] | None = None
@@ -36,7 +36,7 @@ class ProviderUpdate(BaseModel):
     slug: str | None = None
     name: str | None = None
     base_url: str | None = None
-    credential_ref: str | None = None
+    credential_secret_id: str | None = None
     status: str | None = None
     sync_policy_json: dict[str, Any] | None = None
     connection_config_json: dict[str, Any] | None = None
@@ -54,7 +54,7 @@ class ProviderResponse(BaseModel):
     slug: str | None = None
     name: str
     base_url: str | None = None
-    credential_ref: str | None = None
+    credential_secret_id: str | None = None
     status: str
     sync_policy_json: dict[str, Any] | None = None
     connection_config_json: dict[str, Any] | None = None

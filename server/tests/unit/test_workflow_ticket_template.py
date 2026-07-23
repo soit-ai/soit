@@ -28,10 +28,16 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
         assert edge["to"] in node_id_set
 
     properties = spec["inputs_schema"]["properties"]
-    assert set(spec["inputs_schema"]["required"]) == {"customer_message", "customer_id", "priority"}
+    assert set(spec["inputs_schema"]["required"]) == {
+        "customer_message",
+        "customer_id",
+        "priority",
+        "ticket_secret_id",
+    }
     assert properties["customer_message"]["type"] == "string"
     assert properties["customer_id"]["type"] == "string"
     assert properties["priority"]["type"] == "string"
+    assert properties["ticket_secret_id"]["pattern"].startswith("^sec_")
     assert "knowledge_collection" not in properties
     assert "embedding_model" not in properties
     assert "model_ref" not in properties
@@ -53,7 +59,7 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
         "priority": "{{ steps.start.output.priority }}",
         "message": "{{ steps.start.output.customer_message }}",
         "classification": "{{ steps.classify.output.text }}",
-        "api_token": {"secret_ref": "secret:ticket_api_key"},
+        "api_token": {"secret_id": "{{ inputs.ticket_secret_id }}"},
     }
     assert set(ticket_node["params"]) == {"tool_ref", "arguments"}
 

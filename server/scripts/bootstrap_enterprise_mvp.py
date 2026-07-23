@@ -41,12 +41,14 @@ from app.modules.knowledge.domain.models import (
     KnowledgeIngestTask,
 )
 from app.modules.modelhub.domain.models import Provider, ProviderModel
+from app.modules.secrets.application.schemas import SecretCreate, SecretUpdate
+from app.modules.secrets.infra.repository import SecretRepository
 from app.modules.workflow.application.schemas import WorkflowVersionCreate
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import Workflow, WorkflowVersion
 from app.modules.workflow.templates.ticket_triage import build_ticket_triage_template
 from app.wiring.container import reset_container
-from app.wiring.services import build_identity_service
+from app.wiring.services import build_identity_service, build_secrets_service
 
 DEMO_AGENT_NAME = "enterprise-mvp-agent"
 DEMO_WORKFLOW_NAME = "Enterprise ticket triage"
@@ -81,6 +83,7 @@ class BootstrapResult:
     document_id: str
     workflow_id: str
     workflow_version_id: str
+    ticket_secret_id: str
     ticket_tool_ref: str
     agent_id: str
     agent_version_id: str
@@ -517,6 +520,7 @@ async def _ensure_workflow(
     ctx: RequestContext,
     knowledge: Knowledge,
     workflow_model_ref: str,
+    ticket_secret_id: str,
 ) -> Workflow:
     service = WorkflowService(db=db, ctx=ctx)
     spec_json = build_ticket_triage_template()
@@ -526,6 +530,10 @@ async def _ensure_workflow(
             node["params"]["knowledge_ref"] = f"knowledge:{knowledge.id}"
         elif node["type"] == "llm":
             node["params"]["model"] = workflow_model_ref
+        elif node["type"] == "tool":
+            node["params"]["arguments"]["api_token"]["secret_id"] = ticket_secret_id
+    spec_json["inputs_schema"]["required"].remove("ticket_secret_id")
+    spec_json["inputs_schema"]["properties"].pop("ticket_secret_id")
     workflow = _one(
         db,
         select(Workflow).where(
@@ -583,6 +591,27 @@ async def _ensure_workflow(
     if workflow.current_version_id and workflow.published_version_id != workflow.current_version_id:
         workflow = await service.publish_version(workflow.id, workflow.current_version_id)
     return workflow
+
+
+async def _ensure_ticket_secret(db, ctx: RequestContext) -> str:
+    """Create or rotate the managed credential used by the demo workflow."""
+    repo = SecretRepository(db, ctx)
+    service = build_secrets_service(db=db, ctx=ctx)
+    secret = repo.get_by_name("Enterprise MVP ticket credential")
+    if secret is None:
+        secret = await service.create_secret(
+            SecretCreate(
+                name="Enterprise MVP ticket credential",
+                description="Managed credential for the deterministic ticket demo.",
+                value="enterprise-mvp-demo-token",
+            )
+        )
+    else:
+        secret = await service.update_secret(
+            secret.id,
+            SecretUpdate(value="enterprise-mvp-demo-token"),
+        )
+    return secret.id
 
 
 async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow: Workflow) -> Agent:
@@ -647,6 +676,7 @@ async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapRes
     ctx = _ensure_context(db, args)
     provider, model_refs = _ensure_provider_models(db, ctx)
     knowledge, document = _ensure_knowledge(db, ctx)
+    ticket_secret_id = await _ensure_ticket_secret(db, ctx)
     workflow_model_ref = next(
         model_ref
         for model_ref in model_refs
@@ -657,6 +687,7 @@ async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapRes
         ctx,
         knowledge,
         workflow_model_ref,
+        ticket_secret_id,
     )
     agent = await _ensure_agent(db, ctx, knowledge, workflow)
     return BootstrapResult(
@@ -669,6 +700,7 @@ async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapRes
         document_id=document.id,
         workflow_id=workflow.id,
         workflow_version_id=workflow.published_version_id or workflow.current_version_id or "",
+        ticket_secret_id=ticket_secret_id,
         ticket_tool_ref=DEMO_TICKET_TOOL_REF,
         agent_id=agent.id,
         agent_version_id=agent.published_version_id or agent.current_version_id or "",

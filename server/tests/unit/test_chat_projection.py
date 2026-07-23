@@ -10,7 +10,7 @@ def test_build_chat_refs_extracts_supported_refs_only():
         "rag": {"knowledge_refs": ["knowledge:kb_1"]},
         "tools": {
             "configs": {
-                "auth": {"secret_ref": "secret:demo"},
+                "auth": {"secret_id": "sec_demo"},
                 "legacy": {"app_ref": "app:legacy-entry"},
             }
         },
@@ -22,7 +22,7 @@ def test_build_chat_refs_extracts_supported_refs_only():
     assert ("model", "model:openai:gpt-4") in ref_types
     assert ("tool", "tool:http:demo") in ref_types
     assert ("knowledge", "knowledge:kb_1") in ref_types
-    assert ("secret", "secret:demo") in ref_types
+    assert ("secret", "sec_demo") in ref_types
     assert all(ref_type != "app" for ref_type, _ in ref_types)
 
 

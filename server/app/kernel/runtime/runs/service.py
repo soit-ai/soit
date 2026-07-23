@@ -385,19 +385,33 @@ class RunService:
             for metrics in step_metrics
             for value in self._payload_values_for_keys(metrics, {"permission_scope", "rbac", "resource_grant", "policy_decision"})
         ]
-        secret_refs = [
+        secret_ids = [
             value
             for payload in [*step_metrics, *audit_payloads]
-            for value in self._flatten_strings(payload)
-            if value.startswith("secret:")
+            for matched in self._payload_values_for_keys(
+                    payload,
+                    {"secret_id", "secret_ids", "credential_secret_id"},
+                )
+            for value in self._flatten_strings(matched)
+            if value.startswith("sec_")
         ]
         has_secret_key = any(
-            self._payload_has_key(payload, {"secret_ref", "secret_refs", "credential_ref"})
+            self._payload_has_key(
+                payload,
+                {
+                    "secret_id",
+                    "secret_ids",
+                    "credential_secret_id",
+                    "secret_ref",
+                    "secret_refs",
+                    "credential_ref",
+                },
+            )
             for payload in [*step_metrics, *audit_payloads]
         )
         leaked_secret = any(
             ("sk-" in value or "Bearer " in value)
-            and not value.startswith("secret:")
+            and not value.startswith("sec_")
             for payload in audit_payloads
             for value in self._flatten_strings(payload)
         )
@@ -430,7 +444,7 @@ class RunService:
             versioned_subject_applicable or tool_calls
         )
         secret_boundary_applicable = bool(
-            tool_governance_applicable or secret_refs or has_secret_key or leaked_secret
+            tool_governance_applicable or secret_ids or has_secret_key or leaked_secret
         )
         egress_policy_applicable = bool(
             tool_governance_applicable or has_egress_evidence
@@ -549,7 +563,7 @@ class RunService:
                     else "fail"
                     if leaked_secret
                     else "pass"
-                    if secret_refs or has_secret_key
+                    if secret_ids or has_secret_key
                     else "warning"
                 ),
                 label="Secret boundary",
@@ -557,18 +571,18 @@ class RunService:
                     "This run has no governed tool secret surface."
                     if not secret_boundary_applicable
                     else "Secret references are present and audit payloads do not expose obvious plaintext secrets."
-                    if secret_refs or has_secret_key
+                    if secret_ids or has_secret_key
                     else "No secret reference evidence was recorded for this run."
                 ),
-                evidence_refs=secret_refs,
+                evidence_refs=secret_ids,
                 missing=(
                     []
                     if not secret_boundary_applicable
                     else ["redaction"]
                     if leaked_secret
                     else []
-                    if secret_refs or has_secret_key
-                    else ["secret_ref"]
+                    if secret_ids or has_secret_key
+                    else ["secret_id"]
                 ),
             ),
             self._evidence(

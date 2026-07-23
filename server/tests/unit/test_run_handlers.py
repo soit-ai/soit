@@ -479,7 +479,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
                 "agent_version_id": "agent_version_governed",
                 "tool_refs": ["builtin.ticket.create_review_ticket"],
             },
-            "secret_refs": ["secret:ticket_api_key"],
+            "secret_ids": ["sec_ticket_api_key"],
             "egress": {
                 "decision": "allow",
                 "url": "https://tickets.example.com/reviews",
@@ -502,7 +502,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
         gateway_type="tool",
         request_data={
             "tool_ref": "builtin.ticket.create_review_ticket",
-            "secret_refs": ["secret:ticket_api_key"],
+            "secret_ids": ["sec_ticket_api_key"],
             "egress": {"decision": "allow"},
         },
         response_data={"success": True},
@@ -580,7 +580,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
     assert evidence["child_workflow"]["status"] == "pass"
     assert evidence["replay_ready"]["status"] == "pass"
     assert step.id in evidence["tool_call"]["evidence_refs"]
-    assert "secret:ticket_api_key" in evidence["secret_boundary"]["evidence_refs"]
+    assert "sec_ticket_api_key" in evidence["secret_boundary"]["evidence_refs"]
 
 
 @pytest.mark.asyncio

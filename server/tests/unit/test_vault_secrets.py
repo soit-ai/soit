@@ -10,7 +10,8 @@ import pytest
 
 pytest.importorskip("hvac")
 
-from app.adapters.secrets.vault import VaultSecretsPort
+from app.adapters.secrets.vault import VaultSecretValueStore
+from app.kernel.ports.secrets.interface import SecretLocator
 from app.settings.settings import settings
 
 
@@ -21,7 +22,7 @@ def test_vault_adapter_imports():
     settings.vault_url = None
     settings.vault_token = None
     try:
-        adapter = VaultSecretsPort(url=None, token=None)
+        adapter = VaultSecretValueStore(url=None, token=None)
         assert adapter.client is None
     finally:
         settings.vault_url = original_url
@@ -44,14 +45,15 @@ async def test_vault_sdk_operations_run_outside_event_loop_thread():
         def delete_metadata_and_all_versions(self, *, path):
             call_threads.append(threading.get_ident())
 
-    adapter = VaultSecretsPort(url=None, token=None)
+    adapter = VaultSecretValueStore(url=None, token=None)
     adapter.client = SimpleNamespace(
         secrets=SimpleNamespace(kv=SimpleNamespace(v2=_KVV2()))
     )
 
-    assert await adapter.get_secret("secret:provider-key") == "secret-value"
-    await adapter.set_secret("secret:provider-key", "new-value")
-    await adapter.delete_secret("secret:provider-key")
+    locator = SecretLocator("secret:provider-key")
+    assert await adapter.get_secret_value(locator) == "secret-value"
+    await adapter.set_secret_value(locator, "new-value")
+    await adapter.delete_secret_value(locator)
 
     assert len(call_threads) == 3
     assert all(thread_id != main_thread for thread_id in call_threads)

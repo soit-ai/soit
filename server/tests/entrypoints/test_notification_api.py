@@ -4,6 +4,10 @@ Integration tests for Notification API endpoints.
 """
 
 from fastapi import status
+from sqlmodel import select
+
+from app.modules.notification.domain.models import NotificationEndpoint
+from app.modules.secrets.domain.models import Secret
 
 HEADERS = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
@@ -96,7 +100,7 @@ class TestNotificationAPI:
         assert bulk_data["success"] is True
         assert bulk_data["data"]["updated"] >= 1
 
-    def test_preferences_endpoints_and_delivery_queue(self, client):
+    def test_preferences_endpoints_and_delivery_queue(self, client, db):
         default_response = client.get("/api/v1/notifications/preferences", headers=HEADERS)
         assert default_response.status_code == status.HTTP_200_OK
         assert default_response.json()["data"]["delivery_mode"] == "in_app"
@@ -116,6 +120,15 @@ class TestNotificationAPI:
         assert endpoint["kind"] == "email"
         assert "password" not in endpoint["display_target"]
         assert "secret_ref" not in endpoint
+        assert "secret_id" not in endpoint
+        endpoint_row = db.exec(
+            select(NotificationEndpoint).where(NotificationEndpoint.id == endpoint["id"])
+        ).one()
+        secret_row = db.exec(
+            select(Secret).where(Secret.id == endpoint_row.secret_id)
+        ).one()
+        assert secret_row.tenant_id == endpoint_row.tenant_id
+        assert secret_row.workspace_id == endpoint_row.workspace_id
 
         preference_response = client.put(
             "/api/v1/notifications/preferences",

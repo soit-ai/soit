@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Index, Text, UniqueConstraint
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint
 from sqlmodel import JSON, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -117,8 +117,11 @@ class Provider(SQLModel, table=True):
     base_url: str | None = Field(default=None, nullable=True)
     """Override base URL (required for OpenAI-compatible providers)."""
 
-    credential_ref: str | None = Field(default=None, nullable=True)
-    """Secret reference for credentials."""
+    credential_secret_id: str | None = Field(
+        default=None,
+        sa_column=Column("credential_ref", String, nullable=True),
+    )
+    """Opaque secret ID for credentials; the physical column remains compatible."""
 
     status: str = Field(default="active")
     """Provider status (active/disabled/error)."""

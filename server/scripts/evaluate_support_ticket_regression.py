@@ -28,7 +28,6 @@ from app.modules.agent.application.application_service import AgentApplicationSe
 from app.modules.agent.application.schemas import AgentRunRequest
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
 from app.modules.knowledge.runtime import tool_entrypoint as knowledge_tools
-from app.wiring.container import reset_container
 from app.wiring.services import build_knowledge_runtime_service, build_response_service
 from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
@@ -297,7 +296,6 @@ def register_preapproved_evaluation_tool(ctx: RequestContext) -> None:
 
 
 async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: SupportTicketGoldenCase) -> SupportTicketCaseReport:
-    reset_container()
     start = time.perf_counter()
     workflow_ref = f"wf:{bootstrap.workflow_id}"
     service = AgentApplicationService(

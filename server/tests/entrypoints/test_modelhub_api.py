@@ -34,7 +34,7 @@ def _headers() -> dict:
 
 
 class _TestSecrets:
-    async def get_secret(self, *, secret_ref: str) -> str:
+    async def get_secret(self, *, secret_id: str) -> str:
         return "test-key"
 
 
@@ -139,7 +139,7 @@ async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(db, ctx):
         kind="openai",
         adapter_backend="native",
         name="Runtime Route",
-        credential_ref="secret:runtime-route",
+        credential_secret_id="sec_runtime-route",
         status="active",
     )
     db.add(provider)
@@ -235,9 +235,9 @@ async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
         adapter_backend="litellm",
         name="Team LiteLLM",
         base_url="https://llm.example.com/v1",
-        credential_ref="secret:litellm",
+        credential_secret_id="sec_litellm",
         auth_config_json={
-            "secret_bindings": {"azure_ad_token": "secret:azure-token"}
+            "secret_bindings": {"azure_ad_token": "sec_azure-token"}
         },
         status="active",
     )
@@ -284,7 +284,7 @@ async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx)
         adapter_backend="litellm",
         name="Local Ollama",
         base_url="http://localhost:11434",
-        credential_ref=None,
+        credential_secret_id=None,
         status="active",
     )
     db.add(provider)
@@ -317,7 +317,7 @@ async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(db, ctx):
         adapter_backend="litellm",
         name="Retry LiteLLM",
         base_url="https://llm.example.com/v1",
-        credential_ref="secret:litellm",
+        credential_secret_id="sec_litellm",
         status="active",
         connection_config_json={
             "timeout_ms": 1000,
@@ -352,7 +352,7 @@ async def test_provider_mutations_invalidate_runtime_provider_cache(db, ctx):
             slug="cache-provider",
             kind="openai_compatible",
             name="Cache Provider",
-            credential_ref="secret:cache-provider",
+            credential_secret_id="sec_cache-provider",
         )
     )
     provider = await service.update_provider(
@@ -378,7 +378,7 @@ def test_create_provider_persists_slug_and_configuration_json(client):
         "kind": "deepseek",
         "name": "DeepSeek Main",
         "base_url": "https://api.deepseek.com/v1",
-        "credential_ref": "secret:deepseek",
+        "credential_secret_id": "sec_deepseek",
         "status": "active",
         "sync_policy_json": {
             "catalog_supported": True,
@@ -432,14 +432,14 @@ def test_create_litellm_preset_provider_validates_runtime_configuration(client):
             "kind": "azure_openai",
             "name": "Azure OpenAI Main",
             "base_url": "https://example.openai.azure.com",
-            "credential_ref": "secret:azure-api-key",
+            "credential_secret_id": "sec_azure-api-key",
             "connection_config_json": {"api_version": "2026-01-01"},
             "runtime_config_json": {
                 "litellm_provider": "azure",
                 "litellm_params": {"organization": "org-1"},
             },
             "auth_config_json": {
-                "secret_bindings": {"azure_ad_token": "secret:azure-ad-token"}
+                "secret_bindings": {"azure_ad_token": "sec_azure-ad-token"}
             },
         },
     )
@@ -483,7 +483,7 @@ def test_create_openai_compatible_provider_persists_all_configuration_groups(cli
         "kind": "openai_compatible",
         "name": "OpenAI Compatible Main",
         "base_url": "https://llm.example.com/v1",
-        "credential_ref": "secret:compat",
+        "credential_secret_id": "sec_compat",
         "status": "active",
         "sync_policy_json": {
             "catalog_supported": True,
@@ -523,7 +523,7 @@ def test_create_openai_compatible_provider_persists_all_configuration_groups(cli
 
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()["data"]
-    for key in ("slug", "kind", "name", "base_url", "credential_ref", "status"):
+    for key in ("slug", "kind", "name", "base_url", "credential_secret_id", "status"):
         assert data[key] == payload[key]
     for key in (
         "sync_policy_json",
@@ -540,7 +540,7 @@ def test_provider_slug_must_be_unique_within_workspace(client):
         "slug": "openai-main",
         "kind": "openai",
         "name": "OpenAI Main",
-        "credential_ref": "secret:openai",
+        "credential_secret_id": "sec_openai",
         "status": "active",
     }
 
@@ -572,7 +572,7 @@ def test_provider_slug_lookup_is_workspace_scoped(db):
         slug="openai-main",
         kind="openai",
         name="OpenAI Main",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     second_provider = Provider(
@@ -581,7 +581,7 @@ def test_provider_slug_lookup_is_workspace_scoped(db):
         slug="openai-main",
         kind="openai",
         name="OpenAI Other Workspace",
-        credential_ref="secret:openai-other",
+        credential_secret_id="sec_openai-other",
         status="active",
     )
     db.add(first_provider)
@@ -621,7 +621,7 @@ def test_update_provider_persists_configuration_json(client):
             "slug": "openai-main",
             "kind": "openai",
             "name": "OpenAI Main",
-            "credential_ref": "secret:openai",
+            "credential_secret_id": "sec_openai",
             "status": "active",
         },
     )
@@ -656,7 +656,7 @@ def test_update_provider_configuration_preserves_unsubmitted_groups(client):
             "slug": "openai-preserve-config",
             "kind": "openai",
             "name": "OpenAI Preserve Config",
-            "credential_ref": "secret:openai",
+            "credential_secret_id": "sec_openai",
             "status": "active",
             "sync_policy_json": {"auto_sync": True, "include_models": ["gpt-4o-mini"]},
             "connection_config_json": {"timeout_ms": 30000},
@@ -693,7 +693,7 @@ def test_delete_provider_removes_empty_provider_and_missing_provider_returns_err
             "slug": "delete-empty-provider",
             "kind": "openai",
             "name": "Delete Empty Provider",
-            "credential_ref": "secret:openai",
+            "credential_secret_id": "sec_openai",
             "status": "active",
         },
     )
@@ -714,7 +714,7 @@ def test_list_providers_returns_latest_model_sync_timestamp(client, db):
         slug="openai-sync-timestamp",
         kind="openai",
         name="OpenAI Sync Timestamp",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     older_model = ProviderModel(
@@ -762,7 +762,7 @@ def test_create_provider_model_persists_split_configuration_json(client):
             "slug": "openai-model-config",
             "kind": "openai",
             "name": "OpenAI Model Config",
-            "credential_ref": "secret:openai",
+            "credential_secret_id": "sec_openai",
             "status": "active",
         },
     )
@@ -866,7 +866,7 @@ def test_update_provider_model_persists_split_configuration_json_and_marks_overr
         slug="openai-model-json-update",
         kind="openai",
         name="OpenAI Model JSON Update",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     model = ProviderModel(
@@ -942,7 +942,7 @@ def test_update_provider_model_accepts_error_status(client, db):
         slug="openai-model-error-status",
         kind="openai",
         name="OpenAI Model Error Status",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     model = ProviderModel(
@@ -978,7 +978,7 @@ def test_provider_model_status_updates_are_visible_in_provider_model_list(client
         slug="openai-model-status-updates",
         kind="openai",
         name="OpenAI Model Status Updates",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     model = ProviderModel(
@@ -1025,7 +1025,7 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
         workspace_id="test-workspace",
         kind="openai",
         name="openai-main",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     anthropic_provider = Provider(
@@ -1033,7 +1033,7 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
         workspace_id="test-workspace",
         kind="anthropic",
         name="anthropic-catalog-only",
-        credential_ref="secret:anthropic",
+        credential_secret_id="sec_anthropic",
         status="active",
     )
     db.add(openai_provider)
@@ -1091,7 +1091,7 @@ def test_delete_platform_provider_model_marks_removed_and_hides_by_default(clien
         workspace_id="test-workspace",
         kind="openai",
         name="openai-main",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     model = ProviderModel(
@@ -1145,7 +1145,7 @@ def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ct
         slug="model-test-provider",
         kind="openai",
         name="Model Test Provider",
-        credential_ref="secret:openai",
+        credential_secret_id="sec_openai",
         status="active",
     )
     db.add(provider)
@@ -1216,7 +1216,7 @@ def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ct
         slug="claude-model-test-provider",
         kind="anthropic",
         name="Claude Model Test Provider",
-        credential_ref="secret:anthropic",
+        credential_secret_id="sec_anthropic",
         status="active",
     )
     db.add(anthropic_provider)

@@ -47,14 +47,8 @@ class DummySecretsPort(SecretsPort):
     def __init__(self, value: str):
         self.value = value
 
-    async def get_secret(self, secret_ref: str, **kwargs):
+    async def get_secret(self, secret_id: str, **kwargs):
         return self.value
-
-    async def set_secret(self, secret_ref: str, value: str, **kwargs):
-        raise RuntimeError("Not implemented")
-
-    async def delete_secret(self, secret_ref: str, **kwargs):
-        raise RuntimeError("Not implemented")
 
 
 @pytest.mark.asyncio
@@ -147,7 +141,7 @@ async def test_registered_http_tool_injects_api_key(test_context: RequestContext
                 "http": {"url": "https://example.com/secure", "method": "POST"},
                 "auth": {
                     "type": "api_key",
-                    "api_key": {"in": "header", "name": "X-Api-Key", "secret_ref": "secret:test"},
+                    "api_key": {"in": "header", "name": "X-Api-Key", "secret_id": "sec_test"},
                 },
             }
         },
@@ -291,7 +285,7 @@ async def test_registered_plugin_tool_injects_api_key_under_reserved_auth_key(
                 "output_schema": {"type": "object"},
                 "auth": {
                     "type": "api_key",
-                    "api_key": {"in": "header", "name": "X-Api-Key", "secret_ref": "secret:plugin-token"},
+                    "api_key": {"in": "header", "name": "X-Api-Key", "secret_id": "sec_plugin_token"},
                 },
             },
             "plugin": {"name": "demo-plugin", "version": "1.0.0"},

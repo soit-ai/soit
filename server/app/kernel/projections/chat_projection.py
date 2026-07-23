@@ -46,8 +46,14 @@ def _extract_inline_refs(value: Any, base_path: str) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         for key, val in value.items():
             path = f"{base_path}.{key}"
-            if key in {"tool_ref", "knowledge_ref", "model_ref", "plugin_ref", "secret_ref"}:
-                ref_type = "knowledge" if key == "knowledge_ref" else key.replace("_ref", "")
+            if key in {"tool_ref", "knowledge_ref", "model_ref", "plugin_ref", "secret_id"}:
+                ref_type = (
+                    "secret"
+                    if key == "secret_id"
+                    else "knowledge"
+                    if key == "knowledge_ref"
+                    else key.replace("_ref", "")
+                )
                 entry = _build_ref_entry(ref_type, val, path)
                 if entry:
                     refs.append(entry)

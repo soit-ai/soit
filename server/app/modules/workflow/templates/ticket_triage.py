@@ -9,11 +9,20 @@ def build_ticket_triage_template() -> dict[str, Any]:
         "description": "Classify a customer issue, prepare review, create a ticket, and return a response.",
         "inputs_schema": {
             "type": "object",
-            "required": ["customer_message", "customer_id", "priority"],
+            "required": [
+                "customer_message",
+                "customer_id",
+                "priority",
+                "ticket_secret_id",
+            ],
             "properties": {
                 "customer_message": {"type": "string"},
                 "customer_id": {"type": "string"},
                 "priority": {"type": "string"},
+                "ticket_secret_id": {
+                    "type": "string",
+                    "pattern": "^sec_[A-Za-z0-9][A-Za-z0-9_-]{2,124}$",
+                },
             },
         },
         "outputs_schema": {
@@ -86,7 +95,7 @@ def build_ticket_triage_template() -> dict[str, Any]:
                             "message": "{{ steps.start.output.customer_message }}",
                             "classification": "{{ steps.classify.output.text }}",
                             "api_token": {
-                                "secret_ref": "secret:ticket_api_key"
+                                "secret_id": "{{ inputs.ticket_secret_id }}"
                             },
                         },
                     },

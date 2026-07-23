@@ -111,21 +111,21 @@ class ToolPolicyGateway(ToolPort):
             return {}
         return dict(get_policy(tool_ref, ctx) or {})
 
-    def _contains_secret_ref(self, value: Any) -> bool:
+    def _contains_secret_id(self, value: Any) -> bool:
         if isinstance(value, dict):
-            if "secret_ref" in value:
+            if "secret_id" in value:
                 return True
-            return any(self._contains_secret_ref(item) for item in value.values())
+            return any(self._contains_secret_id(item) for item in value.values())
         if isinstance(value, list):
-            return any(self._contains_secret_ref(item) for item in value)
+            return any(self._contains_secret_id(item) for item in value)
         return False
 
     def _redacted_secret_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Build redacted payload for secret references."""
         redacted = {}
-        secret_ref = payload.get("secret_ref")
-        if secret_ref:
-            redacted["secret_ref"] = secret_ref
+        secret_id = payload.get("secret_id")
+        if secret_id:
+            redacted["secret_id"] = secret_id
         signing_policy_ref = payload.get("signing_policy_ref")
         if signing_policy_ref:
             redacted["signing_policy_ref"] = signing_policy_ref
@@ -133,13 +133,13 @@ class ToolPolicyGateway(ToolPort):
 
     async def _resolve_secrets(self, value: Any) -> tuple[Any, Any]:
         if isinstance(value, dict):
-            if "secret_ref" in value:
-                secret_ref = value.get("secret_ref")
-                if not secret_ref:
-                    raise ValidationError("secret_ref is required for secret injection")
+            if "secret_id" in value:
+                secret_id = value.get("secret_id")
+                if not secret_id:
+                    raise ValidationError("secret_id is required for secret injection")
                 if not self.secrets_port:
                     raise ValidationError("Secrets port not configured for secret injection")
-                secret_value = await self.secrets_port.get_secret(secret_ref=secret_ref)
+                secret_value = await self.secrets_port.get_secret(secret_id=secret_id)
                 return secret_value, self._redacted_secret_payload(value)
             resolved: dict[str, Any] = {}
             redacted: dict[str, Any] = {}
@@ -250,7 +250,7 @@ class ToolPolicyGateway(ToolPort):
         timeout_seconds = float(kwargs.get("timeout_s") or self.timeout_seconds)
         redacted_parameters = parameters
         resolved_parameters = parameters
-        if self._contains_secret_ref(parameters):
+        if self._contains_secret_id(parameters):
             if not self.secrets_port:
                 raise ValidationError("Secrets port not configured for secret injection")
             resolved_parameters, redacted_parameters = await self._resolve_secrets(parameters)

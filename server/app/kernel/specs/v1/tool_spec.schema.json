@@ -181,13 +181,13 @@
             "signature"
           ]
         },
-        "secret_refs": {
+        "secret_ids": {
           "type": [
             "array",
             "null"
           ],
           "items": {
-            "$ref": "refs.schema.json#/$defs/SecretRef"
+            "$ref": "refs.schema.json#/$defs/SecretId"
           }
         },
         "api_key": {
@@ -208,14 +208,14 @@
               "type": "string",
               "description": "Header/query name to carry the api key."
             },
-            "secret_ref": {
-              "$ref": "refs.schema.json#/$defs/SecretRef"
+            "secret_id": {
+              "$ref": "refs.schema.json#/$defs/SecretId"
             }
           },
           "required": [
             "in",
             "name",
-            "secret_ref"
+            "secret_id"
           ]
         },
         "signature": {
@@ -233,8 +233,8 @@
                 "rsa-sha256"
               ]
             },
-            "secret_ref": {
-              "$ref": "refs.schema.json#/$defs/SecretRef"
+            "secret_id": {
+              "$ref": "refs.schema.json#/$defs/SecretId"
             },
             "headers_to_sign": {
               "type": [
@@ -248,7 +248,7 @@
           },
           "required": [
             "algo",
-            "secret_ref"
+            "secret_id"
           ]
         }
       }
@@ -448,8 +448,8 @@
       },
       "auth": {
         "type": "api_key",
-        "secret_refs": [
-          "secret:example_api_key"
+        "secret_ids": [
+          "sec_example_api_key"
         ]
       },
       "policy": {

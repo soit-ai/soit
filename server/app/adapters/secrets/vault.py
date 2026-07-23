@@ -9,11 +9,11 @@ from typing import Any
 import anyio
 import hvac
 
-from app.kernel.ports.secrets.interface import SecretsPort
+from app.kernel.ports.secrets.interface import SecretLocator, SecretValueStore
 from app.settings.settings import settings
 
 
-class VaultSecretsPort(SecretsPort):
+class VaultSecretValueStore(SecretValueStore):
     """HashiCorp Vault secrets gateway adapter."""
 
     def __init__(
@@ -35,15 +35,15 @@ class VaultSecretsPort(SecretsPort):
         else:
             self.client = None
 
-    async def get_secret(
+    async def get_secret_value(
         self,
-        secret_ref: str,
+        locator: SecretLocator,
         **kwargs: Any,
     ) -> str:
         """Get secret value.
 
         Args:
-            secret_ref: Secret reference (e.g., "secret:openai_api_key").
+            locator: Trusted secret storage locator.
             **kwargs: Additional parameters.
 
         Returns:
@@ -57,6 +57,7 @@ class VaultSecretsPort(SecretsPort):
 
         # Parse secret reference (e.g., "secret:openai_api_key")
         # Format: "secret:path/to/secret:key" or "secret:path/to/secret"
+        secret_ref = locator.value
         parts = secret_ref.split(":")
         if len(parts) >= 2:
             secret_path = ":".join(parts[1:-1]) if len(parts) > 2 else parts[1]
@@ -85,16 +86,16 @@ class VaultSecretsPort(SecretsPort):
         except Exception as e:
             raise ValueError(f"Failed to get secret {secret_ref}: {str(e)}")
 
-    async def set_secret(
+    async def set_secret_value(
         self,
-        secret_ref: str,
+        locator: SecretLocator,
         value: str,
         **kwargs: Any,
     ) -> None:
         """Set secret value.
 
         Args:
-            secret_ref: Secret reference (e.g., "secret:openai_api_key").
+            locator: Trusted secret storage locator.
             value: Secret value (will be encrypted).
             **kwargs: Additional parameters.
 
@@ -105,6 +106,7 @@ class VaultSecretsPort(SecretsPort):
             raise ValueError("Vault client not initialized")
 
         # Parse secret reference
+        secret_ref = locator.value
         parts = secret_ref.split(":")
         if len(parts) >= 2:
             secret_path = ":".join(parts[1:-1]) if len(parts) > 2 else parts[1]
@@ -125,15 +127,15 @@ class VaultSecretsPort(SecretsPort):
         except Exception as e:
             raise ValueError(f"Failed to set secret {secret_ref}: {str(e)}")
 
-    async def delete_secret(
+    async def delete_secret_value(
         self,
-        secret_ref: str,
+        locator: SecretLocator,
         **kwargs: Any,
     ) -> None:
         """Delete secret.
 
         Args:
-            secret_ref: Secret reference (e.g., "secret:openai_api_key").
+            locator: Trusted secret storage locator.
             **kwargs: Additional parameters.
 
         Raises:
@@ -143,6 +145,7 @@ class VaultSecretsPort(SecretsPort):
             raise ValueError("Vault client not initialized")
 
         # Parse secret reference
+        secret_ref = locator.value
         parts = secret_ref.split(":")
         if len(parts) >= 2:
             secret_path = ":".join(parts[1:])

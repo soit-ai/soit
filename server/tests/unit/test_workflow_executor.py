@@ -630,18 +630,18 @@ async def test_tool_node_uses_canonical_arguments_payload(
             "tool_ref": "builtin.ticket.create_review_ticket",
             "arguments": {
                 "customer_id": "customer-1",
-                "api_token": {"secret_ref": "secret:ticket_api_key"},
+                "api_token": {"secret_id": "sec_ticket_api_key"},
             },
         },
     )
 
     assert result["result"]["parameters"] == {
         "customer_id": "customer-1",
-        "api_token": {"secret_ref": "secret:ticket_api_key"},
+        "api_token": {"secret_id": "sec_ticket_api_key"},
     }
     assert tool_port.calls[0]["parameters"] == {
         "customer_id": "customer-1",
-        "api_token": {"secret_ref": "secret:ticket_api_key"},
+        "api_token": {"secret_id": "sec_ticket_api_key"},
     }
 
 

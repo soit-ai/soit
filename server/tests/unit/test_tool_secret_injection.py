@@ -29,14 +29,8 @@ from app.settings.settings import settings
 class DummySecretsPort(SecretsPort):
     """Secrets port stub for tool policy tests."""
 
-    async def get_secret(self, secret_ref: str, **kwargs):
+    async def get_secret(self, secret_id: str, **kwargs):
         return "supersecret"
-
-    async def set_secret(self, secret_ref: str, value: str, **kwargs):
-        raise RuntimeError("Not implemented")
-
-    async def delete_secret(self, secret_ref: str, **kwargs):
-        raise RuntimeError("Not implemented")
 
 
 class DummyToolPort(ToolPort):
@@ -134,9 +128,9 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     )
 
     parameters = {
-        "headers": {"Authorization": {"secret_ref": "secret:test_token"}},
-        "query": {"token": {"secret_ref": "secret:test_token"}},
-        "body": {"payload": {"secret_ref": "secret:test_token"}},
+        "headers": {"Authorization": {"secret_id": "sec_test_token"}},
+        "query": {"token": {"secret_id": "sec_test_token"}},
+        "body": {"payload": {"secret_id": "sec_test_token"}},
     }
 
     await gateway.invoke(
@@ -169,7 +163,7 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     assert audit is not None
     audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
-    assert "secret:test_token" in audit_json
+    assert "sec_test_token" in audit_json
     call_record_result = db.exec(
         select(RunStepToolCall).where(
             RunStepToolCall.run_id == run.id,
@@ -187,7 +181,7 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     tool_call = (step.metrics_json or {}).get("tool_call")
     assert tool_call["tool_ref"] == "tool:http:demo"
     assert tool_call["status"] == "completed"
-    assert tool_call["arguments"]["headers"]["Authorization"]["secret_ref"] == "secret:test_token"
+    assert tool_call["arguments"]["headers"]["Authorization"]["secret_id"] == "sec_test_token"
     assert "supersecret" not in str(tool_call)
 
     response_service = ResponseService(
@@ -204,7 +198,7 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     assert tool_calls[0]["tool_call_id"] == "call-secret-redaction"
     assert tool_calls[0]["run_step_tool_call_id"] == call_record.id
     assert tool_calls[0]["attempt_count"] == 1
-    assert tool_calls[0]["arguments_json"]["headers"]["Authorization"]["secret_ref"] == "secret:test_token"
+    assert tool_calls[0]["arguments_json"]["headers"]["Authorization"]["secret_id"] == "sec_test_token"
 
 
 @pytest.mark.asyncio
@@ -407,7 +401,7 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
             "customer_id": "cust-1",
             "priority": "high",
             "message": "Refund request for invoice 123",
-            "api_token": {"secret_ref": "secret:ticket_api"},
+            "api_token": {"secret_id": "sec_ticket_api"},
         },
         strict_registry=True,
         ctx=ctx,
@@ -439,11 +433,11 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
     assert audit is not None
     audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
-    assert "secret:ticket_api" in audit_json
+    assert "sec_ticket_api" in audit_json
     tool_call = (step.metrics_json or {}).get("tool_call")
     assert tool_call["tool_ref"] == "builtin.ticket.create_review_ticket"
     assert tool_call["status"] == "completed"
-    assert tool_call["arguments"]["api_token"]["secret_ref"] == "secret:ticket_api"
+    assert tool_call["arguments"]["api_token"]["secret_id"] == "sec_ticket_api"
     assert "supersecret" not in str(tool_call)
 
 

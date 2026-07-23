@@ -157,7 +157,7 @@ class RegistryToolRouterPort(ToolPort):
                 "policy": {
                     "audit_level": "full",
                     "approval": {"mode": "required", "risk_level": "high"},
-                    "secret_refs": ["secret:ticket_api_key"],
+                    "secret_ids": ["sec_ticket_api_key"],
                     "egress": {"allow": ["tickets.example.local"]},
                 },
                 "function": {"entrypoint": "app.utils.demo_ticket_tools:create_review_ticket"},
@@ -213,13 +213,13 @@ class RegistryToolRouterPort(ToolPort):
     ) -> str | None:
         """Resolve api key secret if configured."""
         api_key_cfg = auth_cfg.get("api_key") or {}
-        secret_ref = api_key_cfg.get("secret_ref")
-        if not secret_ref:
+        secret_id = api_key_cfg.get("secret_id")
+        if not secret_id:
             return None
         if not self.secrets_port_factory:
             raise ValidationError("Secrets port factory not configured")
         secrets_port = self.secrets_port_factory(ctx)
-        return await secrets_port.get_secret(secret_ref=secret_ref)
+        return await secrets_port.get_secret(secret_id=secret_id)
 
     def _resolve_input_path(self, inputs: dict[str, Any], path: str) -> Any:
         """Resolve nested input value by dot path."""
@@ -528,8 +528,8 @@ class RegistryToolRouterPort(ToolPort):
                 "adapter": "function",
                 "tool_ref": tool_ref,
             }
-            if policy_cfg.get("secret_refs"):
-                metadata["secret_refs"] = policy_cfg.get("secret_refs")
+            if policy_cfg.get("secret_ids"):
+                metadata["secret_ids"] = policy_cfg.get("secret_ids")
             if policy_cfg.get("egress"):
                 metadata["egress_policy"] = policy_cfg.get("egress")
             return ToolResponse(

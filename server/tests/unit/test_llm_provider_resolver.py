@@ -59,7 +59,7 @@ async def test_provider_resolver_caches_config_and_invalidation_refreshes(monkey
             adapter_backend="litellm",
             status="active",
             base_url="https://old.example.com/v1",
-            credential_ref="secret:team-gateway",
+            credential_secret_id="sec_team-gateway",
             connection_config_json={
                 "timeout_ms": 45000,
                 "retry_policy": {"max_retries": 2, "backoff": "none"},
@@ -175,7 +175,7 @@ async def test_provider_resolver_falls_back_to_database_when_redis_fails(monkeyp
         adapter_backend="litellm",
         status="active",
         base_url=None,
-        credential_ref=None,
+        credential_secret_id=None,
         connection_config_json=None,
         runtime_config_json=None,
         auth_config_json=None,

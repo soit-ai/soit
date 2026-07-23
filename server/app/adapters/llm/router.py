@@ -32,7 +32,7 @@ class RuntimeProviderConfig:
     adapter_backend: str
     status: str
     base_url: str | None = None
-    credential_ref: str | None = None
+    credential_secret_id: str | None = None
     timeout: float = 60.0
     max_retries: int = 3
     provider_id: str | None = None
@@ -252,8 +252,8 @@ class LLMRouterPort(LLMPort):
         config: RuntimeProviderConfig,
     ) -> dict[str, str]:
         secret_bindings = dict(config.secret_bindings)
-        if config.credential_ref and "api_key" not in secret_bindings:
-            secret_bindings["api_key"] = config.credential_ref
+        if config.credential_secret_id and "api_key" not in secret_bindings:
+            secret_bindings["api_key"] = config.credential_secret_id
         if not secret_bindings:
             if settings.environment == "production" and config.kind not in {
                 "bedrock",
@@ -271,13 +271,8 @@ class LLMRouterPort(LLMPort):
             )
         secrets = self.secrets_resolver(ctx)
         credentials: dict[str, str] = {}
-        for parameter, secret_ref in secret_bindings.items():
-            if settings.environment == "production" and not secret_ref.startswith("secret:"):
-                raise KernelError(
-                    "MODEL_PROVIDER_SECRET_REF_INVALID",
-                    f"Provider secret reference must use the secret: scheme: {config.slug}",
-                )
-            credentials[parameter] = await secrets.get_secret(secret_ref=secret_ref)
+        for parameter, secret_id in secret_bindings.items():
+            credentials[parameter] = await secrets.get_secret(secret_id=secret_id)
         return credentials
 
     async def resolve_route(

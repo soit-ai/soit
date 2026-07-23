@@ -6,7 +6,7 @@ Notification domain model.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Text
+from sqlalchemy import String, Text
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -97,7 +97,11 @@ class NotificationEndpoint(SQLModel, table=True):
     user_id: str = Field(index=True)
     name: str = Field(max_length=128)
     kind: str = Field(index=True, max_length=32)
-    secret_ref: str = Field(max_length=256)
+    secret_id: str = Field(
+        max_length=128,
+        sa_column=Column("secret_ref", String(256), nullable=False),
+    )
+    """Opaque ID for the managed Secret metadata record."""
     display_target: str = Field(max_length=256)
     status: str = Field(default="active", index=True, max_length=32)
     created_at: datetime = Field(default_factory=utc_now)

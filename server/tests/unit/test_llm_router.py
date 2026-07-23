@@ -112,7 +112,7 @@ async def test_llm_router_adds_litellm_adapter_for_workspace_provider(ctx):
             adapter_backend="litellm",
             status="active",
             base_url="https://llm.example.com/v1",
-            credential_ref="secret:team-gateway",
+            credential_secret_id="sec_team_gateway",
             timeout=45.0,
             max_retries=4,
             provider_model_id="model-1",
@@ -183,11 +183,11 @@ async def test_llm_router_resolves_multiple_litellm_secret_bindings(ctx):
     captured = {}
 
     class _Secrets:
-        async def get_secret(self, *, secret_ref):
+        async def get_secret(self, *, secret_id):
             return {
-                "secret:aws-access": "access-value",
-                "secret:aws-secret": "secret-value",
-            }[secret_ref]
+                "sec_aws_access": "access-value",
+                "sec_aws_secret": "secret-value",
+            }[secret_id]
 
     router = LLMRouterPort(
         providers={},
@@ -198,8 +198,8 @@ async def test_llm_router_resolves_multiple_litellm_secret_bindings(ctx):
             status="active",
             litellm_provider="bedrock",
             secret_bindings={
-                "aws_access_key_id": "secret:aws-access",
-                "aws_secret_access_key": "secret:aws-secret",
+                "aws_access_key_id": "sec_aws_access",
+                "aws_secret_access_key": "sec_aws_secret",
             },
             provider_model_id="model-1",
             model_id=model_id,
@@ -226,7 +226,7 @@ async def test_llm_router_resolves_multiple_litellm_secret_bindings(ctx):
 
 
 async def _secret_value(kwargs):
-    assert kwargs["secret_ref"] == "secret:team-gateway"
+    assert kwargs["secret_id"] == "sec_team_gateway"
     return "resolved-secret"
 
 
@@ -236,11 +236,11 @@ async def test_llm_router_builds_native_port_from_scoped_provider_config(ctx):
     captured = []
 
     class _Secrets:
-        async def get_secret(self, *, secret_ref):
+        async def get_secret(self, *, secret_id):
             return {
-                "secret:team-openai-a": "key-a",
-                "secret:team-openai-b": "key-b",
-            }[secret_ref]
+                "sec_team_openai_a": "key-a",
+                "sec_team_openai_b": "key-b",
+            }[secret_id]
 
     def resolve_provider(_request_ctx, slug, model_id):
         suffix = slug.rsplit("-", 1)[-1]
@@ -250,7 +250,7 @@ async def test_llm_router_builds_native_port_from_scoped_provider_config(ctx):
             adapter_backend="native",
             status="active",
             base_url=f"https://{suffix}.example.com/v1",
-            credential_ref=f"secret:team-openai-{suffix}",
+            credential_secret_id=f"sec_team_openai_{suffix}",
             provider_model_id=f"model-{suffix}",
             model_id=model_id,
             model_status="active",

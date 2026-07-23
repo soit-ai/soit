@@ -8,7 +8,7 @@ from __future__ import annotations
 from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
-from app.kernel.ports.secrets.interface import SecretsPort
+from app.kernel.ports.secrets.interface import SecretLocator, SecretValueStore
 from app.modules.secrets.application.schemas import SecretCreate, SecretUpdate
 from app.modules.secrets.domain.models import Secret
 from app.modules.secrets.infra.repository import SecretRepository
@@ -21,11 +21,11 @@ class SecretsService:
         self,
         ctx: RequestContext,
         repo: SecretRepository,
-        secrets_port: SecretsPort,
+        value_store: SecretValueStore,
     ):
         self.ctx = ctx
         self.repo = repo
-        self.secrets_port = secrets_port
+        self.value_store = value_store
 
     @workspace_guard("read")
     async def list_secrets(self, limit: int = 50, offset: int = 0) -> list[Secret]:
@@ -66,7 +66,9 @@ class SecretsService:
         secret = self.repo.create(secret)
 
         try:
-            await self.secrets_port.set_secret(secret_ref=secret.secret_ref, value=data.value)
+            await self.value_store.set_secret_value(
+                locator=SecretLocator(secret.secret_ref), value=data.value
+            )
         except Exception as exc:
             # Roll back metadata if vault write fails.
             self.repo.soft_delete(secret, updated_by=self.ctx.user_id)
@@ -87,7 +89,9 @@ class SecretsService:
 
         if data.value is not None:
             try:
-                await self.secrets_port.set_secret(secret_ref=secret.secret_ref, value=data.value)
+                await self.value_store.set_secret_value(
+                    locator=SecretLocator(secret.secret_ref), value=data.value
+                )
             except Exception as exc:
                 raise KernelError("SECRETS_WRITE_FAILED", f"Failed to rotate secret: {str(exc)}")
 
@@ -110,7 +114,9 @@ class SecretsService:
             raise NotFoundError(f"Secret not found: {secret_id}")
 
         try:
-            await self.secrets_port.delete_secret(secret_ref=secret.secret_ref)
+            await self.value_store.delete_secret_value(
+                locator=SecretLocator(secret.secret_ref)
+            )
         except Exception as exc:
             raise KernelError("SECRETS_DELETE_FAILED", f"Failed to delete secret: {str(exc)}")
 
@@ -123,6 +129,8 @@ class SecretsService:
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
         try:
-            await self.secrets_port.get_secret(secret_ref=secret.secret_ref)
+            await self.value_store.get_secret_value(
+                locator=SecretLocator(secret.secret_ref)
+            )
         except Exception as exc:
             raise KernelError("SECRETS_TEST_FAILED", f"Failed to resolve secret: {str(exc)}")

@@ -34,7 +34,7 @@ def test_app_runtime_schema_is_not_supported():
 
 
 def test_tool_spec_validation_with_refs():
-    # endpoint_ref and auth.secret_refs use $ref to refs.schema.json
+    # endpoint_ref and auth.secret_ids use $ref to refs.schema.json
     tool_doc = {
         "name": "demo_http_tool",
         "adapter": "http",
@@ -42,10 +42,50 @@ def test_tool_spec_validation_with_refs():
         "output_schema": {},
         "policy": {"audit_level": "basic"},
         "endpoint_ref": "endpoint:default",
-        "auth": {"type": "api_key", "secret_refs": ["secret:demo_api_key"], "api_key": {"in": "header", "name": "X-Api-Key", "secret_ref": "secret:demo_api_key"}},
+        "auth": {"type": "api_key", "secret_ids": ["sec_demo_api_key"], "api_key": {"in": "header", "name": "X-Api-Key", "secret_id": "sec_demo_api_key"}},
         "http": {"method": "GET"},
     }
     assert validate_spec(tool_doc, "tool_spec") is True
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {
+            "type": "api_key",
+            "secret_refs": ["secret:demo_api_key"],
+            "api_key": {
+                "in": "header",
+                "name": "X-Api-Key",
+                "secret_ref": "secret:demo_api_key",
+            },
+        },
+        {
+            "type": "api_key",
+            "secret_ids": ["secret:demo_api_key"],
+            "api_key": {
+                "in": "header",
+                "name": "X-Api-Key",
+                "secret_id": "secret:demo_api_key",
+            },
+        },
+    ],
+)
+def test_tool_spec_rejects_legacy_or_raw_secret_references(auth):
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                "name": "demo_http_tool",
+                "adapter": "http",
+                "input_schema": {},
+                "output_schema": {},
+                "policy": {"audit_level": "basic"},
+                "endpoint_ref": "endpoint:default",
+                "auth": auth,
+                "http": {"method": "GET"},
+            },
+            "tool_spec",
+        )
 
 
 def test_tool_spec_validation_supports_explicit_approval_policy():

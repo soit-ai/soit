@@ -30,7 +30,6 @@ class SecretResponse(BaseModel):
     id: str
     name: str
     description: str | None
-    secret_ref: str
     last_rotated_at: datetime | None
     created_by: str | None
     updated_by: str | None

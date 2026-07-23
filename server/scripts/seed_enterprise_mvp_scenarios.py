@@ -6,23 +6,29 @@ import argparse
 import asyncio
 import hashlib
 import json
+from collections.abc import Iterable
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 
 from app.infra.db.session import get_db_sync
-from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
+from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
-from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
-from app.modules.agent.domain.models import Agent, AgentBinding, AgentPublish, AgentVersion
+from app.modules.agent.domain.models import (
+    Agent,
+    AgentBinding,
+    AgentPublish,
+    AgentVersion,
+)
 from app.modules.knowledge.domain.models import (
     Knowledge,
     KnowledgeChunk,
@@ -40,7 +46,12 @@ from app.modules.plugin.domain.models import (
     PluginVersion,
 )
 from app.modules.secrets.domain.models import Secret
-from app.modules.workflow.domain.models import Workflow, WorkflowPublish, WorkflowRun, WorkflowVersion
+from app.modules.workflow.domain.models import (
+    Workflow,
+    WorkflowPublish,
+    WorkflowRun,
+    WorkflowVersion,
+)
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
 
 SEED_SOURCE = "enterprise_mvp_scenarios"
@@ -97,7 +108,7 @@ def _one(db, query):
 
 
 def _seed_id(prefix: str, ctx: RequestContext, key: str) -> str:
-    digest = hashlib.sha1(f"{ctx.tenant_id}:{ctx.workspace_id}:{key}".encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(f"{ctx.tenant_id}:{ctx.workspace_id}:{key}".encode()).hexdigest()[:16]
     return f"{prefix}_seed_{digest}"
 
 
@@ -113,7 +124,7 @@ def _upsert(db, model: type[Any], item_id: str, values: dict[str, Any]):
         for key, value in values.items():
             setattr(item, key, value)
         if hasattr(item, "updated_at"):
-            setattr(item, "updated_at", utc_now())
+            item.updated_at = utc_now()
     db.add(item)
     return item
 
@@ -671,7 +682,7 @@ def _ensure_modelhub(db, ctx: RequestContext) -> tuple[list[str], list[str]]:
                 "kind": kind,
                 "name": name,
                 "base_url": base_url,
-                "credential_ref": f"secret:{_seed_id('sec', ctx, 'provider_key')}",
+                "credential_secret_id": _seed_id("sec", ctx, "provider_key"),
                 "status": status,
                 "sync_policy_json": _seed_meta(auto_sync=False, scenario=key),
                 "last_healthcheck_at": utc_now(),
@@ -1268,7 +1279,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
             },
         )
         task_ids.append(task_id)
-    for workflow, run in zip(workflows, runs[1:]):
+    for workflow, run in zip(workflows, runs[1:], strict=False):
         _upsert(
             db,
             WorkflowRun,
@@ -1689,7 +1700,7 @@ def _ensure_agent_chains(
 
         citations = [
             _citation_for(ctx, item.id, documents[str(knowledge_key)])
-            for item, knowledge_key in zip(selected_knowledge, spec["knowledge_keys"])
+            for item, knowledge_key in zip(selected_knowledge, spec["knowledge_keys"], strict=False)
             if str(knowledge_key) in documents
         ]
         if not citations:

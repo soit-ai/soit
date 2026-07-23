@@ -64,7 +64,7 @@ def _redact_tool_payload(value: Any) -> Any:
                 if _normalized_parameter_key(key) in _SENSITIVE_KEYS
                 and not (
                     isinstance(child, dict)
-                    and isinstance(child.get("secret_ref"), str)
+                    and isinstance(child.get("secret_id"), str)
                 )
                 else _redact_tool_payload(child)
             )

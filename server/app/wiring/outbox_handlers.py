@@ -35,10 +35,35 @@ def register_outbox_handlers() -> None:
         handle_notification_delivery_outbox,
     )
 
+    async def _handle_scoped_notification_delivery(
+        db: Session,
+        row: EventOutbox,
+    ) -> None:
+        from app.kernel.contracts.context import RequestContext
+        from app.modules.secrets.infra.scoped_port import ScopedSecretsPort
+        from app.wiring.container import get_container
+
+        ctx = RequestContext(
+            tenant_id=row.tenant_id,
+            workspace_id=row.workspace_id,
+            user_id="system:notification-delivery",
+            request_id=row.id,
+        )
+        secrets_port = ScopedSecretsPort(
+            ctx=ctx,
+            value_store=get_container().get_secret_value_store(),
+            db=db,
+        )
+        await handle_notification_delivery_outbox(
+            db,
+            row,
+            secrets_port=secrets_port,
+        )
+
     reg.register(
         "notification.delivery.requested",
         "notification.apprise.delivery",
-        handle_notification_delivery_outbox,
+        _handle_scoped_notification_delivery,
     )
 
     from app.kernel.runtime.runs.events import RunEventType

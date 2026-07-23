@@ -360,10 +360,12 @@ class ModelHubService:
         runtime_config: dict[str, Any] | None,
         connection_config: dict[str, Any] | None,
         auth_config: dict[str, Any] | None,
-        credential_ref: str | None,
+        credential_secret_id: str | None,
     ) -> None:
-        if credential_ref and not credential_ref.startswith("secret:"):
-            raise ValidationError("Provider credential_ref must start with secret:")
+        if credential_secret_id:
+            from app.kernel.ports.secrets.interface import require_opaque_secret_id
+
+            require_opaque_secret_id(credential_secret_id)
         if adapter_backend != "litellm":
             return
         resolve_litellm_runtime_config(
@@ -371,7 +373,7 @@ class ModelHubService:
             runtime_config=runtime_config,
             connection_config=connection_config,
             auth_config=auth_config,
-            credential_ref=credential_ref,
+            credential_secret_id=credential_secret_id,
         )
 
     @staticmethod
@@ -969,7 +971,7 @@ class ModelHubService:
             runtime_config=data.runtime_config_json,
             connection_config=data.connection_config_json,
             auth_config=data.auth_config_json,
-            credential_ref=data.credential_ref,
+            credential_secret_id=data.credential_secret_id,
         )
         if self.provider_repo.get_by_name(data.name):
             raise ValidationError(f"Provider name already exists: {data.name}")
@@ -984,7 +986,7 @@ class ModelHubService:
             slug=slug,
             name=data.name,
             base_url=data.base_url,
-            credential_ref=data.credential_ref,
+            credential_secret_id=data.credential_secret_id,
             status=data.status or "active",
             sync_policy_json=data.sync_policy_json,
             connection_config_json=data.connection_config_json,
@@ -1024,10 +1026,10 @@ class ModelHubService:
                 if data.auth_config_json is not None
                 else provider.auth_config_json
             ),
-            credential_ref=(
-                data.credential_ref
-                if data.credential_ref is not None
-                else provider.credential_ref
+            credential_secret_id=(
+                data.credential_secret_id
+                if data.credential_secret_id is not None
+                else provider.credential_secret_id
             ),
         )
         previous_slug = provider.slug
@@ -1048,8 +1050,8 @@ class ModelHubService:
             provider.adapter_backend = data.adapter_backend
         if data.base_url is not None:
             provider.base_url = data.base_url
-        if data.credential_ref is not None:
-            provider.credential_ref = data.credential_ref
+        if data.credential_secret_id is not None:
+            provider.credential_secret_id = data.credential_secret_id
         if data.status is not None:
             provider.status = data.status
         if data.sync_policy_json is not None:
@@ -1106,7 +1108,7 @@ class ModelHubService:
                     max_tokens=1,
                 )
             else:
-                api_key = await self._resolve_credential(provider.credential_ref)
+                api_key = await self._resolve_credential(provider.credential_secret_id)
                 await self.catalog_adapter.healthcheck(
                     provider_kind=provider.kind,
                     api_key=api_key,
@@ -1139,7 +1141,7 @@ class ModelHubService:
     async def refresh_platform_models(self, provider_id: str) -> dict[str, Any]:
         """Sync platform models from external provider using provider credentials."""
         provider = self._get_provider(provider_id)
-        api_key = await self._resolve_credential(provider.credential_ref)
+        api_key = await self._resolve_credential(provider.credential_secret_id)
         upstream_models = await self.catalog_adapter.list_models(
             provider_kind=provider.kind,
             api_key=api_key,
@@ -1524,7 +1526,7 @@ class ModelHubService:
                     "request_id": None,
                 }
             else:
-                api_key = await self._resolve_credential(provider.credential_ref)
+                api_key = await self._resolve_credential(provider.credential_secret_id)
                 result = await self.catalog_adapter.test_chat(
                     provider_kind=provider.kind,
                     api_key=api_key,
@@ -1580,7 +1582,7 @@ class ModelHubService:
                     "request_id": None,
                 }
             else:
-                api_key = await self._resolve_credential(provider.credential_ref)
+                api_key = await self._resolve_credential(provider.credential_secret_id)
                 result = await self.catalog_adapter.test_embeddings(
                     provider_kind=provider.kind,
                     api_key=api_key,
@@ -1612,12 +1614,10 @@ class ModelHubService:
             raise NotFoundError(f"Provider not found: {provider_id}")
         return provider
 
-    async def _resolve_credential(self, credential_ref: str | None) -> str:
-        if not credential_ref:
-            raise ValidationError("Provider credential_ref is required")
-        if not credential_ref.startswith("secret:"):
-            raise ValidationError("Provider credential_ref must start with secret:")
-        return await self.secrets_port.get_secret(secret_ref=credential_ref)
+    async def _resolve_credential(self, credential_secret_id: str | None) -> str:
+        if not credential_secret_id:
+            raise ValidationError("Provider credential_secret_id is required")
+        return await self.secrets_port.get_secret(secret_id=credential_secret_id)
 
     async def _resolve_litellm_credentials(self, provider: Provider) -> dict[str, str]:
         runtime = resolve_litellm_runtime_config(
@@ -1625,12 +1625,12 @@ class ModelHubService:
             runtime_config=provider.runtime_config_json,
             connection_config=provider.connection_config_json,
             auth_config=provider.auth_config_json,
-            credential_ref=provider.credential_ref,
+            credential_secret_id=provider.credential_secret_id,
         )
         credentials: dict[str, str] = {}
-        for parameter, secret_ref in runtime.secret_bindings.items():
+        for parameter, secret_id in runtime.secret_bindings.items():
             credentials[parameter] = await self.secrets_port.get_secret(
-                secret_ref=secret_ref
+                secret_id=secret_id
             )
         return credentials
 

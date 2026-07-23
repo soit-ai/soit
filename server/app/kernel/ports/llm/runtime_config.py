@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.secrets.interface import require_opaque_secret_id
 
 LITELLM_PROVIDER_PRESETS: dict[str, str] = {
     "openai": "openai",
@@ -116,7 +117,7 @@ def resolve_litellm_runtime_config(
     runtime_config: dict[str, Any] | None,
     connection_config: dict[str, Any] | None,
     auth_config: dict[str, Any] | None,
-    credential_ref: str | None,
+    credential_secret_id: str | None,
 ) -> LiteLLMRuntimeConfig:
     """Resolve one provider record into a validated LiteLLM runtime config."""
     runtime = runtime_config or {}
@@ -136,18 +137,14 @@ def resolve_litellm_runtime_config(
     if not isinstance(raw_bindings, dict):
         raise ValidationError("Provider secret_bindings must be an object")
     secret_bindings: dict[str, str] = {}
-    for key, secret_ref in raw_bindings.items():
+    for key, secret_id in raw_bindings.items():
         if key not in LITELLM_SECRET_BINDING_ALLOWLIST:
             raise ValidationError(f"Unsupported LiteLLM secret binding: {key}")
-        if not isinstance(secret_ref, str) or not secret_ref.strip():
+        if not isinstance(secret_id, str) or not secret_id.strip():
             raise ValidationError(f"LiteLLM secret binding must reference a secret: {key}")
-        if not secret_ref.startswith("secret:"):
-            raise ValidationError(f"LiteLLM secret binding must start with secret: {key}")
-        secret_bindings[key] = secret_ref
-    if credential_ref and "api_key" not in secret_bindings:
-        if not credential_ref.startswith("secret:"):
-            raise ValidationError("Provider credential_ref must start with secret:")
-        secret_bindings["api_key"] = credential_ref
+        secret_bindings[key] = require_opaque_secret_id(secret_id)
+    if credential_secret_id and "api_key" not in secret_bindings:
+        secret_bindings["api_key"] = require_opaque_secret_id(credential_secret_id)
 
     return LiteLLMRuntimeConfig(
         provider=provider,
