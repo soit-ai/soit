@@ -1138,6 +1138,155 @@ test('chat send retries transient response failure and includes attachments', as
   expect(JSON.stringify(capturedPayload)).not.toContain('data:text/plain')
 })
 
+test('chat can send an attachment without text', async ({ page }) => {
+  let capturedPayload: any = null
+  await page.route('**/api/v1/attachments', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+          id: 'att-only-1',
+          filename: 'evidence.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 8,
+          checksum: 'sha256:evidence',
+          status: 'ready',
+          thread_id: null,
+          created_at: '2026-07-23T00:00:00Z',
+          updated_at: '2026-07-23T00:00:00Z',
+        },
+      }),
+    })
+  })
+  await page.route('**/api/v1/responses', async (route) => {
+    capturedPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: [
+        'id: resp-attachment-only:1',
+        `data: ${JSON.stringify({ type: 'RUN_STARTED', threadId: capturedPayload.threadId, runId: capturedPayload.runId })}`,
+        '',
+        'id: resp-attachment-only:2',
+        'data: {"type":"RUN_FINISHED","threadId":"thread-new","runId":"attachment-only","result":{"status":"succeeded"}}',
+        '',
+        '',
+      ].join('\n'),
+    })
+  })
+
+  await page.goto('/chat/default', { waitUntil: 'domcontentloaded' })
+  const fileChooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add images or files' }).click()
+  await (await fileChooser).setFiles({
+    name: 'evidence.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('evidence'),
+  })
+
+  const sendButton = page.getByRole('button', { name: 'Send message' })
+  await expect(sendButton).toBeEnabled()
+  await sendButton.click()
+  await expect.poll(() => capturedPayload).not.toBeNull()
+  expect(capturedPayload.forwardedProps.soit.attachmentIds).toEqual(['att-only-1'])
+  const userMessage = capturedPayload.messages.find((message: any) => message.role === 'user')
+  expect(userMessage.content).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: 'document' }),
+  ]))
+})
+
+test('attachment upload failure is reported and allows a retry', async ({ page }) => {
+  let uploadAttempts = 0
+  let responsePayload: any = null
+  await page.route('**/api/v1/attachments', async (route) => {
+    uploadAttempts += 1
+    if (uploadAttempts === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'Attachment upload temporarily unavailable', data: null }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+          id: 'att-retry-1',
+          filename: 'retry.txt',
+          content_type: 'text/plain',
+          size_bytes: 5,
+          checksum: 'sha256:retry',
+          status: 'ready',
+          thread_id: null,
+          created_at: '2026-07-23T00:00:00Z',
+          updated_at: '2026-07-23T00:00:00Z',
+        },
+      }),
+    })
+  })
+  await page.route('**/api/v1/responses', async (route) => {
+    responsePayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: [
+        'id: resp-attachment-retry:1',
+        `data: ${JSON.stringify({ type: 'RUN_STARTED', threadId: responsePayload.threadId, runId: responsePayload.runId })}`,
+        '',
+        'id: resp-attachment-retry:2',
+        `data: ${JSON.stringify({ type: 'RUN_FINISHED', threadId: responsePayload.threadId, runId: responsePayload.runId, result: { status: 'succeeded' } })}`,
+        '',
+        '',
+      ].join('\n'),
+    })
+  })
+
+  await page.goto('/chat/default', { waitUntil: 'domcontentloaded' })
+  const fileChooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add images or files' }).click()
+  await (await fileChooser).setFiles({
+    name: 'retry.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('retry'),
+  })
+  const sendButton = page.getByRole('button', { name: 'Send message' })
+  await sendButton.click()
+
+  await expect.poll(() => uploadAttempts).toBe(1)
+  await expect(page.getByText('Attachment upload temporarily unavailable')).toBeVisible()
+  await expect(sendButton).toBeDisabled()
+
+  const retryChooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add images or files' }).click()
+  await (await retryChooser).setFiles({
+    name: 'retry.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('retry'),
+  })
+  await expect(sendButton).toBeEnabled()
+  await sendButton.click()
+  await expect.poll(() => uploadAttempts).toBe(2)
+  await expect.poll(() => responsePayload).not.toBeNull()
+  expect(responsePayload.forwardedProps.soit.attachmentIds).toEqual(['att-retry-1'])
+})
+
+test('attachment can be removed before sending', async ({ page }) => {
+  await page.goto('/chat/default', { waitUntil: 'domcontentloaded' })
+  const fileChooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add images or files' }).click()
+  await (await fileChooser).setFiles({
+    name: 'cancel.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('cancel'),
+  })
+
+  await expect(page.getByText('cancel.txt')).toBeVisible()
+  await page.getByRole('button', { name: 'Remove file' }).click()
+  await expect(page.getByText('cancel.txt')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled()
+})
+
 test('agent chat stream renders sources and governed artifacts', async ({ page }) => {
   let capturedPayload: any = null
   let feedbackPayload: any = null

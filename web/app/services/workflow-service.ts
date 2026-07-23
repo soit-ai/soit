@@ -177,8 +177,8 @@ export const createWorkflow = (data: {
   icon_url?: string
   category?: string
   tags?: string[]
-}): Promise<Workflow> => {
-  return post('/workflows', data)
+}, config?: RequestConfigWithToast): Promise<Workflow> => {
+  return post('/workflows', data, config)
 }
 
 export const createTicketTriageWorkflow = (data?: {

@@ -53,7 +53,13 @@ class GovernedAttachmentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const uploaded = await uploadAttachment(attachment.file)
+    let uploaded
+    try {
+      uploaded = await uploadAttachment(attachment.file)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Attachment upload failed')
+      throw error
+    }
     const mimeType = uploaded.content_type
     const contentUrl = attachmentContentUrl(uploaded.id)
     const isImage = mimeType.startsWith('image/')

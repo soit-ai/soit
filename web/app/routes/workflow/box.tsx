@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Workflow,
+  Loader2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -29,11 +30,13 @@ import {
   type BoxToolbarTab,
 } from '@/components/box'
 import { useNavigate } from '@/hooks/use-navigate'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
-import { getWorkflowWorkbench, getWorkflowWorkbenchItems, type WorkflowWorkbenchRow } from '@/services/workflow-service'
+import { createWorkflow, getWorkflowWorkbench, getWorkflowWorkbenchItems, type WorkflowWorkbenchRow } from '@/services/workflow-service'
+import { toast } from 'sonner'
+import { requestErrorMessage } from '@/utils/request'
 
 type WorkflowStatus = WorkflowWorkbenchRow['status']
 
@@ -214,6 +217,23 @@ function WorkflowBoxPage() {
   const [pageTokens, setPageTokens] = useState<Array<string | undefined>>([undefined])
   const tableKeyword = search.trim()
   const pageToken = pageTokens[currentPage - 1]
+  const createMutation = useMutation({
+    mutationKey: ['workflows', 'create'],
+    mutationFn: () => createWorkflow(
+      {
+        name: 'Untitled workflow',
+        description: '',
+        visibility: 'private',
+      },
+      { suppressErrorToast: true },
+    ),
+    onSuccess: (workflow) => {
+      navigate(`/workflow/${workflow.id}/build`)
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to create workflow'))
+    },
+  })
 
   const {
     data: workbench,
@@ -378,9 +398,10 @@ function WorkflowBoxPage() {
         action={(
           <Button
             className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700"
-            onClick={() => navigate('/workflow/new/build')}
+            disabled={createMutation.isPending}
+            onClick={() => createMutation.mutate(undefined)}
           >
-            <Plus className="h-4 w-4" />
+            {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {t('workflow.workspaceDashboard.header.create')}
           </Button>
         )}

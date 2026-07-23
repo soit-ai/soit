@@ -22,11 +22,11 @@ function Page() {
 
   // User profile defaults.
   const [user, setUser] = useState({
-    name: t('system.settings.account.defaults.name'),
-    email: 'zhangsan@example.com',
+    name: '',
+    email: '',
     avatar: '',
     phone: '',
-    role: t('system.settings.account.defaults.role'),
+    role: '',
     company: '',
     title: '',
     bio: '',
@@ -38,11 +38,11 @@ function Page() {
     }
     const profile = currentUser.profile || {}
     setUser({
-      name: currentUser.name || t('system.settings.account.defaults.name'),
-      email: currentUser.email || 'zhangsan@example.com',
+      name: currentUser.name || '',
+      email: currentUser.email || '',
       avatar: profile.avatar || '',
       phone: profile.phone || '',
-      role: currentUser.workspace_role || currentUser.tenant_role || t('system.settings.account.defaults.role'),
+      role: currentUser.workspace_role || currentUser.tenant_role || '',
       company: profile.company || '',
       title: profile.title || '',
       bio: profile.bio || '',
@@ -89,9 +89,8 @@ function Page() {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="mb-4 grid w-full max-w-md grid-cols-2">
+        <TabsList className="mb-4 grid w-full max-w-md grid-cols-1">
           <TabsTrigger value="profile">{t('system.settings.account.tabs.profile')}</TabsTrigger>
-          <TabsTrigger value="status">{t('system.settings.account.tabs.status')}</TabsTrigger>
         </TabsList>
         
         {/* Profile tab */}
@@ -108,7 +107,6 @@ function Page() {
                     <AvatarImage src={user.avatar || ''} />
                     <AvatarFallback className="text-2xl">{user.name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <Button variant="outline" size="sm">{t('system.settings.account.profile.changeAvatar')}</Button>
                 </div>
                 <div className="flex-1 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

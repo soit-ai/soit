@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { mockShellApi } from './helpers'
 
@@ -13,7 +15,7 @@ const mockProvider = {
   kind: 'openai',
   name: 'OpenAI',
   base_url: 'https://api.openai.com/v1',
-  credential_ref: 'secret:openai',
+  credential_secret_id: 'sec_id_openai',
   status: 'active',
   sync_policy_json: {
     auto_sync: true,
@@ -58,7 +60,7 @@ const mockClaudeProvider = {
   kind: 'anthropic',
   name: 'Claude / Anthropic',
   base_url: 'https://api.anthropic.com',
-  credential_ref: 'secret:anthropic',
+  credential_secret_id: 'sec_id_anthropic',
   status: 'active',
   sync_policy_json: {
     auto_sync: true,
@@ -664,6 +666,14 @@ test.beforeEach(async ({ page }) => {
   apiState = await mockModelApi(page)
 })
 
+test('model sidebar reads runtime summary instead of generating fake usage', () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'app/routes/model/ui/box-sidebar.tsx'), 'utf-8')
+  expect(source).toContain('getModelWorkbenchOverview')
+  expect(source).not.toContain('Math.random')
+  expect(source).not.toContain('totalModels: 42')
+  expect(source).not.toContain('apiUsage: 8750')
+})
+
 test('model routes expose overview library and provider pages separately', async ({ page }) => {
   await page.goto('/models', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Model Overview' })).toBeVisible({ timeout: 30000 })
@@ -800,7 +810,7 @@ test('provider page creates providers and runs healthcheck and sync actions', as
   await page.getByLabel('Provider name').fill('Claude Main E2E')
   await page.getByRole('tab', { name: 'Connection Auth' }).click()
   await page.getByLabel('Base URL').fill('https://api.anthropic.com')
-  await page.getByLabel('Credential reference').fill('secret:anthropic')
+  await page.getByLabel('Credential secret ID').fill('sec_id_anthropic')
   await page.getByLabel('Timeout (ms)').fill('51000')
   await page.getByRole('tab', { name: 'Catalog Sync' }).click()
   await page.getByLabel('Include models').fill('claude-opus-4-8\nclaude-sonnet-4-6')
@@ -815,7 +825,7 @@ test('provider page creates providers and runs healthcheck and sync actions', as
   expect(createPayload.slug).toBe('claude-main-e2e')
   expect(createPayload.name).toBe('Claude Main E2E')
   expect(createPayload.base_url).toBe('https://api.anthropic.com')
-  expect(createPayload.credential_ref).toBe('secret:anthropic')
+  expect(createPayload.credential_secret_id).toBe('sec_id_anthropic')
   expect(createPayload.connection_config_json.timeout_ms).toBe(51000)
   expect(createPayload.sync_policy_json.include_models).toEqual(['claude-opus-4-8', 'claude-sonnet-4-6'])
   expect(createPayload.sync_policy_json.exclude_models).toEqual(['claude-legacy'])

@@ -1,10 +1,10 @@
 import * as React from 'react'
-import { Send, BookOpen, Bot, Frame, Map, PieChart, Settings2, SquareTerminal, LifeBuoy, SquareArrowOutUpRight, Plus, Sparkles, Pencil, Trash2 } from 'lucide-react'
+import { Send, BookOpen, Bot, Frame, Map, PieChart, Settings2, SquareTerminal, LifeBuoy, Plus, Sparkles, Pencil, Trash2 } from 'lucide-react'
 import { NavMain } from '@/components/nav/nav-main'
 import { NavProjects } from '@/components/nav/nav-projects'
 import { SidebarOptInForm } from '@/components/common/sidebar-opt-in-form'
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail, SidebarInput, useSidebar, SidebarTrigger } from '@/components/ui/sidebar'
-import { useNavigate, useWindowOpen } from '@/hooks/use-navigate'
+import { useNavigate } from '@/hooks/use-navigate'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCallback, useEffect, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
@@ -76,7 +76,6 @@ export function BoxSidebar({
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const windowOpen = useWindowOpen()
   const navigate = useNavigate()
   const { emit, useSubcribe } = useMitt()
   const resetConversationList = useCallback(() => {
@@ -229,12 +228,6 @@ export function BoxSidebar({
     }
   })
 
-  const openApp = () => {
-    return () => {
-      windowOpen('/app', '_blank')
-    }
-  }
-
   const handleNewChat = async () => {
     try {
       setTitle(t('chat.sidebar.defaultTitle'))
@@ -373,7 +366,6 @@ export function BoxSidebar({
             {/* <Label className="flex items-center gap-2 text-sm">
                 <span>Unreads</span>
               </Label> */}
-            <SquareArrowOutUpRight className="mt-1.5 self-start size-4 cursor-pointer" onClick={openApp()} />
           </div>
           {providers.length > 0 && (
             <div className="mt-3 px-2">

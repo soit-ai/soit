@@ -365,6 +365,115 @@ test.beforeEach(async ({ page }) => {
   await mockKnowledgeApi(page)
 })
 
+test('empty workspace creates a knowledge base from the create dialog', async ({ page }) => {
+  let createPayload: Record<string, unknown> | null = null
+  await page.route('**/api/v1/knowledge', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    createPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+          ...mockKnowledge,
+          id: 'kb-created',
+          name: 'Support handbook',
+          description: 'Customer support policies',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create Knowledge Base' }).click()
+  await page.getByLabel('Name').fill('Support handbook')
+  await page.getByLabel('Description').fill('Customer support policies')
+  await page.getByRole('dialog').getByRole('button', { name: 'Create Knowledge Base' }).click()
+
+  await expect.poll(() => createPayload).toMatchObject({
+    name: 'Support handbook',
+    description: 'Customer support policies',
+    knowledge_type: 'document',
+    visibility: 'workspace',
+  })
+  await expect(page).toHaveURL(/\/knowledge\/kb-created$/)
+})
+
+test('knowledge creation error keeps the dialog open for correction and retry', async ({ page }) => {
+  let attempts = 0
+  await page.route('**/api/v1/knowledge', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    attempts += 1
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'CONFLICT', message: 'Knowledge base name already exists', data: null }),
+    })
+  })
+
+  await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create Knowledge Base' }).click()
+  await page.getByLabel('Name').fill('Duplicate handbook')
+  const submit = page.getByRole('dialog').getByRole('button', { name: 'Create Knowledge Base' })
+  await submit.click()
+
+  await expect.poll(() => attempts).toBe(1)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByLabel('Name')).toHaveValue('Duplicate handbook')
+  await expect(page.getByText('Knowledge base name already exists')).toBeVisible()
+  await expect(submit).toBeEnabled()
+})
+
+test('knowledge permission failure does not clear the authenticated workspace', async ({ page }) => {
+  await page.route('**/api/v1/knowledge', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'FORBIDDEN', message: 'You cannot create knowledge bases in this workspace', data: null }),
+    })
+  })
+
+  await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create Knowledge Base' }).click()
+  await page.getByLabel('Name').fill('Restricted handbook')
+  await page.getByRole('dialog').getByRole('button', { name: 'Create Knowledge Base' }).click()
+
+  await expect(page.getByText('You cannot create knowledge bases in this workspace')).toBeVisible()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page).toHaveURL(/\/knowledge$/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('token'))).toBe('test-token')
+})
+
+test('knowledge network failure preserves the form for retry', async ({ page }) => {
+  await page.route('**/api/v1/knowledge', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    await route.abort('connectionfailed')
+  })
+
+  await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create Knowledge Base' }).click()
+  await page.getByLabel('Name').fill('Offline handbook')
+  const submit = page.getByRole('dialog').getByRole('button', { name: 'Create Knowledge Base' })
+  await submit.click()
+
+  await expect(page.getByText('Network Error')).toBeVisible()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByLabel('Name')).toHaveValue('Offline handbook')
+  await expect(submit).toBeEnabled()
+})
+
 test('knowledge list renders api data', async ({ page }) => {
   await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Knowledge Alpha', { exact: true })).toBeVisible({ timeout: 15_000 })

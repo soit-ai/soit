@@ -12,7 +12,6 @@ import {
   History,
   Star,
   Users,
-  BarChart,
   Search,
   Database,
   User,
@@ -21,9 +20,7 @@ import {
   Shield,
   Lock,
   Info,
-  CreditCard,
   Bell,
-  Palette,
   ChevronRightIcon,
   ChevronDownIcon,
   ServerIcon,
@@ -132,46 +129,12 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       section: 'system',
     },
     {
-      id: 'privacy',
-      icon: <Lock size={16} />,
-      label: t('system.settings.sidebar.menu.privacy.label'),
-      description: t('system.settings.sidebar.menu.privacy.description'),
-      url: '/settings/privacy',
-      section: 'system',
-    },
-    {
-      id: 'billing',
-      icon: <CreditCard size={16} />,
-      label: t('system.settings.sidebar.menu.billing.label'),
-      description: t('system.settings.sidebar.menu.billing.description'),
-      url: '/settings/billing',
-      section: 'system',
-      badge: 1,
-      status: 'warning',
-    },
-    {
       id: 'notifications',
       icon: <Bell size={16} />,
       label: t('system.settings.sidebar.menu.notifications.label'),
       description: t('system.settings.sidebar.menu.notifications.description'),
       url: '/settings/notifications',
       section: 'system',
-    },
-    {
-      id: 'appearance',
-      icon: <Palette size={16} />,
-      label: t('system.settings.sidebar.menu.appearance.label'),
-      description: t('system.settings.sidebar.menu.appearance.description'),
-      url: '/settings/appearance',
-      section: 'advanced',
-    },
-    {
-      id: 'analytics',
-      icon: <BarChart size={16} />,
-      label: t('system.settings.sidebar.menu.analytics.label'),
-      description: t('system.settings.sidebar.menu.analytics.description'),
-      url: '/settings/analytics',
-      section: 'advanced',
     },
     {
       id: 'about',
@@ -407,26 +370,22 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <ServerIcon className="mr-2 h-5 w-5 text-primary" />
               <h3 className="font-semibold">{t('system.settings.sidebar.info.title')}</h3>
             </div>
-            <div className="text-sm text-muted-foreground mt-2">
-              <div className="flex items-center justify-between py-1">
-                <span>{t('system.settings.sidebar.info.version')}</span>
-                <Badge variant="outline">v1.5.2</Badge>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span>{t('system.settings.sidebar.info.status')}</span>
-                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  {t('system.settings.sidebar.info.statusNormal')}
-                </Badge>
-              </div>
+            <div className="mt-2 flex items-center justify-between py-1 text-sm text-muted-foreground">
+              <span>Edition</span>
+              <Badge variant="outline">Community</Badge>
             </div>
             <div className="flex justify-between mt-2 pt-2 border-t text-xs">
-                <Button variant="ghost" size="sm" className="h-7 gap-1">
-                  <BarChart className="h-3.5 w-3.5" />
+                <Button variant="ghost" size="sm" className="h-7 gap-1" asChild>
+                  <a href="https://docs.soit.ai" target="_blank" rel="noreferrer">
+                  <BookOpen className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.docs')}</span>
+                  </a>
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 gap-1">
+                <Button variant="ghost" size="sm" className="h-7 gap-1" asChild>
+                  <a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer">
                   <Github className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.github')}</span>
+                  </a>
                 </Button>
               </div>
           </div>

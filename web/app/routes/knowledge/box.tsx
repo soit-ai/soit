@@ -9,11 +9,17 @@ import {
   MoreHorizontal,
   Plus,
   SquareStack,
+  Loader2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import {
   MetricStrip,
   BoxAlert,
@@ -26,11 +32,19 @@ import {
   type BoxToolbarTab,
 } from '@/components/box'
 import { useNavigate } from '@/hooks/use-navigate'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { cn } from '@/lib/utils'
-import { getKnowledgeWorkbench, getKnowledgeWorkbenchItems, type KnowledgeWorkbenchRow } from '@/services/knowledge-service'
+import {
+  createKnowledgeBase,
+  getKnowledgeWorkbench,
+  getKnowledgeWorkbenchItems,
+  type KnowledgeCreateRequest,
+  type KnowledgeWorkbenchRow,
+} from '@/services/knowledge-service'
+import { toast } from 'sonner'
+import { requestErrorMessage } from '@/utils/request'
 
 type KnowledgeStatus = KnowledgeWorkbenchRow['status']
 
@@ -206,12 +220,44 @@ function OperationButtons({ row }: { row: KnowledgeWorkbenchRow }) {
 
 function KnowledgeBoxPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('all')
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageTokens, setPageTokens] = useState<Array<string | undefined>>([undefined])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState<KnowledgeCreateRequest>({
+    name: '',
+    description: '',
+    knowledge_type: 'document',
+    visibility: 'workspace',
+  })
   const tableKeyword = search.trim()
   const pageToken = pageTokens[currentPage - 1]
+  const createMutation = useMutation({
+    mutationKey: ['knowledge', 'create'],
+    mutationFn: (data: KnowledgeCreateRequest) => createKnowledgeBase(data, { suppressErrorToast: true }),
+    onSuccess: (knowledge) => {
+      setCreateOpen(false)
+      navigate(`/knowledge/${knowledge.id}`)
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to create knowledge base'))
+    },
+  })
+
+  const submitCreate = () => {
+    const name = createForm.name.trim()
+    if (!name) {
+      toast.error('Knowledge base name is required')
+      return
+    }
+    createMutation.mutate({
+      ...createForm,
+      name,
+      description: createForm.description?.trim() || undefined,
+    })
+  }
 
   const {
     data: workbench,
@@ -358,7 +404,10 @@ function KnowledgeBoxPage() {
         title={t('knowledge.workspaceDashboard.header.title')}
         description={t('knowledge.workspaceDashboard.header.description')}
         action={(
-          <Button className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400">
+          <Button
+            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+            onClick={() => setCreateOpen(true)}
+          >
             <Plus className="h-4 w-4" />
             {t('knowledge.workspaceDashboard.header.create')}
           </Button>
@@ -412,6 +461,71 @@ function KnowledgeBoxPage() {
           page: t('knowledge.workspaceDashboard.pagination.page'),
         }}
       />
+
+      <Dialog open={createOpen} onOpenChange={(open) => !createMutation.isPending && setCreateOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Knowledge Base</DialogTitle>
+            <DialogDescription>Create an empty knowledge base, then add and index documents from its detail page.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="knowledge-name">Name</Label>
+              <Input
+                id="knowledge-name"
+                autoFocus
+                value={createForm.name}
+                onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="knowledge-description">Description</Label>
+              <Textarea
+                id="knowledge-description"
+                value={createForm.description || ''}
+                onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="knowledge-type">Type</Label>
+                <Select
+                  value={createForm.knowledge_type}
+                  onValueChange={(value) => setCreateForm((current) => ({ ...current, knowledge_type: value as KnowledgeCreateRequest['knowledge_type'] }))}
+                >
+                  <SelectTrigger id="knowledge-type" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="document">Documents</SelectItem>
+                    <SelectItem value="qa">Question and answer</SelectItem>
+                    <SelectItem value="code">Code</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="knowledge-visibility">Visibility</Label>
+                <Select
+                  value={createForm.visibility}
+                  onValueChange={(value) => setCreateForm((current) => ({ ...current, visibility: value }))}
+                >
+                  <SelectTrigger id="knowledge-visibility" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="private">Private</SelectItem>
+                    <SelectItem value="workspace">Workspace</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={createMutation.isPending} onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button disabled={createMutation.isPending || !createForm.name.trim()} onClick={submitCreate}>
+              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Create Knowledge Base
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </BoxShell>
   )
 }

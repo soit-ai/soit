@@ -472,7 +472,9 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
 
 const ComposerAction: FC = () => {
   const text = useAuiState(({ composer }) => composer.text)
+  const attachmentCount = useAuiState(({ composer }) => composer.attachments.length)
   const { t } = useTranslation()
+  const canSend = text.trim().length > 0 || attachmentCount > 0
 
   return (
     <>
@@ -483,9 +485,9 @@ const ComposerAction: FC = () => {
             variant="default"
             className={cn(
               'my-1 size-9 p-2 text-primary-foreground rounded-lg transition-all duration-300 shadow-sm',
-              text.length > 0 ? 'bg-primary hover:bg-primary/90 hover:shadow-md hover:scale-105 active:scale-95' : 'bg-primary/50 cursor-not-allowed'
+              canSend ? 'bg-primary hover:bg-primary/90 hover:shadow-md hover:scale-105 active:scale-95' : 'bg-primary/50 cursor-not-allowed'
             )}
-            disabled={text.length === 0}
+            disabled={!canSend}
           >
             <SendHorizontalIcon className="size-4" />
           </TooltipIconButton>

@@ -246,13 +246,6 @@ const system = {
         savedTitle: '已保存',
         savedDescription: '您的个人资料已更新',
       },
-      defaults: {
-        name: '张三',
-        role: '管理员',
-        company: '示例科技有限公司',
-        title: '产品经理',
-        bio: '热爱科技和创新的产品经理，专注于人工智能和数据分析领域。',
-      },
     },
     secrets: {
       title: '密钥管理',
@@ -418,16 +411,6 @@ const system = {
         memberRemovedDescription: '团队成员已成功移除',
         roleUpdated: '角色已更新',
         roleUpdatedDescription: '成员角色已成功更新',
-      },
-      defaults: {
-        name: '示例团队',
-        description: '这是一个示例团队，专注于产品开发和创新。',
-        members: {
-          admin: { name: '张三' },
-          memberOne: { name: '李四' },
-          memberTwo: { name: '王五' },
-          guest: { name: '赵六' },
-        },
       },
     },
     security: {

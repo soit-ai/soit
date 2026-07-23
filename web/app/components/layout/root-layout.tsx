@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useSearchParams } from 'react-router'
+import { Outlet, useLocation, useNavigate as useRouterNavigate, useSearchParams } from 'react-router'
 
 import { RootSidebar } from '@/components/nav/root-sidebar'
 import { SidebarProvider } from '@/components/ui/sidebar'
@@ -7,9 +7,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { RootHeader } from '@/components/nav/root-header'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
+import { signInRouteFor } from '@/utils/auth-session'
 
 export default function RootLayout() {
   const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useRouterNavigate()
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
   const clearUser = useUserStore((state) => state.clearUser)
 
@@ -20,6 +23,8 @@ export default function RootLayout() {
     const token = localStorage.getItem('token')
     if (!token) {
       clearUser()
+      const returnTo = `${location.pathname}${location.search}${location.hash}`
+      navigate(signInRouteFor(returnTo), { replace: true })
       return
     }
     let canceled = false
@@ -37,7 +42,11 @@ export default function RootLayout() {
     return () => {
       canceled = true
     }
-  }, [clearUser, setCurrentUser])
+  }, [clearUser, location.hash, location.pathname, location.search, navigate, setCurrentUser])
+
+  if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+    return null
+  }
 
   return (
     <SidebarProvider

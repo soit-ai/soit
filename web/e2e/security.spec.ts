@@ -122,3 +122,29 @@ test('workspace egress policy can be edited from settings', async ({ page }) => 
   await expect(auditRow.getByRole('cell', { name: '2', exact: true })).toBeVisible()
   await expect(auditRow.getByRole('cell', { name: '1', exact: true })).toBeVisible()
 })
+
+test('community settings do not simulate security, privacy, or billing operations', async ({ page }) => {
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Community 1.0 security scope')).toBeVisible()
+  await expect(page.getByText('Chrome / Windows')).toHaveCount(0)
+  await expect(page.getByText('ABCD EFGH IJKL MNOP')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /sign out other sessions/i })).toHaveCount(0)
+
+  await page.goto('/settings/privacy', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Self-service privacy operations are unavailable')).toBeVisible()
+  await expect(page.getByRole('button', { name: /export|delete/i })).toHaveCount(0)
+
+  await page.goto('/settings/billing', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Billing is not part of SOIT Community')).toBeVisible()
+  await expect(page.getByText('4242')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /upgrade|payment|invoice/i })).toHaveCount(0)
+
+  await page.goto('/settings/analytics', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Preference and export APIs are unavailable')).toBeVisible()
+  await expect(page.getByRole('button', { name: /save|export/i })).toHaveCount(0)
+
+  await page.goto('/settings/about', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Community build')).toBeVisible()
+  await expect(page.getByText('张三')).toHaveCount(0)
+  await expect(page.getByText('2025-05-30')).toHaveCount(0)
+})

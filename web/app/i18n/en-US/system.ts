@@ -246,13 +246,6 @@ const system = {
         savedTitle: 'Saved',
         savedDescription: 'Your profile has been updated',
       },
-      defaults: {
-        name: 'Alex Chen',
-        role: 'Administrator',
-        company: 'Example Technology Co.',
-        title: 'Product Manager',
-        bio: 'Product manager focused on AI and data analytics.',
-      },
     },
     secrets: {
       title: 'Secrets',
@@ -418,16 +411,6 @@ const system = {
         memberRemovedDescription: 'Team member removed successfully',
         roleUpdated: 'Role updated',
         roleUpdatedDescription: 'Member role updated successfully',
-      },
-      defaults: {
-        name: 'Example Team',
-        description: 'A sample team focused on product development and innovation.',
-        members: {
-          admin: { name: 'Alex Chen' },
-          memberOne: { name: 'Jamie Lee' },
-          memberTwo: { name: 'Morgan Liu' },
-          guest: { name: 'Taylor Zhao' },
-        },
       },
     },
     security: {

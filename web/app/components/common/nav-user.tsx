@@ -1,14 +1,14 @@
 'use client'
 
-import { BadgeCheck, Bell, ChevronsUpDown, CreditCard, LogOut, Sparkles } from 'lucide-react'
+import { BadgeCheck, Bell, LogOut } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { useNavigate } from '@/hooks/use-navigate'
-import { storage } from '@/utils/storage'
 import { useUserStore } from '@/stores/user'
 import { useQueryClient } from '@tanstack/react-query'
+import { clearAuthSessionStorage } from '@/utils/auth-session'
 
 export function NavUser({
   user,
@@ -31,8 +31,7 @@ export function NavUser({
   const handleLogout = async () => {
     queryClient.clear()
     clearUser()
-    await storage.delete('token')
-    await storage.delete('workspace_id')
+    clearAuthSessionStorage()
     navigate('/sign-in')
   }
 
@@ -84,22 +83,11 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
-                Upgrade to Pro
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/settings/account')}>
                 <BadgeCheck />
                 Account
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Billing
-              </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/notifications')}>
                 <Bell />
                 Notifications
               </DropdownMenuItem>

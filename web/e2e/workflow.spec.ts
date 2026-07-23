@@ -847,6 +847,57 @@ test.beforeEach(async ({ page }) => {
   await mockWorkflowApi(page)
 })
 
+test('empty workspace creates a workflow before opening Builder', async ({ page }) => {
+  let createPayload: Record<string, unknown> | null = null
+  await page.route('**/api/v1/workflows', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    createPayload = JSON.parse(route.request().postData() || '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: {
+          ...mockWorkflow,
+          id: 'workflow-created',
+          name: 'Untitled workflow',
+          current_version_id: null,
+        },
+      }),
+    })
+  })
+
+  await page.goto('/workflow', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create Workflow' }).click()
+
+  await expect.poll(() => createPayload).toMatchObject({ name: 'Untitled workflow' })
+  await expect(page).toHaveURL(/\/workflow\/workflow-created\/build$/)
+  await expect(page).not.toHaveURL(/\/workflow\/new\/build$/)
+})
+
+test('workflow creation failure is recoverable and never opens a synthetic id', async ({ page }) => {
+  await page.route('**/api/v1/workflows', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'SERVICE_UNAVAILABLE', message: 'Workflow creation unavailable', data: null }),
+    })
+  })
+
+  await page.goto('/workflow', { waitUntil: 'domcontentloaded' })
+  const createButton = page.getByRole('button', { name: 'Create Workflow' })
+  await createButton.click()
+
+  await expect(page).toHaveURL(/\/workflow$/)
+  await expect(page.getByText('Workflow creation unavailable')).toBeVisible()
+  await expect(createButton).toBeEnabled()
+})
+
 test('truthful settings keep real visibility controls and link execution settings to Builder', async ({ page }) => {
   let workflowUpdate: Record<string, unknown> | null = null
   await page.route('**/api/v1/workflows/workflow-1', async (route) => {

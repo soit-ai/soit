@@ -1,4 +1,4 @@
-import request, { del, get, post, put, patch } from '@/utils/request'
+import request, { del, get, post, put, patch, type RequestConfigWithToast } from '@/utils/request'
 import type { RunCostByMode, RunCostSummary, RunResponse } from './run-service'
 import type { PaginatedResponse } from '@/types/api'
 
@@ -321,8 +321,11 @@ export const getKnowledgeBase = (knowledgeId: string): Promise<KnowledgeBase> =>
   return get<KnowledgeBase>(`/knowledge/${knowledgeId}`)
 }
 
-export const createKnowledgeBase = (data: KnowledgeCreateRequest): Promise<KnowledgeBase> => {
-  return post<KnowledgeBase>('/knowledge', data)
+export const createKnowledgeBase = (
+  data: KnowledgeCreateRequest,
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeBase> => {
+  return post<KnowledgeBase>('/knowledge', data, config)
 }
 
 export const updateKnowledgeBase = (knowledgeId: string, data: KnowledgeUpdateRequest): Promise<KnowledgeBase> => {

@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Users, Building, Shield, Settings, MoreVertical, PlusCircle, Trash2, Edit, Mail, UserPlus } from 'lucide-react'
+import { Users, Building, Shield, MoreVertical, Trash2, UserPlus } from 'lucide-react'
 import { addWorkspaceMember, getCurrentUser, getWorkspace, listWorkspaceMembers, removeWorkspaceMember, updateWorkspace, updateWorkspaceMemberRole } from '@/services/identity-service'
 import { useQuery } from '@/hooks/use-query'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -52,8 +52,8 @@ function Page() {
 
   // Team basic info.
   const [teamInfo, setTeamInfo] = useState({
-    name: t('system.settings.team.defaults.name'),
-    description: t('system.settings.team.defaults.description'),
+    name: '',
+    description: '',
     avatar: '',
     website: '',
     industry: 'tech',
@@ -61,9 +61,7 @@ function Page() {
   })
   
   // Team members.
-  const [members, setMembers] = useState([
-    { id: '1', name: t('system.settings.team.defaults.members.admin.name'), email: 'zhangsan@example.com', role: 'admin', avatar: '', status: 'active' },
-  ])
+  const [members, setMembers] = useState<Array<{ id: string, name: string, email: string, role: string, avatar: string, status: string }>>([])
   
   // Team permission settings.
   const [permissions, setPermissions] = useState({
@@ -317,7 +315,13 @@ function Page() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map(member => (
+                  {members.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                        No workspace members returned by the server.
+                      </TableCell>
+                    </TableRow>
+                  ) : members.map(member => (
                     <TableRow key={member.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -363,10 +367,6 @@ function Page() {
                               {t('system.settings.team.members.actions.makeGuest')}
                             </DropdownMenuItem>
                             <Separator className="my-2" />
-                            <DropdownMenuItem onClick={() => {}}>
-                              <Mail className="mr-2 h-4 w-4" />
-                              {t('system.settings.team.members.actions.sendEmail')}
-                            </DropdownMenuItem>
                             <DropdownMenuItem 
                               onClick={() => handleRemoveMember(member.id)}
                               className="text-red-600 focus:text-red-600"
@@ -399,7 +399,6 @@ function Page() {
                     <AvatarImage src={teamInfo.avatar || ''} />
                     <AvatarFallback className="text-2xl">{teamInfo.name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <Button variant="outline" size="sm">{t('system.settings.team.info.changeAvatar')}</Button>
                 </div>
                 <div className="flex-1 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -74,6 +74,7 @@ let _storage = {
     }
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(key)
+      window.localStorage.removeItem(key + '_typeof')
       return true
     }
     return false

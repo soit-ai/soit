@@ -4,12 +4,13 @@ import axios, { type AxiosRequestConfig } from 'axios'
 import { debugLog } from './debug'
 import { uuidv4 } from './uuid'
 import type { ApiEnvelope } from '@/types/api'
+import { clearAuthSessionStorage, currentLocalRoute, signInRouteFor } from '@/utils/auth-session'
 
 const TIME_OUT = 100000
 const BASE_URL = (import.meta.env.VITE_BASE_URL || '/api/v1').replace(/\/$/, '')
 export const API_BASE_URL = BASE_URL
 const ERROR_CODES_OK = new Set([0, 200])
-const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized', 'forbidden', 'UNAUTHORIZED', 'FORBIDDEN'])
+const ERROR_CODES_UNAUTHORIZED = new Set(['unauthorized'])
 const AUTO_REDIRECT_UNAUTHORIZED = true
 
 export const ContentType = {
@@ -30,6 +31,14 @@ const request = axios.create({
 
 export type RequestConfigWithToast = AxiosRequestConfig & {
   suppressErrorToast?: boolean
+}
+
+export function requestErrorMessage(error: unknown, fallback: string): string {
+  const responseMessage = (error as { response?: { data?: { message?: unknown } } } | null)?.response?.data?.message
+  if (typeof responseMessage === 'string' && responseMessage.trim()) {
+    return responseMessage
+  }
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 export function buildAuthHeaders(existing?: Record<string, string>): Record<string, string> {
@@ -98,7 +107,7 @@ request.interceptors.response.use(
     const msg = resolveResponseError(response?.data)
     if (msg) {
       let _key = uuidv4()
-      isUnauthorizedError(response?.data?.code) && (_key = 'nologin_notice')
+      isUnauthorizedError(response?.data?.code, response?.status) && (_key = 'nologin_notice')
       debugLog('response.use msg', msg, _key)
       const suppressErrorToast = Boolean((response?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
       if (!suppressErrorToast) {
@@ -112,7 +121,7 @@ request.interceptors.response.use(
     debugLog('Response ErrorHandler error:', error, error?.response?.data)
     let _key = uuidv4()
     let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
-    isUnauthorizedError(error?.response?.data?.code) && (_key = 'nologin_notice')
+    isUnauthorizedError(error?.response?.data?.code, error?.response?.status) && (_key = 'nologin_notice')
     debugLog('Response ErrorHandler resolved message:', msg, _key)
     const suppressErrorToast = Boolean((error?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
     if (!suppressErrorToast) {
@@ -122,18 +131,18 @@ request.interceptors.response.use(
   }
 )
 
-function isUnauthorizedError(code: number | string | null | undefined): boolean {
-  if (code === null || code === undefined) {
-    return false
-  }
-  if (ERROR_CODES_UNAUTHORIZED.has(code.toString().toLowerCase())) {
+function isUnauthorizedError(code: number | string | null | undefined, status?: number): boolean {
+  const unauthorized = status === 401 || (
+    code !== null && code !== undefined && ERROR_CODES_UNAUTHORIZED.has(code.toString().toLowerCase())
+  )
+  if (unauthorized) {
     debugLog('isUnauthorizedError', code)
     if (AUTO_REDIRECT_UNAUTHORIZED) {
       setTimeout(() => {
-        // Preserve current URL.
-        let url = encodeURIComponent(window.location.href)
-        // Redirect with return URL.
-        window.location.href = `/sign-in?redirect=${url}`
+        if (window.location.pathname === '/sign-in') return
+        const returnTo = currentLocalRoute()
+        clearAuthSessionStorage()
+        window.location.href = signInRouteFor(returnTo)
       }, 1000)
     }
     return true
