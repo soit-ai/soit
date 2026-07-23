@@ -806,6 +806,7 @@ class IdentityService:
         cache = get_permission_cache()
         self._run_async(
             cache.invalidate_permission(
+                ctx=ctx,
                 user_id=user_id,
                 resource_type=resource_type,
                 resource_id=resource_id,

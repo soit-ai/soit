@@ -3,8 +3,11 @@
 Unit tests for resource-level permission checks.
 """
 
+from fnmatch import fnmatch
+
 import pytest
 
+import app.kernel.identity.permissions as permissions
 from app.kernel.commons.errors import ForbiddenError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.permissions import (
@@ -29,6 +32,25 @@ class AllowExecuteGrantProvider:
 class FailingGrantProvider:
     def allows_resource_action(self, *, ctx, resource_type, resource_id, action, effective_action) -> bool:
         raise RuntimeError("repository unavailable")
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self.values.get(key)
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        self.values[key] = value
+
+    async def scan_iter(self, match: str):
+        for key in list(self.values):
+            if fnmatch(key, match):
+                yield key
+
+    async def delete(self, key: str) -> None:
+        self.values.pop(key, None)
 
 
 @pytest.mark.asyncio
@@ -104,6 +126,76 @@ def test_permission_cache_key_includes_scope_and_roles():
         "kb-1",
         "run",
     )
+
+
+@pytest.mark.asyncio
+async def test_permission_cache_invalidation_is_scoped_and_uses_injected_redis():
+    redis = FakeRedis()
+    reader_cache = PermissionCache(redis_client=redis)
+    writer_cache = PermissionCache(redis_client=redis)
+    workspace_one = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="shared-user",
+        workspace_role="Viewer",
+    )
+    workspace_two = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-2",
+        user_id="shared-user",
+        workspace_role="Viewer",
+    )
+
+    await reader_cache.set_cached_permission(
+        workspace_one, "workflow", "wf-shared", "write", True
+    )
+    await reader_cache.set_cached_permission(
+        workspace_two, "workflow", "wf-shared", "write", True
+    )
+    assert len(redis.values) == 2
+
+    await writer_cache.invalidate_permission(
+        ctx=workspace_one,
+        user_id="shared-user",
+        resource_type="workflow",
+        resource_id="wf-shared",
+    )
+
+    assert (
+        await reader_cache.get_cached_permission(
+            workspace_one, "workflow", "wf-shared", "write"
+        )
+        is None
+    )
+    assert (
+        await reader_cache.get_cached_permission(
+            workspace_two, "workflow", "wf-shared", "write"
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_resource_grant_allow_is_not_cached(monkeypatch):
+    redis = FakeRedis()
+    monkeypatch.setattr(permissions, "_permission_cache", PermissionCache(redis))
+    reset_resource_grant_provider()
+    register_resource_grant_provider(AllowExecuteGrantProvider())
+    ctx = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="shared-user",
+        workspace_role="Viewer",
+    )
+
+    await require_resource_write_async(
+        ctx,
+        resource_type="workflow",
+        resource_id="wf-shared",
+    )
+
+    assert redis.values == {}
+    reset_resource_grant_provider()
 
 
 @pytest.mark.asyncio

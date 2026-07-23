@@ -30,6 +30,7 @@ ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_RUN = "run"
 ACTION_EXECUTE_ALIAS = "execute"
+PERMISSION_CACHE_VERSION = "v2"
 
 
 class ResourceGrantProvider(Protocol):
@@ -94,10 +95,10 @@ class PermissionCache:
         Returns:
             Redis client instance or None if Redis unavailable.
         """
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            return None
         if self._redis is not None:
             return self._redis
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return None
         if not settings.redis_url or "None" in settings.redis_url:
             return None
 
@@ -183,13 +184,15 @@ class PermissionCache:
         action: str,
     ) -> str:
         return (
-            f"perm:{ctx.user_id}:{ctx.tenant_id}:{ctx.workspace_id}:"
+            f"perm:{PERMISSION_CACHE_VERSION}:{ctx.user_id}:"
+            f"{ctx.tenant_id}:{ctx.workspace_id}:"
             f"{ctx.tenant_role or ''}:{ctx.workspace_role or ''}:"
             f"{resource_type}:{resource_id}:{action}"
         )
 
     async def invalidate_permission(
         self,
+        ctx: RequestContext,
         user_id: str | None = None,
         resource_type: str | None = None,
         resource_id: str | None = None,
@@ -197,6 +200,7 @@ class PermissionCache:
         """Invalidate cached permissions.
 
         Args:
+            ctx: Tenant and workspace scope to invalidate.
             user_id: Optional user ID (if None, invalidate all users).
             resource_type: Optional resource type.
             resource_id: Optional resource ID.
@@ -209,15 +213,27 @@ class PermissionCache:
             patterns: list[str] = []
             aliases = _resource_type_aliases(resource_type) if resource_type else ()
             if user_id and resource_type and resource_id:
-                patterns = [f"perm:{user_id}:{alias}:{resource_id}:*" for alias in aliases]
+                patterns = [
+                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:{alias}:{resource_id}:*"
+                    for alias in aliases
+                ]
             elif user_id and resource_type:
-                patterns = [f"perm:{user_id}:{alias}:*" for alias in aliases]
+                patterns = [
+                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:{alias}:*"
+                    for alias in aliases
+                ]
             elif user_id:
-                # Invalidate all permissions for user
-                patterns = [f"perm:{user_id}:*"]
+                patterns = [
+                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*"
+                ]
             else:
-                # Invalidate all permissions (use with caution)
-                patterns = ["perm:*"]
+                patterns = [
+                    f"perm:{PERMISSION_CACHE_VERSION}:*:"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*"
+                ]
 
             # Redis SCAN and delete
             for pattern in patterns:
@@ -303,25 +319,26 @@ async def check_resource_permission(
     if resource_owner_id and resource_owner_id == ctx.user_id:
         allowed = True
 
+    granted_by_resource_grant = False
     if not allowed:
-        grant_allowed = _check_resource_grant(
+        granted_by_resource_grant = _check_resource_grant(
             ctx=ctx,
             resource_type=resource_type,
             resource_id=resource_id,
             action=action_key,
             effective_action=effective_action,
         )
-        if grant_allowed:
+        if granted_by_resource_grant:
             allowed = True
 
-    # Cache result
-    await cache.set_cached_permission(
-        ctx=ctx,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        action=action,
-        allowed=allowed,
-    )
+    if not granted_by_resource_grant:
+        await cache.set_cached_permission(
+            ctx=ctx,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action,
+            allowed=allowed,
+        )
 
     if not allowed:
         raise ForbiddenError(
