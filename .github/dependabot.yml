@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /server
+    schedule:
+      interval: weekly
+    groups:
+      backend-runtime:
+        dependency-type: production
+      backend-development:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      frontend-runtime:
+        dependency-type: production
+      frontend-development:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /web
+    schedule:
+      interval: weekly

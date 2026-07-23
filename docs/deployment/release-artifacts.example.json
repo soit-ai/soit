@@ -1,0 +1,65 @@
+{
+  "featureKey": "release.artifacts",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "release_tag": "v1.0.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "clean_worktree_at_tag": true,
+  "publishedAt": "2026-07-23T18:00:00Z",
+  "release_url": "https://github.com/soit-ai/soit/releases/tag/v1.0.0",
+  "release_notes": "docs/releases/v1.0.0.md",
+  "source_archive": {
+    "path": "soit-1.0.0.tar.gz",
+    "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "provenance_attestation": "https://github.com/soit-ai/soit/attestations/source-example"
+  },
+  "checksums": {
+    "path": "SHA256SUMS",
+    "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "provenance_attestation": "https://github.com/soit-ai/soit/attestations/checksums-example"
+  },
+  "images": [
+    {
+      "component": "server",
+      "name": "ghcr.io/soit-ai/soit/server",
+      "release_tag": "v1.0.0",
+      "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "reference": "ghcr.io/soit-ai/soit/server@sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "sbom": {
+        "format": "spdx-json",
+        "path": "server.spdx.json",
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "attestation": "https://github.com/soit-ai/soit/attestations/server-sbom-example"
+      },
+      "provenance_attestation": "https://github.com/soit-ai/soit/attestations/server-provenance-example"
+    },
+    {
+      "component": "knowledge-worker",
+      "name": "ghcr.io/soit-ai/soit/knowledge-worker",
+      "release_tag": "v1.0.0",
+      "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "reference": "ghcr.io/soit-ai/soit/knowledge-worker@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "sbom": {
+        "format": "spdx-json",
+        "path": "knowledge-worker.spdx.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attestation": "https://github.com/soit-ai/soit/attestations/knowledge-worker-sbom-example"
+      },
+      "provenance_attestation": "https://github.com/soit-ai/soit/attestations/knowledge-worker-provenance-example"
+    },
+    {
+      "component": "web",
+      "name": "ghcr.io/soit-ai/soit/web",
+      "release_tag": "v1.0.0",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reference": "ghcr.io/soit-ai/soit/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sbom": {
+        "format": "spdx-json",
+        "path": "web.spdx.json",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "attestation": "https://github.com/soit-ai/soit/attestations/web-sbom-example"
+      },
+      "provenance_attestation": "https://github.com/soit-ai/soit/attestations/web-provenance-example"
+    }
+  ]
+}

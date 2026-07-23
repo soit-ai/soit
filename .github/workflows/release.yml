@@ -1,0 +1,338 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
+  security:
+    uses: ./.github/workflows/security.yml
+
+  validate-release:
+    name: validate-release
+    runs-on: ubuntu-latest
+    outputs:
+      image_namespace: ${{ steps.identity.outputs.image_namespace }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag, versions, release notes, and clean source
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          image_namespace="${GITHUB_REPOSITORY,,}"
+          python - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          version = sys.argv[1]
+          root = pathlib.Path.cwd()
+          server_version = tomllib.loads((root / "server" / "pyproject.toml").read_text())["project"]["version"]
+          web_version = json.loads((root / "web" / "package.json").read_text())["version"]
+          if server_version != version or web_version != version:
+              raise SystemExit(
+                  f"tag version {version} does not match server={server_version} web={web_version}"
+              )
+          release_notes = root / "docs" / "releases" / f"v{version}.md"
+          if not release_notes.is_file():
+              raise SystemExit(f"missing release notes: {release_notes}")
+          PY
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image_namespace=$image_namespace" >> "$GITHUB_OUTPUT"
+
+  build-images:
+    name: build-${{ matrix.component }}
+    needs:
+      - quality
+      - security
+      - validate-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - component: server
+            context: server
+            dockerfile: server/Dockerfile
+            target: runtime
+          - component: knowledge-worker
+            context: server
+            dockerfile: server/Dockerfile
+            target: knowledge-worker
+          - component: web
+            context: web
+            dockerfile: web/Dockerfile
+            target: runtime
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}:${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.validate-release.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          artifact-name: image-sbom-${{ matrix.component }}
+          output-file: artifacts/${{ matrix.component }}.spdx.json
+          upload-release-assets: false
+
+      - name: Attest image build provenance
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest image SBOM
+        id: sbom-attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: artifacts/${{ matrix.component }}.spdx.json
+          push-to-registry: true
+
+      - name: Record digest and attestation identity
+        env:
+          COMPONENT: ${{ matrix.component }}
+          IMAGE_NAME: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          PROVENANCE_URL: ${{ steps.provenance.outputs.attestation-url }}
+          SBOM_ATTESTATION_URL: ${{ steps.sbom-attestation.outputs.attestation-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sbom_path="artifacts/${COMPONENT}.spdx.json"
+          sbom_sha="$(sha256sum "$sbom_path" | cut -d' ' -f1)"
+          jq -n \
+            --arg component "$COMPONENT" \
+            --arg name "$IMAGE_NAME" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg reference "${IMAGE_NAME}@${IMAGE_DIGEST}" \
+            --arg sbom_path "${COMPONENT}.spdx.json" \
+            --arg sbom_sha "$sbom_sha" \
+            --arg sbom_attestation "$SBOM_ATTESTATION_URL" \
+            --arg provenance "$PROVENANCE_URL" \
+            '{
+              component: $component,
+              name: $name,
+              release_tag: $release_tag,
+              digest: $digest,
+              reference: $reference,
+              sbom: {
+                format: "spdx-json",
+                path: $sbom_path,
+                sha256: $sbom_sha,
+                attestation: $sbom_attestation
+              },
+              provenance_attestation: $provenance
+            }' > "artifacts/image-${COMPONENT}.json"
+
+      - name: Upload image identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-metadata-${{ matrix.component }}
+          path: artifacts/image-${{ matrix.component }}.json
+          if-no-files-found: error
+
+  publish-release:
+    name: publish-release
+    needs:
+      - validate-release
+      - build-images
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download image metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-metadata-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download image SBOMs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-sbom-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create deterministic source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          git archive \
+            --format=tar.gz \
+            --prefix="soit-${version}/" \
+            --output="artifacts/soit-${version}.tar.gz" \
+            "$GITHUB_SHA"
+          git diff --exit-code
+
+      - name: Generate source and license SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: artifacts/source.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Create artifact checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd artifacts
+            sha256sum ./soit-*.tar.gz ./*.spdx.json | sort -k2 > SHA256SUMS
+          )
+
+      - name: Attest source archive provenance
+        id: source-provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/soit-${{ needs.validate-release.outputs.version }}.tar.gz
+
+      - name: Attest source archive SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/soit-${{ needs.validate-release.outputs.version }}.tar.gz
+          sbom-path: artifacts/source.spdx.json
+
+      - name: Attest checksum manifest
+        id: checksum-provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/SHA256SUMS
+
+      - name: Build and validate release evidence
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
+          SOURCE_PROVENANCE_URL: ${{ steps.source-provenance.outputs.attestation-url }}
+          CHECKSUM_PROVENANCE_URL: ${{ steps.checksum-provenance.outputs.attestation-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -s 'sort_by(.component)' artifacts/image-*.json > artifacts/images.json
+          source_path="soit-${RELEASE_VERSION}.tar.gz"
+          source_sha="$(sha256sum "artifacts/${source_path}" | cut -d' ' -f1)"
+          checksums_sha="$(sha256sum artifacts/SHA256SUMS | cut -d' ' -f1)"
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg release_tag "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg release_url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}" \
+            --arg release_notes "docs/releases/v${RELEASE_VERSION}.md" \
+            --arg source_path "$source_path" \
+            --arg source_sha "$source_sha" \
+            --arg source_provenance "$SOURCE_PROVENANCE_URL" \
+            --arg checksums_sha "$checksums_sha" \
+            --arg checksums_provenance "$CHECKSUM_PROVENANCE_URL" \
+            --slurpfile images artifacts/images.json \
+            '{
+              featureKey: "release.artifacts",
+              schemaVersion: 1,
+              version: $version,
+              release_tag: $release_tag,
+              commit: $commit,
+              clean_worktree_at_tag: true,
+              publishedAt: $published_at,
+              release_url: $release_url,
+              release_notes: $release_notes,
+              source_archive: {
+                path: $source_path,
+                sha256: $source_sha,
+                provenance_attestation: $source_provenance
+              },
+              checksums: {
+                path: "SHA256SUMS",
+                sha256: $checksums_sha,
+                provenance_attestation: $checksums_provenance
+              },
+              images: $images[0]
+            }' > artifacts/release-artifacts.json
+          python server/scripts/verify_release_artifacts.py artifacts/release-artifacts.json
+          rm artifacts/images.json artifacts/image-*.json
+
+      - name: Attest release evidence
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/release-artifacts.json
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            artifacts/soit-*.tar.gz \
+            artifacts/*.spdx.json \
+            artifacts/SHA256SUMS \
+            artifacts/release-artifacts.json \
+            --verify-tag \
+            --title "SOIT ${GITHUB_REF_NAME}" \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md"

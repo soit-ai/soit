@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DATABASE_USER:-soit}
       POSTGRES_PASSWORD: ${DATABASE_PASS:-soit}
     ports:
-      - "5432:5432"
+      - "${DATABASE_PUBLISHED_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,8 +39,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-soitminio}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-soitminio}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PUBLISHED_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PUBLISHED_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     healthcheck:

@@ -183,6 +183,13 @@ docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milv
 - `api` 启动失败：优先查看 `migrate`/`bootstrap` 容器日志是否失败。
 - `web` 无法访问：确认 `web` 容器健康且 `PORT=5000` 生效。
 
+发布与运维参考：
+
+- [Community 发布流程](docs/release-process.md)
+- [公开前审查清单](docs/publication-review.md)
+- [备份恢复与回滚手册](docs/operations/backup-restore.md)
+- [安全政策](SECURITY.md)
+
 ## 当前 MVP 聚焦
 
 当前非 Docker MVP 质量门禁聚焦一条可重复企业闭环：退款政策知识问答、引用证据、受治理工单工具调用、子工作流运行，以及 Observe 中可检查的响应事件、运行步骤、成本、引用和审计记录。

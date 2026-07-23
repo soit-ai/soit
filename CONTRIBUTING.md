@@ -34,7 +34,7 @@ Backend checks from `server/`:
 uv run pytest
 uv run lint-imports --config importlinter.ini
 uv run ruff check app tests
-uv run mypy app tests
+uv run pyright
 ```
 
 Frontend checks from `web/`:
@@ -63,3 +63,8 @@ Before opening a pull request:
 3. Update public documentation when user-facing behavior changes.
 4. Avoid committing secrets, local credentials, generated build output, or
    machine-specific evidence files.
+5. Review dependency and license changes and update public behavior or operations
+   documentation when the change affects compatibility, security, or recovery.
+
+Report suspected vulnerabilities through the private process in
+[SECURITY.md](SECURITY.md), not in a public issue.

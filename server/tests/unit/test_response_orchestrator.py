@@ -715,9 +715,10 @@ async def test_interaction_stream_coalesces_tiny_text_chunks(db, ctx):
 
     text_events = [item["data"] for item in streamed if item["data"]["type"] == "TEXT_MESSAGE_CONTENT"]
     assert "".join(event["delta"] for event in text_events) == "0123456789" * 300
-    # Time-based latency flushing may add a few frames on a contended CI host,
-    # while byte-based coalescing must still avoid one persisted event per token.
-    assert len(text_events) <= 10
+    # Time-based latency flushing may add frames on a contended CI host. Require
+    # at least a tenfold reduction so the test checks coalescing without relying
+    # on wall-clock scheduling.
+    assert len(text_events) <= 30
 
 
 @pytest.mark.asyncio

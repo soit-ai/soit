@@ -1,0 +1,94 @@
+name: security
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  secret-history:
+    name: secret-history
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks repository and history scan
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          ghcr.io/gitleaks/gitleaks:v8.30.1
+          detect --source=/repo --redact --no-banner
+
+  dependencies-and-licenses:
+    name: dependencies-and-licenses
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: uv sync --frozen
+
+      - name: Python dependency audit
+        working-directory: server
+        run: uv run pip-audit
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Frontend runtime dependency audit
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Validate time-bounded vulnerability exceptions
+        run: >-
+          server/.venv/bin/python server/scripts/verify_vulnerability_exceptions.py
+          security/vulnerability-exceptions.json
+          --trivy-ignore artifacts/trivyignore
+
+      - name: Vulnerability, secret, configuration, and license gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret,misconfig,license
+          trivyignores: artifacts/trivyignore
+
+      - name: Generate dependency and license inventory
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          artifact-name: source-dependencies.spdx.json
+          output-file: artifacts/source-dependencies.spdx.json
+          upload-release-assets: false

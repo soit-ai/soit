@@ -2,6 +2,7 @@ name: quality
 
 on:
   workflow_dispatch:
+  workflow_call:
   pull_request:
   push:
     branches:
@@ -203,7 +204,7 @@ jobs:
 
       - name: Verify backend readiness
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:9200/health/ready | grep --quiet '"status":"ready"'; then
               exit 0
             fi
@@ -224,7 +225,7 @@ jobs:
 
       - name: Verify outbox dispatcher readiness
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:9201/metrics | grep --quiet 'soit_outbox_pending'; then
               exit 0
             fi

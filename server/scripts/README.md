@@ -21,4 +21,8 @@ Available:
 - `migrate.sh`: apply database migrations (alembic upgrade head).
 - `migrate_mcp_artifacts.py`: dry-run by default; pass `--apply` to move legacy MCP credentials to Vault and rewrite artifacts for the official SDK.
 - `verify_release_migration_paths.py`: validate the SOIT 1.0 empty-database and development-database migration evidence JSON before signing the release gate.
+- `verify_backup_manifest.py`: validate backup scope, recovery semantics, and optional local file checksums.
+- `verify_restore_drill.py`: validate an isolated restore drill, including RPO/RTO, component readbacks, smoke tests, and rollback.
+- `verify_release_artifacts.py`: bind a release tag and commit to source archives, image digests, SPDX SBOMs, provenance attestations, and checksums.
+- `verify_vulnerability_exceptions.py`: reject incomplete or expired dependency-vulnerability exceptions and optionally emit a Trivy ignore file.
 - `smoke/run_all.py`: run release smoke tests (workflow/knowledge/responses/secrets).

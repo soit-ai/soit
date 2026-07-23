@@ -1,0 +1,58 @@
+{
+  "featureKey": "operations.backup_manifest",
+  "schemaVersion": 1,
+  "backup_id": "backup_example_20260723T160000Z",
+  "platform_version": "1.0.0",
+  "alembic_revision": "20260723160000",
+  "startedAt": "2026-07-23T16:00:00Z",
+  "finishedAt": "2026-07-23T16:04:00Z",
+  "rpo_target_minutes": 60,
+  "rto_target_minutes": 240,
+  "files": [
+    {
+      "path": "postgres.dump",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size_bytes": 4096
+    },
+    {
+      "path": "alembic-revision.txt",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size_bytes": 15
+    },
+    {
+      "path": "object-storage/example-object.bin",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size_bytes": 128
+    }
+  ],
+  "components": {
+    "postgres": {
+      "strategy": "pg_dump_custom",
+      "files": [
+        "postgres.dump",
+        "alembic-revision.txt"
+      ]
+    },
+    "object_storage": {
+      "strategy": "object_mirror",
+      "files": [
+        "object-storage/example-object.bin"
+      ]
+    },
+    "vector_index": {
+      "recovery_mode": "rebuild_from_canonical_data",
+      "canonical_sources": [
+        "postgres",
+        "object_storage"
+      ],
+      "files": []
+    },
+    "secret_metadata": {
+      "recovery_mode": "postgres_metadata",
+      "secret_values_included": false,
+      "files": [
+        "postgres.dump"
+      ]
+    }
+  }
+}

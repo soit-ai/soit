@@ -228,6 +228,13 @@ We ship in tight, themed iterations. The current focus areas:
 
 See the full [roadmap](./docs/roadmap.md) and [contributing guide](./CONTRIBUTING.md) to track direction and propose changes.
 
+Operational and release references:
+
+- [Community release process](./docs/release-process.md)
+- [Community publication review](./docs/publication-review.md)
+- [Backup and restore runbook](./docs/operations/backup-restore.md)
+- [Security policy](./SECURITY.md)
+
 ## Contributing
 
 We welcome contributions of all sizes. Before opening a PR:

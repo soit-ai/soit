@@ -1,0 +1,58 @@
+{
+  "featureKey": "operations.restore_drill",
+  "schemaVersion": 1,
+  "backup_id": "backup_example_20260723T160000Z",
+  "target_environment": "isolated-restore-drill",
+  "isolated_target": true,
+  "startedAt": "2026-07-23T16:10:00Z",
+  "finishedAt": "2026-07-23T16:55:00Z",
+  "backup_manifest": {
+    "evidence_ref": "evidence/restore-drill/backup-manifest.json",
+    "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "rpo_target_minutes": 60,
+  "rto_target_minutes": 240,
+  "rpo_minutes": 12,
+  "rto_minutes": 45,
+  "components": {
+    "postgres": {
+      "status": "passed",
+      "alembic_revision": "20260723160000",
+      "row_count_readback_passed": true,
+      "evidence_ref": "evidence/restore-drill/postgres-readback.log"
+    },
+    "object_storage": {
+      "status": "passed",
+      "checksum_readback_passed": true,
+      "evidence_ref": "evidence/restore-drill/object-storage-readback.log"
+    },
+    "vector_index": {
+      "status": "passed",
+      "recovery_mode": "rebuild_from_canonical_data",
+      "query_readback_passed": true,
+      "evidence_ref": "evidence/restore-drill/vector-query-readback.json"
+    },
+    "secret_metadata": {
+      "status": "passed",
+      "metadata_readback_passed": true,
+      "secret_values_rotated_or_reconnected": true,
+      "evidence_ref": "evidence/restore-drill/secret-metadata-readback.log"
+    }
+  },
+  "smoke_tests": [
+    {
+      "name": "empty-workspace-release-journey",
+      "status": "passed",
+      "evidence_ref": "evidence/restore-drill/empty-workspace-release-journey.log"
+    },
+    {
+      "name": "worker-and-outbox-readiness",
+      "status": "passed",
+      "evidence_ref": "evidence/restore-drill/worker-outbox-readiness.log"
+    }
+  ],
+  "rollback": {
+    "tested": true,
+    "evidence_ref": "evidence/restore-drill/rollback.log"
+  }
+}
