@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,7 +21,18 @@ from app.kernel.ports.llm.interface import (
 )
 from app.kernel.ports.llm.runtime_config import PROVIDER_CAPABILITY_PRESETS
 from app.kernel.ports.secrets.interface import SecretsPort
+from app.kernel.security.egress import GovernedEgressGuard
 from app.settings.settings import settings
+
+_PROVIDER_EGRESS_BASE_URLS = {
+    "anthropic": "https://api.anthropic.com",
+    "dashscope": "https://dashscope.aliyuncs.com",
+    "deepseek": "https://api.deepseek.com",
+    "gemini": "https://generativelanguage.googleapis.com",
+    "openai": "https://api.openai.com/v1",
+    "openai_compatible": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
 
 
 @dataclass(frozen=True)
@@ -135,12 +147,45 @@ class LLMRouterPort(LLMPort):
         secrets_resolver: SecretsResolver | None = None,
         litellm_factory: LiteLLMFactory | None = None,
         native_factory: NativeLLMFactory | None = None,
+        egress_guard: GovernedEgressGuard | None = None,
     ) -> None:
         self.providers = providers
         self.provider_resolver = provider_resolver
         self.secrets_resolver = secrets_resolver
         self.litellm_factory = litellm_factory or _default_litellm_factory
         self.native_factory = native_factory or _default_native_factory
+        self.egress_guard = egress_guard or GovernedEgressGuard()
+
+    async def _authorize_provider_target(
+        self,
+        ctx: RequestContext,
+        *,
+        provider_slug: str,
+        provider_kind: str,
+        base_url: str | None,
+        provider_params: dict[str, Any] | None = None,
+    ) -> None:
+        url = base_url or _PROVIDER_EGRESS_BASE_URLS.get(provider_kind)
+        if not url and provider_kind == "bedrock":
+            params = provider_params or {}
+            region = str(
+                params.get("aws_region_name")
+                or params.get("region_name")
+                or "us-east-1"
+            )
+            if not re.fullmatch(r"[a-z0-9-]+", region):
+                raise ValidationError("Invalid Bedrock region for governed egress")
+            url = f"https://bedrock-runtime.{region}.amazonaws.com"
+        if not url:
+            raise KernelError(
+                "MODEL_PROVIDER_EGRESS_TARGET_REQUIRED",
+                f"Provider requires an explicit governed base URL: {provider_slug}",
+            )
+        await self.egress_guard.authorize(
+            ctx,
+            f"model-provider:{provider_slug}",
+            url,
+        )
 
     @staticmethod
     def _model_provider_key(model: str) -> str | None:
@@ -305,6 +350,13 @@ class LLMRouterPort(LLMPort):
                 )
             if config is not None:
                 self._validate_runtime_config(config, required_capabilities)
+                await self._authorize_provider_target(
+                    ctx,
+                    provider_slug=config.slug,
+                    provider_kind=config.kind,
+                    base_url=config.base_url,
+                    provider_params=config.litellm_params,
+                )
                 if config.adapter_backend == "native":
                     credentials = await self._resolve_credentials(ctx, config)
                     port = self.native_factory(config, credentials)
@@ -350,6 +402,14 @@ class LLMRouterPort(LLMPort):
         port = self.providers.get(static_key)
         if port is None:
             raise ValidationError(f"Unsupported LLM provider: {static_key}")
+        egress_base_url = getattr(port, "egress_base_url", None)
+        if ctx is not None and egress_base_url:
+            await self._authorize_provider_target(
+                ctx,
+                provider_slug=static_key,
+                provider_kind=static_key,
+                base_url=str(egress_base_url),
+            )
         return ResolvedLLMRoute(
             port=port,
             target=self._runtime_target(

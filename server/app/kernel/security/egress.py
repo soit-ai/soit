@@ -3,13 +3,15 @@
 Egress policy (deny-by-default for external calls).
 """
 
+import asyncio
 import ipaddress
 import re
+import socket
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
-from app.kernel.commons.errors import ForbiddenError
+from app.kernel.commons.errors import ForbiddenError, KernelError
 from app.kernel.contracts.context import RequestContext
 from app.settings.settings import settings
 
@@ -29,6 +31,27 @@ class EgressScopePolicyProvider(Protocol):
 
     def get_scope_policy(self, ctx: RequestContext) -> EgressScopePolicy:
         """Return scoped egress policy for the request context."""
+
+
+class AddressResolver(Protocol):
+    """Resolve the addresses an outbound client may connect to."""
+
+    async def resolve(self, hostname: str, port: int) -> list[str]:
+        """Return every address resolved for the target host."""
+
+
+class SocketAddressResolver:
+    """Resolve outbound targets through the operating system resolver."""
+
+    async def resolve(self, hostname: str, port: int) -> list[str]:
+        """Resolve a hostname without blocking the event loop."""
+        loop = asyncio.get_running_loop()
+        records = await loop.getaddrinfo(
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+        return sorted({str(record[4][0]) for record in records})
 
 
 _egress_scope_policy_provider: EgressScopePolicyProvider | None = None
@@ -243,6 +266,16 @@ def check_egress_policy(
         # Not an HTTP URL, allow (might be internal resource)
         return
 
+    parsed_url = urlparse(str(url))
+    hostname = parsed_url.hostname
+    if hostname:
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        try:
+            port = parsed_url.port
+        except ValueError:
+            port = None
+        url = f"{scheme}://{host}{f':{port}' if port is not None else ''}"
+
     # Get egress policy
     policy = get_egress_policy()
 
@@ -307,3 +340,153 @@ def check_egress_policy(
                 "resource_ref": resource_ref,
             }
         )
+
+
+def iter_http_urls(value: Any) -> list[str]:
+    """Return every HTTP(S) URL nested in a transport payload."""
+    urls: list[str] = []
+    if isinstance(value, dict):
+        for item in value.values():
+            urls.extend(iter_http_urls(item))
+    elif isinstance(value, list | tuple):
+        for item in value:
+            urls.extend(iter_http_urls(item))
+    elif isinstance(value, str):
+        try:
+            scheme = urlparse(value).scheme.lower()
+        except ValueError:
+            scheme = ""
+        if scheme in {"http", "https"}:
+            urls.append(value)
+    return urls
+
+
+_NON_HTTP_DEFAULT_PORTS = {
+    "discord": 443,
+    "discords": 443,
+    "form": 80,
+    "forms": 443,
+    "json": 80,
+    "jsons": 443,
+    "mailto": 25,
+    "smtp": 25,
+    "smtps": 465,
+    "telegram": 443,
+    "xml": 80,
+    "xmls": 443,
+}
+
+_NON_HTTP_FIXED_HOSTS = {
+    "discord": "discord.com",
+    "discords": "discord.com",
+    "slack": "hooks.slack.com",
+    "slacks": "hooks.slack.com",
+    "telegram": "api.telegram.org",
+}
+
+
+class GovernedEgressGuard:
+    """Authorize an outbound target against scope policy and resolved addresses."""
+
+    def __init__(self, address_resolver: AddressResolver | None = None) -> None:
+        self.address_resolver = address_resolver or SocketAddressResolver()
+
+    @staticmethod
+    def _policy_url(
+        hostname: str,
+        port: int | None,
+        *,
+        scheme: str = "https",
+    ) -> str:
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        suffix = f":{port}" if port is not None else ""
+        return f"{scheme}://{host}{suffix}"
+
+    async def authorize(
+        self,
+        ctx: RequestContext,
+        resource_ref: str,
+        url: str,
+        *,
+        allow_non_http: bool = False,
+    ) -> None:
+        """Fail closed unless the target is allowed and resolves only publicly."""
+        try:
+            parsed = urlparse(str(url))
+            scheme = parsed.scheme.lower()
+            hostname = parsed.hostname
+            parsed_port = parsed.port
+        except ValueError as exc:
+            raise KernelError(
+                "EGRESS_INVALID_TARGET",
+                "Outbound target is not a valid URL",
+            ) from exc
+
+        if scheme not in {"http", "https"}:
+            if not allow_non_http or (
+                scheme not in _NON_HTTP_DEFAULT_PORTS
+                and scheme not in _NON_HTTP_FIXED_HOSTS
+            ):
+                raise ForbiddenError(
+                    "Outbound target scheme is not allowed",
+                    {"resource_ref": resource_ref, "scheme": scheme or None},
+                )
+        hostname = _NON_HTTP_FIXED_HOSTS.get(scheme, hostname)
+        if not hostname:
+            raise KernelError(
+                "EGRESS_INVALID_TARGET",
+                "Outbound target must include a hostname",
+            )
+        if scheme in {"http", "https"} and (parsed.username or parsed.password):
+            raise ForbiddenError(
+                "Authenticated outbound HTTP URLs are not allowed",
+                {"resource_ref": resource_ref},
+            )
+
+        port = parsed_port or (
+            443
+            if scheme == "https"
+            else 80
+            if scheme == "http"
+            else _NON_HTTP_DEFAULT_PORTS.get(scheme, 443)
+        )
+        policy_url = self._policy_url(
+            hostname,
+            parsed_port,
+            scheme=scheme if scheme in {"http", "https"} else "https",
+        )
+        check_egress_policy(ctx, resource_ref, {"url": policy_url})
+
+        try:
+            addresses = await self.address_resolver.resolve(hostname, port)
+        except Exception as exc:
+            raise KernelError(
+                "EGRESS_DNS_FAILED",
+                "Outbound target DNS resolution failed",
+                {"resource_ref": resource_ref, "hostname": hostname},
+            ) from exc
+        if not addresses:
+            raise KernelError(
+                "EGRESS_DNS_FAILED",
+                "Outbound target did not resolve",
+                {"resource_ref": resource_ref, "hostname": hostname},
+            )
+
+        for address in addresses:
+            try:
+                is_public = ipaddress.ip_address(address).is_global
+            except ValueError as exc:
+                raise KernelError(
+                    "EGRESS_DNS_FAILED",
+                    "Outbound target resolved to an invalid address",
+                    {"resource_ref": resource_ref, "hostname": hostname},
+                ) from exc
+            if not is_public:
+                raise ForbiddenError(
+                    "Outbound target resolves to a private or non-public address",
+                    {
+                        "resource_ref": resource_ref,
+                        "hostname": hostname,
+                        "address": address,
+                    },
+                )

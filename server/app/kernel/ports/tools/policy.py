@@ -35,7 +35,7 @@ from app.kernel.runtime.runs.tool_calls import (
     summarize_tool_payload,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
-from app.kernel.security.egress import check_egress_policy
+from app.kernel.security.egress import check_egress_policy, iter_http_urls
 
 
 def _provider_from_tool_ref(tool_ref: str) -> str | None:
@@ -304,11 +304,9 @@ class ToolPolicyGateway(ToolPort):
 
         start_time = utc_now()
         try:
-            # Generic URL egress checks apply to HTTP tools. Registry-backed
-            # non-HTTP tools may accept URL-shaped business inputs without
-            # performing network egress; adapter-level checks still run later.
-            if self.enable_egress_check and tool_ref.startswith("tool:http:"):
-                check_egress_policy(self.ctx, tool_ref, resolved_parameters)
+            if self.enable_egress_check:
+                for url in iter_http_urls(resolved_parameters):
+                    check_egress_policy(self.ctx, tool_ref, {"url": url})
 
             rate_limit = kwargs.get("rate_limit_per_minute") or self.rate_limit_per_minute
             if rate_limit:
@@ -329,10 +327,12 @@ class ToolPolicyGateway(ToolPort):
             async def _invoke():
                 if tool_execution_service and tool_execution_claim:
                     tool_execution_service.renew_lease(tool_execution_claim.record.id)
+                invoke_kwargs = dict(kwargs)
+                invoke_kwargs.setdefault("ctx", self.ctx)
                 return await self.gateway.invoke(
                     tool_ref=tool_ref,
                     parameters=resolved_parameters,
-                    **kwargs,
+                    **invoke_kwargs,
                 )
 
             with self.otel_tracer.start_as_current_span(

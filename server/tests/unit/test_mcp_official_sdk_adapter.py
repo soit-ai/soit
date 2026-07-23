@@ -16,6 +16,11 @@ from app.modules.plugin.domain.models import (
 )
 
 
+class AllowEgressGuard:
+    async def authorize(self, *args, **kwargs) -> None:
+        return None
+
+
 class StubSecretsPort(SecretsPort):
     def __init__(self, value: str = "resolved-token") -> None:
         self.value = value
@@ -120,7 +125,10 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
         auth_config={"type": "bearer", "secret_id": "sec_mcp_token"},
     )
 
-    response = await MCPToolAdapter(session_factory=factory).invoke(
+    response = await MCPToolAdapter(
+        session_factory=factory,
+        egress_guard=AllowEgressGuard(),
+    ).invoke(
         "mcp_tool:official:echo",
         {"value": "hello"},
         db=db,
@@ -153,7 +161,10 @@ async def test_mcp_is_error_maps_to_failed_tool_response(db, ctx):
     factory = StubSessionFactory(result)
     _seed_artifact(db, ctx)
 
-    response = await MCPToolAdapter(session_factory=factory).invoke(
+    response = await MCPToolAdapter(
+        session_factory=factory,
+        egress_guard=AllowEgressGuard(),
+    ).invoke(
         "mcp_tool:official:echo", {}, db=db, ctx=ctx
     )
 
@@ -166,7 +177,10 @@ async def test_legacy_http_transport_is_rejected(db, ctx):
     factory = StubSessionFactory(SimpleNamespace())
     _seed_artifact(db, ctx, transport="http")
 
-    response = await MCPToolAdapter(session_factory=factory).invoke(
+    response = await MCPToolAdapter(
+        session_factory=factory,
+        egress_guard=AllowEgressGuard(),
+    ).invoke(
         "mcp_tool:official:echo", {}, db=db, ctx=ctx
     )
 
@@ -180,7 +194,10 @@ async def test_plaintext_mcp_credentials_are_rejected(db, ctx):
     factory = StubSessionFactory(SimpleNamespace())
     _seed_artifact(db, ctx, auth_config={"type": "bearer", "token": "plaintext"})
 
-    response = await MCPToolAdapter(session_factory=factory).invoke(
+    response = await MCPToolAdapter(
+        session_factory=factory,
+        egress_guard=AllowEgressGuard(),
+    ).invoke(
         "mcp_tool:official:echo", {}, db=db, ctx=ctx
     )
 

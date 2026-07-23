@@ -13,7 +13,18 @@ from app.kernel.ports.llm.interface import (
     LLMPort,
     RerankResponse,
 )
+from app.kernel.security.egress import GovernedEgressGuard
 from app.settings.settings import settings
+
+
+@pytest.fixture(autouse=True)
+def _configure_router_unit_environment(monkeypatch):
+    monkeypatch.setattr(settings, "environment", "development")
+
+    async def allow_egress(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(GovernedEgressGuard, "authorize", allow_egress)
 
 
 class DummyPort(LLMPort):

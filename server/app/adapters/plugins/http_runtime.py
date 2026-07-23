@@ -29,18 +29,26 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.adapters.http.governed_client import governed_httpx_client
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.registry.deps import get_registry
+from app.kernel.security.egress import GovernedEgressGuard
 from app.settings.settings import settings
 
 
 class HTTPPluginRuntimePort(PluginRuntimePort):
     """HTTP plugin runtime adapter."""
 
-    def __init__(self) -> None:
-        self._reg = get_registry()
+    def __init__(
+        self,
+        *,
+        registry: Any | None = None,
+        egress_guard: GovernedEgressGuard | None = None,
+    ) -> None:
+        self._reg = registry or get_registry()
+        self._egress_guard = egress_guard or GovernedEgressGuard()
 
     def list_tools(self, *, plugin_name: str, version: str, ctx: RequestContext) -> list[dict[str, Any]]:
         found = self._reg.get(kind="plugin", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name=plugin_name, version=version)
@@ -106,7 +114,12 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
         }
 
         timeout = httpx.Timeout(timeout_s or 60.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with governed_httpx_client(
+            ctx=ctx,
+            resource_ref=f"plugin:{plugin_name}@{version}",
+            egress_guard=self._egress_guard,
+            timeout=timeout,
+        ) as client:
             resp = await client.post(url, json=req)
             resp.raise_for_status()
             data = resp.json()

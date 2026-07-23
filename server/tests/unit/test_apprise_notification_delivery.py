@@ -16,6 +16,11 @@ from app.modules.notification.handlers.apprise_delivery import (
 from app.modules.secrets.domain.models import Secret
 
 
+class AllowEgressGuard:
+    async def authorize(self, *args, **kwargs) -> None:
+        return None
+
+
 def _seed_delivery(db, ctx):
     notification = Notification(
         id="ntf_delivery_test",
@@ -63,7 +68,13 @@ async def test_apprise_handler_resolves_secret_and_marks_delivery_sent(db, ctx):
     sender = AsyncMock(return_value=True)
     row = SimpleNamespace(payload_json={"delivery_id": delivery.id})
 
-    await handle_notification_delivery_outbox(db, row, secrets_port=secrets, sender=sender)
+    await handle_notification_delivery_outbox(
+        db,
+        row,
+        secrets_port=secrets,
+        sender=sender,
+        egress_guard=AllowEgressGuard(),
+    )
 
     db.refresh(delivery)
     assert delivery.status == "sent"
@@ -85,8 +96,20 @@ async def test_apprise_handler_stops_after_five_attempts(db, ctx):
 
     for _ in range(4):
         with pytest.raises(RuntimeError, match="notification delivery failed"):
-            await handle_notification_delivery_outbox(db, row, secrets_port=secrets, sender=sender)
-    await handle_notification_delivery_outbox(db, row, secrets_port=secrets, sender=sender)
+            await handle_notification_delivery_outbox(
+                db,
+                row,
+                secrets_port=secrets,
+                sender=sender,
+                egress_guard=AllowEgressGuard(),
+            )
+    await handle_notification_delivery_outbox(
+        db,
+        row,
+        secrets_port=secrets,
+        sender=sender,
+        egress_guard=AllowEgressGuard(),
+    )
 
     db.refresh(delivery)
     assert delivery.status == "failed"

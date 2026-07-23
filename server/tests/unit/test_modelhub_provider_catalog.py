@@ -7,9 +7,14 @@ import pytest
 from app.modules.modelhub.infra.providers import ProviderCatalogAdapter
 
 
+class AllowEgressGuard:
+    async def authorize(self, *args, **kwargs) -> None:
+        return None
+
+
 @pytest.mark.asyncio
-async def test_openai_chat_test_uses_openai_client(monkeypatch):
-    adapter = ProviderCatalogAdapter()
+async def test_openai_chat_test_uses_openai_client(monkeypatch, ctx):
+    adapter = ProviderCatalogAdapter(egress_guard=AllowEgressGuard())
 
     class FakeResponse:
         id = "resp_openai"
@@ -26,7 +31,12 @@ async def test_openai_chat_test_uses_openai_client(monkeypatch):
         completions = FakeCompletions()
 
     class FakeClient:
-        def __init__(self, api_key: str, base_url: str | None = None):
+        def __init__(
+            self,
+            api_key: str,
+            base_url: str | None = None,
+            **kwargs,
+        ):
             assert api_key == "test-key"
             assert base_url == "https://example.com/v1"
             self.chat = FakeChat()
@@ -34,6 +44,7 @@ async def test_openai_chat_test_uses_openai_client(monkeypatch):
     monkeypatch.setattr("app.modules.modelhub.infra.providers.AsyncOpenAI", FakeClient)
 
     result = await adapter.test_chat(
+        ctx=ctx,
         provider_kind="openai_compatible",
         api_key="test-key",
         base_url="https://example.com/v1",
@@ -48,8 +59,8 @@ async def test_openai_chat_test_uses_openai_client(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_anthropic_chat_test_uses_http_api(monkeypatch):
-    adapter = ProviderCatalogAdapter()
+async def test_anthropic_chat_test_uses_http_api(monkeypatch, ctx):
+    adapter = ProviderCatalogAdapter(egress_guard=AllowEgressGuard())
 
     class FakeHttpResponse:
         def raise_for_status(self):
@@ -81,9 +92,13 @@ async def test_anthropic_chat_test_uses_http_api(monkeypatch):
             assert json["model"] == "claude-3-7-sonnet"
             return FakeHttpResponse()
 
-    monkeypatch.setattr("app.modules.modelhub.infra.providers.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        "app.modules.modelhub.infra.providers.governed_httpx_client",
+        lambda **kwargs: FakeClient(),
+    )
 
     result = await adapter.test_chat(
+        ctx=ctx,
         provider_kind="anthropic",
         api_key="anthropic-key",
         base_url=None,
@@ -98,11 +113,12 @@ async def test_anthropic_chat_test_uses_http_api(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_anthropic_embedding_test_is_unsupported():
+async def test_anthropic_embedding_test_is_unsupported(ctx):
     adapter = ProviderCatalogAdapter()
 
     with pytest.raises(ValueError) as exc_info:
         await adapter.test_embeddings(
+            ctx=ctx,
             provider_kind="anthropic",
             api_key="anthropic-key",
             base_url=None,
@@ -114,8 +130,8 @@ async def test_anthropic_embedding_test_is_unsupported():
 
 
 @pytest.mark.asyncio
-async def test_anthropic_model_catalog_enriches_latest_claude_metadata(monkeypatch):
-    adapter = ProviderCatalogAdapter()
+async def test_anthropic_model_catalog_enriches_latest_claude_metadata(monkeypatch, ctx):
+    adapter = ProviderCatalogAdapter(egress_guard=AllowEgressGuard())
 
     class FakeHttpResponse:
         def raise_for_status(self):
@@ -156,9 +172,13 @@ async def test_anthropic_model_catalog_enriches_latest_claude_metadata(monkeypat
             assert headers["anthropic-version"] == "2023-06-01"
             return FakeHttpResponse()
 
-    monkeypatch.setattr("app.modules.modelhub.infra.providers.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        "app.modules.modelhub.infra.providers.governed_httpx_client",
+        lambda **kwargs: FakeClient(),
+    )
 
     result = await adapter.list_models(
+        ctx=ctx,
         provider_kind="anthropic",
         api_key="anthropic-key",
         base_url=None,
@@ -179,8 +199,8 @@ async def test_anthropic_model_catalog_enriches_latest_claude_metadata(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_gemini_chat_test_uses_http_api(monkeypatch):
-    adapter = ProviderCatalogAdapter()
+async def test_gemini_chat_test_uses_http_api(monkeypatch, ctx):
+    adapter = ProviderCatalogAdapter(egress_guard=AllowEgressGuard())
 
     class FakeHttpResponse:
         def raise_for_status(self):
@@ -218,9 +238,13 @@ async def test_gemini_chat_test_uses_http_api(monkeypatch):
             assert json["contents"][0]["parts"][0]["text"] == "hello"
             return FakeHttpResponse()
 
-    monkeypatch.setattr("app.modules.modelhub.infra.providers.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        "app.modules.modelhub.infra.providers.governed_httpx_client",
+        lambda **kwargs: FakeClient(),
+    )
 
     result = await adapter.test_chat(
+        ctx=ctx,
         provider_kind="gemini",
         api_key="gemini-key",
         base_url=None,

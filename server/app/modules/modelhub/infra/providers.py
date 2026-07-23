@@ -5,13 +5,20 @@ External provider catalog adapters.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
 
+from app.adapters.http.governed_client import governed_httpx_client
+from app.kernel.contracts.context import RequestContext
+from app.kernel.security.egress import GovernedEgressGuard
+
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 ANTHROPIC_LATEST_MODEL_METADATA: dict[str, dict[str, Any]] = {
     "claude-opus-4-8": {
@@ -55,6 +62,49 @@ ANTHROPIC_LATEST_MODEL_METADATA: dict[str, dict[str, Any]] = {
 
 class ProviderCatalogAdapter:
     """Adapter for fetching provider model catalogs and performing tests."""
+
+    def __init__(self, egress_guard: GovernedEgressGuard | None = None) -> None:
+        self.egress_guard = egress_guard or GovernedEgressGuard()
+
+    @asynccontextmanager
+    async def _http_client(
+        self,
+        ctx: RequestContext,
+        resource_ref: str,
+    ) -> AsyncIterator[httpx.AsyncClient]:
+        async with governed_httpx_client(
+            ctx=ctx,
+            resource_ref=resource_ref,
+            egress_guard=self.egress_guard,
+            timeout=30.0,
+        ) as client:
+            yield client
+
+    @asynccontextmanager
+    async def _openai_client(
+        self,
+        *,
+        ctx: RequestContext,
+        api_key: str,
+        base_url: str | None,
+        resource_ref: str,
+    ) -> AsyncIterator[AsyncOpenAI]:
+        await self.egress_guard.authorize(
+            ctx,
+            resource_ref,
+            base_url or OPENAI_DEFAULT_BASE_URL,
+        )
+        async with governed_httpx_client(
+            ctx=ctx,
+            resource_ref=resource_ref,
+            egress_guard=self.egress_guard,
+            timeout=30.0,
+        ) as http_client:
+            yield AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url or OPENAI_DEFAULT_BASE_URL,
+                http_client=http_client,
+            )
 
     @staticmethod
     def _provider_url(base_url: str | None, default_base_url: str, path: str) -> str:
@@ -175,14 +225,20 @@ class ProviderCatalogAdapter:
     async def list_models(
         self,
         *,
+        ctx: RequestContext,
         provider_kind: str,
         api_key: str,
         base_url: str | None = None,
     ) -> list[dict[str, Any]]:
         """List models for a provider kind."""
         if provider_kind in {"openai", "openai_compatible"}:
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            response = await client.models.list()
+            async with self._openai_client(
+                ctx=ctx,
+                api_key=api_key,
+                base_url=base_url,
+                resource_ref=f"model-provider:{provider_kind}:catalog",
+            ) as client:
+                response = await client.models.list()
             return [
                 {
                     "model_id": item.id,
@@ -196,7 +252,10 @@ class ProviderCatalogAdapter:
                 "x-api-key": api_key,
                 "anthropic-version": ANTHROPIC_API_VERSION,
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._http_client(
+                ctx,
+                "model-provider:anthropic:catalog",
+            ) as client:
                 response = await client.get(
                     self._provider_url(base_url, ANTHROPIC_DEFAULT_BASE_URL, "/v1/models?limit=200"),
                     headers=headers,
@@ -211,7 +270,10 @@ class ProviderCatalogAdapter:
             ]
         if provider_kind == "gemini":
             params = {"key": api_key}
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._http_client(
+                ctx,
+                "model-provider:gemini:catalog",
+            ) as client:
                 response = await client.get(
                     "https://generativelanguage.googleapis.com/v1beta/models",
                     params=params,
@@ -238,16 +300,23 @@ class ProviderCatalogAdapter:
     async def healthcheck(
         self,
         *,
+        ctx: RequestContext,
         provider_kind: str,
         api_key: str,
         base_url: str | None = None,
     ) -> None:
         """Perform a lightweight healthcheck."""
-        await self.list_models(provider_kind=provider_kind, api_key=api_key, base_url=base_url)
+        await self.list_models(
+            ctx=ctx,
+            provider_kind=provider_kind,
+            api_key=api_key,
+            base_url=base_url,
+        )
 
     async def test_chat(
         self,
         *,
+        ctx: RequestContext,
         provider_kind: str,
         api_key: str,
         base_url: str | None,
@@ -256,17 +325,22 @@ class ProviderCatalogAdapter:
     ) -> dict[str, Any]:
         """Run a lightweight chat completion test."""
         if provider_kind in {"openai", "openai_compatible"}:
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             token_limit_param = (
                 "max_completion_tokens"
                 if model_id.lower().startswith(("gpt-5", "o1", "o3", "o4"))
                 else "max_tokens"
             )
-            response = await client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": input_text}],
-                **{token_limit_param: 32},
-            )
+            async with self._openai_client(
+                ctx=ctx,
+                api_key=api_key,
+                base_url=base_url,
+                resource_ref=f"model-provider:{provider_kind}:chat-test",
+            ) as client:
+                response = await client.chat.completions.create(
+                    model=model_id,
+                    messages=[{"role": "user", "content": input_text}],
+                    **{token_limit_param: 32},
+                )
             choice = response.choices[0]
             return {
                 "response": choice.message.content or "",
@@ -286,7 +360,10 @@ class ProviderCatalogAdapter:
                 "max_tokens": 64,
                 "messages": [{"role": "user", "content": input_text}],
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._http_client(
+                ctx,
+                "model-provider:anthropic:chat-test",
+            ) as client:
                 response = await client.post(
                     self._provider_url(base_url, ANTHROPIC_DEFAULT_BASE_URL, "/v1/messages"),
                     headers=headers,
@@ -316,7 +393,10 @@ class ProviderCatalogAdapter:
                 ],
                 "generationConfig": {"maxOutputTokens": 64},
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._http_client(
+                ctx,
+                "model-provider:gemini:chat-test",
+            ) as client:
                 response = await client.post(
                     endpoint,
                     params={"key": api_key},
@@ -337,6 +417,7 @@ class ProviderCatalogAdapter:
     async def test_embeddings(
         self,
         *,
+        ctx: RequestContext,
         provider_kind: str,
         api_key: str,
         base_url: str | None,
@@ -346,8 +427,13 @@ class ProviderCatalogAdapter:
         """Run a lightweight embeddings test."""
         if provider_kind not in {"openai", "openai_compatible"}:
             raise ValueError(f"Embedding test not supported for provider: {provider_kind}")
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        response = await client.embeddings.create(model=model_id, input=input_text)
+        async with self._openai_client(
+            ctx=ctx,
+            api_key=api_key,
+            base_url=base_url,
+            resource_ref=f"model-provider:{provider_kind}:embedding-test",
+        ) as client:
+            response = await client.embeddings.create(model=model_id, input=input_text)
         return {
             "response": "ok",
             "tokens_prompt": response.usage.total_tokens if response.usage else None,

@@ -1110,6 +1110,7 @@ class ModelHubService:
             else:
                 api_key = await self._resolve_credential(provider.credential_secret_id)
                 await self.catalog_adapter.healthcheck(
+                    ctx=self.ctx,
                     provider_kind=provider.kind,
                     api_key=api_key,
                     base_url=provider.base_url,
@@ -1143,6 +1144,7 @@ class ModelHubService:
         provider = self._get_provider(provider_id)
         api_key = await self._resolve_credential(provider.credential_secret_id)
         upstream_models = await self.catalog_adapter.list_models(
+            ctx=self.ctx,
             provider_kind=provider.kind,
             api_key=api_key,
             base_url=provider.base_url,
@@ -1528,6 +1530,7 @@ class ModelHubService:
             else:
                 api_key = await self._resolve_credential(provider.credential_secret_id)
                 result = await self.catalog_adapter.test_chat(
+                    ctx=self.ctx,
                     provider_kind=provider.kind,
                     api_key=api_key,
                     base_url=provider.base_url,
@@ -1584,6 +1587,7 @@ class ModelHubService:
             else:
                 api_key = await self._resolve_credential(provider.credential_secret_id)
                 result = await self.catalog_adapter.test_embeddings(
+                    ctx=self.ctx,
                     provider_kind=provider.kind,
                     api_key=api_key,
                     base_url=provider.base_url,

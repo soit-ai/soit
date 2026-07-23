@@ -9,14 +9,15 @@ from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, Protocol
 
-import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import and_, select
 
+from app.adapters.http.governed_client import governed_httpx_client
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.security.egress import GovernedEgressGuard
 from app.modules.plugin.domain.models import PluginInstalledArtifact
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,21 @@ def parse_mcp_tool_ref(tool_ref: str) -> tuple[str, str]:
 
 @asynccontextmanager
 async def _official_session_factory(
-    *, endpoint: str, headers: dict[str, str], timeout: float
+    *,
+    endpoint: str,
+    headers: dict[str, str],
+    timeout: float,
+    ctx: RequestContext,
+    egress_guard: GovernedEgressGuard,
 ) -> AsyncIterator[ClientSession]:
     """Create one official streamable HTTP MCP session per invocation."""
-    async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
+    async with governed_httpx_client(
+        ctx=ctx,
+        resource_ref="mcp:streamable-http",
+        egress_guard=egress_guard,
+        headers=headers,
+        timeout=timeout,
+    ) as http_client:
         async with streamable_http_client(endpoint, http_client=http_client) as streams:
             read_stream, write_stream, _ = streams
             async with ClientSession(
@@ -93,9 +105,12 @@ class MCPToolAdapter(ToolPort):
         *,
         timeout: float = 30.0,
         session_factory: SessionFactory | None = None,
+        egress_guard: GovernedEgressGuard | None = None,
     ) -> None:
         self._timeout = timeout
+        self._uses_official_factory = session_factory is None
         self._session_factory = session_factory or _official_session_factory
+        self._egress_guard = egress_guard or GovernedEgressGuard()
 
     def _resolve_server(self, server_key: str, db: Any, ctx: RequestContext) -> Any | None:
         artifact_ref = f"mcp_server:{server_key}"
@@ -185,16 +200,26 @@ class MCPToolAdapter(ToolPort):
             if not server.endpoint:
                 raise ValueError(f"MCP server endpoint missing: {server_key}")
 
+            endpoint = str(server.endpoint).rstrip("/")
+            await self._egress_guard.authorize(
+                ctx,
+                f"mcp:{server_key}",
+                endpoint,
+            )
+
             timeout = float(kwargs.get("timeout_s", self._timeout))
             headers = await self._build_auth_headers(
                 server.auth_config,
                 kwargs.get("secrets_port"),
             )
-            async with self._session_factory(
-                endpoint=str(server.endpoint).rstrip("/"),
-                headers=headers,
-                timeout=timeout,
-            ) as session:
+            session_kwargs: dict[str, Any] = {
+                "endpoint": endpoint,
+                "headers": headers,
+                "timeout": timeout,
+            }
+            if self._uses_official_factory:
+                session_kwargs.update(ctx=ctx, egress_guard=self._egress_guard)
+            async with self._session_factory(**session_kwargs) as session:
                 await session.initialize()
                 tools_result = await session.list_tools()
                 if tool_name not in {tool.name for tool in tools_result.tools}:

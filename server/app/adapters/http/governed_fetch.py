@@ -1,40 +1,14 @@
 """Governed HTTP fetch adapter."""
 
-import asyncio
-import ipaddress
-import socket
 from dataclasses import dataclass
-from typing import Protocol
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 
-from app.kernel.commons.errors import ForbiddenError, KernelError
+from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.http.interface import FetchedResource
-from app.kernel.security.egress import check_egress_policy
-
-
-class AddressResolver(Protocol):
-    """Resolve a hostname to the addresses a client may connect to."""
-
-    async def resolve(self, hostname: str, port: int) -> list[str]:
-        """Return all resolved IP addresses."""
-        ...
-
-
-class SocketAddressResolver:
-    """Resolve addresses through the operating system resolver."""
-
-    async def resolve(self, hostname: str, port: int) -> list[str]:
-        """Resolve a hostname without blocking the event loop."""
-        loop = asyncio.get_running_loop()
-        records = await loop.getaddrinfo(
-            hostname,
-            port,
-            type=socket.SOCK_STREAM,
-        )
-        return sorted({str(record[4][0]) for record in records})
+from app.kernel.security.egress import AddressResolver, GovernedEgressGuard
 
 
 @dataclass(frozen=True)
@@ -51,7 +25,7 @@ class GovernedHttpFetchPort:
         client: httpx.AsyncClient | None = None,
         max_redirects: int = 5,
     ) -> None:
-        self.address_resolver = address_resolver or SocketAddressResolver()
+        self.egress_guard = GovernedEgressGuard(address_resolver=address_resolver)
         self.client = client
         self.max_redirects = max_redirects
 
@@ -90,8 +64,7 @@ class GovernedHttpFetchPort:
     ) -> FetchedResource:
         current_url = url
         for redirect_count in range(self.max_redirects + 1):
-            check_egress_policy(ctx, "knowledge:crawler", {"url": current_url})
-            await self._validate_public_target(current_url)
+            await self.egress_guard.authorize(ctx, "knowledge:crawler", current_url)
             result = await self._fetch_once(client, current_url, max_bytes=max_bytes)
             if isinstance(result, FetchedResource):
                 return result
@@ -164,32 +137,3 @@ class GovernedHttpFetchPort:
                 "CRAWLER_FETCH_FAILED",
                 "Crawler HTTP request failed",
             ) from exc
-
-    async def _validate_public_target(self, url: str) -> None:
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise KernelError(
-                "INVALID_SOURCE_URI",
-                "Crawler source URI must be an absolute HTTP or HTTPS URL",
-            )
-        if parsed.username or parsed.password:
-            raise ForbiddenError("Authenticated crawler URLs are not allowed")
-
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        addresses = await self.address_resolver.resolve(parsed.hostname, port)
-        if not addresses:
-            raise KernelError("CRAWLER_DNS_FAILED", "Crawler host did not resolve")
-
-        for address in addresses:
-            try:
-                is_public = ipaddress.ip_address(address).is_global
-            except ValueError as exc:
-                raise KernelError(
-                    "CRAWLER_DNS_FAILED",
-                    "Crawler host resolved to an invalid address",
-                ) from exc
-            if not is_public:
-                raise ForbiddenError(
-                    "Crawler target resolves to a private or non-public address",
-                    {"url": url, "address": address},
-                )

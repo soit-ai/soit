@@ -10,8 +10,10 @@ from apprise import Apprise
 from sqlalchemy.orm import Session
 
 from app.kernel.commons.time import utc_now
+from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.security.egress import GovernedEgressGuard
 from app.modules.notification.domain.models import (
     Notification,
     NotificationDelivery,
@@ -37,6 +39,7 @@ async def handle_notification_delivery_outbox(
     *,
     secrets_port: SecretsPort | None = None,
     sender: AppriseSender | None = None,
+    egress_guard: GovernedEgressGuard | None = None,
 ) -> None:
     """Deliver one queued notification without exposing its endpoint URL."""
     delivery_id = str((row.payload_json or {}).get("delivery_id") or "")
@@ -80,6 +83,18 @@ async def handle_notification_delivery_outbox(
         if secrets_port is None:
             raise RuntimeError("Scoped secrets port is unavailable")
         url = await secrets_port.get_secret(secret_id=endpoint.secret_id)
+        ctx = RequestContext(
+            tenant_id=delivery.tenant_id,
+            workspace_id=delivery.workspace_id,
+            user_id="system:notification-delivery",
+            request_id=str(getattr(row, "id", "") or delivery.id),
+        )
+        await (egress_guard or GovernedEgressGuard()).authorize(
+            ctx,
+            f"notification:endpoint:{endpoint.id}",
+            url,
+            allow_non_http=True,
+        )
         delivered = await (sender or _send_apprise)(
             url,
             title=notification.title,

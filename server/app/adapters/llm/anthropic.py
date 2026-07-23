@@ -29,6 +29,7 @@ class AnthropicLLMPort(LLMPort):
     def __init__(self, api_key: str, base_url: str | None = None):
         self.api_key = api_key
         self.base_url = (base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
+        self.egress_base_url = self.base_url
 
     async def chat(
         self,

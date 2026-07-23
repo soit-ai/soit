@@ -9,6 +9,7 @@ import mimetypes as _mimetypes
 import re as _re
 from typing import Any
 
+import httpx
 import numpy as np
 from openai import AsyncOpenAI
 
@@ -32,6 +33,7 @@ class OpenAILLMPort(LLMPort):
     """OpenAI LLM port adapter."""
 
     _TOOL_NAME_PATTERN = _re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+    _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
     def __init__(
         self,
@@ -46,7 +48,12 @@ class OpenAILLMPort(LLMPort):
             api_key: OpenAI API key (if None, uses settings or env var).
             base_url: Optional OpenAI-compatible API base URL.
         """
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self.egress_base_url = base_url or self._DEFAULT_BASE_URL
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=self.egress_base_url,
+            http_client=httpx.AsyncClient(follow_redirects=False),
+        )
         self._use_responses_api = (
             base_url is None if use_responses_api is None else use_responses_api
         )

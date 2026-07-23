@@ -7,15 +7,18 @@ from typing import Any
 
 import httpx
 
+from app.adapters.http.governed_client import governed_httpx_client
+from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.security.egress import GovernedEgressGuard
 
 
 class HTTPToolsPort(ToolPort):
     """HTTP tool gateway adapter."""
 
-    def __init__(self):
+    def __init__(self, egress_guard: GovernedEgressGuard | None = None):
         """Initialize HTTP tool gateway."""
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.egress_guard = egress_guard or GovernedEgressGuard()
 
     async def invoke(
         self,
@@ -34,6 +37,7 @@ class HTTPToolsPort(ToolPort):
         body = parameters.get("body", {})
         query = parameters.get("query", {})
         timeout_s = kwargs.get("timeout_s")
+        ctx: RequestContext | None = kwargs.get("ctx")
 
         if not url:
             return ToolResponse(
@@ -41,35 +45,46 @@ class HTTPToolsPort(ToolPort):
                 success=False,
                 error="Missing URL parameter",
             )
+        if ctx is None:
+            return ToolResponse(
+                result=None,
+                success=False,
+                error="HTTP tool invocation requires ctx",
+            )
 
         try:
-            # Make HTTP request
-            method_upper = method.upper()
-            if method_upper in {"GET", "DELETE"}:
-                response = await self.client.request(
-                    method_upper,
-                    url,
-                    headers=headers,
-                    params=query or body,
-                    timeout=timeout_s,
-                )
-            elif method_upper in {"POST", "PUT", "PATCH"}:
-                response = await self.client.request(
-                    method_upper,
-                    url,
-                    headers=headers,
-                    params=query or None,
-                    json=body,
-                    timeout=timeout_s,
-                )
-            else:
-                return ToolResponse(
-                    result=None,
-                    success=False,
-                    error=f"Unsupported method: {method}",
-                )
+            async with governed_httpx_client(
+                ctx=ctx,
+                resource_ref=tool_ref,
+                egress_guard=self.egress_guard,
+                timeout=30.0,
+            ) as client:
+                method_upper = method.upper()
+                if method_upper in {"GET", "DELETE"}:
+                    response = await client.request(
+                        method_upper,
+                        url,
+                        headers=headers,
+                        params=query or body,
+                        timeout=timeout_s,
+                    )
+                elif method_upper in {"POST", "PUT", "PATCH"}:
+                    response = await client.request(
+                        method_upper,
+                        url,
+                        headers=headers,
+                        params=query or None,
+                        json=body,
+                        timeout=timeout_s,
+                    )
+                else:
+                    return ToolResponse(
+                        result=None,
+                        success=False,
+                        error=f"Unsupported method: {method}",
+                    )
 
-            response.raise_for_status()
+                response.raise_for_status()
 
             return ToolResponse(
                 result=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
