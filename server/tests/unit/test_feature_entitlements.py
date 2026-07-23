@@ -109,6 +109,31 @@ def test_unknown_entitlement_keys_are_rejected() -> None:
         resolve_enabled_features(edition="enterprise", entitlement_keys=["security.unknown"])
 
 
+def test_unknown_platform_editions_are_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown platform edition"):
+        resolve_enabled_features(edition="enterprise-preview")
+
+
+def test_feature_registry_rejects_unknown_feature_kinds(tmp_path: Path) -> None:
+    feature_file = _feature_file(
+        tmp_path,
+        "invalid-kind-features.json",
+        {
+            "owner": "invalid-kind-test",
+            "features": [
+                {
+                    "key": "security.future",
+                    "editions": ["enterprise"],
+                    "kind": "future_kind",
+                },
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Unknown feature kind"):
+        FeatureRegistry.from_json_file(feature_file)
+
+
 def _feature_file(tmp_path: Path, name: str, payload: dict) -> str:
     data = {"version": 1, **payload}
     path = tmp_path / name

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ListChecks, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslation } from '@/i18n'
+import { Link } from 'react-router'
 
 interface PageHeaderProps {
   documentCount: number
@@ -22,7 +23,9 @@ export function PageHeader({ documentCount, selectedDocs, onShowUploadDialog, on
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink href="#">{t('knowledge.document.header.breadcrumb.root')}</BreadcrumbLink>
+            <BreadcrumbLink asChild>
+              <Link to="/knowledge">{t('knowledge.document.header.breadcrumb.root')}</Link>
+            </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

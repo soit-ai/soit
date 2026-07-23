@@ -10,7 +10,7 @@
 
 ```bash
 cp .env.example .env
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 打开：
@@ -76,9 +76,10 @@ uv run python scripts/evaluate_support_ticket_regression.py --json-output ../art
 curl http://localhost:9200/health/ready
 curl http://localhost:5000/
 docker compose -f docker/docker-compose.yml ps knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml ps outbox-dispatcher
 ```
 
-期望结果：API ready、Web 可访问，并且 `knowledge-ingest-worker` 仍在运行。
+期望结果：API ready、Web 可访问，并且 `knowledge-ingest-worker` 与 `outbox-dispatcher` 均处于 healthy 或 running 状态。
 
 复制 `docs/deployment/quickstart-deployment-evidence.example.json` 为 `docs/deployment/quickstart-deployment-evidence.json`，将所有 `evidenceRef` 替换为本次新输出后，在 `server/` 下开启仓库根目录校验：
 
@@ -90,9 +91,9 @@ uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickst
 
 验证器要求完整 Docker 服务集、10 分钟内启动、API/Web/worker 健康证据、demo seed 证据、Chain A smoke 证据与 regression 输出证据。
 
-## 全新安装数据库
+## 数据库迁移路径
 
-SOIT 1.0 仅支持在空 PostgreSQL 数据库上执行单一 Alembic 基线，不原地升级旧开发数据库；详见[全新安装迁移手册](release-migration.md)。
+SOIT 1.0 支持空 PostgreSQL 数据库升级到 head `20260723160000`，以及从 `20260718140000` 原地升级的显式 N-1 路径。其他历史开发快照不在支持范围内；详见[数据库迁移手册](release-migration.md)。
 
 ## 模型源支持
 

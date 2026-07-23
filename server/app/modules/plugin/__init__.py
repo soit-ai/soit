@@ -1,2 +1,2 @@
-"""Plugin installation layer placeholder."""
+"""Plugin catalog, installation, and governed runtime integration."""
 

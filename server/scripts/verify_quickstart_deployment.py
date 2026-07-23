@@ -20,15 +20,35 @@ REQUIRED_SERVICES = {
     "api",
     "web",
     "knowledge-ingest-worker",
+    "outbox-dispatcher",
 }
 # One-shot init containers run a command and exit; they are never long-running or
 # healthy. Their success state is "exited"/"complete" with exit code 0.
 INIT_SERVICES = {"migrate", "bootstrap"}
 # Long-running services that define a Docker healthcheck; they must be running and healthy.
-HEALTHCHECKED_SERVICES = {"postgres", "redis", "minio", "etcd", "milvus", "vault", "api", "web"}
+HEALTHCHECKED_SERVICES = {
+    "postgres",
+    "redis",
+    "minio",
+    "etcd",
+    "milvus",
+    "vault",
+    "api",
+    "web",
+    "outbox-dispatcher",
+}
 # Remaining long-running services have no healthcheck; running is their success state.
 RUNNING_ONLY_SERVICES = REQUIRED_SERVICES - INIT_SERVICES - HEALTHCHECKED_SERVICES
 INIT_COMPLETED_STATUSES = {"exited", "complete", "completed"}
+REQUIRED_CHECKS = (
+    "apiHealth",
+    "webHealth",
+    "knowledgeWorker",
+    "outboxDispatcher",
+    "demoSeed",
+    "chainA",
+    "regression",
+)
 
 
 class QuickstartDeploymentEvidenceError(ValueError):
@@ -130,7 +150,7 @@ def validate_quickstart_deployment(
     checks = evidence.get("checks")
     if not isinstance(checks, dict):
         raise QuickstartDeploymentEvidenceError("checks must be an object")
-    for key in ("apiHealth", "webHealth", "knowledgeWorker", "demoSeed", "chainA", "regression"):
+    for key in REQUIRED_CHECKS:
         check = checks.get(key)
         if not isinstance(check, dict):
             raise QuickstartDeploymentEvidenceError(f"checks.{key} must be an object")
@@ -138,14 +158,14 @@ def validate_quickstart_deployment(
             raise QuickstartDeploymentEvidenceError(f"checks.{key}.status must be passed")
         _require_text(check, "evidenceRef")
     _require_unique_evidence_refs(
-        [checks[key] for key in ("apiHealth", "webHealth", "knowledgeWorker", "demoSeed", "chainA", "regression")],
+        [checks[key] for key in REQUIRED_CHECKS],
         "checks",
     )
     if repo_root is not None:
         _require_existing_ref(compose_ps_evidence_ref, repo_root=repo_root)
         for record in [services_by_name[name] for name in REQUIRED_SERVICES]:
             _require_existing_ref(_require_text(record, "evidenceRef"), repo_root=repo_root)
-        for record in [checks[key] for key in ("apiHealth", "webHealth", "knowledgeWorker", "demoSeed", "chainA", "regression")]:
+        for record in [checks[key] for key in REQUIRED_CHECKS]:
             _require_existing_ref(_require_text(record, "evidenceRef"), repo_root=repo_root)
 
     return {

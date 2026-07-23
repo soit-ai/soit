@@ -26,7 +26,7 @@ def register_outbox_handlers() -> None:
     reg = _registry
 
     def _builtin_smoke_handler(_db: Session, _row: EventOutbox) -> None:
-        """Placeholder consumer for `outbox.smoke` (tests / health wiring)."""
+        """Acknowledge the outbox health-probe event."""
         return None
 
     reg.register("outbox.smoke", "builtin.smoke", _builtin_smoke_handler)

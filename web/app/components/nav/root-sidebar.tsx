@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AudioWaveform, Bot, BrainCog, Command, GalleryVerticalEnd, Workflow, ScrollText, MessageCircleMore, Activity, Settings, Send, Unplug } from 'lucide-react'
+import { Bot, BrainCog, Command, Workflow, ScrollText, MessageCircleMore, Activity, Settings, Send, Unplug } from 'lucide-react'
 
 import { NavUser } from '@/components/common/nav-user'
 import { TeamSwitcher } from '@/components/common/team-switcher'
@@ -21,25 +21,7 @@ import { cn } from '@/lib/utils'
 import { useNavigate } from '@/hooks/use-navigate'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { useUserStore } from '@/stores/user'
-// Sample data for the sidebar.
 const data = {
-  teams: [
-    {
-      name: 'Acme Inc',
-      logo: GalleryVerticalEnd,
-      plan: 'Enterprise',
-    },
-    {
-      name: 'Acme Corp.',
-      logo: AudioWaveform,
-      plan: 'Startup',
-    },
-    {
-      name: 'Evil Corp.',
-      logo: Command,
-      plan: 'Free',
-    },
-  ],
   navPrimary: [
     {
       title: 'Chat',
@@ -130,8 +112,6 @@ const data = {
 }
 
 export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  // Note: I'm using state to show active item.
-  // IRL you should use the url/router.
   const [activeItem, setActiveItem] = React.useState<any>(null)
   const user = useUserStore((state) => state.navUser)
   const currentUser = useUserStore((state) => state.currentUser)
@@ -153,26 +133,9 @@ export function RootSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) 
     <div className={cn('bg-sidebar', props.className)}>
       <SidebarHeader >
         <div className="rounded-[var(--radius-lg)] border border-sidebar-border/80 bg-panel/82 px-0 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-          <TeamSwitcher teams={data.teams} />
+          <TeamSwitcher />
         </div>
       </SidebarHeader>
-      {/* <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
-                <a href="#">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    <Command className="size-4" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">Acme Inc</span>
-                    <span className="truncate text-xs">Enterprise</span>
-                  </div>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader> */}
       <SidebarContent className="overflow-x-hidden px-0 pb-3">
         <ScrollArea className='w-full h-full'>
           <ScrollBar orientation="vertical" />

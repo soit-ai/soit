@@ -10,7 +10,7 @@ From the repository root:
 
 ```bash
 cp .env.example .env
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 Open:
@@ -76,9 +76,10 @@ Before checking the roadmap Docker/Quickstart item, capture fresh output for:
 curl http://localhost:9200/health/ready
 curl http://localhost:5000/
 docker compose -f docker/docker-compose.yml ps knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml ps outbox-dispatcher
 ```
 
-Expected: API ready, web app responding, and `knowledge-ingest-worker` still running.
+Expected: API ready, web app responding, and both `knowledge-ingest-worker` and `outbox-dispatcher` healthy or running.
 
 Copy `docs/deployment/quickstart-deployment-evidence.example.json` to `docs/deployment/quickstart-deployment-evidence.json`, replace all `evidenceRef` values with the captured fresh outputs, and validate it from `server/` with repository-root checks enabled:
 
@@ -88,9 +89,9 @@ uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickst
 
 The verifier requires the full Docker service set, per-service healthy status and unique service evidence refs, startup within 10 minutes, API/Web/worker health evidence, demo seed evidence, Chain A smoke evidence, regression output evidence, unique check evidence refs, and local evidence files that exist under the repository root.
 
-## Fresh Installation Schema
+## Database Migration Paths
 
-SOIT 1.0 supports a single Alembic baseline on an empty PostgreSQL database. Existing development databases are not upgraded in place; see the [fresh-install migration runbook](release-migration.md).
+SOIT 1.0 supports a fresh install through head `20260723160000` and an explicit N-1 upgrade from `20260718140000`. Other historical development snapshots are unsupported; see the [migration runbook](release-migration.md).
 
 ## Model Provider Support
 

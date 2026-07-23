@@ -47,11 +47,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Validate fresh-install migration baseline
+      - name: Validate fresh-install and N-1 migration paths
         run: |
-          test "$(find alembic/versions -maxdepth 1 -name '*.py' | wc -l)" -eq 1
-          test "$(uv run alembic heads)" = "20260718140000 (head)"
-          uv run pytest tests/unit/test_fresh_install_migration.py -q
+          test "$(find alembic/versions -maxdepth 1 -name '*.py' | wc -l)" -eq 2
+          test "$(uv run alembic heads)" = "20260723160000 (head)"
+          uv run pytest tests/unit/test_fresh_install_migration.py tests/unit/test_n1_migration_fixture.py tests/unit/test_scoped_secret_migration.py -q
 
       - name: Apply migrations
         run: uv run alembic upgrade head

@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-SOIT 是一个开源的企业级 Agent Runtime and Governance Platform，面向已经验证 Agent 价值、但需要把 Agent 接入真实业务系统的团队。它把 Agent 构建、工作流执行、知识检索、工具/MCP 接入、模型路由和运行观测收敛到一个自托管控制平面，并把治理能力前置到运行时：权限、密钥、外联控制、审计、成本、追踪和回放不是后补功能，而是 Agent 能否进入企业生产流程的基础条件。
+SOIT Community 是开源的 Agent Runtime and Governance Platform，面向已经验证 Agent 价值、但需要把 Agent 接入真实业务系统的团队。它把 Agent 构建、工作流执行、知识检索、工具/MCP 接入、模型路由和运行观测收敛到一个自托管控制平面，并把权限、密钥、基础外联网关、审计、成本、追踪和回放放在运行时边界。
 
 SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
 
@@ -26,7 +26,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 **核心框架与运行时：**
 - **Web 框架**: FastAPI 0.114+ (Python 3.11+)
 - **ORM**: SQLModel 0.0.24 (基于 SQLAlchemy 2.0.31)
-- **异步支持**: asyncio, aiohttp 3.11+, httpx 0.25+
+- **异步支持**: asyncio, httpx
 - **包管理**: uv (现代 Python 包管理器)
 
 **数据库与存储：**
@@ -51,32 +51,24 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - **错误监控**: Sentry SDK 1.40+ (错误追踪和性能监控)
 
 **LLM 与 AI 框架：**
-- **OpenAI**: openai 1.6.1 (GPT 模型调用)
-- **LangChain**: langchain 0.3.25, langchain-community 0.3.20 (AI 应用框架)
+- **模型适配**: OpenAI、Anthropic、DeepSeek 和 OpenAI-compatible endpoint
 - **向量模型**: sentence-transformers 4.1+, langchain-huggingface 0.0.6 (嵌入模型)
 - **Token 计算**: tiktoken 0.9+ (Token 计数)
 
 **文档处理：**
-- **PDF**: pypdf 5.6.0
-- **Word**: python-docx 1.0.1
-- **Excel**: pandas 2.1.4, openpyxl 3.1.2
-- **PowerPoint**: python-pptx 1.0.2
-- **Markdown**: markdown 3.5.1
-- **HTML**: beautifulsoup4 4.12.2
-- **文件类型检测**: python-magic 0.4.27
+- **文档处理**: PDF、Word、Excel、Markdown 和 HTML 解析边界
 
 **开发工具：**
 - **代码质量**: ruff 0.2+ (linting 和格式化)
-- **类型检查**: mypy 1.15+ (静态类型检查)
-- **测试框架**: pytest 7.4+, pytest-asyncio 0.23+ (单元测试和集成测试)
-- **Git Hooks**: pre-commit 3.6+ (代码提交前检查)
+- **类型检查**: Pyright
+- **测试框架**: pytest / pytest-asyncio
 
 ### 前端技术栈 (web/)
 
 **核心框架：**
 - **框架**: React Router 7 (SSR 支持)
-- **语言**: TypeScript 5.8
-- **构建工具**: Vite 6
+- **语言**: TypeScript 6
+- **构建工具**: Vite 8
 
 **UI 与样式：**
 - **UI 组件库**: Radix UI (无障碍组件)
@@ -102,18 +94,17 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - Milvus 2.5 (向量数据库)
 - etcd (Milvus 元数据存储)
 - MinIO (对象存储)
-- Nginx (反向代理和负载均衡)
 - API 服务 (FastAPI 应用)
 - Web 服务 (React Router SSR 应用)
-- Celery Worker (异步任务处理)
-- Flower (Celery 监控界面)
+- Knowledge ingest worker
+- Outbox dispatcher (`outbox-dispatcher`)
 
 ## 项目结构
 
 ```
 soit/
-├── app/                    # 后端应用
-│   ├── app/               # 应用代码
+├── server/                 # 后端工程
+│   ├── app/               # 应用代码（server/app/)
 │   │   ├── api/           # HTTP/WS/SSE 入口
 │   │   ├── kernel/        # 稳定核心（identity/runtime/trace/specs）
 │   │   ├── modules/       # 业务域（agent/chat/workflow/knowledge/plugin 等）
@@ -170,7 +161,7 @@ npm run dev
 ### Docker Compose 启动
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 启动后默认行为：

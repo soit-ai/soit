@@ -1,1 +1,1 @@
-"""Observe module placeholder for run/task governance features."""
+"""Observe projections and APIs for governed runtime activity."""

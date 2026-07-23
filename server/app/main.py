@@ -198,7 +198,7 @@ from app.docs.openapi import tags_metadata  # noqa: E402
 app = FastAPI(
     title=getattr(app_settings, "PROJECT_NAME", "SOIT API"),
     description="SOIT LLM Development Platform API",
-    version="1.0.0",
+    version=app_settings.platform_version,
     openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",

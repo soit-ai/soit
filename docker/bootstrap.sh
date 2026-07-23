@@ -11,4 +11,4 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher

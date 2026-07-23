@@ -1,4 +1,4 @@
-"""Contract tests for the fresh-install-only Alembic baseline."""
+"""Contracts for the explicit baseline and current migration chain."""
 
 from __future__ import annotations
 

@@ -2,6 +2,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
 import { useTranslation } from '@/i18n'
+import { Link } from 'react-router'
 
 interface PageHeaderProps {
   title: string
@@ -16,7 +17,9 @@ export function PageHeader({ title, onRefresh }: PageHeaderProps) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink href="#">{t('knowledge.setting.breadcrumb.root')}</BreadcrumbLink>
+            <BreadcrumbLink asChild>
+              <Link to="/knowledge">{t('knowledge.setting.breadcrumb.root')}</Link>
+            </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

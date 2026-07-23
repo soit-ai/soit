@@ -32,7 +32,7 @@
 
 ## What is SOIT?
 
-SOIT is an open-source **Agent Runtime and Governance Platform** for teams that need AI agents to touch real enterprise systems without losing control. It combines agent building, workflow execution, knowledge retrieval, tool/MCP access, model routing, and runtime observability with the governance layer enterprises need before agents can operate on sensitive data and systems.
+SOIT Community is the open-source **Agent Runtime and Governance Platform** for teams that need AI agents to touch real enterprise systems without losing control. It combines agent building, workflow execution, knowledge retrieval, tool/MCP access, model routing, and runtime observability with the governance layer enterprises need before agents can operate on sensitive data and systems.
 
 The core product wedge is governed execution: every agent run is scoped by permissions, bound to approved capabilities, protected by secret boundaries, constrained by egress policy, traced through a runtime ledger, attributed with cost, recorded in audit logs, and inspectable through replay.
 
@@ -70,7 +70,7 @@ Compose agents from a unified capability registry: models, knowledge bases, work
 
 ### Execute — Run with reliability and reproducibility
 
-Every execution — chat turn, agent loop, or workflow run — flows through the same runtime ledger. Outbox-pattern event dispatch guarantees that no state change is lost and no side effect is duplicated.
+Every execution — chat turn, agent loop, or workflow run — flows through the same runtime ledger. Outbox-pattern event dispatch durably records state transitions and provides at-least-once delivery; consumers remain responsible for idempotent side effects.
 
 - Unified `Run / Task / RunStep / Trace` ledger across all execution types
 - Outbox-based event-driven runtime with checkpoints and idempotency
@@ -109,7 +109,7 @@ The fastest way to try SOIT locally:
 git clone https://github.com/soit-ai/soit.git
 cd soit
 cp .env.example .env
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 Then open `http://localhost:5000` and sign in with the bootstrap admin credentials from your `.env` file.
@@ -119,18 +119,18 @@ What you get on first launch:
 - Web UI on `:5000`, API on `:9200`
 - PostgreSQL, Redis, Milvus, MinIO, and Vault all wired and healthy
 - Database migrations applied automatically
-- A sample agent, workflow, and knowledge base pre-loaded so you can click around immediately
+- An empty Community workspace where Agents, Workflows, and Knowledge bases can be created through the UI without demo seed data
 
 For a local development setup with hot reload (Python and Node), see [docs/development.md](./docs/development.md).
 
 For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [docs/quickstart.md](./docs/quickstart.md).
 
-## Enterprise MVP Demo
+## Deterministic Community Demo Fixture
 
 From the repository root, start the full local demo stack:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 Then open `http://localhost:5000` and sign in with `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults: `admin@example.com` / `changeme123`). The API is available at `http://localhost:9200/api/v1`.
@@ -145,9 +145,11 @@ uv run python scripts/bootstrap_enterprise_mvp.py
 uv run pytest tests/integration/test_enterprise_agent_mvp.py -q
 ```
 
-## Current MVP Focus
+The historical script names contain `enterprise_mvp`, but these fixtures run entirely on SOIT Community and do not import or require the private Enterprise package.
 
-The current non-Docker MVP gate focuses on one repeatable enterprise loop:
+## Current Community Demo Focus
+
+The current non-Docker demo gate focuses on one repeatable governed support loop:
 
 - Refund-policy knowledge answer with citation evidence.
 - Support-ticket workflow execution through a governed tool call.

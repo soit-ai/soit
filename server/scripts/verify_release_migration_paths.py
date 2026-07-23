@@ -1,4 +1,4 @@
-"""Verify SOIT 1.0 fresh-install migration evidence."""
+"""Verify SOIT 1.0 fresh-install and N-1 migration evidence."""
 
 from __future__ import annotations
 
@@ -91,44 +91,92 @@ def _validate_fresh_install(section: dict[str, Any], head_revision: str) -> str:
     return post_revision
 
 
+def _validate_n1_upgrade(
+    section: dict[str, Any],
+    *,
+    n1_revision: str,
+    head_revision: str,
+) -> str:
+    _require_string(section, "database_kind", section="n1_upgrade")
+    source_revision = _require_string(
+        section, "source_revision", section="n1_upgrade"
+    )
+    if source_revision != n1_revision:
+        raise MigrationEvidenceError(
+            f"n1_upgrade.source_revision {source_revision!r} does not match "
+            f"n1_revision {n1_revision!r}"
+        )
+    if _require_bool(
+        section, "started_from_release_candidate", section="n1_upgrade"
+    ) is not True:
+        raise MigrationEvidenceError(
+            "n1_upgrade.started_from_release_candidate must be true"
+        )
+    target_revision = _require_string(
+        section, "post_upgrade_revision", section="n1_upgrade"
+    )
+    if target_revision != head_revision:
+        raise MigrationEvidenceError(
+            f"n1_upgrade.post_upgrade_revision {target_revision!r} does not match "
+            f"head_revision {head_revision!r}"
+        )
+    _require_passed_records(section, "commands", section="n1_upgrade")
+    _require_passed_records(section, "data_checks", section="n1_upgrade")
+    return f"{source_revision}..{target_revision}"
+
+
 def validate_migration_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
-    """Validate the supported fresh-install-only migration evidence."""
+    """Validate the supported fresh-install and explicit N-1 migration evidence."""
 
     if evidence.get("featureKey") != "release.fresh_install_migration":
         raise MigrationEvidenceError(
             "featureKey must be release.fresh_install_migration"
         )
-    if "development_database" in evidence:
-        raise MigrationEvidenceError(
-            "development database upgrades are no longer supported"
-        )
-
     started_at = _parse_timestamp(_require_string(evidence, "startedAt", section="root"))
     finished_at = _parse_timestamp(_require_string(evidence, "finishedAt", section="root"))
     if finished_at <= started_at:
         raise MigrationEvidenceError("finishedAt must be after startedAt")
 
     head_revision = _require_string(evidence, "head_revision", section="root")
+    n1_revision = _require_string(evidence, "n1_revision", section="root")
+    if n1_revision == head_revision:
+        raise MigrationEvidenceError("n1_revision must precede head_revision")
     _validate_alembic_heads(evidence, head_revision)
     fresh_revision = _validate_fresh_install(
         _require_mapping(evidence, "fresh_install"), head_revision
     )
+    n1_range = _validate_n1_upgrade(
+        _require_mapping(evidence, "n1_upgrade"),
+        n1_revision=n1_revision,
+        head_revision=head_revision,
+    )
 
     release_notes = _require_mapping(evidence, "release_notes")
     _require_string(release_notes, "path", section="release_notes")
-    migration_range = _require_string(
-        release_notes, "migration_range", section="release_notes"
+    fresh_install_range = _require_string(
+        release_notes, "fresh_install_range", section="release_notes"
     )
-    expected_range = f"base..{head_revision}"
-    if migration_range != expected_range:
+    expected_fresh_install_range = f"base..{head_revision}"
+    if fresh_install_range != expected_fresh_install_range:
         raise MigrationEvidenceError(
-            f"release_notes.migration_range must be {expected_range}"
+            "release_notes.fresh_install_range must be "
+            f"{expected_fresh_install_range}"
+        )
+    release_n1_range = _require_string(
+        release_notes, "n1_upgrade_range", section="release_notes"
+    )
+    if release_n1_range != n1_range:
+        raise MigrationEvidenceError(
+            f"release_notes.n1_upgrade_range must be {n1_range}"
         )
 
     return {
         "passed": True,
         "head_revision": head_revision,
-        "paths": {"fresh_install": fresh_revision},
+        "paths": {
+            "fresh_install": fresh_revision,
+            "n1_upgrade": n1_range,
+        },
     }
 
 
@@ -142,7 +190,7 @@ def _parse_timestamp(value: str) -> datetime:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify SOIT 1.0 fresh-install migration evidence."
+        description="Verify SOIT 1.0 fresh-install and N-1 migration evidence."
     )
     parser.add_argument("evidence", type=Path)
     return parser.parse_args()

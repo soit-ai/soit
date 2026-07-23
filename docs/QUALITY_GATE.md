@@ -72,7 +72,7 @@ uv run python scripts/evaluate_support_ticket_regression.py --json-output ../art
 uv run pytest tests/integration/test_support_ticket_regression_evaluator.py -q
 ```
 
-This is a blocking non-Docker backend gate. Run it against a database initialized from the current fresh-install baseline; GitHub Actions provisions an empty PostgreSQL database and applies the single Alembic baseline before this gate. The evaluator uses the deterministic `model:test:*` path, bootstraps the Enterprise MVP seed when needed, executes the fixed support/ticket golden prompt set, and exits non-zero if any case fails. The JSON report is machine readable and includes `pass/fail`, failure reasons, `run_id`, `response_id`, `tool_call_count`, `citation_count`, `cost`, and `latency_ms` for each case.
+This is a blocking non-Docker backend gate. Run it against a database initialized through the current Alembic head; GitHub Actions provisions an empty PostgreSQL database and applies the explicit baseline plus all supported forward revisions before this gate. The evaluator uses the deterministic `model:test:*` path, bootstraps the Enterprise MVP seed when needed, executes the fixed support/ticket golden prompt set, and exits non-zero if any case fails. The JSON report is machine readable and includes `pass/fail`, failure reasons, `run_id`, `response_id`, `tool_call_count`, `citation_count`, `cost`, and `latency_ms` for each case.
 
 Every passing report must include at least one policy answer case with a citation to `refund-policy.md` and one ticket workflow case with a tool call, child workflow run, audit evidence, citation evidence, and cost evidence.
 

@@ -1,4 +1,4 @@
-"""Outbox consumers for task.* events (Wave B2 placeholder)."""
+"""Core runtime acknowledgements for task lifecycle outbox events."""
 
 from __future__ import annotations
 
@@ -8,5 +8,5 @@ from app.kernel.runtime.db.models.events import EventOutbox
 
 
 def handle_task_runtime_outbox(_db: Session, _row: EventOutbox) -> None:
-    """Reserved for task execution side-effects; observe migrates in Wave C."""
+    """Acknowledge core delivery; separate handlers build observe projections."""
     return None

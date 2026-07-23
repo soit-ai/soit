@@ -8,4 +8,4 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   exit 1
 }
 
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher

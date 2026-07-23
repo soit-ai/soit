@@ -24,6 +24,7 @@ QUICKSTART_SERVICES = {
     "api",
     "web",
     "knowledge-ingest-worker",
+    "outbox-dispatcher",
 }
 LOCAL_MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 FORBIDDEN_OPEN_SOURCE_DOC_TERMS = [
@@ -100,7 +101,7 @@ def test_bilingual_quickstart_documents_cover_demo_path() -> None:
     assert (ROOT / "docs" / "assets" / "hero.png").is_file()
 
     required_terms = [
-        "docker compose -f docker/docker-compose.yml up -d",
+        "docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher",
         "bootstrap_enterprise_mvp.py",
         "tests/integration/test_enterprise_agent_mvp.py",
         "scripts/evaluate_support_ticket_regression.py",
@@ -171,7 +172,7 @@ def test_quickstart_compose_file_matches_documented_service_set() -> None:
         services["knowledge-ingest-worker"]["environment"]["KNOWLEDGE_INGEST_WORKER_MAX_TASKS"]
         == "${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-10}"
     )
-    for service_name in ("migrate", "bootstrap", "api", "knowledge-ingest-worker"):
+    for service_name in ("migrate", "bootstrap", "api", "knowledge-ingest-worker", "outbox-dispatcher"):
         env_files = services[service_name]["env_file"]
         assert env_files == [{"path": "../.env", "required": False}]
 
@@ -210,16 +211,19 @@ def test_scripts_readme_documents_phase1_demo_seed() -> None:
         assert term in content
 
 
-def test_phase1_migration_runbook_documents_fresh_install_only() -> None:
+def test_phase1_migration_runbook_documents_fresh_install_and_n1_upgrade() -> None:
     runbook = ROOT / "docs" / "release-migration.md"
 
     assert runbook.is_file()
 
     content = runbook.read_text(encoding="utf-8")
     required_terms = [
-        "SOIT 1.0 Fresh Installation Migration Runbook",
-        "Fresh Installation Only",
-        "Single Baseline",
+        "SOIT 1.0 Migration Runbook",
+        "Supported Paths",
+        "Fresh Installation",
+        "N-1 Upgrade",
+        "20260718140000",
+        "20260723160000",
         "uv run alembic heads",
         "uv run alembic upgrade head",
         "uv run alembic current",
@@ -227,7 +231,7 @@ def test_phase1_migration_runbook_documents_fresh_install_only() -> None:
     ]
     for term in required_terms:
         assert term in content
-    assert "Development Database Path" not in content
+    assert "single Alembic baseline" not in content
 
 
 def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
@@ -244,9 +248,10 @@ def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
     report = validate_migration_evidence(evidence)
 
     assert report["passed"] is True
-    assert report["head_revision"] == "20260718140000"
+    assert report["head_revision"] == "20260723160000"
     assert report["paths"] == {
-        "fresh_install": "20260718140000",
+        "fresh_install": "20260723160000",
+        "n1_upgrade": "20260718140000..20260723160000",
     }
 
     broken = deepcopy(evidence)
@@ -262,10 +267,10 @@ def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
     with pytest.raises(MigrationEvidenceError, match="featureKey"):
         validate_migration_evidence(wrong_feature)
 
-    legacy_path = deepcopy(evidence)
-    legacy_path["development_database"] = {}
-    with pytest.raises(MigrationEvidenceError, match="no longer supported"):
-        validate_migration_evidence(legacy_path)
+    broken_n1 = deepcopy(evidence)
+    broken_n1["n1_upgrade"]["source_revision"] = "wrong_revision"
+    with pytest.raises(MigrationEvidenceError, match="n1_upgrade"):
+        validate_migration_evidence(broken_n1)
 
     invalid_window = dict(evidence)
     invalid_window["finishedAt"] = "2026-06-11T09:59:59Z"

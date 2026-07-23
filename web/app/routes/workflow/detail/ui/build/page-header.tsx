@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Save } from 'lucide-react'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { useTranslation } from '@/i18n'
+import { Link } from 'react-router'
 
 interface PageHeaderProps {
   id?: string
@@ -24,7 +25,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink href="#">{t('workflow.build.header.root')}</BreadcrumbLink>
+            <BreadcrumbLink asChild>
+              <Link to="/workflow">{t('workflow.build.header.root')}</Link>
+            </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

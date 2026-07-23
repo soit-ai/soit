@@ -71,7 +71,7 @@ class FeatureRegistry:
             raise ValueError(f"Unknown feature key: {key}") from exc
 
     def keys_for_edition(self, edition: str) -> frozenset[str]:
-        normalized = edition.strip().lower()
+        normalized = _normalize_edition(edition)
         return frozenset(
             definition.key
             for definition in self._definitions.values()
@@ -145,6 +145,11 @@ def _parse_feature_definition(
     kind = value.get("kind")
     if not isinstance(kind, str) or not kind.strip():
         raise ValueError(f"Invalid feature kind at {path} features[{index}]")
+    normalized_kind = kind.strip().lower()
+    try:
+        FeatureKind(normalized_kind)
+    except ValueError as exc:
+        raise ValueError(f"Unknown feature kind: {kind}") from exc
 
     editions = value.get("editions")
     if not isinstance(editions, list) or not editions:
@@ -162,7 +167,7 @@ def _parse_feature_definition(
     return FeatureDefinition(
         key=key.strip(),
         editions=frozenset(normalized_editions),
-        kind=kind.strip().lower(),
+        kind=normalized_kind,
     )
 
 
@@ -170,6 +175,13 @@ def _reject_unknown_keys(value: dict[str, Any], *, allowed: set[str], label: str
     unknown = sorted(set(value) - allowed)
     if unknown:
         raise ValueError(f"Unknown keys in {label}: {', '.join(unknown)}")
+
+
+def _normalize_edition(edition: str) -> str:
+    normalized = edition.strip().lower()
+    if normalized not in VALID_EDITIONS:
+        raise ValueError(f"Unknown platform edition: {edition}")
+    return normalized
 
 
 def resolve_enabled_features(
@@ -181,7 +193,7 @@ def resolve_enabled_features(
     """Resolve enabled features for an edition plus explicit entitlements."""
 
     active_registry = registry or FeatureRegistry.default()
-    normalized_edition = edition.strip().lower()
+    normalized_edition = _normalize_edition(edition)
     base = set(active_registry.keys_for_edition("community"))
     if normalized_edition == "community":
         return frozenset(base)

@@ -97,7 +97,7 @@ function BoxPage() {
         item.desc?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     }
-    // Simulate category filtering.
+    // Filter providers by their discovered model capabilities.
     if (activeCategory !== 'all') {
       if (activeCategory === 'llm') {
         result = result.filter(item => item.tags?.includes('LLM'))
