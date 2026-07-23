@@ -603,6 +603,9 @@ class AgentService:
                 for ref in data.workflow_refs
             ]
             tool_definitions = [*(tool_definitions or []), *workflow_definitions]
+        allowed_action_refs = frozenset(
+            [*resolved_tool_refs, *(data.workflow_refs or [])]
+        )
         tool_policies = {
             definition.name: definition.policy or {}
             for definition in tool_definitions or []
@@ -742,8 +745,7 @@ class AgentService:
                     tool_failed_break = False
                     for tool_call_index, tc in enumerate(plan.tool_calls):
                         self._ensure_run_active(run_id)
-                        allowed_refs = [*resolved_tool_refs, *(data.workflow_refs or [])]
-                        if allowed_refs and tc.name not in allowed_refs:
+                        if tc.name not in allowed_action_refs:
                             raise ValidationError(f"Tool not allowed: {tc.name}")
                         is_workflow_call = tc.name in (data.workflow_refs or [])
                         tool_type = "workflow" if is_workflow_call else "builtin"

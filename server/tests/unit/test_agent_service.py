@@ -24,6 +24,7 @@ from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.tools.resolver import ToolResolver
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
+    AgentCapabilityBindings,
     AgentRunRequest,
     AgentRuntimeRequest,
     ChatMessageInput,
@@ -88,6 +89,15 @@ def _runtime_request(**kwargs):
     }
     defaults.update(kwargs)
     return AgentRuntimeRequest(**defaults)
+
+
+def test_agent_capability_bindings_default_to_explicit_empty_lists() -> None:
+    bindings = AgentCapabilityBindings(model_ref="model:test:primary")
+
+    assert bindings.knowledge_refs == []
+    assert bindings.tool_refs == []
+    assert bindings.workflow_refs == []
+    assert bindings.skill_refs == []
 
 
 def test_agent_application_projects_reasoning_to_durable_outputs():
@@ -296,6 +306,37 @@ async def test_agent_run_with_tool_success(db, ctx):
     assert result["tool_calls"] == 1
     assert result["llm_calls"] == 3
     assert tool_port.calls[0] == ("tool:test:echo", {"value": "hi"})
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_tool_call_when_capability_bindings_are_empty(db, ctx):
+    tool_call = ToolCall(
+        id="call_unbound",
+        name="tool:test:echo",
+        arguments={"value": "blocked"},
+    )
+    llm_port = QueueLLMPort(
+        [
+            ChatResponse(
+                text=None,
+                finish_reason="tool_calls",
+                tool_calls=[tool_call],
+            ),
+            ChatResponse(text="unsafe fallback", finish_reason="stop"),
+        ]
+    )
+    tool_port = StubToolPort(ToolResponse(result="must-not-run"))
+    service = AgentService(
+        db=db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=tool_port,
+    )
+
+    with pytest.raises(ValidationError, match="Tool not allowed"):
+        await service.run(_runtime_request(verify=False))
+
+    assert tool_port.calls == []
 
 
 @pytest.mark.asyncio

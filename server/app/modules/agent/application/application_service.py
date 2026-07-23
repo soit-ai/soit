@@ -274,7 +274,7 @@ class AgentApplicationService:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
         return version
 
-    def _normalize_ref_list(self, values: list[str] | None) -> list[str] | None:
+    def _normalize_ref_list(self, values: list[str] | None) -> list[str]:
         seen: set[str] = set()
         normalized: list[str] = []
         for value in values or []:
@@ -282,7 +282,7 @@ class AgentApplicationService:
                 continue
             seen.add(value)
             normalized.append(value)
-        return normalized or None
+        return normalized
 
     def _build_spec(self, data: AgentVersionCreate) -> dict[str, Any]:
         bindings = data.bindings

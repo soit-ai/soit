@@ -51,44 +51,36 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "model_ref"
+        "model_ref",
+        "knowledge_refs",
+        "tool_refs",
+        "workflow_refs",
+        "skill_refs"
       ],
       "properties": {
         "model_ref": {
           "$ref": "refs.schema.json#/$defs/ModelRef"
         },
         "knowledge_refs": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "$ref": "refs.schema.json#/$defs/KnowledgeRef"
           }
         },
         "tool_refs": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "string"
           }
         },
         "workflow_refs": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "$ref": "refs.schema.json#/$defs/WorkflowRef"
           }
         },
         "skill_refs": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "$ref": "refs.schema.json#/$defs/SkillRef"
           }

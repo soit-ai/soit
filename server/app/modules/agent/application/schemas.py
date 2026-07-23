@@ -104,10 +104,10 @@ class AgentCapabilityBindings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model_ref: str
-    knowledge_refs: list[str] | None = None
-    tool_refs: list[str] | None = None
-    workflow_refs: list[str] | None = None
-    skill_refs: list[str] | None = None
+    knowledge_refs: list[str] = Field(default_factory=list)
+    tool_refs: list[str] = Field(default_factory=list)
+    workflow_refs: list[str] = Field(default_factory=list)
+    skill_refs: list[str] = Field(default_factory=list)
 
 
 class AgentVersionCreate(BaseModel):

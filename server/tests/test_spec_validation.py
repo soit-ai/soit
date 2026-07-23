@@ -295,6 +295,30 @@ def test_agent_spec_validation_with_bindings_only_shape():
     assert validate_spec(agent_doc, "agent_spec") is True
 
 
+@pytest.mark.parametrize(
+    "binding_name",
+    ["knowledge_refs", "tool_refs", "workflow_refs", "skill_refs"],
+)
+def test_agent_spec_rejects_null_capability_bindings(binding_name: str) -> None:
+    bindings = {
+        "model_ref": "model:openai:gpt-4",
+        "knowledge_refs": [],
+        "tool_refs": [],
+        "workflow_refs": [],
+        "skill_refs": [],
+    }
+    bindings[binding_name] = None
+
+    with pytest.raises(ValidationError):
+        validate_spec(
+            {
+                "runtime": "agent_runtime_v1",
+                "bindings": bindings,
+            },
+            "agent_spec",
+        )
+
+
 def test_agent_spec_validation_rejects_plugin_refs_binding():
     with pytest.raises(ValidationError):
         validate_spec(
