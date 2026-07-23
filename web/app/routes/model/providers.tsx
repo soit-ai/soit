@@ -225,7 +225,7 @@ function ModelProvidersPage() {
       kind: 'openai',
       status: 'active',
       baseUrl: '',
-      credentialRef: '',
+      credentialSecretId: '',
       syncPolicy: {
         auto_sync: false,
         interval_minutes: 360,

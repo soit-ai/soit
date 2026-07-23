@@ -163,7 +163,7 @@ function Page() {
     return secrets.filter((secret) => {
       return (
         secret.name.toLowerCase().includes(keyword) ||
-        secret.secret_ref.toLowerCase().includes(keyword) ||
+        secret.id.toLowerCase().includes(keyword) ||
         (secret.description || '').toLowerCase().includes(keyword)
       )
     })
@@ -220,12 +220,12 @@ function Page() {
                 {rows.map((secret) => (
                   <TableRow key={secret.id}>
                     <TableCell className="font-medium">{secret.name}</TableCell>
-                    <TableCell className="font-mono text-xs">{secret.secret_ref}</TableCell>
+                    <TableCell className="font-mono text-xs">{secret.id}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{secret.description || '-'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatTimestamp(secret.updated_at)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleCopy(secret.secret_ref)}>
+                        <Button variant="ghost" size="sm" onClick={() => handleCopy(secret.id)}>
                           <Copy className="mr-1 h-4 w-4" />
                           {t('system.settings.secrets.actions.copy')}
                         </Button>

@@ -23,7 +23,7 @@ interface ProviderResponse {
   kind: string
   name: string
   base_url?: string | null
-  credential_ref?: string | null
+  credential_secret_id?: string | null
   status: string
   sync_policy_json?: Record<string, any> | null
   connection_config_json?: Record<string, any> | null
@@ -378,7 +378,7 @@ const mapProviderToConfig = (provider: ProviderResponse): ProviderConfig => {
     name: provider.name,
     kind: provider.kind as ProviderConfig['kind'],
     baseUrl: provider.base_url || '',
-    credentialRef: provider.credential_ref || '',
+    credentialSecretId: provider.credential_secret_id || '',
     status: provider.status as ProviderConfig['status'],
     lastSyncedAt: provider.last_synced_at || undefined,
     lastHealthcheckAt: provider.last_healthcheck_at || undefined,
@@ -588,7 +588,7 @@ export async function createProvider(data: ProviderConfig) {
     name: data.name,
     kind: data.kind,
     base_url: data.baseUrl || undefined,
-    credential_ref: data.credentialRef || undefined,
+    credential_secret_id: data.credentialSecretId || undefined,
     status: data.status,
     sync_policy_json: buildProviderSyncPolicyPayload(data),
     connection_config_json: data.connectionConfig || undefined,
@@ -607,7 +607,7 @@ export async function updateProvider(id: string, data: ProviderConfig) {
     name: data.name,
     kind: data.kind,
     base_url: data.baseUrl || undefined,
-    credential_ref: data.credentialRef || undefined,
+    credential_secret_id: data.credentialSecretId || undefined,
     status: data.status,
     sync_policy_json: buildProviderSyncPolicyPayload(data),
     connection_config_json: data.connectionConfig || undefined,

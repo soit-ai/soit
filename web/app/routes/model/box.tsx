@@ -52,7 +52,7 @@ function BoxPage() {
         desc: provider.baseUrl || provider.kind,
         kind: provider.kind,
         baseUrl: provider.baseUrl,
-        credentialRef: provider.credentialRef,
+        credentialSecretId: provider.credentialSecretId,
         status: provider.status,
         syncPolicy: provider.syncPolicy,
       }))

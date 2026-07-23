@@ -84,7 +84,7 @@ const createInitialProvider = (item: ProviderConfig): ProviderConfig => ({
   name: item.name || '',
   kind: item.kind || 'openai',
   baseUrl: item.baseUrl || '',
-  credentialRef: item.credentialRef || '',
+  credentialSecretId: item.credentialSecretId || '',
   status: item.status || 'active',
   lastSyncedAt: item.lastSyncedAt,
   lastHealthcheckAt: item.lastHealthcheckAt,
@@ -372,7 +372,7 @@ export function SettingSheet(props: SettingSheetProps) {
     }
   }
 
-  const credentialStatus = formData.credentialRef
+  const credentialStatus = formData.credentialSecretId
     ? formData.lastHealthcheckError
       ? t('model.providerSettings.status.credentialError')
       : t('model.providerSettings.status.credentialConfigured')
@@ -644,11 +644,11 @@ export function SettingSheet(props: SettingSheetProps) {
                     <Input value={credentialStatus} readOnly />
                   </div>
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="provider-credential-ref">{t('model.providerSettings.fields.credentialRef')}</Label>
+                    <Label htmlFor="provider-credential-secret-id">{t('model.providerSettings.fields.credentialSecretId')}</Label>
                     <Input
-                      id="provider-credential-ref"
-                      value={formData.credentialRef || ''}
-                      onChange={(event) => handleInputChange('credentialRef', event.target.value)}
+                      id="provider-credential-secret-id"
+                      value={formData.credentialSecretId || ''}
+                      onChange={(event) => handleInputChange('credentialSecretId', event.target.value)}
                     />
                   </div>
                 </CardContent>

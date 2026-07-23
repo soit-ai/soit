@@ -650,7 +650,7 @@ const model = {
       },
       auth: {
         title: 'Auth configuration',
-        description: 'Store credential references only. Plain secret values are never shown.',
+        description: 'Store opaque credential secret IDs only. Plain secret values are never shown.',
       },
       catalog: {
         title: 'Catalog sync',
@@ -695,7 +695,7 @@ const model = {
       concurrency: 'Concurrency',
       authType: 'Auth type',
       credentialStatus: 'Credential status',
-      credentialRef: 'Credential reference',
+      credentialSecretId: 'Credential secret ID',
       catalogSupported: 'Catalog supported',
       autoSync: 'Auto sync',
       syncInterval: 'Sync interval (minutes)',
@@ -774,7 +774,7 @@ const model = {
     },
     validation: {
       nameRequired: 'Provider name is required.',
-      credentialRequired: 'Credential reference is required.',
+      credentialRequired: 'Credential secret ID is required.',
     },
   },
 }

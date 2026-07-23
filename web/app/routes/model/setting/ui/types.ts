@@ -87,7 +87,7 @@ export interface ProviderConfig {
   name: string
   kind: string
   baseUrl?: string
-  credentialRef?: string
+  credentialSecretId?: string
   status: 'active' | 'disabled' | 'error'
   lastSyncedAt?: string
   lastHealthcheckAt?: string

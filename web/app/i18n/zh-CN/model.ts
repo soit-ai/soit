@@ -650,7 +650,7 @@ const model = {
       },
       auth: {
         title: '鉴权配置',
-        description: '只保存凭证引用，不展示明文密钥。',
+        description: '只保存不透明的凭证 Secret ID，不展示明文密钥。',
       },
       catalog: {
         title: 'Catalog 同步',
@@ -695,7 +695,7 @@ const model = {
       concurrency: '并发数',
       authType: '鉴权类型',
       credentialStatus: '凭证状态',
-      credentialRef: '凭证引用',
+      credentialSecretId: '凭证 Secret ID',
       catalogSupported: '支持 Catalog',
       autoSync: '自动同步',
       syncInterval: '同步间隔（分钟）',
@@ -774,7 +774,7 @@ const model = {
     },
     validation: {
       nameRequired: '供应商名称不能为空',
-      credentialRequired: '凭证引用不能为空',
+      credentialRequired: '凭证 Secret ID 不能为空',
     },
   },
 }

@@ -4,7 +4,6 @@ export interface Secret {
   id: string
   name: string
   description?: string | null
-  secret_ref: string
   last_rotated_at?: string | null
   created_by?: string | null
   updated_by?: string | null
