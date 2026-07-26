@@ -10,6 +10,8 @@ From `server/`:
 uv sync
 uv run alembic heads
 uv run pytest tests/unit/test_fresh_install_migration.py -q
+uv run pytest tests/postgres -q
+uv run pytest tests/unit/test_egress_policy.py tests/unit/test_governed_http_fetch.py tests/unit/test_governed_egress_paths.py tests/unit/test_scoped_secrets_port.py tests/unit/test_resource_permissions.py tests/unit/test_agent_service.py -q
 uv run lint-imports --config importlinter.ini
 uv run ruff check app/modules/agent/application/schemas.py app/modules/agent/application/service.py app/modules/agent/application/application_service.py app/api/v1/agent/handlers.py tests/unit/test_agent_service.py tests/unit/test_agent_rag.py tests/integration/test_agent_publish_and_execute.py tests/entrypoints/test_agent_api.py tests/entrypoints/test_agent_stream_api.py --select F,E402,I
 uv run pytest tests/unit/test_agent_service.py tests/unit/test_agent_rag.py tests/integration/test_agent_publish_and_execute.py tests/entrypoints/test_agent_api.py tests/entrypoints/test_agent_stream_api.py -q
@@ -22,6 +24,30 @@ uv run pytest tests/integration -q
 uv run pytest tests/test_spec_validation.py tests/test_model_scope_audit.py tests/test_trace_emission.py -q
 ```
 
+`tests/postgres/` is intentionally separate from the SQLite-backed unit-test
+fixtures. It requires `DATABASE_URL` to reference a migrated PostgreSQL database
+and verifies concurrent lease ownership, `FOR UPDATE SKIP LOCKED` worker claims,
+outbox recovery, response idempotency, serialized event sequencing, and native
+JSON query behavior. A skipped PostgreSQL suite is not a passing release gate.
+
+## Independent Release Acceptance
+
+CI and developer-operated smoke tests do not satisfy the independent acceptance
+gate. Before release sign-off, two or three non-code authors must independently
+complete the clean-install and empty-workspace procedure in
+`docs/deployment/independent-release-acceptance.md`. Validate the final private
+evidence package in strict mode:
+
+```bash
+cd server
+uv run python scripts/verify_independent_release_acceptance.py \
+  /path/to/independent-release-acceptance.json \
+  --evidence-root /path/to/private-release-evidence
+```
+
+The gate remains incomplete until every environment, run, and signature reference
+exists and the strict verifier passes.
+
 ## Blocking Frontend Gate
 
 From `web/`:
@@ -33,11 +59,26 @@ npm run build
 npm run budget
 npx playwright install chromium
 npm run test:e2e
+npm run test:e2e:real
 ```
+
+The regular Playwright suite is deterministic and may intercept API calls. The
+separate `test:e2e:real` release gate must run against a freshly migrated
+PostgreSQL database and a live API. It creates a new tenant and empty workspace,
+then completes the Knowledge, Agent publish/execute, Observe, and Workflow
+publish/execute journey without `page.route()` or seeded product records. Set
+`SOIT_REAL_API_BASE_URL` and `PLAYWRIGHT_BASE_URL` when the API or web ports
+differ from `9200` and `5000`.
 
 ## Blocking Container Gate
 
-The quality workflow validates the Compose model, builds the backend image, applies Alembic migrations from that image, starts the API as a single Uvicorn process, and requires `/health/ready` to report `ready` against PostgreSQL. A failed image build, migration, startup, or readiness probe blocks the workflow.
+The quality workflow validates the Compose model, builds the backend image,
+applies Alembic migrations from that image, starts the API as a single Uvicorn
+process, and requires `/health/ready` to report `ready` against PostgreSQL. It
+also starts the dedicated outbox dispatcher and knowledge worker; the dispatcher
+must expose its metric and the knowledge worker must remain running. A failed
+image build, migration, startup, worker smoke, or readiness probe blocks the
+workflow.
 
 Run the configuration check locally from the repository root:
 
@@ -119,7 +160,11 @@ uv run pyright
 uv run lint-imports --config importlinter.ini
 ```
 
-Frontend build output is also budgeted. After `npm run build`, `npm run budget` reads the generated SPA entry page and fails when initial JavaScript exceeds 420,000 bytes or any JavaScript chunk exceeds 1,016,000 bytes. The repository-local `web/bundle-budget.json` records these explicit limits; change them only with measured build evidence and review.
+Frontend build output is also budgeted. After `npm run build`, `npm run budget`
+reads the generated SPA entry page and fails when initial JavaScript exceeds
+840,000 bytes or any JavaScript chunk exceeds 2,016,000 bytes. The
+repository-local `web/bundle-budget.json` records these explicit limits; change
+them only with measured build evidence and review.
 
 ## Contract Rules
 

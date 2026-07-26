@@ -57,6 +57,20 @@ jobs:
       - name: Apply migrations
         run: uv run alembic upgrade head
 
+      - name: PostgreSQL runtime concurrency contracts
+        run: uv run pytest tests/postgres -q
+
+      - name: Release-blocking security regressions
+        run: >
+          uv run pytest
+          tests/unit/test_egress_policy.py
+          tests/unit/test_governed_http_fetch.py
+          tests/unit/test_governed_egress_paths.py
+          tests/unit/test_scoped_secrets_port.py
+          tests/unit/test_resource_permissions.py
+          tests/unit/test_agent_service.py
+          -q
+
       - name: Agent contract lint
         run: >
           uv run ruff check
@@ -234,9 +248,32 @@ jobs:
           docker logs soit-outbox-ci
           exit 1
 
+      - name: Start knowledge worker image
+        run: >-
+          docker run --detach --name soit-knowledge-ci --network host
+          -e ENVIRONMENT=development
+          -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/soit_container
+          -e REDIS_URL=redis://127.0.0.1:6379/0
+          -e EVENT_BUS_BACKEND=redis
+          -e EVENT_BUS_REDIS_URL=redis://127.0.0.1:6379/0
+          soit-api:ci python scripts/ingest_worker.py
+
+      - name: Verify knowledge worker remains running
+        run: |
+          for _ in $(seq 1 15); do
+            if test "$(docker inspect --format='{{.State.Running}}' soit-knowledge-ci)" = "true" && \
+              docker logs soit-knowledge-ci 2>&1 | grep --quiet 'Starting ingest worker'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs soit-knowledge-ci
+          exit 1
+
       - name: Stop backend image
         if: always()
         run: |
+          docker rm --force soit-knowledge-ci || true
           docker rm --force soit-outbox-ci || true
           docker rm --force soit-api-ci || true
 
@@ -277,3 +314,125 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
+
+  fullstack-real:
+    name: fullstack-real
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: soit_fullstack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d soit_fullstack"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      ENVIRONMENT: development
+      SOIT_TESTING: "1"
+      ALLOW_PUBLIC_REGISTRATION: "true"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/soit_fullstack
+      EVENT_BUS_BACKEND: memory
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      KNOWLEDGE_INGEST_WORKER_ENABLED: "false"
+      RESPONSE_INTERACTION_INLINE_EXECUTION: "true"
+      SOIT_REAL_API_BASE_URL: http://127.0.0.1:9200/api/v1
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:5000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: uv sync
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Apply fresh database migrations
+        working-directory: server
+        run: uv run alembic upgrade head
+
+      - name: Start real API
+        working-directory: server
+        run: |
+          mkdir -p ../artifacts/fullstack-real
+          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 9200 \
+            > ../artifacts/fullstack-real/api.log 2>&1 &
+          echo $! > ../artifacts/fullstack-real/api.pid
+          for _ in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9200/health/ready | grep --quiet '"status":"ready"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat ../artifacts/fullstack-real/api.log
+          exit 1
+
+      - name: Start dedicated runtime workers
+        working-directory: server
+        run: |
+          nohup uv run python scripts/outbox_dispatcher.py \
+            > ../artifacts/fullstack-real/outbox.log 2>&1 &
+          echo $! > ../artifacts/fullstack-real/outbox.pid
+          nohup uv run python scripts/ingest_worker.py \
+            > ../artifacts/fullstack-real/knowledge-worker.log 2>&1 &
+          echo $! > ../artifacts/fullstack-real/knowledge-worker.pid
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9201/metrics | grep --quiet 'soit_outbox_pending' && \
+              kill -0 "$(cat ../artifacts/fullstack-real/knowledge-worker.pid)"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat ../artifacts/fullstack-real/outbox.log
+          cat ../artifacts/fullstack-real/knowledge-worker.log
+          exit 1
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Real empty-workspace E2E
+        working-directory: web
+        run: npm run test:e2e:real
+
+      - name: Upload real full-stack diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fullstack-real-diagnostics
+          if-no-files-found: ignore
+          path: |
+            artifacts/fullstack-real
+            web/test-results/real-backend
+
+      - name: Stop real API and workers
+        if: always()
+        run: |
+          for pid_file in artifacts/fullstack-real/*.pid; do
+            if test -f "$pid_file"; then
+              kill "$(cat "$pid_file")" 2>/dev/null || true
+            fi
+          done

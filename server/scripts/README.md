@@ -18,6 +18,7 @@ Available:
 - `verify_model_provider_spotcheck.py`: validate live ModelHub provider spot-check evidence; pass `--repo-root` for final evidence so diagnostic, chat completion, and cost attribution evidence refs must exist locally.
 - `verify_phase1_user_feedback.py`: validate 1 to 3 non-developer Chain A feedback records before signing the SOIT 1.0 release gate; pass `--repo-root` for final evidence so participant feedback, release decision, and known limitations refs must exist locally.
 - `verify_governance_release.py`: validate the SOIT 1.1 governance release evidence before publishing the `v1.1.0` tag and release notes.
+- `verify_independent_release_acceptance.py`: require two or three non-author reviewers to sign clean-environment installation and empty-workspace journeys; use `--evidence-root` for final sign-off so environment, run, and signature references must exist.
 - `migrate.sh`: apply database migrations (alembic upgrade head).
 - `migrate_mcp_artifacts.py`: dry-run by default; pass `--apply` to move legacy MCP credentials to Vault and rewrite artifacts for the official SDK.
 - `verify_release_migration_paths.py`: validate the SOIT 1.0 empty-database and development-database migration evidence JSON before signing the release gate.

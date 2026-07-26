@@ -1,0 +1,61 @@
+{
+  "featureKey": "release.independent_acceptance",
+  "acceptanceId": "rc1-independent-acceptance-20260723",
+  "release": "v1.0.0-rc.1",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "acceptanceScriptRef": "docs/deployment/independent-release-acceptance.md",
+  "startedAt": "2026-07-23T08:00:00Z",
+  "finishedAt": "2026-07-23T11:00:00Z",
+  "reviewers": [
+    {
+      "reviewerRef": "reviewer:operations-01",
+      "role": "operations reviewer",
+      "codeAuthor": false,
+      "cleanEnvironment": true,
+      "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
+      "environmentRef": "evidence/rc1/reviewer-01-environment.md",
+      "startedAt": "2026-07-23T08:10:00Z",
+      "finishedAt": "2026-07-23T09:00:00Z",
+      "durationMinutes": 50,
+      "completionRatePercent": 100,
+      "completedJourneys": [
+        "fresh_install",
+        "empty_workspace_knowledge_agent_observe",
+        "empty_workspace_workflow"
+      ],
+      "blockingIssues": [],
+      "result": "passed",
+      "evidenceRef": "evidence/rc1/reviewer-01-run.md",
+      "signatureRef": "evidence/rc1/reviewer-01-signature.md",
+      "signedAt": "2026-07-23T09:05:00Z"
+    },
+    {
+      "reviewerRef": "reviewer:product-02",
+      "role": "product acceptance reviewer",
+      "codeAuthor": false,
+      "cleanEnvironment": true,
+      "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
+      "environmentRef": "evidence/rc1/reviewer-02-environment.md",
+      "startedAt": "2026-07-23T09:20:00Z",
+      "finishedAt": "2026-07-23T10:20:00Z",
+      "durationMinutes": 60,
+      "completionRatePercent": 100,
+      "completedJourneys": [
+        "fresh_install",
+        "empty_workspace_knowledge_agent_observe",
+        "empty_workspace_workflow"
+      ],
+      "blockingIssues": [],
+      "result": "passed",
+      "evidenceRef": "evidence/rc1/reviewer-02-run.md",
+      "signatureRef": "evidence/rc1/reviewer-02-signature.md",
+      "signedAt": "2026-07-23T10:25:00Z"
+    }
+  ],
+  "releaseDecision": {
+    "result": "passed",
+    "signer": "release-owner",
+    "signatureRef": "evidence/rc1/release-decision-signature.md",
+    "signedAt": "2026-07-23T10:40:00Z"
+  }
+}

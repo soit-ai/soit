@@ -130,6 +130,54 @@ def test_publication_security_and_license_gates_are_explicit() -> None:
     assert "uv run mypy" not in contributing
 
 
+def test_quality_workflow_has_explicit_postgres_and_security_gates() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "quality.yml").read_text(
+        encoding="utf-8"
+    )
+    quality_doc = (ROOT / "docs" / "QUALITY_GATE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "PostgreSQL runtime concurrency contracts" in workflow
+    assert "uv run pytest tests/postgres -q" in workflow
+    assert "Release-blocking security regressions" in workflow
+    for contract in (
+        "test_governed_egress_paths.py",
+        "test_scoped_secrets_port.py",
+        "test_resource_permissions.py",
+        "test_agent_service.py",
+    ):
+        assert contract in workflow
+    assert "A skipped PostgreSQL suite is not a passing release gate." in quality_doc
+
+
+def test_quality_workflow_runs_a_real_empty_workspace_fullstack_journey() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "quality.yml").read_text(
+        encoding="utf-8"
+    )
+    real_spec = (ROOT / "web" / "e2e-real" / "empty-workspace.spec.ts").read_text(
+        encoding="utf-8"
+    )
+
+    for term in (
+        "fullstack-real:",
+        "ALLOW_PUBLIC_REGISTRATION: \"true\"",
+        "Start dedicated runtime workers",
+        "npm run test:e2e:real",
+        "Upload real full-stack diagnostics",
+    ):
+        assert term in workflow
+
+    assert "page.route(" not in real_spec
+    for path in (
+        "/knowledge",
+        "/agents",
+        "/observe/runs/",
+        "/workflow",
+    ):
+        assert path in real_spec
+
+
 def test_vulnerability_exceptions_require_owner_reason_and_expiry() -> None:
     valid = {
         "schemaVersion": 1,

@@ -11,7 +11,8 @@
     "start:ssr": "react-router-serve ./build/server/index.js",
     "preview": "vite preview",
     "typecheck": "react-router typegen && tsgo",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:real": "playwright test --config=playwright.real.config.ts"
   },
   "engines": {
     "node": ">=20"
