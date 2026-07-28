@@ -11,6 +11,7 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
 from app.kernel.runtime.db.models.tasks import Task
+from app.kernel.runtime.tasks.drivers import is_drivable
 from app.kernel.runtime.tasks.repository import TaskRepository
 from app.kernel.runtime.tasks.schemas import (
     TaskCheckpointResponse,
@@ -211,9 +212,16 @@ class TaskQueryService:
                 return value.strip()
         return task.task_type
 
+    def available_actions(self, task: Task) -> list[str]:
+        """Return the controls a caller may invoke for this task."""
+        return self._available_actions(task)
+
     def _available_actions(self, task: Task) -> list[str]:
+        # Only advertise retry when something is registered to re-run the task
+        # from scratch. Offering it otherwise leaves the task queued forever.
+        # Resume is always available: approval and agent flows drive it.
         if task.status in {"failed", "canceled", "expired"}:
-            return ["retry"]
+            return ["retry"] if is_drivable(task.task_type) else []
         if task.status in {"paused", "waiting_input", "waiting_approval"}:
             return ["resume", "cancel"]
         if task.status in {"queued", "preparing", "running", "retrying"}:

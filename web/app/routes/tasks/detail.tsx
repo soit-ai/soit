@@ -39,9 +39,12 @@ function TaskDetailPage() {
   })
 
   const task = data?.task
-  const canCancel = task ? !['succeeded', 'failed', 'canceled', 'expired'].includes(task.status) : false
-  const canResume = task ? ['paused', 'waiting_input', 'waiting_approval'].includes(task.status) : false
-  const canRetry = task ? ['failed', 'canceled', 'expired'].includes(task.status) : false
+  // The server decides which controls are actually backed by an implementation;
+  // deriving them from status alone offered a retry that never ran anything.
+  const availableActions = data?.available_actions ?? []
+  const canCancel = availableActions.includes('cancel')
+  const canResume = availableActions.includes('resume')
+  const canRetry = availableActions.includes('retry')
 
   const handleControl = async (action: 'cancel' | 'resume' | 'retry') => {
     try {

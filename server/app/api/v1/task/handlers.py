@@ -98,6 +98,7 @@ class TaskHandlers:
             task=TaskResponse.model_validate(task),
             checkpoints=[TaskCheckpointResponse.model_validate(item) for item in checkpoints],
             events=[TaskEventResponse.model_validate(item) for item in events],
+            available_actions=self.service.available_actions(task),
         )
 
     async def get_task_handling(self, ctx: RequestContext, task_id: str) -> TaskHandlingResponse:

@@ -7,6 +7,7 @@ from fastapi import status
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.status import TaskStatus
+from app.kernel.runtime.tasks import drivers
 
 
 def _headers() -> dict[str, str]:
@@ -165,7 +166,9 @@ def test_task_handling_returns_available_actions_and_runtime_context(client, db)
 
     assert failed.status_code == status.HTTP_200_OK
     failed_payload = failed.json()["data"]
-    assert failed_payload["available_actions"] == ["retry"]
+    # No driver re-runs "wf_step", so retry must not be offered; advertising it
+    # would requeue the task into a state nothing ever completes.
+    assert failed_payload["available_actions"] == []
     assert failed_payload["summary"]["error_message"] == "contract_id is empty"
     assert failed_payload["runtime_context"]["run_id"] == "run_task_failed_contract"
     assert failed_payload["events"][0]["event_type"] == "task.failed"
@@ -175,3 +178,16 @@ def test_task_handling_returns_available_actions_and_runtime_context(client, db)
     assert running.json()["data"]["available_actions"] == ["cancel"]
     assert succeeded.json()["data"]["available_actions"] == []
     assert hidden.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_task_handling_offers_retry_once_a_driver_is_registered(client, db):
+    _seed_tasks(db)
+    drivers.register_task_driver("wf_step", lambda _db, _task: None)
+    try:
+        failed = client.get(
+            "/api/v1/tasks/task_failed_contract/handling", headers=_headers()
+        )
+    finally:
+        drivers.clear_task_drivers()
+
+    assert failed.json()["data"]["available_actions"] == ["retry"]

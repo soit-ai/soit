@@ -29,8 +29,8 @@ fixtures. It requires `DATABASE_URL` to reference a migrated PostgreSQL database
 and verifies concurrent lease ownership, `FOR UPDATE SKIP LOCKED` worker claims,
 expired-lease reclaim of orphaned work, outbox recovery, response idempotency,
 serialized event sequencing, and native JSON query behavior. SQLite ignores
-`SKIP LOCKED`, so lease exclusivity is only ever proven here. A skipped
-PostgreSQL suite is not a passing release gate.
+`SKIP LOCKED`, so lease exclusivity is only ever proven here.
+A skipped PostgreSQL suite is not a passing release gate.
 
 Point `DATABASE_URL` at a dedicated acceptance database rather than a working
 development database:

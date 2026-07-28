@@ -7,11 +7,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import NotFoundError
+from app.kernel.commons.errors import ConflictError, NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.status import TaskStatus, validate_task_transition
+from app.kernel.runtime.tasks.drivers import is_drivable
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.protocols import TaskRepositoryProtocol
 from app.kernel.runtime.tasks.repository import TaskRepository
@@ -136,6 +137,19 @@ class TaskService:
         )
         return task
 
+    def _require_driver(self, task: Task) -> None:
+        """Reject a retry of a task type that nothing can run.
+
+        Without this the status would flip to queued and the task would wait
+        forever, which reads as accepted work that never completes. Resuming is
+        not gated: approval and agent flows drive that path themselves.
+        """
+
+        if not is_drivable(task.task_type):
+            raise ConflictError(
+                f"Re-execution of task type {task.task_type!r} is not implemented"
+            )
+
     def cancel_task(self, *, task_id: str) -> Task:
         """Cancel an in-flight or waiting task."""
 
@@ -179,6 +193,7 @@ class TaskService:
             TaskStatus.EXPIRED.value,
         }:
             return task
+        self._require_driver(task)
         task.started_at = None
         task.finished_at = None
         task.error_code = None

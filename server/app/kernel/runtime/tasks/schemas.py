@@ -69,6 +69,8 @@ class TaskDetailResponse(BaseModel):
     task: TaskResponse
     checkpoints: list[TaskCheckpointResponse]
     events: list[TaskEventResponse]
+    available_actions: list[str] = []
+    """Controls the caller may invoke; the server is the only authority."""
 
 
 class TaskControlResponse(BaseModel):

@@ -50,6 +50,7 @@ export interface TaskDetail {
   task: Task
   checkpoints: TaskCheckpoint[]
   events: TaskEvent[]
+  available_actions: Array<'retry' | 'resume' | 'cancel' | string>
 }
 
 export interface TaskControlResponse {
