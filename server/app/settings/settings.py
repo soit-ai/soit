@@ -145,6 +145,12 @@ class Settings(BaseSettings):
     credit_rates_json: str = '{"USD": "1000"}'
     """JSON map of currency code to credits deducted per one currency unit."""
 
+    credit_enforcement_enabled: bool = False
+    """Block metered invocations when the workspace credit balance is exhausted."""
+
+    credit_low_balance_threshold: float = 100.0
+    """Warn on metered invocations when the balance falls below this many credits."""
+
     response_interaction_inline_execution: bool = True
     """Execute claimed chat interactions inline; development and tests only."""
 

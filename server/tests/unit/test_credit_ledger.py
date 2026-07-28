@@ -7,10 +7,13 @@ from decimal import Decimal
 import pytest
 from sqlmodel import Session, select
 
+from app.kernel.commons.errors import CreditExhaustedError
 from app.kernel.runtime.db.models.events import EventOutbox
+from app.modules.billing.application.guard import CreditBalanceGuard
 from app.modules.billing.application.service import CreditService
 from app.modules.billing.domain.models import CreditLedgerEntry
 from app.modules.billing.handlers.on_cost_recorded import handle_cost_recorded_credit
+from app.settings.settings import settings
 
 
 def _cost_event(
@@ -91,19 +94,43 @@ def test_same_cost_entry_under_new_event_id_is_not_double_booked(db: Session) ->
     assert len(_ledger_rows(db)) == 1
 
 
-def test_unpriced_and_unsupported_currency_events_book_nothing(db: Session) -> None:
+def test_unpriced_event_books_nothing(db: Session) -> None:
     unpriced = _cost_event("evt_cost_credit_unpriced", amount=None, currency=None)
-    unsupported = _cost_event(
-        "evt_cost_credit_eur", cost_entry_id="cost_entry_eur", currency="EUR"
-    )
     db.add(unpriced)
-    db.add(unsupported)
     db.flush()
 
     handle_cost_recorded_credit(db, unpriced)
-    handle_cost_recorded_credit(db, unsupported)
 
     assert _ledger_rows(db) == []
+
+
+def test_unknown_currency_books_zero_credit_adjustment(db: Session) -> None:
+    unsupported = _cost_event(
+        "evt_cost_credit_eur", cost_entry_id="cost_entry_eur", currency="EUR"
+    )
+    db.add(unsupported)
+    db.flush()
+
+    handle_cost_recorded_credit(db, unsupported)
+
+    entries = _ledger_rows(db)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.kind == "adjustment"
+    assert entry.credits_delta == Decimal("0")
+    assert entry.cost_entry_id == "cost_entry_eur"
+    assert entry.currency == "EUR"
+    assert entry.amount == Decimal("0.25")
+    assert entry.conversion_snapshot_json["reason"] == "no_rate_configured_for_currency"
+
+    # Replaying under a fresh event id must not double-book the adjustment.
+    replay = _cost_event(
+        "evt_cost_credit_eur_replay", cost_entry_id="cost_entry_eur", currency="EUR"
+    )
+    db.add(replay)
+    db.flush()
+    handle_cost_recorded_credit(db, replay)
+    assert len(_ledger_rows(db)) == 1
 
 
 def test_balance_is_signed_sum_of_grants_and_deductions(db: Session, ctx) -> None:
@@ -139,3 +166,49 @@ def test_grant_rejects_non_positive_credits(db: Session, ctx) -> None:
     service = CreditService(db, ctx)
     with pytest.raises(ValueError, match="positive"):
         service.grant(credits=Decimal("0"))
+
+
+@pytest.mark.asyncio
+async def test_guard_is_noop_when_enforcement_disabled(db: Session, ctx) -> None:
+    guard = CreditBalanceGuard(db, ctx)
+    await guard.check(operation="chat")  # zero balance, but enforcement is off
+
+
+@pytest.mark.asyncio
+async def test_guard_hard_stops_exhausted_balance(db: Session, ctx, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
+    guard = CreditBalanceGuard(db, ctx)
+
+    with pytest.raises(CreditExhaustedError) as excinfo:
+        await guard.check(operation="chat")
+    assert excinfo.value.details["operation"] == "chat"
+
+    CreditService(db, ctx).grant(credits=Decimal("500"), note="top-up")
+    await guard.check(operation="chat")  # positive balance passes
+
+
+@pytest.mark.asyncio
+async def test_guard_warns_below_threshold(db: Session, ctx, monkeypatch, caplog) -> None:
+    monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
+    monkeypatch.setattr(settings, "credit_low_balance_threshold", 100.0)
+    CreditService(db, ctx).grant(credits=Decimal("50"), note="small top-up")
+    guard = CreditBalanceGuard(db, ctx)
+
+    with caplog.at_level("WARNING"):
+        await guard.check(operation="chat")
+    assert any("credit balance low" in record.message for record in caplog.records)
+
+
+def test_balance_status_reflects_enforcement_thresholds(db: Session, ctx, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
+    monkeypatch.setattr(settings, "credit_low_balance_threshold", 100.0)
+    service = CreditService(db, ctx)
+
+    assert service.get_balance().status == "exhausted"
+    service.grant(credits=Decimal("50"))
+    assert service.get_balance().status == "low"
+    service.grant(credits=Decimal("500"))
+    balance = service.get_balance()
+    assert balance.status == "ok"
+    assert balance.enforcement_enabled is True
+    assert balance.low_balance_threshold == Decimal("100")

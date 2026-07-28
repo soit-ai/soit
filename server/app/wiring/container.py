@@ -231,14 +231,21 @@ class Container:
             LLMPort instance wrapped with policy gateway.
         """
         from app.kernel.ports.llm.policy import LLMPolicyGateway
+        from app.modules.billing.application.guard import CreditBalanceGuard
 
         base_gateway = self.get("llm_port")
+        credit_guard = (
+            CreditBalanceGuard(db=trace_writer.db, ctx=ctx)
+            if trace_writer is not None
+            else None
+        )
         return LLMPolicyGateway(
             gateway=base_gateway,
             ctx=ctx,
             trace_writer=trace_writer,
             rate_limit_per_minute=ctx.llm_rate_limit_per_minute,
             daily_quota=ctx.llm_daily_quota,
+            credit_guard=credit_guard,
         )
 
     def get_tool_port(

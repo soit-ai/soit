@@ -79,33 +79,53 @@ def handle_cost_recorded_credit(db: Session, row: EventOutbox) -> None:
 
     rate = _credit_rates().get(str(currency))
     if rate is None:
+        # Unknown currencies must still leave ledger evidence: a zero-credit
+        # adjustment keeps the priced amount auditable and repricable later.
         logger.warning(
-            "No credit rate configured for currency %s; skipping deduction for %s",
+            "No credit rate configured for currency %s; booking zero-credit adjustment for %s",
             currency,
             cost_entry_id,
         )
-        return
-
-    credits = (amount * rate).quantize(Decimal("0.000001"))
-    entry = CreditLedgerEntry(
-        tenant_id=str(tenant_id),
-        workspace_id=str(workspace_id),
-        kind="deduction",
-        credits_delta=-credits,
-        cost_entry_id=str(cost_entry_id),
-        run_id=payload.get("run_id"),
-        currency=str(currency),
-        amount=amount,
-        conversion_snapshot_json={
-            "schema_version": 1,
-            "source_event_id": row.event_id,
-            "rate": format(rate, "f"),
-            "rate_basis": "credits_per_currency_unit",
-            "amount": format(amount, "f"),
-            "credits": format(credits, "f"),
-        },
-        created_by=CREATED_BY,
-    )
+        entry = CreditLedgerEntry(
+            tenant_id=str(tenant_id),
+            workspace_id=str(workspace_id),
+            kind="adjustment",
+            credits_delta=Decimal("0"),
+            cost_entry_id=str(cost_entry_id),
+            run_id=payload.get("run_id"),
+            currency=str(currency),
+            amount=amount,
+            conversion_snapshot_json={
+                "schema_version": 1,
+                "source_event_id": row.event_id,
+                "reason": "no_rate_configured_for_currency",
+                "amount": format(amount, "f"),
+                "credits": "0",
+            },
+            note=f"No credit rate configured for currency {currency}",
+            created_by=CREATED_BY,
+        )
+    else:
+        credits = (amount * rate).quantize(Decimal("0.000001"))
+        entry = CreditLedgerEntry(
+            tenant_id=str(tenant_id),
+            workspace_id=str(workspace_id),
+            kind="deduction",
+            credits_delta=-credits,
+            cost_entry_id=str(cost_entry_id),
+            run_id=payload.get("run_id"),
+            currency=str(currency),
+            amount=amount,
+            conversion_snapshot_json={
+                "schema_version": 1,
+                "source_event_id": row.event_id,
+                "rate": format(rate, "f"),
+                "rate_basis": "credits_per_currency_unit",
+                "amount": format(amount, "f"),
+                "credits": format(credits, "f"),
+            },
+            created_by=CREATED_BY,
+        )
     try:
         with db.begin_nested():
             db.add(entry)

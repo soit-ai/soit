@@ -224,7 +224,18 @@ prices `COST_RECORDED` events using `credit_rates_json` (credits per currency
 unit) and books at most one deduction per cost entry: the consumer checkpoint
 dedupes per event and the unique `cost_entry_id` blocks double-booking even for
 unexpected duplicate events. Usage measurements are never copied into the
-ledger, and unpriced or unknown-currency events book nothing.
+ledger. Unpriced events book nothing; priced events in a currency with no
+configured rate book a zero-credit `adjustment` carrying the amount and a
+`no_rate_configured_for_currency` snapshot so they stay auditable and can be
+repriced later.
+
+Enforcement is opt-in via `credit_enforcement_enabled`: the composition root
+injects a `CreditBalanceGuard` (implementing the kernel `CreditGuard` contract)
+into the LLM policy gateway, which checks the balance before every metered
+chat/embed/rerank invocation - below `credit_low_balance_threshold` it logs a
+low-balance warning, and at zero or below it raises `CREDIT_EXHAUSTED`
+(HTTP 402) before the upstream call. The balance API reports the same state as
+`status`: `ok`, `low`, or `exhausted`.
 
 ---
 

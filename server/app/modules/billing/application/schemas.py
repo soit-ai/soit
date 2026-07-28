@@ -16,6 +16,10 @@ class CreditBalanceResponse(BaseModel):
     granted_total: Decimal
     deducted_total: Decimal
     entry_count: int
+    status: str = "ok"
+    """ok, low (below warning threshold), or exhausted (enforcement blocks spend)."""
+    enforcement_enabled: bool = False
+    low_balance_threshold: Decimal = Decimal("0")
 
 
 class CreditLedgerEntryResponse(BaseModel):

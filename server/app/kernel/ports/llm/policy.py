@@ -20,6 +20,7 @@ from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
 )
+from app.kernel.ports.common.credit import CreditGuard
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -410,6 +411,7 @@ class LLMPolicyGateway(LLMPort):
         retry_backoff_base_seconds: float = 0.5,
         retry_backoff: str = "exponential",
         retryable_status_codes: tuple[int, ...] = (408, 409, 429, 500, 502, 503, 504),
+        credit_guard: CreditGuard | None = None,
     ):
         """Initialize policy gateway.
 
@@ -435,6 +437,7 @@ class LLMPolicyGateway(LLMPort):
         self.retry_backoff_base_seconds = max(0.0, retry_backoff_base_seconds)
         self.retry_backoff = retry_backoff
         self.retryable_status_codes = retryable_status_codes
+        self.credit_guard = credit_guard
 
     async def _resolve_call_route(
         self,
@@ -546,6 +549,8 @@ class LLMPolicyGateway(LLMPort):
                 window_seconds=60,
             )
         await self._check_daily_quota(key_suffix="chat")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="chat")
 
         # Audit log
         step = None
@@ -679,6 +684,8 @@ class LLMPolicyGateway(LLMPort):
                 window_seconds=60,
             )
         await self._check_daily_quota(key_suffix="chat")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="chat")
 
         if not hasattr(self.gateway, "stream_chat"):
             raise ValueError("Streaming not supported by LLM gateway")
@@ -872,6 +879,8 @@ class LLMPolicyGateway(LLMPort):
                 window_seconds=60,
             )
         await self._check_daily_quota(key_suffix="embed")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="embed")
 
         step = None
         if self.trace_writer:
@@ -990,6 +999,8 @@ class LLMPolicyGateway(LLMPort):
                 window_seconds=60,
             )
         await self._check_daily_quota(key_suffix="rerank")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="rerank")
 
         step = None
         if self.trace_writer:

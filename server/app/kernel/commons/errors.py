@@ -65,3 +65,14 @@ class TimeoutError(KernelError):
 
     def __init__(self, message: str = "Operation timeout", details: dict[str, Any] | None = None):
         super().__init__("TIMEOUT", message, details)
+
+
+class CreditExhaustedError(KernelError):
+    """Workspace credit balance is exhausted; metered invocations are blocked."""
+
+    def __init__(
+        self,
+        message: str = "Workspace credit balance exhausted",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__("CREDIT_EXHAUSTED", message, details)

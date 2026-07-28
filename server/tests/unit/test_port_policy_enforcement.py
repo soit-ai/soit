@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from tenacity import RetryError
 
-from app.kernel.commons.errors import ForbiddenError, TimeoutError, ValidationError
+from app.kernel.commons.errors import (
+    CreditExhaustedError,
+    ForbiddenError,
+    TimeoutError,
+    ValidationError,
+)
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import ChatMessage, ChatResponse, ChatStreamChunk
 from app.kernel.ports.llm.policy import LLMPolicyGateway
@@ -117,6 +122,34 @@ async def test_timeout_enforcement(request_ctx, mock_trace_writer):
     # Should timeout
     with pytest.raises(TimeoutError):
         await policy.chat(model="gpt-4", messages=[ChatMessage("user", "test")], run_id="run_timeout")
+
+
+@pytest.mark.asyncio
+async def test_exhausted_credit_guard_blocks_before_upstream_call(
+    request_ctx, mock_llm_port, mock_trace_writer
+):
+    """The credit hard stop fires before any upstream invocation or step trace."""
+
+    class ExhaustedGuard:
+        async def check(self, *, operation: str) -> None:
+            raise CreditExhaustedError(details={"operation": operation})
+
+    policy = LLMPolicyGateway(
+        gateway=mock_llm_port,
+        ctx=request_ctx,
+        trace_writer=mock_trace_writer,
+        credit_guard=ExhaustedGuard(),
+    )
+
+    with pytest.raises(CreditExhaustedError):
+        await policy.chat(
+            model="gpt-4",
+            messages=[ChatMessage("user", "test")],
+            run_id="run_credit_block",
+        )
+
+    mock_llm_port.chat.assert_not_called()
+    mock_trace_writer.record_cost.assert_not_called()
 
 
 @pytest.mark.asyncio

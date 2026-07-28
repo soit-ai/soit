@@ -14,6 +14,7 @@ from app.modules.billing.application.schemas import (
     CreditLedgerEntryResponse,
 )
 from app.modules.billing.domain.models import CreditLedgerEntry
+from app.settings.settings import settings
 
 
 class CreditService:
@@ -54,11 +55,22 @@ class CreditService:
             func.count(CreditLedgerEntry.id),
         ).where(and_(*self._scope_clauses()))
         row = self.db.exec(query).one()
+        balance = Decimal(str(row[0]))
+        threshold = Decimal(str(settings.credit_low_balance_threshold))
+        if balance <= 0:
+            status = "exhausted"
+        elif balance < threshold:
+            status = "low"
+        else:
+            status = "ok"
         return CreditBalanceResponse(
-            balance=Decimal(str(row[0])),
+            balance=balance,
             granted_total=Decimal(str(row[1])),
             deducted_total=Decimal(str(row[2])),
             entry_count=int(row[3]),
+            status=status,
+            enforcement_enabled=settings.credit_enforcement_enabled,
+            low_balance_threshold=threshold,
         )
 
     def list_entries(
