@@ -12,7 +12,13 @@ from app.kernel.runtime.db.models.events import EventOutbox
 from app.modules.billing.application.guard import CreditBalanceGuard
 from app.modules.billing.application.service import CreditService
 from app.modules.billing.domain.models import CreditLedgerEntry
+from app.modules.billing.events import CREDIT_BALANCE_LOW
 from app.modules.billing.handlers.on_cost_recorded import handle_cost_recorded_credit
+from app.modules.identity.domain.models import WorkspaceMembership
+from app.modules.notification.domain.models import Notification
+from app.modules.notification.handlers.on_credit_balance_low import (
+    handle_credit_balance_low,
+)
 from app.settings.settings import settings
 
 
@@ -197,6 +203,113 @@ async def test_guard_warns_below_threshold(db: Session, ctx, monkeypatch, caplog
     with caplog.at_level("WARNING"):
         await guard.check(operation="chat")
     assert any("credit balance low" in record.message for record in caplog.records)
+
+
+def _balance_alert_events(db: Session) -> list[EventOutbox]:
+    rows = list(
+        db.exec(
+            select(EventOutbox).where(EventOutbox.event_type == CREDIT_BALANCE_LOW)
+        ).all()
+    )
+    return [row if hasattr(row, "event_id") else row[0] for row in rows]
+
+
+def _grant(db: Session, ctx, credits: str) -> None:
+    CreditService(db, ctx).grant(credits=Decimal(credits))
+
+
+def _deduct(db: Session, ctx, event_id: str, cost_entry_id: str) -> None:
+    row = _cost_event(event_id, cost_entry_id=cost_entry_id)
+    row.tenant_id = ctx.tenant_id
+    row.workspace_id = ctx.workspace_id
+    row.payload_json = {
+        **row.payload_json,
+        "tenant_id": ctx.tenant_id,
+        "workspace_id": ctx.workspace_id,
+    }
+    db.add(row)
+    db.flush()
+    handle_cost_recorded_credit(db, row)
+
+
+def test_low_threshold_crossing_publishes_one_alert(db: Session, ctx) -> None:
+    _grant(db, ctx, "300")  # deduction of 250 lands at 50, below the 100 default
+    _deduct(db, ctx, "evt_cross_low", "cost_entry_cross_low")
+
+    events = _balance_alert_events(db)
+    assert len(events) == 1
+    payload = events[0].payload_json
+    assert payload["state"] == "low"
+    assert payload["balance"] == "50.000000"
+
+    # A further deduction that stays below the threshold does not re-alert
+    # (until the balance is exhausted, which is a separate crossing).
+    _deduct(db, ctx, "evt_cross_low_again", "cost_entry_cross_low_again")
+    events = _balance_alert_events(db)
+    assert {event.payload_json["state"] for event in events} == {"low", "exhausted"}
+
+
+def test_exhaustion_crossing_publishes_error_alert(db: Session, ctx) -> None:
+    _grant(db, ctx, "200")  # deduction of 250 lands at -50
+    _deduct(db, ctx, "evt_cross_exhausted", "cost_entry_cross_exhausted")
+
+    events = _balance_alert_events(db)
+    assert len(events) == 1
+    assert events[0].payload_json["state"] == "exhausted"
+
+    # Already exhausted: further deductions do not spam alerts.
+    _deduct(db, ctx, "evt_cross_exhausted_2", "cost_entry_cross_exhausted_2")
+    assert len(_balance_alert_events(db)) == 1
+
+
+def test_healthy_deduction_publishes_no_alert(db: Session, ctx) -> None:
+    _grant(db, ctx, "1000")
+    _deduct(db, ctx, "evt_no_cross", "cost_entry_no_cross")
+    assert _balance_alert_events(db) == []
+
+
+def test_balance_alert_notifies_owner_and_admin_only(db: Session, ctx) -> None:
+    for user_id, role in (
+        ("user_owner", "Owner"),
+        ("user_admin", "Admin"),
+        ("user_viewer", "Viewer"),
+    ):
+        db.add(
+            WorkspaceMembership(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                user_id=user_id,
+                role=role,
+            )
+        )
+    event = EventOutbox(
+        event_id="evt_credit_low_notify",
+        event_type=CREDIT_BALANCE_LOW,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        idempotency_key="evt_credit_low_notify",
+        payload_json={
+            "state": "low",
+            "tenant_id": ctx.tenant_id,
+            "workspace_id": ctx.workspace_id,
+            "balance": "50.000000",
+            "threshold": "100",
+            "ledger_entry_id": "ledger_1",
+        },
+    )
+    db.add(event)
+    db.flush()
+
+    handle_credit_balance_low(db, event)
+    handle_credit_balance_low(db, event)  # idempotent replay
+
+    rows = list(db.exec(select(Notification)).all())
+    notifications = [row if hasattr(row, "id") else row[0] for row in rows]
+    assert {n.user_id for n in notifications} == {"user_owner", "user_admin"}
+    assert all(n.type == "alert" for n in notifications)
+    assert all(n.severity == "warning" for n in notifications)
+    assert all(n.source_module == "billing" for n in notifications)
+    assert all(n.meta["state"] == "low" for n in notifications)
 
 
 def test_balance_status_reflects_enforcement_thresholds(db: Session, ctx, monkeypatch) -> None:

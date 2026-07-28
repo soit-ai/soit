@@ -95,12 +95,21 @@ def register_outbox_handlers() -> None:
         handle_cost_recorded_observe,
     )
 
+    from app.modules.billing.events import CREDIT_BALANCE_LOW
     from app.modules.billing.handlers.on_cost_recorded import handle_cost_recorded_credit
+    from app.modules.notification.handlers.on_credit_balance_low import (
+        handle_credit_balance_low,
+    )
 
     reg.register(
         ObserveEventType.COST_RECORDED,
         "billing.credit.deduction",
         handle_cost_recorded_credit,
+    )
+    reg.register(
+        CREDIT_BALANCE_LOW,
+        "notification.credit.balance_low",
+        handle_credit_balance_low,
     )
     reg.register(
         ObserveEventType.RUN_STATUS_UPDATED,

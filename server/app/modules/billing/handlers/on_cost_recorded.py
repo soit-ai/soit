@@ -13,12 +13,18 @@ import json
 import logging
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
+from app.kernel.commons.time import utc_now
 from app.kernel.events.checkpoint import try_claim_consumer_slot
+from app.kernel.events.envelope import DomainEventEnvelope
+from app.kernel.events.outbox_repo import OutboxRepository
+from app.kernel.events.publisher import OutboxPublisher
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.modules.billing.domain.models import CreditLedgerEntry
+from app.modules.billing.events import CREDIT_BALANCE_LOW
 from app.settings.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -41,6 +47,51 @@ def _credit_rates() -> dict[str, Decimal]:
             except (InvalidOperation, TypeError, ValueError):
                 logger.warning("Ignoring invalid credit rate for %s: %r", currency, rate)
     return rates
+
+
+def _workspace_balance(db: Session, tenant_id: str, workspace_id: str) -> Decimal:
+    query = select(
+        func.coalesce(func.sum(CreditLedgerEntry.credits_delta), 0)
+    ).where(
+        and_(
+            CreditLedgerEntry.tenant_id == tenant_id,
+            CreditLedgerEntry.workspace_id == workspace_id,
+        )
+    )
+    row = db.exec(query).one()
+    value = row if isinstance(row, int | float | Decimal) else row[0]
+    return Decimal(str(value))
+
+
+def _publish_balance_alert(
+    db: Session,
+    *,
+    entry: CreditLedgerEntry,
+    state: str,
+    balance_after: Decimal,
+    threshold: Decimal,
+) -> None:
+    OutboxPublisher(OutboxRepository(db)).publish(
+        DomainEventEnvelope(
+            event_id=f"evt_credit_low_{entry.id}",
+            event_type=CREDIT_BALANCE_LOW,
+            tenant_id=entry.tenant_id,
+            workspace_id=entry.workspace_id,
+            subject_type="credit_ledger_entry",
+            subject_id=entry.id,
+            run_id=entry.run_id,
+            producer="billing.credit.deduction",
+            occurred_at=utc_now(),
+            payload={
+                "state": state,
+                "balance": format(balance_after, "f"),
+                "threshold": format(threshold, "f"),
+                "currency": entry.currency,
+                "ledger_entry_id": entry.id,
+                "run_id": entry.run_id,
+            },
+        )
+    )
 
 
 def _decimal_or_none(value: object) -> Decimal | None:
@@ -126,6 +177,7 @@ def handle_cost_recorded_credit(db: Session, row: EventOutbox) -> None:
             },
             created_by=CREATED_BY,
         )
+    balance_before = _workspace_balance(db, str(tenant_id), str(workspace_id))
     try:
         with db.begin_nested():
             db.add(entry)
@@ -134,4 +186,18 @@ def handle_cost_recorded_credit(db: Session, row: EventOutbox) -> None:
         logger.warning(
             "Credit deduction already booked for cost entry %s; skipping duplicate",
             cost_entry_id,
+        )
+        return
+
+    if entry.credits_delta >= 0:
+        return
+    balance_after = balance_before + entry.credits_delta
+    threshold = Decimal(str(settings.credit_low_balance_threshold))
+    if balance_before > 0 and balance_after <= 0:
+        _publish_balance_alert(
+            db, entry=entry, state="exhausted", balance_after=balance_after, threshold=threshold
+        )
+    elif balance_before >= threshold and 0 < balance_after < threshold:
+        _publish_balance_alert(
+            db, entry=entry, state="low", balance_after=balance_after, threshold=threshold
         )
