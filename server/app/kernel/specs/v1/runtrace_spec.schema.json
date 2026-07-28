@@ -336,8 +336,8 @@
           "cost_id",
           "run_id",
           "entry_type",
-          "unit",
-          "quantity",
+          "billing_basis",
+          "billed_quantity",
           "pricing_snapshot_json"
         ],
         "properties": {
@@ -368,11 +368,18 @@
             "type": "object",
             "description": "Immutable original and normalized pricing configuration used to calculate this record."
           },
-          "unit": {
-            "type": "string"
+          "billing_basis": {
+            "type": "string",
+            "description": "What this record is billed by (tokens/embeddings/rerank/requests/vectors/bytes); legacy exports may carry ms or charge_adjustment."
           },
-          "quantity": {
-            "type": "number"
+          "billed_quantity": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Quantity in billing_basis units; reconciliation evidence, not a usage statistic."
+          },
+          "source_ref": {
+            "type": ["string", "null"],
+            "description": "Optional upstream request identifier used for idempotent booking."
           },
           "provider": {
             "type": [

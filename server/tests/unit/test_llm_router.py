@@ -488,7 +488,7 @@ async def test_llm_policy_records_runtime_identity_separately_from_upstream_mode
     )
 
     token_cost = next(
-        call for call in writer.record_cost.call_args_list if call.kwargs["unit"] == "tokens"
+        call for call in writer.record_cost.call_args_list if call.kwargs["billing_basis"] == "tokens"
     )
     assert token_cost.kwargs["provider"] == "openai_compatible"
     assert token_cost.kwargs["provider_id"] == "provider-team-gateway"
@@ -539,7 +539,7 @@ async def test_llm_policy_records_one_priced_usage_row_for_valid_model_pricing(c
     usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("unit") == "tokens"
+        if call.kwargs.get("billing_basis") == "tokens"
     ]
     assert len(usages) == 1
     assert usages[0].kwargs.get("entry_type") is None
@@ -601,7 +601,7 @@ async def test_llm_policy_keeps_unpriced_usage_when_chat_pricing_is_incomplete(c
     usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("unit") == "tokens"
+        if call.kwargs.get("billing_basis") == "tokens"
     ]
     assert len(usages) == 1
     assert usages[0].kwargs["currency"] is None
@@ -661,14 +661,14 @@ async def test_llm_policy_records_one_priced_embed_usage_row(ctx):
     usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("unit") == "embeddings"
+        if call.kwargs.get("billing_basis") == "embeddings"
     ]
     assert len(usages) == 1
     assert usages[0].kwargs["prompt_tokens"] == 1000
     assert usages[0].kwargs["total_tokens"] == 1000
     assert usages[0].kwargs["currency"] == "USD"
     assert usages[0].kwargs["amount"] == Decimal("0.0001")
-    assert usages[0].kwargs["quantity"] == 1
+    assert usages[0].kwargs["billed_quantity"] == 1
     snapshot = usages[0].kwargs["pricing_snapshot_json"]
     assert snapshot["billing_basis"] == "tokens"
     assert snapshot["unit_size"] == 1_000_000
@@ -721,14 +721,14 @@ async def test_llm_policy_records_one_priced_rerank_usage_row(ctx):
     usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("unit") == "rerank"
+        if call.kwargs.get("billing_basis") == "rerank"
     ]
     assert len(usages) == 1
     assert usages[0].kwargs["prompt_tokens"] == 500
     assert usages[0].kwargs["total_tokens"] == 500
     assert usages[0].kwargs["currency"] == "USD"
     assert usages[0].kwargs["amount"] == Decimal("0.008")
-    assert usages[0].kwargs["quantity"] == 4
+    assert usages[0].kwargs["billed_quantity"] == 4
     snapshot = usages[0].kwargs["pricing_snapshot_json"]
     assert snapshot["billing_basis"] == "searches"
     assert snapshot["billing_unit"] == "1k_searches"

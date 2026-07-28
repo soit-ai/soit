@@ -146,8 +146,8 @@ async def test_audit_logging(request_ctx, mock_llm_port, mock_trace_writer):
     # One metered invocation records exactly one usage row carrying latency.
     assert mock_trace_writer.record_cost.call_count == 1
     token_call = mock_trace_writer.record_cost.call_args_list[0]
-    assert token_call.kwargs["unit"] == "tokens"
-    assert token_call.kwargs["quantity"] == 30
+    assert token_call.kwargs["billing_basis"] == "tokens"
+    assert token_call.kwargs["billed_quantity"] == 30
     assert token_call.kwargs["latency_ms"] is not None
     assert token_call.kwargs["source_port"] == "llm"
     assert token_call.kwargs["operation"] == "chat"
@@ -298,9 +298,9 @@ async def test_cost_tracking_accuracy(request_ctx, mock_llm_port, mock_trace_wri
 
     # Verify cost recording
     token_call = next(
-        call for call in mock_trace_writer.record_cost.call_args_list if call.kwargs.get("unit") == "tokens"
+        call for call in mock_trace_writer.record_cost.call_args_list if call.kwargs.get("billing_basis") == "tokens"
     )
-    assert token_call.kwargs["quantity"] == 300
+    assert token_call.kwargs["billed_quantity"] == 300
     assert token_call.kwargs["prompt_tokens"] == 100
     assert token_call.kwargs["completion_tokens"] == 200
     assert token_call.kwargs["model_ref"] == "gpt-4"

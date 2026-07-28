@@ -636,8 +636,8 @@ class LLMPolicyGateway(LLMPort):
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="tokens",
-                    quantity=response.tokens_prompt + response.tokens_completion,
+                    billing_basis="tokens",
+                    billed_quantity=response.tokens_prompt + response.tokens_completion,
                     currency=pricing.currency,
                     amount=pricing.amount,
                     pricing_snapshot_json=pricing.snapshot,
@@ -823,8 +823,8 @@ class LLMPolicyGateway(LLMPort):
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="tokens",
-                    quantity=tokens_prompt + tokens_completion,
+                    billing_basis="tokens",
+                    billed_quantity=tokens_prompt + tokens_completion,
                     currency=pricing.currency,
                     amount=pricing.amount,
                     pricing_snapshot_json=pricing.snapshot,
@@ -935,8 +935,8 @@ class LLMPolicyGateway(LLMPort):
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="embeddings",
-                    quantity=len(texts),
+                    billing_basis="embeddings",
+                    billed_quantity=len(texts),
                     currency=pricing.currency,
                     amount=pricing.amount,
                     pricing_snapshot_json=pricing.snapshot,
@@ -1062,8 +1062,8 @@ class LLMPolicyGateway(LLMPort):
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="rerank",
-                    quantity=len(documents),
+                    billing_basis="rerank",
+                    billed_quantity=len(documents),
                     currency=pricing.currency,
                     amount=pricing.amount,
                     pricing_snapshot_json=pricing.snapshot,

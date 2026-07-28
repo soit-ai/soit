@@ -1017,8 +1017,8 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
             trace_writer.record_cost(
                 run_id=kwargs["run_id"],
                 step_id=None,
-                unit="tokens",
-                quantity=response.tokens_prompt + response.tokens_completion,
+                billing_basis="tokens",
+                billed_quantity=response.tokens_prompt + response.tokens_completion,
                 model_ref=model,
                 prompt_tokens=response.tokens_prompt,
                 completion_tokens=response.tokens_completion,
@@ -1042,7 +1042,7 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
     result = await service.run(_runtime_request(verify=False))
 
     entries = db.exec(
-        select(RunCostEntry).where(RunCostEntry.run_id == result["run_id"], RunCostEntry.unit == "tokens")
+        select(RunCostEntry).where(RunCostEntry.run_id == result["run_id"], RunCostEntry.billing_basis == "tokens")
     ).all()
     entries = [entry if hasattr(entry, "id") else entry[0] for entry in entries]
     assert len(entries) == 1

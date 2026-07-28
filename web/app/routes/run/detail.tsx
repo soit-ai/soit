@@ -346,7 +346,7 @@ function Page() {
                 <div className="space-y-2">
                   {costs.map((cost) => (
                     <div key={cost.id} className="rounded-md border p-2 text-xs text-muted-foreground">
-                      {cost.unit} · {cost.quantity} · {cost.model_ref || cost.tool_ref || cost.provider || '-'}
+                      {cost.billing_basis} · {cost.billed_quantity} · {cost.model_ref || cost.tool_ref || cost.provider || '-'}
                     </div>
                   ))}
                 </div>

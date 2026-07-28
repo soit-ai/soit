@@ -469,8 +469,8 @@ def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
     usage = writer.record_cost(
         run_id=run.id,
         step_id=step.id,
-        unit="tokens",
-        quantity=5,
+        billing_basis="tokens",
+        billed_quantity=5,
         currency="USD",
         amount="0.001",
         pricing_snapshot_json={

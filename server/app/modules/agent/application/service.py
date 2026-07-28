@@ -692,8 +692,8 @@ class AgentService:
                         self.trace_writer.record_cost(
                             run_id=run_id,
                             step_id=plan_step_id,
-                            unit="tokens",
-                            quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
+                            billing_basis="tokens",
+                            billed_quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
                             currency=data.cost_currency,
                             amount=0,
                             model_ref=model,
@@ -1233,8 +1233,8 @@ class AgentService:
                         self.trace_writer.record_cost(
                             run_id=run_id,
                             step_id=verify_step_id,
-                            unit="tokens",
-                            quantity=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
+                            billing_basis="tokens",
+                            billed_quantity=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
                             currency=data.cost_currency,
                             amount=0,
                             model_ref=model,
@@ -1374,7 +1374,7 @@ class AgentService:
                 RunCostEntry.tenant_id == self.ctx.tenant_id,
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
                 RunCostEntry.entry_type == "usage",
-                RunCostEntry.unit == "tokens",
+                RunCostEntry.billing_basis == "tokens",
                 RunCostEntry.model_ref.is_not(None),
             )
         )

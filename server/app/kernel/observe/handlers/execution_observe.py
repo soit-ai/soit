@@ -197,7 +197,8 @@ def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
 
     entry_type = payload.get("entry_type")
     records_usage = entry_type in (None, "usage")
-    unit = payload.get("unit") or ""
+    # Events published before the billing_basis rename still carry unit/quantity.
+    billing_basis = payload.get("billing_basis") or payload.get("unit") or ""
     if records_usage:
         prompt_tokens = payload.get("prompt_tokens")
         if prompt_tokens:
@@ -206,10 +207,12 @@ def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
         if completion_tokens:
             tokens_total.labels(type="completion", tenant_id=tenant_id).inc(int(completion_tokens))
 
-        quantity = payload.get("quantity")
-        if unit in ("embeddings", "embedding") and quantity is not None:
+        embedding_count = payload.get("embedding_count")
+        if embedding_count is None and billing_basis in ("embeddings", "embedding"):
+            embedding_count = payload.get("billed_quantity", payload.get("quantity"))
+        if embedding_count is not None:
             try:
-                tokens_total.labels(type="embedding", tenant_id=tenant_id).inc(float(Decimal(str(quantity))))
+                tokens_total.labels(type="embedding", tenant_id=tenant_id).inc(float(Decimal(str(embedding_count))))
             except Exception:
                 pass
 
@@ -218,6 +221,6 @@ def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
         try:
             amt = float(Decimal(str(amount)))
             if amt > 0:
-                cost_total.labels(resource_type=str(unit or "unknown"), tenant_id=tenant_id).inc(amt)
+                cost_total.labels(resource_type=str(billing_basis or "unknown"), tenant_id=tenant_id).inc(amt)
         except Exception:
             pass

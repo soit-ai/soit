@@ -1767,6 +1767,7 @@ class KnowledgeRuntimeService:
             and_(
                 RunCostEntry.tenant_id == self.ctx.tenant_id,
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
+                RunCostEntry.entry_type == "usage",
                 RunCostEntry.run_id.in_(run_ids),
             )
         )
@@ -1806,35 +1807,24 @@ class KnowledgeRuntimeService:
         run_ids = [run.id for run in runs]
         entries = self._list_knowledge_cost_entries(run_ids)
 
-        tokens_prompt = 0
-        tokens_completion = 0
-        embedding_count = 0
-        rerank_count = 0
-        ms_total = 0
-        storage_bytes = 0
-
-        for entry in entries:
-            if entry.prompt_tokens:
-                tokens_prompt += int(entry.prompt_tokens)
-            if entry.completion_tokens:
-                tokens_completion += int(entry.completion_tokens)
-            if entry.unit in ("embeddings", "embedding"):
-                embedding_count += int(entry.quantity)
-            if entry.unit == "rerank":
-                rerank_count += int(entry.quantity)
-            if entry.unit == "ms":
-                ms_total += int(entry.quantity)
-            if entry.unit == "bytes":
-                storage_bytes += int(entry.quantity)
-
-        return RunCostSummaryResponse(
-            tokens_prompt=tokens_prompt,
-            tokens_completion=tokens_completion,
-            embedding_count=embedding_count,
-            rerank_count=rerank_count,
-            ms_total=ms_total,
-            storage_bytes=storage_bytes,
+        summary = RunCostSummaryResponse(
+            tokens_prompt=0,
+            tokens_completion=0,
+            embedding_count=0,
+            rerank_count=0,
+            ms_total=0,
+            storage_bytes=0,
         )
+        for entry in entries:
+            summary.tokens_prompt += int(entry.prompt_tokens or 0)
+            summary.tokens_completion += int(entry.completion_tokens or 0)
+            summary.embedding_count += int(entry.embedding_count or 0)
+            summary.rerank_count += int(entry.rerank_count or 0)
+            summary.ms_total += int(entry.latency_ms or 0)
+            summary.storage_bytes += int(entry.storage_bytes or 0)
+            summary.request_count += int(entry.request_count or 0)
+            summary.vector_count += int(entry.vector_count or 0)
+        return summary
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
     async def summarize_run_costs_by_mode_for_knowledge(

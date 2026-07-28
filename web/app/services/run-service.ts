@@ -138,8 +138,9 @@ export interface RunCostEntryResponse {
   currency?: string | null
   amount?: string | null
   pricing_snapshot_json: Record<string, unknown>
-  unit: string
-  quantity: string
+  billing_basis: string
+  billed_quantity: string
+  source_ref?: string | null
   provider?: string | null
   model_ref?: string | null
   tool_ref?: string | null

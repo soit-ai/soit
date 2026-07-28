@@ -30,7 +30,7 @@ def test_trace_writer_emits_events(db, ctx):
     step = writer.create_step(run_id=run.id, step_type="workflow_node")
     writer.update_step_status(step.id, "running")
     writer.update_step_status(step.id, "succeeded", output_summary="ok")
-    writer.record_cost(run_id=run.id, step_id=step.id, unit="requests", quantity=1)
+    writer.record_cost(run_id=run.id, step_id=step.id, billing_basis="requests", billed_quantity=1)
 
     types = {event.type for event in events}
     assert "run.created" in types
@@ -46,6 +46,6 @@ def test_trace_writer_emits_events(db, ctx):
     cost_event = next(event for event in events if event.type == "cost.recorded")
     assert cost_event.payload["run_id"] == run.id
     assert cost_event.payload["step_id"] == step.id
-    assert cost_event.payload["unit"] == "requests"
+    assert cost_event.payload["billing_basis"] == "requests"
 
 

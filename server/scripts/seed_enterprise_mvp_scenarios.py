@@ -1055,13 +1055,16 @@ def _ensure_run(
             "workspace_id": ctx.workspace_id,
             "currency": "USD",
             "amount": Decimal("0.004200"),
-            "unit": "tokens",
-            "quantity": Decimal("420"),
+            "billing_basis": "tokens",
+            "billed_quantity": Decimal("420"),
             "provider": "test",
             "model_ref": "model:test:agent",
+            "source_port": "llm",
+            "operation": "chat",
             "prompt_tokens": 300,
             "completion_tokens": 120,
             "total_tokens": 420,
+            "latency_ms": 850,
         },
     )
     db.commit()

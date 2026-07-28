@@ -182,19 +182,30 @@ Workspace-scoped.
 - `tenant_id`, `workspace_id`
 - `entry_type` (`usage` for new writes; `charge` is legacy-only)
 - `currency`, `amount` nullable on the same usage row
-- `unit`, `quantity`
+- `billing_basis`, `billed_quantity` describe what the row is billed by; reconciliation only, never usage statistics
+- `source_ref` nullable upstream request identifier, UNIQUE per tenant for idempotent booking
 - `provider`, `provider_id`, `provider_slug`, `provider_kind`
 - `model_ref`, `upstream_model`, `tool_ref`
-- `prompt_tokens`, `completion_tokens`, `total_tokens`
+- `source_port` (`llm`/`vector`/`storage`/`tools`/`plugins`), `operation` (`chat`/`embed`/`rerank`/`query`/`insert`/`delete`/`put`/`get`/`exists`/`invoke`)
+- Dedicated measurement columns, `NULL` when the dimension does not apply:
+  `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`,
+  `request_count`, `embedding_count`, `rerank_count`, `vector_count`, `storage_bytes`
 - `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount
 - `created_at`
+- CHECK `amount IS NULL OR (amount >= 0 AND currency IS NOT NULL)`
+- CHECK `billed_quantity >= 0`
+- UNIQUE `(tenant_id, source_ref)`
 - INDEX `(tenant_id, workspace_id, run_id)`
 
-One metered Provider invocation produces one billable usage row. Token evidence and
-its monetary calculation MUST NOT be duplicated into separate usage and charge
-rows. Non-billable observations with different units, such as latency, may remain
-separate rows and still carry a pricing snapshot explaining that they were not
-priced.
+One metered Provider invocation produces exactly one usage row. The dedicated
+measurement columns carry every measured dimension of that invocation (tokens,
+latency, request/embedding/rerank/vector counts, bytes), so aggregations sum
+dedicated columns only and never derive usage from `billing_basis`/`billed_quantity`.
+Token evidence and its monetary calculation MUST NOT be duplicated into separate
+usage and charge rows, and latency is a column on the invocation row rather than
+a separate observation row. Downstream valuation (credit deduction, billing
+exports) must reference `cost_entry_id` from the `COST_RECORDED` event instead of
+re-recording measurements.
 
 ---
 

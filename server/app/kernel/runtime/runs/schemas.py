@@ -212,8 +212,9 @@ class RunCostEntryResponse(BaseModel):
     currency: str | None
     amount: Decimal | None
     pricing_snapshot_json: dict[str, Any]
-    unit: str
-    quantity: Decimal
+    billing_basis: str
+    billed_quantity: Decimal
+    source_ref: str | None = None
     provider: str | None
     provider_id: str | None
     provider_slug: str | None

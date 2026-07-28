@@ -159,9 +159,10 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
             step_id=step.id,
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
+            currency="USD",
             amount=Decimal("0.25"),
-            unit="tokens",
-            quantity=Decimal("25"),
+            billing_basis="tokens",
+            billed_quantity=Decimal("25"),
             total_tokens=25,
         )
     )
@@ -383,8 +384,8 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
     trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
-        unit="tokens",
-        quantity=12,
+        billing_basis="tokens",
+        billed_quantity=12,
         model_ref="model:test:agent",
         prompt_tokens=7,
         completion_tokens=5,
@@ -435,7 +436,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         assert key in payload
         assert isinstance(payload[key], list)
     assert "governance_evidence" in payload
-    assert payload["costs"][0]["unit"] == "tokens"
+    assert payload["costs"][0]["billing_basis"] == "tokens"
     assert payload["response_events"][0]["type"] == "response.succeeded"
     assert payload["tool_calls"][0]["tool_name"] == "wf:wf_ticket_triage"
     assert payload["citations"][0]["chunk_id"] == "chunk_1"
@@ -510,8 +511,8 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
     trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
-        unit="tokens",
-        quantity=20,
+        billing_basis="tokens",
+        billed_quantity=20,
         model_ref="model:test:agent",
         prompt_tokens=8,
         completion_tokens=12,
@@ -632,8 +633,8 @@ async def test_governance_evidence_is_applicability_aware_for_direct_chat(db, ct
     trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
-        unit="tokens",
-        quantity=10,
+        billing_basis="tokens",
+        billed_quantity=10,
         model_ref="model:openai-main:gpt-5.5",
         prompt_tokens=6,
         completion_tokens=4,

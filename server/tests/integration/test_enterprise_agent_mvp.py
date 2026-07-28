@@ -370,8 +370,8 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             }
             for step in tool_steps
         ]
-        assert any(_unwrap(entry).unit == "tokens" for entry in cost_entries)
-        assert any(_unwrap(entry).unit == "requests" and _unwrap(entry).tool_ref == "builtin.ticket.create_review_ticket" for entry in cost_entries)
+        assert any(_unwrap(entry).billing_basis == "tokens" for entry in cost_entries)
+        assert any(_unwrap(entry).billing_basis == "requests" and _unwrap(entry).tool_ref == "builtin.ticket.create_review_ticket" for entry in cost_entries)
         assert any(event.type == "tool.call.completed" and event.payload_json.get("tool_type") == "workflow" for event in response_events)
     finally:
         get_registry().clear_scope(

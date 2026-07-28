@@ -199,8 +199,8 @@ class VectorPolicyGateway(VectorPort):
                 self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="requests",
-                    quantity=1,
+                    billing_basis="requests",
+                    billed_quantity=1,
                     provider="vector",
                     source_port="vector",
                     operation="query",
@@ -285,8 +285,8 @@ class VectorPolicyGateway(VectorPort):
                 self.trace_writer.record_cost(
                     run_id=run_id,
                     step_id=step.id,
-                    unit="vectors",
-                    quantity=len(documents),
+                    billing_basis="vectors",
+                    billed_quantity=len(documents),
                     provider="vector",
                     source_port="vector",
                     operation="insert",
@@ -368,8 +368,8 @@ class VectorPolicyGateway(VectorPort):
                 self.trace_writer.record_cost(
                     run_id=run_id,
                     step_id=step.id,
-                    unit="vectors",
-                    quantity=len(documents),
+                    billing_basis="vectors",
+                    billed_quantity=len(documents),
                     provider="vector",
                     source_port="vector",
                     operation="delete",

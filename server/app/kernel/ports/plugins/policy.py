@@ -148,8 +148,8 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
                 self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="requests",
-                    quantity=1,
+                    billing_basis="requests",
+                    billed_quantity=1,
                     provider="plugin",
                     tool_ref=_plugin_tool_ref(plugin_name, tool_name),
                     source_port="plugins",

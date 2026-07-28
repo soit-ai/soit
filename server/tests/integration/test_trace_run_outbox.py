@@ -65,8 +65,8 @@ def test_record_cost_and_outbox_roll_back_with_run(db, ctx) -> None:
             cost = writer.record_cost(
                 run_id=run.id,
                 step_id=None,
-                unit="tokens",
-                quantity=10,
+                billing_basis="tokens",
+                billed_quantity=10,
             )
             raise RuntimeError("abort use case")
 

@@ -136,8 +136,8 @@ class StoragePolicyGateway(StreamingStoragePort):
             self.trace_writer.record_cost(
                 run_id=_resolve_run_id(kwargs, self.ctx),
                 step_id=step.id,
-                unit="bytes",
-                quantity=len(data),
+                billing_basis="bytes",
+                billed_quantity=len(data),
                 provider="storage",
                 source_port="storage",
                 operation="put",
@@ -203,8 +203,8 @@ class StoragePolicyGateway(StreamingStoragePort):
                 self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="bytes",
-                    quantity=len(data),
+                    billing_basis="bytes",
+                    billed_quantity=len(data),
                     provider="storage",
                     source_port="storage",
                     operation="get",
@@ -280,8 +280,8 @@ class StoragePolicyGateway(StreamingStoragePort):
                 self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="requests",
-                    quantity=1,
+                    billing_basis="requests",
+                    billed_quantity=1,
                     provider="storage",
                     source_port="storage",
                     operation="delete",
@@ -354,8 +354,8 @@ class StoragePolicyGateway(StreamingStoragePort):
                 self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="requests",
-                    quantity=1,
+                    billing_basis="requests",
+                    billed_quantity=1,
                     provider="storage",
                     source_port="storage",
                     operation="exists",

@@ -419,8 +419,8 @@ class ToolPolicyGateway(ToolPort):
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
-                    unit="requests",
-                    quantity=1,
+                    billing_basis="requests",
+                    billed_quantity=1,
                     provider=_provider_from_tool_ref(tool_ref),
                     tool_ref=tool_ref,
                     source_port="tools",

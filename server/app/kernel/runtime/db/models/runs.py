@@ -7,7 +7,15 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Index,
+    Numeric,
+    Text,
+    UniqueConstraint,
+)
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -266,9 +274,25 @@ class RunArtifact(SQLModel, table=True):
 
 
 class RunCostEntry(SQLModel, table=True):
-    """Normalized usage and cost record for one metered observation."""
+    """Normalized usage and cost record for one metered invocation."""
 
     __tablename__ = "run_cost_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "amount IS NULL OR (amount >= 0 AND currency IS NOT NULL)",
+            name="ck_run_cost_entries_priced_amount",
+        ),
+        CheckConstraint(
+            "billed_quantity >= 0",
+            name="ck_run_cost_entries_billed_quantity_non_negative",
+        ),
+        Index(
+            "uq_run_cost_entries_tenant_source_ref",
+            "tenant_id",
+            "source_ref",
+            unique=True,
+        ),
+    )
 
     id: str = Field(primary_key=True, default_factory=generate_ulid)
     """Cost entry ID."""
@@ -300,11 +324,14 @@ class RunCostEntry(SQLModel, table=True):
     )
     """Immutable pricing configuration and calculation snapshot."""
 
-    unit: str = Field()
-    """Unit (tokens/requests/seconds/bytes)."""
+    billing_basis: str = Field()
+    """What this row is billed by (tokens/embeddings/rerank/requests/vectors/bytes)."""
 
-    quantity: Decimal = Field(sa_column=Column(Numeric(18, 6)))
-    """Quantity in unit."""
+    billed_quantity: Decimal = Field(sa_column=Column(Numeric(18, 6)))
+    """Quantity in billing_basis units; reconciliation only, never usage stats."""
+
+    source_ref: str | None = Field(default=None, nullable=True)
+    """Optional upstream request identifier; unique per tenant for idempotency."""
 
     provider: str | None = Field(default=None)
     """Provider (e.g., openai, http)."""

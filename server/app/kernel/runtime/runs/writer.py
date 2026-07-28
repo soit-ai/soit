@@ -58,8 +58,8 @@ def _json_safe(value: Any) -> Any:
 def _build_pricing_snapshot(
     *,
     snapshot: dict[str, Any] | None,
-    unit: str,
-    quantity: Decimal,
+    billing_basis: str,
+    billed_quantity: Decimal,
     currency: str | None,
     amount: Decimal | None,
     provider: str | None,
@@ -81,8 +81,8 @@ def _build_pricing_snapshot(
     result.setdefault("schema_version", 1)
     result.setdefault("source", "runtime")
     result.setdefault("priced", amount is not None)
-    result.setdefault("billing_basis", unit)
-    result.setdefault("billing_unit", unit)
+    result.setdefault("billing_basis", billing_basis)
+    result.setdefault("billing_unit", billing_basis)
     result.setdefault("unit_size", 1)
     result.setdefault("rates", {})
     result.setdefault("configured_pricing", {})
@@ -107,7 +107,7 @@ def _build_pricing_snapshot(
     quantities = result.get("quantities")
     if not isinstance(quantities, dict):
         quantities = {}
-    quantities.setdefault("quantity", format(quantity, "f"))
+    quantities.setdefault("quantity", format(billed_quantity, "f"))
     if prompt_tokens is not None:
         quantities.setdefault("prompt_tokens", prompt_tokens)
     if completion_tokens is not None:
@@ -776,8 +776,8 @@ class TraceWriter:
         *,
         run_id: str,
         step_id: str | None,
-        unit: str,
-        quantity: Decimal | int | float,
+        billing_basis: str,
+        billed_quantity: Decimal | int | float,
         entry_type: str | None = None,
         currency: str | None = None,
         amount: Decimal | int | float | None = None,
@@ -791,6 +791,7 @@ class TraceWriter:
         tool_ref: str | None = None,
         source_port: str | None = None,
         operation: str | None = None,
+        source_ref: str | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
@@ -815,7 +816,9 @@ class TraceWriter:
             if not step or step.run_id != run_id or step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
                 raise ValueError("Step scope mismatch")
 
-        qty = Decimal(str(quantity))
+        qty = Decimal(str(billed_quantity))
+        if qty < 0:
+            raise ValueError("billed_quantity must not be negative")
         raw_amount = Decimal(str(amount)) if amount is not None else None
         resolved_entry_type = entry_type or "usage"
         if resolved_entry_type != "usage":
@@ -838,8 +841,8 @@ class TraceWriter:
         resolved_currency = currency if raw_amount is not None else None
         resolved_pricing_snapshot = _build_pricing_snapshot(
             snapshot=pricing_snapshot_json,
-            unit=unit,
-            quantity=qty,
+            billing_basis=billing_basis,
+            billed_quantity=qty,
             currency=resolved_currency,
             amount=resolved_amount,
             provider=provider,
@@ -863,8 +866,8 @@ class TraceWriter:
             currency=resolved_currency,
             amount=resolved_amount,
             pricing_snapshot_json=resolved_pricing_snapshot,
-            unit=unit,
-            quantity=qty,
+            billing_basis=billing_basis,
+            billed_quantity=qty,
             provider=provider,
             provider_id=provider_id,
             provider_slug=provider_slug,
@@ -874,6 +877,7 @@ class TraceWriter:
             tool_ref=tool_ref,
             source_port=source_port,
             operation=operation,
+            source_ref=source_ref,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
@@ -893,8 +897,8 @@ class TraceWriter:
             "run_id": entry.run_id,
             "step_id": entry.step_id,
             "entry_type": entry.entry_type,
-            "unit": entry.unit,
-            "quantity": str(entry.quantity),
+            "billing_basis": entry.billing_basis,
+            "billed_quantity": str(entry.billed_quantity),
             "currency": entry.currency,
             "amount": str(entry.amount),
             "pricing_snapshot_json": entry.pricing_snapshot_json,
@@ -907,6 +911,7 @@ class TraceWriter:
             "tool_ref": entry.tool_ref,
             "source_port": entry.source_port,
             "operation": entry.operation,
+            "source_ref": entry.source_ref,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
@@ -941,8 +946,8 @@ class TraceWriter:
                 "run_id": entry.run_id,
                 "step_id": entry.step_id,
                 "entry_type": entry.entry_type,
-                "unit": entry.unit,
-                "quantity": str(entry.quantity),
+                "billing_basis": entry.billing_basis,
+                "billed_quantity": str(entry.billed_quantity),
                 "currency": entry.currency,
                 "amount": str(entry.amount),
                 "pricing_snapshot_json": entry.pricing_snapshot_json,

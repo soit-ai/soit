@@ -72,8 +72,8 @@ def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
     usage = writer.record_cost(
         run_id=run.id,
         step_id=None,
-        unit="tokens",
-        quantity=15,
+        billing_basis="tokens",
+        billed_quantity=15,
         currency="USD",
         amount=Decimal("0.0025"),
         model_ref="model:provider-a:model-a",
@@ -123,8 +123,8 @@ def test_usage_row_carries_dimension_columns_for_one_invocation(db, ctx):
     usage = writer.record_cost(
         run_id=run.id,
         step_id=None,
-        unit="tokens",
-        quantity=15,
+        billing_basis="tokens",
+        billed_quantity=15,
         model_ref="model:provider-a:model-a",
         source_port="llm",
         operation="chat",
@@ -154,8 +154,8 @@ def test_trace_writer_rejects_negative_dimension_values(db, ctx):
         writer.record_cost(
             run_id=run.id,
             step_id=None,
-            unit="tokens",
-            quantity=10,
+            billing_basis="tokens",
+            billed_quantity=10,
             latency_ms=-1,
         )
 
@@ -169,8 +169,8 @@ def test_trace_writer_rejects_new_charge_only_rows(db, ctx):
             run_id=run.id,
             step_id=None,
             entry_type="charge",
-            unit="tokens",
-            quantity=10,
+            billing_basis="tokens",
+            billed_quantity=10,
             currency="USD",
             amount=Decimal("0.0025"),
         )
