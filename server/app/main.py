@@ -310,6 +310,7 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
 from app.api.v1.agent.router import router as agent_router  # noqa: E402
 from app.api.v1.agent.thread_router import router as thread_router  # noqa: E402
 from app.api.v1.attachments.router import router as attachments_router  # noqa: E402
+from app.api.v1.billing.router import router as billing_router  # noqa: E402
 from app.api.v1.diagnostics.router import router as diagnostics_router  # noqa: E402
 from app.api.v1.evaluation.router import router as evaluation_router  # noqa: E402
 from app.api.v1.feedback.router import router as feedback_router  # noqa: E402
@@ -350,6 +351,7 @@ app.include_router(search_router, prefix="/api/v1/search", tags=["search"])
 app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
 app.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
+app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
 
 install_enveloped_openapi(app)
 

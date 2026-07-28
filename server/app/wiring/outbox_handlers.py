@@ -94,6 +94,14 @@ def register_outbox_handlers() -> None:
         "observe.cost.metrics",
         handle_cost_recorded_observe,
     )
+
+    from app.modules.billing.handlers.on_cost_recorded import handle_cost_recorded_credit
+
+    reg.register(
+        ObserveEventType.COST_RECORDED,
+        "billing.credit.deduction",
+        handle_cost_recorded_credit,
+    )
     reg.register(
         ObserveEventType.RUN_STATUS_UPDATED,
         "observe.run_status.trace_metrics",

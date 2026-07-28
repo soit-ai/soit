@@ -142,6 +142,9 @@ class Settings(BaseSettings):
     agent_rate_limit_per_minute: int | None = None
     """Optional rate limit for agent runs (per minute)."""
 
+    credit_rates_json: str = '{"USD": "1000"}'
+    """JSON map of currency code to credits deducted per one currency unit."""
+
     response_interaction_inline_execution: bool = True
     """Execute claimed chat interactions inline; development and tests only."""
 

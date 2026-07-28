@@ -3,6 +3,7 @@
 # Import domain models to register tables in SQLModel.metadata.
 # Keep imports minimal to avoid heavy side effects.
 from app.modules.agent.domain import models as agent_models  # noqa: F401
+from app.modules.billing.domain import models as billing_models  # noqa: F401
 from app.modules.evaluation.domain import models as evaluation_models  # noqa: F401
 from app.modules.feedback.domain import models as feedback_models  # noqa: F401
 from app.modules.identity.domain import models as identity_models  # noqa: F401

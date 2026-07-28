@@ -206,6 +206,26 @@ a separate observation row. Downstream valuation (credit deduction, billing
 exports) must reference `cost_entry_id` from the `COST_RECORDED` event instead of
 re-recording measurements.
 
+### credit_ledger_entries (billing module)
+- `id` PK
+- `tenant_id`, `workspace_id`
+- `kind` (`grant`/`deduction`/`adjustment`)
+- `credits_delta` signed; workspace balance is `SUM(credits_delta)`
+- `cost_entry_id` nullable, UNIQUE; required for deductions
+- `run_id` nullable
+- `currency`, `amount` source valuation for deductions
+- `conversion_snapshot_json` immutable rate and calculation evidence
+- `note`, `created_by`, `created_at`
+- CHECK deduction deltas are negative and grant deltas positive
+- CHECK deductions reference a cost entry
+
+Credits are derived valuation. The `billing.credit.deduction` outbox consumer
+prices `COST_RECORDED` events using `credit_rates_json` (credits per currency
+unit) and books at most one deduction per cost entry: the consumer checkpoint
+dedupes per event and the unique `cost_entry_id` blocks double-booking even for
+unexpected duplicate events. Usage measurements are never copied into the
+ledger, and unpriced or unknown-currency events book nothing.
+
 ---
 
 ## 5. Knowledge

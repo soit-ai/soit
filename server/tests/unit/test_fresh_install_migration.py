@@ -32,6 +32,9 @@ BILLING_SEMANTICS_PATH = (
 DROP_ENTRY_TYPE_PATH = (
     VERSIONS_ROOT / "20260728180000_drop_run_cost_entry_type.py"
 )
+CREDIT_LEDGER_PATH = (
+    VERSIONS_ROOT / "20260728200000_credit_ledger.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -75,6 +78,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         COST_DIMENSIONS_PATH.name,
         BILLING_SEMANTICS_PATH.name,
         DROP_ENTRY_TYPE_PATH.name,
+        CREDIT_LEDGER_PATH.name,
     ]
 
     module = _load_baseline()
@@ -118,6 +122,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     drop_migration = importlib.util.module_from_spec(drop_spec)
     drop_spec.loader.exec_module(drop_migration)
     assert drop_migration.down_revision == semantics_migration.revision
+
+    ledger_spec = importlib.util.spec_from_file_location(
+        "credit_ledger", CREDIT_LEDGER_PATH
+    )
+    assert ledger_spec and ledger_spec.loader
+    ledger_migration = importlib.util.module_from_spec(ledger_spec)
+    ledger_spec.loader.exec_module(ledger_migration)
+    assert ledger_migration.down_revision == drop_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:
