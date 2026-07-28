@@ -419,7 +419,11 @@ class LLMPolicyGateway(LLMPort):
             gateway: Underlying LLM port.
             ctx: Request context.
             trace_writer: Optional trace writer for audit.
-            timeout_seconds: Request timeout in seconds.
+            timeout_seconds: Fallback request timeout in seconds, used when the
+                resolved route carries no timeout of its own (every static
+                platform-key provider). Production wiring passes
+                ``settings.llm_timeout_seconds``; this default only applies to
+                direct construction such as tests.
             max_retries: Maximum retry attempts.
             rate_limit_per_minute: Optional rate limit per minute.
             daily_quota: Optional daily request quota.

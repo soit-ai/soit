@@ -121,6 +121,16 @@ class Settings(BaseSettings):
     default_llm_provider: str = "openai"
     """Default LLM provider when model ref has no provider prefix."""
 
+    llm_timeout_seconds: float = 180.0
+    """
+    Default timeout for a single LLM call, in seconds.
+
+    Applies whenever the resolved route carries no timeout of its own, which is the
+    case for every static (platform-key) provider. Long-form generation regularly
+    exceeds a minute, so the previous hard-coded 60s aborted legitimate requests
+    mid-flight; workspace-configured providers still override this per route.
+    """
+
     openai_api_key: str | None = None
     """OpenAI API key."""
 

@@ -246,6 +246,7 @@ class Container:
             rate_limit_per_minute=ctx.llm_rate_limit_per_minute,
             daily_quota=ctx.llm_daily_quota,
             credit_guard=credit_guard,
+            timeout_seconds=settings.llm_timeout_seconds,
         )
 
     def get_tool_port(
