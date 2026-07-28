@@ -32,7 +32,9 @@ async def main() -> None:
     worker = GlobalKnowledgeIngestWorker()
     await worker.run_loop(
         poll_interval=max(0.1, settings.knowledge_ingest_worker_poll_interval),
-        max_tasks=settings.knowledge_ingest_worker_max_tasks,
+        # A dedicated worker container must keep draining the queue; a positive
+        # limit is only for bounded runs such as tests and one-shot drains.
+        max_tasks=settings.knowledge_ingest_worker_max_tasks or None,
         concurrency=settings.knowledge_ingest_worker_concurrency,
         heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
     )

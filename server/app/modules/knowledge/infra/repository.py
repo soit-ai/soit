@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common import lease
 from app.modules.knowledge.domain.models import (
     Knowledge,
     KnowledgeChunk,
@@ -542,23 +543,29 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
 
-    def claim_next(self) -> KnowledgeIngestTask | None:
-        """Claim the next queued task."""
-        query = select(KnowledgeIngestTask).where(
-            and_(
+    def claim_next(
+        self,
+        *,
+        worker_id: str | None = None,
+        lease_seconds: int | None = None,
+    ) -> KnowledgeIngestTask | None:
+        """Claim the next queued task, or reclaim one with an expired lease."""
+        from app.kernel.commons.time import utc_now
+
+        task = lease.claim_next(
+            self.db,
+            KnowledgeIngestTask,
+            worker_id=worker_id or f"knowledge-ingest:{self.ctx.user_id}",
+            lease_seconds=lease.normalize_lease_seconds(lease_seconds),
+            extra_where=(
                 KnowledgeIngestTask.tenant_id == self.ctx.tenant_id,
                 KnowledgeIngestTask.workspace_id == self.ctx.workspace_id,
-                KnowledgeIngestTask.status == "queued",
-            )
-        ).order_by(KnowledgeIngestTask.created_at.asc()).limit(1)
-        result = self.db.exec(query).first()
-        task = self._unwrap_result(result)
+            ),
+        )
         if not task:
             return None
-        from app.kernel.commons.time import utc_now
-        task.status = "running"
-        task.started_at = utc_now()
-        task.updated_at = utc_now()
+        if task.started_at is None:
+            task.started_at = utc_now()
         task.updated_by = self.ctx.user_id
         self.db.commit()
         self.db.refresh(task)
@@ -586,6 +593,12 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
             task.started_at = utc_now()
         if status in ("succeeded", "failed", "canceled"):
             task.finished_at = utc_now()
+        if status != "running":
+            # Leaving the running state ends the execution lease. A retry that
+            # returns to "queued" must be claimable by any worker, and a
+            # terminal task must never look like live work.
+            task.lease_owner = None
+            task.lease_expires_at = None
         if error_code is not None:
             task.error_code = error_code
         if error_message is not None:

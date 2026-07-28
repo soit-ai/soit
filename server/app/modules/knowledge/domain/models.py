@@ -6,7 +6,7 @@ Knowledge domain DB models backed by the knowledge storage tables.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Text
+from sqlalchemy import DateTime, Text
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -245,8 +245,20 @@ class KnowledgeIngestTask(SQLModel, table=True):
     )
     """Related document ID."""
 
-    status: str = Field(default="queued")
+    status: str = Field(default="queued", index=True)
     """Status: queued, running, succeeded, failed, canceled."""
+
+    lease_owner: str | None = Field(default=None, nullable=True, index=True)
+    """Worker currently holding the execution lease."""
+
+    lease_expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
+    """Lease expiry; a running task past this moment is reclaimable."""
+
+    attempt_count: int = Field(default=0)
+    """Number of times this task has been claimed for execution."""
 
     payload_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     """Ingestion payload snapshot (DocumentUpload)."""

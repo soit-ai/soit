@@ -168,16 +168,18 @@ def test_quickstart_compose_file_matches_documented_service_set() -> None:
         "-f",
         "http://localhost:9091/healthz",
     ]
+    # The dedicated worker must drain the queue continuously. A positive limit
+    # here made the container exit and restart after every few documents.
     assert (
         services["knowledge-ingest-worker"]["environment"]["KNOWLEDGE_INGEST_WORKER_MAX_TASKS"]
-        == "${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-10}"
+        == "${KNOWLEDGE_INGEST_WORKER_MAX_TASKS:-0}"
     )
     for service_name in ("migrate", "bootstrap", "api", "knowledge-ingest-worker", "outbox-dispatcher"):
         env_files = services[service_name]["env_file"]
         assert env_files == [{"path": "../.env", "required": False}]
 
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    assert "KNOWLEDGE_INGEST_WORKER_MAX_TASKS=10" in env_example
+    assert "KNOWLEDGE_INGEST_WORKER_MAX_TASKS=0" in env_example
 
 
 def test_readmes_link_bilingual_quickstart() -> None:
