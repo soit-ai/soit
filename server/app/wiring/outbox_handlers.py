@@ -96,7 +96,9 @@ def register_outbox_handlers() -> None:
     )
 
     from app.modules.billing.events import CREDIT_BALANCE_LOW
-    from app.modules.billing.handlers.on_cost_recorded import handle_cost_recorded_credit
+    from app.modules.billing.handlers.on_cost_recorded import (
+        handle_cost_recorded_credit,
+    )
     from app.modules.notification.handlers.on_credit_balance_low import (
         handle_credit_balance_low,
     )

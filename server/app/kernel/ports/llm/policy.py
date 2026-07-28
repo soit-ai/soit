@@ -16,11 +16,11 @@ from app.kernel.commons.errors import KernelError
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.common.credit import CreditGuard
 from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
 )
-from app.kernel.ports.common.credit import CreditGuard
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.llm.interface import (
     ChatMessage,
