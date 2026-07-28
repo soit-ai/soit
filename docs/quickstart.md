@@ -91,7 +91,7 @@ The verifier requires the full Docker service set, per-service healthy status an
 
 ## Database Migration Paths
 
-SOIT 1.0 supports a fresh install through head `20260723160000` and an explicit N-1 upgrade from `20260718140000`. Other historical development snapshots are unsupported; see the [migration runbook](release-migration.md).
+SOIT 1.0 supports a fresh install through head `20260728200000` and an explicit N-1 upgrade from `20260718140000`. Other historical development snapshots are unsupported; see the [migration runbook](release-migration.md).
 
 ## Model Provider Support
 

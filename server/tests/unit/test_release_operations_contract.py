@@ -41,7 +41,7 @@ def test_backup_manifest_example_is_machine_verifiable() -> None:
     assert report == {
         "passed": True,
         "backup_id": "backup_example_20260723T160000Z",
-        "alembic_revision": "20260723160000",
+        "alembic_revision": "20260728200000",
         "file_count": 3,
     }
 

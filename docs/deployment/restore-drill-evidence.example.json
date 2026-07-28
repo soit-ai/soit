@@ -17,7 +17,7 @@
   "components": {
     "postgres": {
       "status": "passed",
-      "alembic_revision": "20260723160000",
+      "alembic_revision": "20260728200000",
       "row_count_readback_passed": true,
       "evidence_ref": "evidence/restore-drill/postgres-readback.log"
     },

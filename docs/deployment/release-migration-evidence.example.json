@@ -2,37 +2,37 @@
   "featureKey": "release.fresh_install_migration",
   "release": "v1.0.0-rc",
   "startedAt": "2026-07-18T06:00:00Z",
-  "finishedAt": "2026-07-23T08:45:00Z",
-  "head_revision": "20260723160000",
+  "finishedAt": "2026-07-28T20:45:00Z",
+  "head_revision": "20260728200000",
   "n1_revision": "20260718140000",
   "alembic_heads": {
     "command": "uv run alembic heads",
     "exit_code": 0,
-    "revision": "20260723160000",
+    "revision": "20260728200000",
     "single_head": true,
-    "stdout_excerpt": "20260723160000 (head)"
+    "stdout_excerpt": "20260728200000 (head)"
   },
   "fresh_install": {
     "database_kind": "postgresql",
     "started_empty": true,
-    "post_upgrade_revision": "20260723160000",
+    "post_upgrade_revision": "20260728200000",
     "commands": [
       {
         "command": "uv run alembic upgrade head",
         "exit_code": 0,
-        "stdout_excerpt": "Running upgrade -> 20260718140000; Running upgrade 20260718140000 -> 20260723160000"
+        "stdout_excerpt": "Running upgrade -> 20260718140000; Running upgrade 20260718140000 -> 20260723160000; Running upgrade 20260723160000 -> 20260726190000; Running upgrade 20260726190000 -> 20260728120000; Running upgrade 20260728120000 -> 20260728150000; Running upgrade 20260728150000 -> 20260728160000; Running upgrade 20260728160000 -> 20260728180000; Running upgrade 20260728180000 -> 20260728200000"
       },
       {
         "command": "uv run alembic current",
         "exit_code": 0,
-        "stdout_excerpt": "20260723160000 (head)"
+        "stdout_excerpt": "20260728200000 (head)"
       }
     ],
     "schema_checks": [
       {
         "command": "uv run pytest tests/unit/test_fresh_install_migration.py -q",
         "exit_code": 0,
-        "stdout_excerpt": "4 passed"
+        "stdout_excerpt": "5 passed"
       }
     ],
     "smoke_tests": [
@@ -59,17 +59,17 @@
     "database_kind": "postgresql",
     "started_from_release_candidate": true,
     "source_revision": "20260718140000",
-    "post_upgrade_revision": "20260723160000",
+    "post_upgrade_revision": "20260728200000",
     "commands": [
       {
         "command": "psql $DATABASE_URL -f tests/fixtures/n1_release_candidate.sql && uv run alembic upgrade head",
         "exit_code": 0,
-        "stdout_excerpt": "Running upgrade 20260718140000 -> 20260723160000"
+        "stdout_excerpt": "Running upgrade 20260718140000 -> 20260723160000; Running upgrade 20260723160000 -> 20260726190000; Running upgrade 20260726190000 -> 20260728120000; Running upgrade 20260728120000 -> 20260728150000; Running upgrade 20260728150000 -> 20260728160000; Running upgrade 20260728160000 -> 20260728180000; Running upgrade 20260728180000 -> 20260728200000"
       },
       {
         "command": "uv run alembic current",
         "exit_code": 0,
-        "stdout_excerpt": "20260723160000 (head)"
+        "stdout_excerpt": "20260728200000 (head)"
       }
     ],
     "data_checks": [
@@ -87,7 +87,7 @@
   },
   "release_notes": {
     "path": "docs/releases/v1.0.0.md",
-    "fresh_install_range": "base..20260723160000",
-    "n1_upgrade_range": "20260718140000..20260723160000"
+    "fresh_install_range": "base..20260728200000",
+    "n1_upgrade_range": "20260718140000..20260728200000"
   }
 }
