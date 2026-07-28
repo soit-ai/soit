@@ -714,8 +714,6 @@ class ModelHubService:
         if today_start <= run.started_at < today_end:
             metrics["today_run_ids"].add(entry.run_id)
         metrics["tokens"] += int(entry.prompt_tokens or 0) + int(entry.completion_tokens or 0)
-        metrics["amount"] += float(entry.amount or 0)
-        metrics["currency"] = metrics["currency"] or entry.currency
         if run.duration_ms is not None and entry.run_id not in {item[0] for item in metrics["durations"]}:
             metrics["durations"].append((entry.run_id, int(run.duration_ms)))
         if run.status == "failed" or bool(run.error_message):
@@ -723,6 +721,9 @@ class ModelHubService:
         last_run_at = metrics["last_run_at"]
         if last_run_at is None or run.started_at > last_run_at:
             metrics["last_run_at"] = run.started_at
+        if entry.amount is not None and entry.currency:
+            metrics["amount"] += float(entry.amount)
+            metrics["currency"] = metrics["currency"] or entry.currency
 
     def _build_model_row(
         self,

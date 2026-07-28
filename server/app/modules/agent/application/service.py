@@ -1373,7 +1373,6 @@ class AgentService:
                 RunCostEntry.run_id == run_id,
                 RunCostEntry.tenant_id == self.ctx.tenant_id,
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
-                RunCostEntry.entry_type == "usage",
                 RunCostEntry.billing_basis == "tokens",
                 RunCostEntry.model_ref.is_not(None),
             )

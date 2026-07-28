@@ -29,6 +29,9 @@ COST_DIMENSIONS_PATH = (
 BILLING_SEMANTICS_PATH = (
     VERSIONS_ROOT / "20260728160000_run_cost_billing_semantics.py"
 )
+DROP_ENTRY_TYPE_PATH = (
+    VERSIONS_ROOT / "20260728180000_drop_run_cost_entry_type.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -71,6 +74,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         INGEST_LEASE_PATH.name,
         COST_DIMENSIONS_PATH.name,
         BILLING_SEMANTICS_PATH.name,
+        DROP_ENTRY_TYPE_PATH.name,
     ]
 
     module = _load_baseline()
@@ -106,6 +110,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     semantics_migration = importlib.util.module_from_spec(semantics_spec)
     semantics_spec.loader.exec_module(semantics_migration)
     assert semantics_migration.down_revision == dimensions_migration.revision
+
+    drop_spec = importlib.util.spec_from_file_location(
+        "drop_run_cost_entry_type", DROP_ENTRY_TYPE_PATH
+    )
+    assert drop_spec and drop_spec.loader
+    drop_migration = importlib.util.module_from_spec(drop_spec)
+    drop_spec.loader.exec_module(drop_migration)
+    assert drop_migration.down_revision == semantics_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

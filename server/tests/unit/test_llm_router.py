@@ -542,7 +542,6 @@ async def test_llm_policy_records_one_priced_usage_row_for_valid_model_pricing(c
         if call.kwargs.get("billing_basis") == "tokens"
     ]
     assert len(usages) == 1
-    assert usages[0].kwargs.get("entry_type") is None
     assert usages[0].kwargs["currency"] == "USD"
     assert usages[0].kwargs["amount"] == Decimal("0.000013")
     snapshot = usages[0].kwargs["pricing_snapshot_json"]

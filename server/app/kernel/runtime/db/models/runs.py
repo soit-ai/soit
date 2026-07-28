@@ -309,9 +309,6 @@ class RunCostEntry(SQLModel, table=True):
     workspace_id: str = Field(index=True)
     """Workspace ID."""
 
-    entry_type: str = Field(default="usage", index=True)
-    """Entry semantic; new records use usage and charge is legacy-only."""
-
     currency: str | None = Field(default=None, nullable=True)
     """Currency code when this usage record has a calculated amount."""
 

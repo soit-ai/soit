@@ -180,7 +180,6 @@ Workspace-scoped.
 - `run_id` FK
 - `step_id` nullable
 - `tenant_id`, `workspace_id`
-- `entry_type` (`usage` for new writes; `charge` is legacy-only)
 - `currency`, `amount` nullable on the same usage row
 - `billing_basis`, `billed_quantity` describe what the row is billed by; reconciliation only, never usage statistics
 - `source_ref` nullable upstream request identifier, UNIQUE per tenant for idempotent booking

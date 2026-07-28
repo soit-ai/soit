@@ -1146,9 +1146,7 @@ class RunService:
             raw_entries = list(self.db.exec(entries_query).all())
             entries = [item if hasattr(item, "id") else item[0] for item in raw_entries]
             cost_entries = [RunCostEntryResponse.model_validate(item) for item in entries]
-            usage_summary = self._summarize_entries(
-                [entry for entry in entries if entry.entry_type == "usage"]
-            )
+            usage_summary = self._summarize_entries(entries)
             charge_summary = self._summarize_charges(entries)
 
         responses = self._list_responses_for_run(run_id)
@@ -1273,7 +1271,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1307,7 +1304,6 @@ class RunService:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
-        entry_type: str | None = None,
         run_id: str | None = None,
         limit: int = 200,
         offset: int = 0,
@@ -1325,8 +1321,6 @@ class RunService:
             clauses.append(RunCostEntry.created_at >= since)
         if until:
             clauses.append(RunCostEntry.created_at <= until)
-        if entry_type:
-            clauses.append(RunCostEntry.entry_type == entry_type)
         if run_id:
             clauses.append(RunCostEntry.run_id == run_id)
 
@@ -1358,7 +1352,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1421,7 +1414,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1483,7 +1475,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1545,7 +1536,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1607,7 +1597,6 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,

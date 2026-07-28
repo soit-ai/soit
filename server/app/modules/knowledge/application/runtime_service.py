@@ -1767,7 +1767,6 @@ class KnowledgeRuntimeService:
             and_(
                 RunCostEntry.tenant_id == self.ctx.tenant_id,
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
-                RunCostEntry.entry_type == "usage",
                 RunCostEntry.run_id.in_(run_ids),
             )
         )

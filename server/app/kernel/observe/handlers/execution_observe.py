@@ -195,8 +195,9 @@ def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
     if not tenant_id:
         return
 
-    entry_type = payload.get("entry_type")
-    records_usage = entry_type in (None, "usage")
+    # entry_type no longer exists on cost rows; pre-removal events may still
+    # carry it, and legacy charge events must not count as usage.
+    records_usage = payload.get("entry_type") in (None, "usage")
     # Events published before the billing_basis rename still carry unit/quantity.
     billing_basis = payload.get("billing_basis") or payload.get("unit") or ""
     if records_usage:

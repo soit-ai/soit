@@ -100,7 +100,6 @@ def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
         },
     )
 
-    assert usage.entry_type == "usage"
     assert usage.amount == Decimal("0.0025")
     assert usage.currency == "USD"
     assert usage.pricing_snapshot_json["model"]["resolved"] == "model:provider-a:model-a"
@@ -160,11 +159,11 @@ def test_trace_writer_rejects_negative_dimension_values(db, ctx):
         )
 
 
-def test_trace_writer_rejects_new_charge_only_rows(db, ctx):
+def test_trace_writer_has_no_charge_entry_concept(db, ctx):
     writer = TraceWriter(db, ctx)
     run = writer.create_run("agent")
 
-    with pytest.raises(ValueError, match="combine usage and amount"):
+    with pytest.raises(TypeError):
         writer.record_cost(
             run_id=run.id,
             step_id=None,

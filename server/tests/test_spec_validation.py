@@ -507,6 +507,5 @@ def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
     assert document["usage_summary"]["tokens_prompt"] == 3
     assert document["charge_summary"]["amounts"] == {"USD": 0.001}
     assert len(document["entries"]) == 1
-    assert document["entries"][0]["entry_type"] == "usage"
     assert document["entries"][0]["pricing_snapshot_json"]["unit_size"] == 1_000_000
     assert validate_spec(document, "runtrace_spec") is True

@@ -182,14 +182,12 @@ def _citation_matches_source(citation: dict[str, Any], expected_source: str) -> 
 
 
 def _cost_summary(detail) -> dict[str, Any]:
-    usage_entries = [item for item in detail.costs if item.entry_type == "usage"]
-    charge_entries = [item for item in detail.costs if item.entry_type == "charge"]
-    total_amount = sum(float(item.amount or 0) for item in charge_entries)
-    total_tokens = sum(int(item.total_tokens or 0) for item in usage_entries)
+    priced_entries = [item for item in detail.costs if item.amount is not None]
+    total_amount = sum(float(item.amount or 0) for item in priced_entries)
+    total_tokens = sum(int(item.total_tokens or 0) for item in detail.costs)
     return {
         "entries": len(detail.costs),
-        "usage_entries": len(usage_entries),
-        "charge_entries": len(charge_entries),
+        "priced_entries": len(priced_entries),
         "amount": round(total_amount, 8),
         "tokens": total_tokens,
     }

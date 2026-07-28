@@ -134,7 +134,6 @@ export interface RunCostEntryResponse {
   step_id?: string | null
   tenant_id: string
   workspace_id: string
-  entry_type: 'usage' | 'charge'
   currency?: string | null
   amount?: string | null
   pricing_snapshot_json: Record<string, unknown>

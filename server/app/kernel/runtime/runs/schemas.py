@@ -208,7 +208,6 @@ class RunCostEntryResponse(BaseModel):
     step_id: str | None
     tenant_id: str
     workspace_id: str
-    entry_type: str
     currency: str | None
     amount: Decimal | None
     pricing_snapshot_json: dict[str, Any]

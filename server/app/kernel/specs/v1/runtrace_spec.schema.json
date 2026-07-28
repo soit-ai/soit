@@ -335,7 +335,6 @@
         "required": [
           "cost_id",
           "run_id",
-          "entry_type",
           "billing_basis",
           "billed_quantity",
           "pricing_snapshot_json"
@@ -352,11 +351,6 @@
               "string",
               "null"
             ]
-          },
-          "entry_type": {
-            "type": "string",
-            "enum": ["usage", "charge"],
-            "description": "New records use usage; charge is retained only for historical exports."
           },
           "currency": {
             "type": ["string", "null"]

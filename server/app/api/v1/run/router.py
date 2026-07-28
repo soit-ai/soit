@@ -41,7 +41,6 @@ router = APIRouter()
 async def list_cost_entries(
     since: datetime | None = None,
     until: datetime | None = None,
-    entry_type: str | None = None,
     run_id: str | None = None,
     page_token: str | None = None,
     page_size: int = 200,
@@ -54,7 +53,6 @@ async def list_cost_entries(
         ctx,
         since=since,
         until=until,
-        entry_type=entry_type,
         run_id=run_id,
         page_token=page_token,
         page_size=page_size,

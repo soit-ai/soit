@@ -217,7 +217,6 @@ class RunHandlers:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
-        entry_type: str | None = None,
         run_id: str | None = None,
         page_token: str | None = None,
         page_size: int = 200,
@@ -230,7 +229,6 @@ class RunHandlers:
         entries = self.service.list_cost_entries(
             since=since,
             until=until,
-            entry_type=entry_type,
             run_id=run_id,
             limit=limit_plus,
             offset=offset,

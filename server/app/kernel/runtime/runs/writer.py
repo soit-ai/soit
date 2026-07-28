@@ -778,7 +778,6 @@ class TraceWriter:
         step_id: str | None,
         billing_basis: str,
         billed_quantity: Decimal | int | float,
-        entry_type: str | None = None,
         currency: str | None = None,
         amount: Decimal | int | float | None = None,
         pricing_snapshot_json: dict[str, Any] | None = None,
@@ -820,9 +819,6 @@ class TraceWriter:
         if qty < 0:
             raise ValueError("billed_quantity must not be negative")
         raw_amount = Decimal(str(amount)) if amount is not None else None
-        resolved_entry_type = entry_type or "usage"
-        if resolved_entry_type != "usage":
-            raise ValueError("New cost entries must combine usage and amount in one usage record")
         if raw_amount is not None and raw_amount < 0:
             raise ValueError("Cost amount must not be negative")
         if raw_amount is not None and not currency:
@@ -862,7 +858,6 @@ class TraceWriter:
             step_id=step_id,
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
-            entry_type=resolved_entry_type,
             currency=resolved_currency,
             amount=resolved_amount,
             pricing_snapshot_json=resolved_pricing_snapshot,
@@ -896,7 +891,6 @@ class TraceWriter:
             "tenant_id": self.ctx.tenant_id,
             "run_id": entry.run_id,
             "step_id": entry.step_id,
-            "entry_type": entry.entry_type,
             "billing_basis": entry.billing_basis,
             "billed_quantity": str(entry.billed_quantity),
             "currency": entry.currency,
@@ -945,7 +939,6 @@ class TraceWriter:
             {
                 "run_id": entry.run_id,
                 "step_id": entry.step_id,
-                "entry_type": entry.entry_type,
                 "billing_basis": entry.billing_basis,
                 "billed_quantity": str(entry.billed_quantity),
                 "currency": entry.currency,
