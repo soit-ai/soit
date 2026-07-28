@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, Index, Numeric, Text, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -327,6 +327,12 @@ class RunCostEntry(SQLModel, table=True):
     tool_ref: str | None = Field(default=None)
     """Tool reference if applicable."""
 
+    source_port: str | None = Field(default=None, index=True)
+    """Kernel port that produced this record (llm/vector/storage/tools/plugins)."""
+
+    operation: str | None = Field(default=None)
+    """Port operation (chat/embed/rerank/query/insert/delete/put/get/exists/invoke)."""
+
     prompt_tokens: int | None = Field(default=None, nullable=True)
     """Prompt tokens for LLM usage."""
 
@@ -335,6 +341,24 @@ class RunCostEntry(SQLModel, table=True):
 
     total_tokens: int | None = Field(default=None, nullable=True)
     """Total tokens for LLM usage."""
+
+    latency_ms: int | None = Field(default=None, nullable=True)
+    """Upstream invocation latency in milliseconds."""
+
+    request_count: int | None = Field(default=None, nullable=True)
+    """Number of upstream requests metered on this record."""
+
+    embedding_count: int | None = Field(default=None, nullable=True)
+    """Number of embeddings produced."""
+
+    rerank_count: int | None = Field(default=None, nullable=True)
+    """Number of documents reranked."""
+
+    vector_count: int | None = Field(default=None, nullable=True)
+    """Number of vectors written or removed."""
+
+    storage_bytes: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    """Bytes read from or written to storage."""
 
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""

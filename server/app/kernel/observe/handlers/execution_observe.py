@@ -195,20 +195,23 @@ def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
     if not tenant_id:
         return
 
-    prompt_tokens = payload.get("prompt_tokens")
-    if prompt_tokens:
-        tokens_total.labels(type="prompt", tenant_id=tenant_id).inc(int(prompt_tokens))
-    completion_tokens = payload.get("completion_tokens")
-    if completion_tokens:
-        tokens_total.labels(type="completion", tenant_id=tenant_id).inc(int(completion_tokens))
-
+    entry_type = payload.get("entry_type")
+    records_usage = entry_type in (None, "usage")
     unit = payload.get("unit") or ""
-    quantity = payload.get("quantity")
-    if unit in ("embeddings", "embedding") and quantity is not None:
-        try:
-            tokens_total.labels(type="embedding", tenant_id=tenant_id).inc(float(Decimal(str(quantity))))
-        except Exception:
-            pass
+    if records_usage:
+        prompt_tokens = payload.get("prompt_tokens")
+        if prompt_tokens:
+            tokens_total.labels(type="prompt", tenant_id=tenant_id).inc(int(prompt_tokens))
+        completion_tokens = payload.get("completion_tokens")
+        if completion_tokens:
+            tokens_total.labels(type="completion", tenant_id=tenant_id).inc(int(completion_tokens))
+
+        quantity = payload.get("quantity")
+        if unit in ("embeddings", "embedding") and quantity is not None:
+            try:
+                tokens_total.labels(type="embedding", tenant_id=tenant_id).inc(float(Decimal(str(quantity))))
+            except Exception:
+                pass
 
     amount = payload.get("amount")
     if amount is not None:

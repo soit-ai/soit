@@ -81,103 +81,316 @@ class _ResolvedPolicyRoute:
     pricing: dict[str, Any]
 
 
-def _token_charge(
+@dataclass(frozen=True)
+class _PricingCalculation:
+    """Calculated amount and immutable pricing evidence for one usage fact."""
+
+    currency: str | None
+    amount: Decimal | None
+    snapshot: dict[str, Any]
+
+
+_TOKEN_UNIT_SIZES = {
+    "token": 1,
+    "tokens": 1,
+    "ktok": 1_000,
+    "1k_tokens": 1_000,
+    "thousand_tokens": 1_000,
+    "mtok": 1_000_000,
+    "1m_tokens": 1_000_000,
+    "million_tokens": 1_000_000,
+}
+_SEARCH_UNIT_SIZES = {
+    "search": 1,
+    "searches": 1,
+    "1k_searches": 1_000,
+    "kilo_searches": 1_000,
+}
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
+
+
+def _pricing_source(pricing: dict[str, Any]) -> str:
+    source = pricing.get("pricing_source")
+    return str(source).strip() if source else "provider_model"
+
+
+def _unpriced_calculation(
+    pricing: dict[str, Any],
+    *,
+    billing_basis: str,
+    quantities: dict[str, int],
+    reason: str | None = None,
+) -> _PricingCalculation:
+    resolved_reason = reason or (
+        "pricing_not_configured" if not pricing else "unsupported_pricing_config"
+    )
+    return _PricingCalculation(
+        currency=None,
+        amount=None,
+        snapshot={
+            "schema_version": 1,
+            "source": _pricing_source(pricing),
+            "priced": False,
+            "reason": resolved_reason,
+            "billing_basis": billing_basis,
+            "billing_unit": None,
+            "unit_size": None,
+            "rates": {},
+            "quantities": quantities,
+            "currency": None,
+            "amount": None,
+            "configured_pricing": _json_safe(pricing),
+        },
+    )
+
+
+def _rate_definition(
+    pricing: dict[str, Any],
+    *,
+    nested_key: str,
+    flat_key: str,
+    unit_key: str,
+    unit_sizes: dict[str, int],
+    default_unit: str | None = None,
+) -> tuple[Decimal, str, int] | None:
+    raw_rate = pricing.get(nested_key)
+    if raw_rate is None and nested_key != flat_key:
+        raw_rate = pricing.get(flat_key)
+    if isinstance(raw_rate, dict):
+        raw_amount = raw_rate.get("amount", raw_rate.get("price"))
+        raw_unit = raw_rate.get(
+            "unit",
+            pricing.get(unit_key, pricing.get("unit", default_unit)),
+        )
+    else:
+        raw_amount = raw_rate
+        raw_unit = pricing.get(unit_key, pricing.get("unit", default_unit))
+    if raw_amount is None or raw_unit is None:
+        return None
+    try:
+        rate = Decimal(str(raw_amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    unit = str(raw_unit).strip().lower()
+    unit_size = unit_sizes.get(unit)
+    if rate < 0 or unit_size is None:
+        return None
+    return rate, unit, unit_size
+
+
+def _priced_calculation(
+    pricing: dict[str, Any],
+    *,
+    billing_basis: str,
+    rates: dict[str, tuple[Decimal, str, int]],
+    quantities: dict[str, int],
+    amount: Decimal,
+    currency: str,
+) -> _PricingCalculation:
+    normalized_rates = {
+        key: {
+            "price": format(rate, "f"),
+            "unit": unit,
+            "unit_size": unit_size,
+        }
+        for key, (rate, unit, unit_size) in rates.items()
+    }
+    unit_pairs = {(unit, unit_size) for _, unit, unit_size in rates.values()}
+    if len(unit_pairs) == 1:
+        billing_unit, unit_size = next(iter(unit_pairs))
+    else:
+        billing_unit, unit_size = "mixed", None
+    return _PricingCalculation(
+        currency=currency,
+        amount=amount,
+        snapshot={
+            "schema_version": 1,
+            "source": _pricing_source(pricing),
+            "priced": True,
+            "billing_basis": billing_basis,
+            "billing_unit": billing_unit,
+            "unit_size": unit_size,
+            "rates": normalized_rates,
+            "quantities": quantities,
+            "currency": currency,
+            "amount": format(amount, "f"),
+            "configured_pricing": _json_safe(pricing),
+        },
+    )
+
+
+def _token_pricing(
     pricing: dict[str, Any],
     *,
     prompt_tokens: int,
     completion_tokens: int = 0,
     require_output_rate: bool = True,
-) -> tuple[str, Decimal] | None:
-    """Return a monetary charge only for a complete supported pricing contract."""
+) -> _PricingCalculation:
+    """Calculate token pricing and preserve both configured and normalized rates."""
+    quantities = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
     try:
         currency = str(pricing["currency"]).strip().upper()
-        unit = str(pricing["unit"]).strip().lower()
-        divisor = {
-            "mtok": Decimal("1000000"),
-            "1m_tokens": Decimal("1000000"),
-            "million_tokens": Decimal("1000000"),
-        }.get(unit)
-        if not currency or divisor is None:
-            return None
-        input_rate = Decimal(str(pricing["input"]))
-        output_raw = pricing.get("output")
-        if output_raw is None and require_output_rate:
-            return None
-        output_rate = Decimal(str(output_raw)) if output_raw is not None else Decimal("0")
-        if input_rate < 0 or output_rate < 0:
-            return None
-        amount = (
-            Decimal(prompt_tokens) * input_rate
-            + Decimal(completion_tokens) * output_rate
-        ) / divisor
-        if amount <= 0:
-            return None
-        return currency, amount
-    except (InvalidOperation, KeyError, TypeError, ValueError):
-        return None
+    except (KeyError, TypeError, ValueError):
+        return _unpriced_calculation(
+            pricing,
+            billing_basis="tokens",
+            quantities=quantities,
+        )
+    input_rate = _rate_definition(
+        pricing,
+        nested_key="prompt",
+        flat_key="input",
+        unit_key="input_unit",
+        unit_sizes=_TOKEN_UNIT_SIZES,
+    )
+    output_rate = _rate_definition(
+        pricing,
+        nested_key="completion",
+        flat_key="output",
+        unit_key="output_unit",
+        unit_sizes=_TOKEN_UNIT_SIZES,
+    )
+    if not currency or input_rate is None or (
+        require_output_rate and output_rate is None
+    ):
+        return _unpriced_calculation(
+            pricing,
+            billing_basis="tokens",
+            quantities=quantities,
+        )
+    rates = {"input": input_rate}
+    amount = Decimal(prompt_tokens) * input_rate[0] / Decimal(input_rate[2])
+    if output_rate is not None:
+        rates["output"] = output_rate
+        amount += (
+            Decimal(completion_tokens)
+            * output_rate[0]
+            / Decimal(output_rate[2])
+        )
+    return _priced_calculation(
+        pricing,
+        billing_basis="tokens",
+        rates=rates,
+        quantities=quantities,
+        amount=amount,
+        currency=currency,
+    )
 
 
-def _chat_charge(
+def _chat_pricing(
     pricing: dict[str, Any],
     *,
     prompt_tokens: int,
     completion_tokens: int,
-) -> tuple[str, Decimal] | None:
+) -> _PricingCalculation:
     """Chat pricing requires both input and output token rates."""
-    return _token_charge(
+    return _token_pricing(
         pricing,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )
 
 
-def _embed_charge(
+def _embed_pricing(
     pricing: dict[str, Any],
     *,
     tokens_used: int,
-) -> tuple[str, Decimal] | None:
+) -> _PricingCalculation:
     """Embeddings bill input tokens only; the output rate is optional."""
-    if tokens_used <= 0:
-        return None
-    return _token_charge(
+    return _token_pricing(
         pricing,
-        prompt_tokens=tokens_used,
+        prompt_tokens=max(tokens_used, 0),
         require_output_rate=False,
     )
 
 
-def _rerank_charge(
+def _rerank_pricing(
     pricing: dict[str, Any],
     *,
     searches: int,
     tokens_used: int,
-) -> tuple[str, Decimal] | None:
+) -> _PricingCalculation:
     """Per-search pricing takes precedence; token pricing is the fallback."""
+    quantities = {"searches": searches, "total_tokens": tokens_used}
     if "search" in pricing:
         try:
             currency = str(pricing["currency"]).strip().upper()
-            search_unit = str(pricing.get("search_unit", "1k_searches")).strip().lower()
-            divisor = {
-                "search": Decimal("1"),
-                "1k_searches": Decimal("1000"),
-                "kilo_searches": Decimal("1000"),
-            }.get(search_unit)
-            rate = Decimal(str(pricing["search"]))
-            if not currency or divisor is None or rate < 0:
-                return None
-            amount = Decimal(searches) * rate / divisor
-            if amount <= 0:
-                return None
-            return currency, amount
-        except (InvalidOperation, KeyError, TypeError, ValueError):
-            return None
-    if tokens_used > 0:
-        return _token_charge(
+        except (KeyError, TypeError, ValueError):
+            return _unpriced_calculation(
+                pricing,
+                billing_basis="searches",
+                quantities=quantities,
+            )
+        search_rate = _rate_definition(
             pricing,
-            prompt_tokens=tokens_used,
-            require_output_rate=False,
+            nested_key="search",
+            flat_key="search",
+            unit_key="search_unit",
+            unit_sizes=_SEARCH_UNIT_SIZES,
+            default_unit="1k_searches",
         )
-    return None
+        if not currency or search_rate is None:
+            return _unpriced_calculation(
+                pricing,
+                billing_basis="searches",
+                quantities=quantities,
+            )
+        amount = Decimal(searches) * search_rate[0] / Decimal(search_rate[2])
+        return _priced_calculation(
+            pricing,
+            billing_basis="searches",
+            rates={"search": search_rate},
+            quantities=quantities,
+            amount=amount,
+            currency=currency,
+        )
+    calculation = _token_pricing(
+        pricing,
+        prompt_tokens=max(tokens_used, 0),
+        require_output_rate=False,
+    )
+    calculation.snapshot["quantities"]["searches"] = searches
+    return calculation
+
+
+def _with_runtime_identity(
+    calculation: _PricingCalculation,
+    *,
+    requested_model: str,
+    identity: dict[str, str | None],
+) -> _PricingCalculation:
+    snapshot = dict(calculation.snapshot)
+    snapshot["model"] = {
+        "requested": requested_model,
+        "resolved": identity["model_ref"],
+        "upstream": identity["upstream_model"],
+    }
+    snapshot["provider"] = {
+        "name": identity["provider"],
+        "id": identity["provider_id"],
+        "slug": identity["provider_slug"],
+        "kind": identity["provider_kind"],
+    }
+    return _PricingCalculation(
+        currency=calculation.currency,
+        amount=calculation.amount,
+        snapshot=snapshot,
+    )
 
 
 class LLMPolicyGateway(LLMPort):
@@ -411,42 +624,30 @@ class LLMPolicyGateway(LLMPort):
                         "upstream_model": identity["upstream_model"],
                     },
                 )
+                pricing = _with_runtime_identity(
+                    _chat_pricing(
+                        route.pricing,
+                        prompt_tokens=response.tokens_prompt,
+                        completion_tokens=response.tokens_completion,
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     unit="tokens",
                     quantity=response.tokens_prompt + response.tokens_completion,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
                     **identity,
+                    source_port="llm",
+                    operation="chat",
                     prompt_tokens=response.tokens_prompt,
                     completion_tokens=response.tokens_completion,
                     total_tokens=response.tokens_prompt + response.tokens_completion,
-                )
-                charge = _chat_charge(
-                    route.pricing,
-                    prompt_tokens=response.tokens_prompt,
-                    completion_tokens=response.tokens_completion,
-                )
-                if charge is not None:
-                    currency, amount = charge
-                    self.trace_writer.record_cost(
-                        run_id=resolve_run_id(kwargs, self.ctx),
-                        step_id=step.id,
-                        entry_type="charge",
-                        unit="tokens",
-                        quantity=response.tokens_prompt + response.tokens_completion,
-                        currency=currency,
-                        amount=amount,
-                        **identity,
-                        prompt_tokens=response.tokens_prompt,
-                        completion_tokens=response.tokens_completion,
-                        total_tokens=response.tokens_prompt + response.tokens_completion,
-                    )
-                self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    unit="ms",
-                    quantity=elapsed_ms,
-                    **identity,
+                    latency_ms=elapsed_ms,
                 )
 
             return response
@@ -610,42 +811,30 @@ class LLMPolicyGateway(LLMPort):
                         "upstream_model": identity["upstream_model"],
                     },
                 )
+                pricing = _with_runtime_identity(
+                    _chat_pricing(
+                        route.pricing,
+                        prompt_tokens=tokens_prompt,
+                        completion_tokens=tokens_completion,
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     unit="tokens",
                     quantity=tokens_prompt + tokens_completion,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
                     **identity,
+                    source_port="llm",
+                    operation="chat",
                     prompt_tokens=tokens_prompt,
                     completion_tokens=tokens_completion,
                     total_tokens=tokens_prompt + tokens_completion,
-                )
-                charge = _chat_charge(
-                    route.pricing,
-                    prompt_tokens=tokens_prompt,
-                    completion_tokens=tokens_completion,
-                )
-                if charge is not None:
-                    currency, amount = charge
-                    self.trace_writer.record_cost(
-                        run_id=resolve_run_id(kwargs, self.ctx),
-                        step_id=step.id,
-                        entry_type="charge",
-                        unit="tokens",
-                        quantity=tokens_prompt + tokens_completion,
-                        currency=currency,
-                        amount=amount,
-                        **identity,
-                        prompt_tokens=tokens_prompt,
-                        completion_tokens=tokens_completion,
-                        total_tokens=tokens_prompt + tokens_completion,
-                    )
-                self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    unit="ms",
-                    quantity=elapsed_ms,
-                    **identity,
+                    latency_ms=elapsed_ms,
                 )
         except Exception as e:
             if step and self.trace_writer:
@@ -735,37 +924,29 @@ class LLMPolicyGateway(LLMPort):
                         "upstream_model": identity["upstream_model"],
                     },
                 )
+                pricing = _with_runtime_identity(
+                    _embed_pricing(
+                        route.pricing,
+                        tokens_used=response.tokens_used or 0,
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     unit="embeddings",
                     quantity=len(texts),
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
                     **identity,
-                )
-                charge = _embed_charge(
-                    route.pricing,
-                    tokens_used=response.tokens_used or 0,
-                )
-                if charge is not None:
-                    currency, amount = charge
-                    self.trace_writer.record_cost(
-                        run_id=resolve_run_id(kwargs, self.ctx),
-                        step_id=step.id,
-                        entry_type="charge",
-                        unit="tokens",
-                        quantity=response.tokens_used,
-                        currency=currency,
-                        amount=amount,
-                        **identity,
-                        prompt_tokens=response.tokens_used,
-                        total_tokens=response.tokens_used,
-                    )
-                self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    unit="ms",
-                    quantity=elapsed_ms,
-                    **identity,
+                    source_port="llm",
+                    operation="embed",
+                    prompt_tokens=response.tokens_used,
+                    total_tokens=response.tokens_used,
+                    latency_ms=elapsed_ms,
+                    embedding_count=len(texts),
                 )
 
             return response
@@ -869,36 +1050,30 @@ class LLMPolicyGateway(LLMPort):
                         "upstream_model": identity["upstream_model"],
                     },
                 )
+                pricing = _with_runtime_identity(
+                    _rerank_pricing(
+                        route.pricing,
+                        searches=len(documents),
+                        tokens_used=response.tokens_used or 0,
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     unit="rerank",
                     quantity=len(documents),
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
                     **identity,
-                )
-                charge = _rerank_charge(
-                    route.pricing,
-                    searches=len(documents),
-                    tokens_used=response.tokens_used or 0,
-                )
-                if charge is not None:
-                    currency, amount = charge
-                    self.trace_writer.record_cost(
-                        run_id=resolve_run_id(kwargs, self.ctx),
-                        step_id=step.id,
-                        entry_type="charge",
-                        unit="rerank",
-                        quantity=len(documents),
-                        currency=currency,
-                        amount=amount,
-                        **identity,
-                    )
-                self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    unit="ms",
-                    quantity=elapsed_ms,
-                    **identity,
+                    source_port="llm",
+                    operation="rerank",
+                    prompt_tokens=response.tokens_used,
+                    total_tokens=response.tokens_used,
+                    latency_ms=elapsed_ms,
+                    rerank_count=len(documents),
                 )
 
             return response

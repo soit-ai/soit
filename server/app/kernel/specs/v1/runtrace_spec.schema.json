@@ -404,6 +404,38 @@
               "null"
             ]
           },
+          "source_port": {
+            "type": ["string", "null"],
+            "description": "Kernel port that produced this record (llm/vector/storage/tools/plugins)."
+          },
+          "operation": {
+            "type": ["string", "null"],
+            "description": "Port operation such as chat, embed, rerank, query, insert, delete, put, get, exists, invoke."
+          },
+          "latency_ms": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "request_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "embedding_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "rerank_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "vector_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "storage_bytes": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
           "prompt_tokens": {
             "type": [
               "integer",
@@ -478,6 +510,20 @@
           "minimum": 0
         },
         "storage_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "request_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "vector_count": {
           "type": [
             "integer",
             "null"

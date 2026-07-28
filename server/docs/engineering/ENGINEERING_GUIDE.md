@@ -54,6 +54,8 @@ All runtime code lives in the Python package **`app/`**. Within it, SOIT is orga
    - Any executable action MUST create a `run` and at least one `run_step`.
    - Large payloads MUST be stored as artifacts (object storage) and referenced by key.
    - Costs MUST be written to `run_cost_entries`.
+   - A metered Provider invocation MUST write one usage row containing both usage and any calculated amount; do not duplicate usage into a charge row.
+   - Every cost row MUST carry an immutable `pricing_snapshot_json`; priced rows include the original Provider pricing config plus normalized model, currency, billing unit, unit size, rates, quantities, and amount.
 
 4. **Port‑Only**
    - LLM / tools / MCP / vector DB / object storage / secrets MUST be accessed via ports.

@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, case, desc, func, select
+from sqlalchemy import and_, desc, func, select
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
@@ -30,6 +30,39 @@ from app.kernel.runtime.runs.schemas import (
     RunStepResponse,
 )
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
+
+
+def _dimension_sum_columns() -> tuple[Any, ...]:
+    """SUM expressions for the dedicated usage dimension columns.
+
+    Dimensions are never derived from the generic unit/quantity pair, so no
+    cross-unit arithmetic is possible.
+    """
+    return (
+        func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
+        func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
+        func.coalesce(func.sum(RunCostEntry.embedding_count), 0),
+        func.coalesce(func.sum(RunCostEntry.rerank_count), 0),
+        func.coalesce(func.sum(RunCostEntry.latency_ms), 0),
+        func.coalesce(func.sum(RunCostEntry.storage_bytes), 0),
+        func.coalesce(func.sum(RunCostEntry.request_count), 0),
+        func.coalesce(func.sum(RunCostEntry.vector_count), 0),
+    )
+
+
+def _dimension_row_values(row: Any, offset: int = 0) -> dict[str, int]:
+    """Map a result row produced by _dimension_sum_columns to summary kwargs."""
+    return {
+        "tokens_prompt": int(row[offset] or 0),
+        "tokens_completion": int(row[offset + 1] or 0),
+        "embedding_count": int(row[offset + 2] or 0),
+        "rerank_count": int(row[offset + 3] or 0),
+        "ms_total": int(row[offset + 4] or 0),
+        "storage_bytes": int(row[offset + 5] or 0),
+        "request_count": int(row[offset + 6] or 0),
+        "vector_count": int(row[offset + 7] or 0),
+    }
+
 
 
 class RunService:
@@ -1264,24 +1297,10 @@ class RunService:
         if started_before:
             clauses.append(Run.started_at <= started_before)
 
-        query = select(
-            func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-            func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-            func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-            func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-            func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-            func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
-        ).select_from(RunCostEntry).join(Run, RunCostEntry.run_id == Run.id).where(and_(*clauses))
+        query = select(*_dimension_sum_columns()).select_from(RunCostEntry).join(Run, RunCostEntry.run_id == Run.id).where(and_(*clauses))
 
         row = self.db.exec(query).one()
-        return RunCostSummaryResponse(
-            tokens_prompt=int(row[0] or 0),
-            tokens_completion=int(row[1] or 0),
-            embedding_count=int(row[2] or 0),
-            rerank_count=int(row[3] or 0),
-            ms_total=int(row[4] or 0),
-            storage_bytes=int(row[5] or 0),
-        )
+        return RunCostSummaryResponse(**_dimension_row_values(row))
 
     def list_cost_entries(
         self,
@@ -1367,12 +1386,7 @@ class RunService:
         query = (
             select(
                 day_col.label("day"),
-                func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-                func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
+                *_dimension_sum_columns(),
             )
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
@@ -1386,15 +1400,7 @@ class RunService:
         for row in rows:
             day = row[0]
             results.append(
-                RunCostDailyResponse(
-                    date=str(day),
-                    tokens_prompt=int(row[1] or 0),
-                    tokens_completion=int(row[2] or 0),
-                    embedding_count=int(row[3] or 0),
-                    rerank_count=int(row[4] or 0),
-                    ms_total=int(row[5] or 0),
-                    storage_bytes=int(row[6] or 0),
-                )
+                RunCostDailyResponse(date=str(day), **_dimension_row_values(row, offset=1))
             )
         return results
 
@@ -1442,12 +1448,7 @@ class RunService:
         query = (
             select(
                 Run.subject_version_id,
-                func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-                func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
+                *_dimension_sum_columns(),
             )
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
@@ -1460,12 +1461,7 @@ class RunService:
         return [
             RunCostBySubjectResponse(
                 subject_version_id=row[0],
-                tokens_prompt=int(row[1] or 0),
-                tokens_completion=int(row[2] or 0),
-                embedding_count=int(row[3] or 0),
-                rerank_count=int(row[4] or 0),
-                ms_total=int(row[5] or 0),
-                storage_bytes=int(row[6] or 0),
+                **_dimension_row_values(row, offset=1),
             )
             for row in rows
         ]
@@ -1514,12 +1510,7 @@ class RunService:
         query = (
             select(
                 Run.mode,
-                func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-                func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
+                *_dimension_sum_columns(),
             )
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
@@ -1532,12 +1523,7 @@ class RunService:
         return [
             RunCostByModeResponse(
                 mode=str(row[0]),
-                tokens_prompt=int(row[1] or 0),
-                tokens_completion=int(row[2] or 0),
-                embedding_count=int(row[3] or 0),
-                rerank_count=int(row[4] or 0),
-                ms_total=int(row[5] or 0),
-                storage_bytes=int(row[6] or 0),
+                **_dimension_row_values(row, offset=1),
             )
             for row in rows
         ]
@@ -1586,12 +1572,7 @@ class RunService:
         query = (
             select(
                 RunCostEntry.provider,
-                func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-                func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
+                *_dimension_sum_columns(),
             )
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
@@ -1604,12 +1585,7 @@ class RunService:
         return [
             RunCostByProviderResponse(
                 provider=row[0],
-                tokens_prompt=int(row[1] or 0),
-                tokens_completion=int(row[2] or 0),
-                embedding_count=int(row[3] or 0),
-                rerank_count=int(row[4] or 0),
-                ms_total=int(row[5] or 0),
-                storage_bytes=int(row[6] or 0),
+                **_dimension_row_values(row, offset=1),
             )
             for row in rows
         ]
@@ -1658,12 +1634,7 @@ class RunService:
         query = (
             select(
                 RunCostEntry.model_ref,
-                func.coalesce(func.sum(RunCostEntry.prompt_tokens), 0),
-                func.coalesce(func.sum(RunCostEntry.completion_tokens), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit.in_(["embeddings", "embedding"]), RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "rerank", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "ms", RunCostEntry.quantity), else_=0)), 0),
-                func.coalesce(func.sum(case((RunCostEntry.unit == "bytes", RunCostEntry.quantity), else_=0)), 0),
+                *_dimension_sum_columns(),
             )
             .select_from(RunCostEntry)
             .join(Run, RunCostEntry.run_id == Run.id)
@@ -1676,46 +1647,30 @@ class RunService:
         return [
             RunCostByModelResponse(
                 model_ref=row[0],
-                tokens_prompt=int(row[1] or 0),
-                tokens_completion=int(row[2] or 0),
-                embedding_count=int(row[3] or 0),
-                rerank_count=int(row[4] or 0),
-                ms_total=int(row[5] or 0),
-                storage_bytes=int(row[6] or 0),
+                **_dimension_row_values(row, offset=1),
             )
             for row in rows
         ]
 
     def _summarize_entries(self, entries: list[RunCostEntry]) -> RunCostSummaryResponse:
-        tokens_prompt = 0
-        tokens_completion = 0
-        embedding_count = 0
-        rerank_count = 0
-        ms_total = 0
-        storage_bytes = 0
-
-        for entry in entries:
-            if entry.prompt_tokens:
-                tokens_prompt += int(entry.prompt_tokens)
-            if entry.completion_tokens:
-                tokens_completion += int(entry.completion_tokens)
-            if entry.unit in ("embeddings", "embedding"):
-                embedding_count += int(entry.quantity)
-            if entry.unit == "rerank":
-                rerank_count += int(entry.quantity)
-            if entry.unit == "ms":
-                ms_total += int(entry.quantity)
-            if entry.unit == "bytes":
-                storage_bytes += int(entry.quantity)
-
-        return RunCostSummaryResponse(
-            tokens_prompt=tokens_prompt,
-            tokens_completion=tokens_completion,
-            embedding_count=embedding_count,
-            rerank_count=rerank_count,
-            ms_total=ms_total,
-            storage_bytes=storage_bytes,
+        summary = RunCostSummaryResponse(
+            tokens_prompt=0,
+            tokens_completion=0,
+            embedding_count=0,
+            rerank_count=0,
+            ms_total=0,
+            storage_bytes=0,
         )
+        for entry in entries:
+            summary.tokens_prompt += int(entry.prompt_tokens or 0)
+            summary.tokens_completion += int(entry.completion_tokens or 0)
+            summary.embedding_count += int(entry.embedding_count or 0)
+            summary.rerank_count += int(entry.rerank_count or 0)
+            summary.ms_total += int(entry.latency_ms or 0)
+            summary.storage_bytes += int(entry.storage_bytes or 0)
+            summary.request_count += int(entry.request_count or 0)
+            summary.vector_count += int(entry.vector_count or 0)
+        return summary
 
     def _summarize_charges(self, entries: list[RunCostEntry]) -> RunChargeSummaryResponse:
         amounts: dict[str, Decimal] = {}

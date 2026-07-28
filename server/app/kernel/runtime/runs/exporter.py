@@ -165,9 +165,17 @@ def to_runtrace_spec(
                 "model_ref": entry.model_ref,
                 "upstream_model": entry.upstream_model,
                 "tool_ref": entry.tool_ref,
+                "source_port": entry.source_port,
+                "operation": entry.operation,
                 "prompt_tokens": entry.prompt_tokens,
                 "completion_tokens": entry.completion_tokens,
                 "total_tokens": entry.total_tokens,
+                "latency_ms": entry.latency_ms,
+                "request_count": entry.request_count,
+                "embedding_count": entry.embedding_count,
+                "rerank_count": entry.rerank_count,
+                "vector_count": entry.vector_count,
+                "storage_bytes": entry.storage_bytes,
                 "created_at": to_iso8601(entry.created_at) if entry.created_at else None,
             }
             for entry in cost_entries
@@ -196,32 +204,23 @@ def to_step_spec(step: RunStep) -> dict[str, Any]:
 
 
 def _summarize_entries(entries: list[RunCostEntry]) -> dict[str, Any]:
-    tokens_prompt = 0
-    tokens_completion = 0
-    embedding_count = 0
-    rerank_count = 0
-    ms_total = 0
-    storage_bytes = 0
-
-    for entry in entries:
-        if entry.prompt_tokens:
-            tokens_prompt += int(entry.prompt_tokens)
-        if entry.completion_tokens:
-            tokens_completion += int(entry.completion_tokens)
-        if entry.unit in ("embeddings", "embedding"):
-            embedding_count += int(entry.quantity)
-        if entry.unit == "rerank":
-            rerank_count += int(entry.quantity)
-        if entry.unit == "ms":
-            ms_total += int(entry.quantity)
-        if entry.unit == "bytes":
-            storage_bytes += int(entry.quantity)
-
-    return {
-        "tokens_prompt": tokens_prompt,
-        "tokens_completion": tokens_completion,
-        "embedding_count": embedding_count,
-        "rerank_count": rerank_count,
-        "ms_total": ms_total,
-        "storage_bytes": storage_bytes,
+    summary = {
+        "tokens_prompt": 0,
+        "tokens_completion": 0,
+        "embedding_count": 0,
+        "rerank_count": 0,
+        "ms_total": 0,
+        "storage_bytes": 0,
+        "request_count": 0,
+        "vector_count": 0,
     }
+    for entry in entries:
+        summary["tokens_prompt"] += int(entry.prompt_tokens or 0)
+        summary["tokens_completion"] += int(entry.completion_tokens or 0)
+        summary["embedding_count"] += int(entry.embedding_count or 0)
+        summary["rerank_count"] += int(entry.rerank_count or 0)
+        summary["ms_total"] += int(entry.latency_ms or 0)
+        summary["storage_bytes"] += int(entry.storage_bytes or 0)
+        summary["request_count"] += int(entry.request_count or 0)
+        summary["vector_count"] += int(entry.vector_count or 0)
+    return summary

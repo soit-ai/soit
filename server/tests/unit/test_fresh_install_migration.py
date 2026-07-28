@@ -5,12 +5,27 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+from decimal import Decimal
 from pathlib import Path
+
+import sqlalchemy as sa
+
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_ROOT = SERVER_ROOT / "alembic" / "versions"
 BASELINE_PATH = VERSIONS_ROOT / "20260718140000_fresh_install_baseline.py"
 SCOPED_SECRET_PATH = VERSIONS_ROOT / "20260723160000_scoped_secret_ids.py"
+RUN_COST_PRICING_PATH = (
+    VERSIONS_ROOT / "20260726190000_run_cost_pricing_snapshot.py"
+)
+INGEST_LEASE_PATH = (
+    VERSIONS_ROOT / "20260728120000_knowledge_ingest_task_lease.py"
+)
+COST_DIMENSIONS_PATH = (
+    VERSIONS_ROOT / "20260728150000_run_cost_dimension_columns.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -25,10 +40,33 @@ def _load_baseline():
     return module
 
 
+def _load_run_cost_pricing_migration():
+    spec = importlib.util.spec_from_file_location(
+        "run_cost_pricing_snapshot", RUN_COST_PRICING_PATH
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_cost_dimensions_migration():
+    spec = importlib.util.spec_from_file_location(
+        "run_cost_dimension_columns", COST_DIMENSIONS_PATH
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_fresh_install_has_one_root_revision() -> None:
     assert sorted(path.name for path in VERSIONS_ROOT.glob("*.py")) == [
         BASELINE_PATH.name,
         SCOPED_SECRET_PATH.name,
+        RUN_COST_PRICING_PATH.name,
+        INGEST_LEASE_PATH.name,
+        COST_DIMENSIONS_PATH.name,
     ]
 
     module = _load_baseline()
@@ -42,6 +80,268 @@ def test_fresh_install_has_one_root_revision() -> None:
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     assert migration.down_revision == module.revision
+
+    pricing_migration = _load_run_cost_pricing_migration()
+    assert pricing_migration.down_revision == migration.revision
+
+    lease_spec = importlib.util.spec_from_file_location(
+        "knowledge_ingest_task_lease", INGEST_LEASE_PATH
+    )
+    assert lease_spec and lease_spec.loader
+    lease_migration = importlib.util.module_from_spec(lease_spec)
+    lease_spec.loader.exec_module(lease_migration)
+    assert lease_migration.down_revision == pricing_migration.revision
+
+    dimensions_migration = _load_cost_dimensions_migration()
+    assert dimensions_migration.down_revision == lease_migration.revision
+
+
+def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:
+    migration = _load_run_cost_pricing_migration()
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    table = sa.Table(
+        "run_cost_entries",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("run_id", sa.String(), nullable=False),
+        sa.Column("step_id", sa.String()),
+        sa.Column("entry_type", sa.String(), nullable=False),
+        sa.Column("currency", sa.String()),
+        sa.Column("amount", sa.Numeric(18, 6)),
+        sa.Column("unit", sa.String(), nullable=False),
+        sa.Column("quantity", sa.Numeric(18, 6), nullable=False),
+        sa.Column("provider", sa.String()),
+        sa.Column("provider_id", sa.String()),
+        sa.Column("provider_slug", sa.String()),
+        sa.Column("provider_kind", sa.String()),
+        sa.Column("model_ref", sa.String()),
+        sa.Column("upstream_model", sa.String()),
+        sa.Column("tool_ref", sa.String()),
+        sa.Column("prompt_tokens", sa.Integer()),
+        sa.Column("completion_tokens", sa.Integer()),
+        sa.Column("total_tokens", sa.Integer()),
+    )
+    metadata.create_all(engine)
+
+    common = {
+        "run_id": "run_legacy",
+        "step_id": "step_legacy",
+        "provider": "openai",
+        "provider_id": "provider_legacy",
+        "provider_slug": "openai-main",
+        "provider_kind": "openai",
+        "model_ref": "model:openai-main:gpt-4.1",
+        "upstream_model": "gpt-4.1",
+        "tool_ref": None,
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            table.insert(),
+            [
+                {
+                    **common,
+                    "id": "usage_legacy",
+                    "entry_type": "usage",
+                    "currency": None,
+                    "amount": None,
+                    "unit": "tokens",
+                    "quantity": 10,
+                    "prompt_tokens": 6,
+                    "completion_tokens": 4,
+                    "total_tokens": 10,
+                },
+                {
+                    **common,
+                    "id": "charge_legacy",
+                    "entry_type": "charge",
+                    "currency": "USD",
+                    "amount": Decimal("0.25"),
+                    "unit": "tokens",
+                    "quantity": 10,
+                    "prompt_tokens": 6,
+                    "completion_tokens": 4,
+                    "total_tokens": 10,
+                },
+                {
+                    **common,
+                    "id": "latency_legacy",
+                    "entry_type": "usage",
+                    "currency": None,
+                    "amount": None,
+                    "unit": "ms",
+                    "quantity": 25,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                },
+                {
+                    **common,
+                    "id": "orphan_charge",
+                    "run_id": "run_orphan",
+                    "step_id": "step_orphan",
+                    "entry_type": "charge",
+                    "currency": "USD",
+                    "amount": Decimal("0.10"),
+                    "unit": "tokens",
+                    "quantity": 2,
+                    "prompt_tokens": 2,
+                    "completion_tokens": 0,
+                    "total_tokens": 2,
+                },
+            ],
+        )
+        operations = Operations(MigrationContext.configure(connection))
+        monkeypatch.setattr(migration, "op", operations)
+        migration.upgrade()
+
+        migrated = sa.Table(
+            "run_cost_entries",
+            sa.MetaData(),
+            autoload_with=connection,
+        )
+        rows = {
+            row["id"]: row
+            for row in connection.execute(sa.select(migrated)).mappings()
+        }
+
+    assert set(rows) == {"usage_legacy", "latency_legacy", "orphan_charge"}
+    usage = rows["usage_legacy"]
+    assert usage["entry_type"] == "usage"
+    assert usage["currency"] == "USD"
+    assert usage["amount"] == Decimal("0.250000")
+    assert usage["prompt_tokens"] == 6
+    assert usage["pricing_snapshot_json"]["migration_action"] == "usage_charge_merged"
+    assert usage["pricing_snapshot_json"]["configured_pricing"] == {}
+    orphan = rows["orphan_charge"]
+    assert orphan["entry_type"] == "usage"
+    assert orphan["pricing_snapshot_json"]["migration_action"] == "orphan_charge_converted"
+
+
+def test_run_cost_dimension_migration_merges_ms_rows_and_backfills(monkeypatch) -> None:
+    migration = _load_cost_dimensions_migration()
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    table = sa.Table(
+        "run_cost_entries",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("run_id", sa.String(), nullable=False),
+        sa.Column("step_id", sa.String()),
+        sa.Column("entry_type", sa.String(), nullable=False),
+        sa.Column("currency", sa.String()),
+        sa.Column("amount", sa.Numeric(18, 6)),
+        sa.Column("unit", sa.String(), nullable=False),
+        sa.Column("quantity", sa.Numeric(18, 6), nullable=False),
+        sa.Column("provider", sa.String()),
+        sa.Column("provider_id", sa.String()),
+        sa.Column("provider_slug", sa.String()),
+        sa.Column("provider_kind", sa.String()),
+        sa.Column("model_ref", sa.String()),
+        sa.Column("upstream_model", sa.String()),
+        sa.Column("tool_ref", sa.String()),
+        sa.Column("prompt_tokens", sa.Integer()),
+        sa.Column("completion_tokens", sa.Integer()),
+        sa.Column("total_tokens", sa.Integer()),
+        sa.Column("pricing_snapshot_json", sa.JSON(), nullable=False),
+    )
+    metadata.create_all(engine)
+
+    common = {
+        "entry_type": "usage",
+        "currency": None,
+        "amount": None,
+        "provider": None,
+        "provider_id": None,
+        "provider_slug": None,
+        "provider_kind": None,
+        "model_ref": None,
+        "upstream_model": None,
+        "tool_ref": None,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+        "pricing_snapshot_json": {},
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            table.insert(),
+            [
+                {
+                    **common,
+                    "id": "tokens_row",
+                    "run_id": "run_a",
+                    "step_id": "step_a",
+                    "unit": "tokens",
+                    "quantity": 10,
+                    "prompt_tokens": 6,
+                    "completion_tokens": 4,
+                    "total_tokens": 10,
+                },
+                {
+                    **common,
+                    "id": "ms_row",
+                    "run_id": "run_a",
+                    "step_id": "step_a",
+                    "unit": "ms",
+                    "quantity": 25,
+                },
+                {
+                    **common,
+                    "id": "orphan_ms_row",
+                    "run_id": "run_a",
+                    "step_id": "step_b",
+                    "unit": "ms",
+                    "quantity": 40,
+                },
+                {
+                    **common,
+                    "id": "vector_row",
+                    "run_id": "run_a",
+                    "step_id": "step_c",
+                    "unit": "vectors",
+                    "quantity": 7,
+                    "provider": "vector",
+                },
+                {
+                    **common,
+                    "id": "tool_request_row",
+                    "run_id": "run_a",
+                    "step_id": "step_d",
+                    "unit": "requests",
+                    "quantity": 1,
+                    "provider": "http",
+                    "tool_ref": "tool:web.search",
+                },
+            ],
+        )
+        operations = Operations(MigrationContext.configure(connection))
+        monkeypatch.setattr(migration, "op", operations)
+        migration.upgrade()
+
+        migrated = sa.Table(
+            "run_cost_entries",
+            sa.MetaData(),
+            autoload_with=connection,
+        )
+        rows = {
+            row["id"]: row
+            for row in connection.execute(sa.select(migrated)).mappings()
+        }
+
+    assert set(rows) == {"tokens_row", "orphan_ms_row", "vector_row", "tool_request_row"}
+    tokens_row = rows["tokens_row"]
+    assert tokens_row["latency_ms"] == 25
+    assert tokens_row["source_port"] == "llm"
+    orphan = rows["orphan_ms_row"]
+    assert orphan["latency_ms"] == 40
+    assert orphan["unit"] == "ms"
+    vector_row = rows["vector_row"]
+    assert vector_row["vector_count"] == 7
+    assert vector_row["source_port"] == "vector"
+    tool_row = rows["tool_request_row"]
+    assert tool_row["request_count"] == 1
+    assert tool_row["source_port"] == "tools"
 
 
 def test_fresh_install_baseline_is_an_explicit_n1_schema_snapshot() -> None:

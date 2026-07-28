@@ -107,6 +107,8 @@ class RunCostSummaryResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunChargeSummaryResponse(BaseModel):
@@ -126,6 +128,8 @@ class RunCostDailyResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunCostBySubjectResponse(BaseModel):
@@ -138,6 +142,8 @@ class RunCostBySubjectResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunCostByModeResponse(BaseModel):
@@ -150,6 +156,8 @@ class RunCostByModeResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunCostByProviderResponse(BaseModel):
@@ -162,6 +170,8 @@ class RunCostByProviderResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunCostByModelResponse(BaseModel):
@@ -174,6 +184,8 @@ class RunCostByModelResponse(BaseModel):
     rerank_count: int
     ms_total: int
     storage_bytes: int
+    request_count: int = 0
+    vector_count: int = 0
 
 
 class RunObserveSummaryResponse(BaseModel):
@@ -209,9 +221,17 @@ class RunCostEntryResponse(BaseModel):
     model_ref: str | None
     upstream_model: str | None
     tool_ref: str | None
+    source_port: str | None = None
+    operation: str | None = None
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    latency_ms: int | None = None
+    request_count: int | None = None
+    embedding_count: int | None = None
+    rerank_count: int | None = None
+    vector_count: int | None = None
+    storage_bytes: int | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

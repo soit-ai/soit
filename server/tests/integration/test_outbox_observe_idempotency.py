@@ -7,11 +7,13 @@ from sqlmodel import Session, select
 
 from app.kernel.events.dispatcher import OutboxDispatcher
 from app.kernel.observe.handlers.execution_observe import (
+    handle_cost_recorded_observe,
     handle_run_created_observe,
     handle_run_status_updated_observe,
     handle_step_created_observe,
     handle_step_status_updated_observe,
 )
+from app.kernel.observe.metrics import cost_total, tokens_total
 from app.kernel.runtime.db.models.events import EventConsumerCheckpoint, EventOutbox
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
@@ -26,6 +28,40 @@ def _count_projections(db: Session, consumer_name: str) -> int:
         ).all()
     )
     return len(rows)
+
+
+def test_cost_observe_counts_usage_and_amount_from_one_event(db: Session) -> None:
+    usage_row = EventOutbox(
+        event_id="evt_cost_usage_semantics",
+        event_type="cost.recorded",
+        tenant_id="tenant-cost-semantics",
+        workspace_id="workspace-cost-semantics",
+        idempotency_key="cost-usage-semantics",
+        payload_json={
+            "entry_type": "usage",
+            "tenant_id": "tenant-cost-semantics",
+            "unit": "tokens",
+            "quantity": "10",
+            "prompt_tokens": 6,
+            "completion_tokens": 4,
+            "amount": "0.25",
+        },
+    )
+    db.add(usage_row)
+    db.flush()
+
+    prompt_counter = tokens_total.labels(type="prompt", tenant_id="tenant-cost-semantics")
+    completion_counter = tokens_total.labels(type="completion", tenant_id="tenant-cost-semantics")
+    charge_counter = cost_total.labels(resource_type="tokens", tenant_id="tenant-cost-semantics")
+    before_prompt = prompt_counter._value.get()
+    before_completion = completion_counter._value.get()
+    before_charge = charge_counter._value.get()
+
+    handle_cost_recorded_observe(db, usage_row)
+
+    assert prompt_counter._value.get() - before_prompt == 6
+    assert completion_counter._value.get() - before_completion == 4
+    assert charge_counter._value.get() - before_charge == 0.25
 
 
 @pytest.mark.asyncio

@@ -471,6 +471,26 @@ def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
         step_id=step.id,
         unit="tokens",
         quantity=5,
+        currency="USD",
+        amount="0.001",
+        pricing_snapshot_json={
+            "source": "provider_model",
+            "billing_basis": "tokens",
+            "billing_unit": "mtok",
+            "unit_size": 1_000_000,
+            "rates": {
+                "input": {
+                    "price": "100",
+                    "unit": "mtok",
+                    "unit_size": 1_000_000,
+                },
+            },
+            "configured_pricing": {
+                "currency": "USD",
+                "unit": "mtok",
+                "input": 100,
+            },
+        },
         provider_id="provider_1",
         provider_slug="openai-primary",
         provider_kind="openai",
@@ -480,25 +500,13 @@ def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
         completion_tokens=2,
         total_tokens=5,
     )
-    charge = writer.record_cost(
-        run_id=run.id,
-        step_id=step.id,
-        entry_type="charge",
-        unit="tokens",
-        quantity=5,
-        currency="USD",
-        amount="0.001",
-        provider_id="provider_1",
-        provider_slug="openai-primary",
-        provider_kind="openai",
-        model_ref="model:openai-primary:gpt-5.1",
-        upstream_model="gpt-5.1",
-    )
 
-    document = to_runtrace_spec(run, [step], cost_entries=[usage, charge])
+    document = to_runtrace_spec(run, [step], cost_entries=[usage])
 
     assert document["run"]["request_id"] == "request-trace"
     assert document["usage_summary"]["tokens_prompt"] == 3
     assert document["charge_summary"]["amounts"] == {"USD": 0.001}
-    assert {entry["entry_type"] for entry in document["entries"]} == {"usage", "charge"}
+    assert len(document["entries"]) == 1
+    assert document["entries"][0]["entry_type"] == "usage"
+    assert document["entries"][0]["pricing_snapshot_json"]["unit_size"] == 1_000_000
     assert validate_spec(document, "runtrace_spec") is True

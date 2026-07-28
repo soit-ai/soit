@@ -202,6 +202,10 @@ class VectorPolicyGateway(VectorPort):
                     unit="requests",
                     quantity=1,
                     provider="vector",
+                    source_port="vector",
+                    operation="query",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
                 )
 
             return result
@@ -284,6 +288,10 @@ class VectorPolicyGateway(VectorPort):
                     unit="vectors",
                     quantity=len(documents),
                     provider="vector",
+                    source_port="vector",
+                    operation="insert",
+                    latency_ms=elapsed_ms,
+                    vector_count=len(documents),
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
@@ -363,6 +371,10 @@ class VectorPolicyGateway(VectorPort):
                     unit="vectors",
                     quantity=len(documents),
                     provider="vector",
+                    source_port="vector",
+                    operation="delete",
+                    latency_ms=elapsed_ms,
+                    vector_count=len(documents),
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:

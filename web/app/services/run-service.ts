@@ -47,6 +47,8 @@ export interface RunCostSummary {
   rerank_count: number
   ms_total: number
   storage_bytes: number
+  request_count?: number
+  vector_count?: number
 }
 
 export interface RunChargeSummary {
@@ -141,9 +143,17 @@ export interface RunCostEntryResponse {
   provider?: string | null
   model_ref?: string | null
   tool_ref?: string | null
+  source_port?: string | null
+  operation?: string | null
   prompt_tokens?: number | null
   completion_tokens?: number | null
   total_tokens?: number | null
+  latency_ms?: number | null
+  request_count?: number | null
+  embedding_count?: number | null
+  rerank_count?: number | null
+  vector_count?: number | null
+  storage_bytes?: number | null
   created_at: string
 }
 

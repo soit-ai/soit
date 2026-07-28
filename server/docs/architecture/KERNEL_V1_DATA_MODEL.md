@@ -180,12 +180,21 @@ Workspace-scoped.
 - `run_id` FK
 - `step_id` nullable
 - `tenant_id`, `workspace_id`
-- `currency`, `amount`
+- `entry_type` (`usage` for new writes; `charge` is legacy-only)
+- `currency`, `amount` nullable on the same usage row
 - `unit`, `quantity`
-- `provider`, `model_ref`, `tool_ref`
+- `provider`, `provider_id`, `provider_slug`, `provider_kind`
+- `model_ref`, `upstream_model`, `tool_ref`
 - `prompt_tokens`, `completion_tokens`, `total_tokens`
+- `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount
 - `created_at`
 - INDEX `(tenant_id, workspace_id, run_id)`
+
+One metered Provider invocation produces one billable usage row. Token evidence and
+its monetary calculation MUST NOT be duplicated into separate usage and charge
+rows. Non-billable observations with different units, such as latency, may remain
+separate rows and still carry a pricing snapshot explaining that they were not
+priced.
 
 ---
 

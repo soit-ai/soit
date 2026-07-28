@@ -499,7 +499,7 @@ async def test_llm_policy_records_runtime_identity_separately_from_upstream_mode
 
 
 @pytest.mark.asyncio
-async def test_llm_policy_records_charge_only_for_valid_model_pricing(ctx):
+async def test_llm_policy_records_one_priced_usage_row_for_valid_model_pricing(ctx):
     from decimal import Decimal
 
     from app.kernel.ports.llm.policy import LLMPolicyGateway
@@ -519,9 +519,9 @@ async def test_llm_policy_records_charge_only_for_valid_model_pricing(ctx):
             capability_matrix={"chat": {"merged": True}},
             pricing={
                 "currency": "USD",
-                "unit": "mtok",
-                "input": 1,
-                "output": 2,
+                "pricing_source": "catalog",
+                "prompt": {"amount": 1, "unit": "1M_tokens"},
+                "completion": {"amount": 2, "unit": "1M_tokens"},
             },
         ),
         litellm_factory=lambda config, credentials: port,
@@ -536,18 +536,35 @@ async def test_llm_policy_records_charge_only_for_valid_model_pricing(ctx):
         run_id="run-priced",
     )
 
-    charges = [
+    usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("entry_type") == "charge"
+        if call.kwargs.get("unit") == "tokens"
     ]
-    assert len(charges) == 1
-    assert charges[0].kwargs["currency"] == "USD"
-    assert charges[0].kwargs["amount"] == Decimal("0.000013")
+    assert len(usages) == 1
+    assert usages[0].kwargs.get("entry_type") is None
+    assert usages[0].kwargs["currency"] == "USD"
+    assert usages[0].kwargs["amount"] == Decimal("0.000013")
+    snapshot = usages[0].kwargs["pricing_snapshot_json"]
+    assert snapshot["model"] == {
+        "requested": "model:priced:gpt-priced",
+        "resolved": "model:priced:gpt-priced",
+        "upstream": "gpt-4.1-mini-2025-04-14",
+    }
+    assert snapshot["billing_basis"] == "tokens"
+    assert snapshot["billing_unit"] == "1m_tokens"
+    assert snapshot["unit_size"] == 1_000_000
+    assert snapshot["rates"]["input"]["price"] == "1"
+    assert snapshot["rates"]["output"]["price"] == "2"
+    assert snapshot["configured_pricing"]["pricing_source"] == "catalog"
+    assert snapshot["configured_pricing"]["prompt"] == {
+        "amount": 1,
+        "unit": "1M_tokens",
+    }
 
 
 @pytest.mark.asyncio
-async def test_llm_policy_skips_chat_charge_without_output_rate(ctx):
+async def test_llm_policy_keeps_unpriced_usage_when_chat_pricing_is_incomplete(ctx):
     from app.kernel.ports.llm.policy import LLMPolicyGateway
 
     port = UpstreamNamedPort()
@@ -581,16 +598,22 @@ async def test_llm_policy_skips_chat_charge_without_output_rate(ctx):
         run_id="run-partial",
     )
 
-    charges = [
+    usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("entry_type") == "charge"
+        if call.kwargs.get("unit") == "tokens"
     ]
-    assert charges == []
+    assert len(usages) == 1
+    assert usages[0].kwargs["currency"] is None
+    assert usages[0].kwargs["amount"] is None
+    snapshot = usages[0].kwargs["pricing_snapshot_json"]
+    assert snapshot["priced"] is False
+    assert snapshot["reason"] == "unsupported_pricing_config"
+    assert snapshot["configured_pricing"]["input"] == 1
 
 
 @pytest.mark.asyncio
-async def test_llm_policy_records_embed_charge_with_input_only_pricing(ctx):
+async def test_llm_policy_records_one_priced_embed_usage_row(ctx):
     from decimal import Decimal
 
     from app.kernel.ports.llm.policy import LLMPolicyGateway
@@ -635,20 +658,25 @@ async def test_llm_policy_records_embed_charge_with_input_only_pricing(ctx):
         run_id="run-embed-priced",
     )
 
-    charges = [
+    usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("entry_type") == "charge"
+        if call.kwargs.get("unit") == "embeddings"
     ]
-    assert len(charges) == 1
-    assert charges[0].kwargs["currency"] == "USD"
-    assert charges[0].kwargs["amount"] == Decimal("0.0001")
-    assert charges[0].kwargs["unit"] == "tokens"
-    assert charges[0].kwargs["quantity"] == 1000
+    assert len(usages) == 1
+    assert usages[0].kwargs["prompt_tokens"] == 1000
+    assert usages[0].kwargs["total_tokens"] == 1000
+    assert usages[0].kwargs["currency"] == "USD"
+    assert usages[0].kwargs["amount"] == Decimal("0.0001")
+    assert usages[0].kwargs["quantity"] == 1
+    snapshot = usages[0].kwargs["pricing_snapshot_json"]
+    assert snapshot["billing_basis"] == "tokens"
+    assert snapshot["unit_size"] == 1_000_000
+    assert snapshot["quantities"]["prompt_tokens"] == 1000
 
 
 @pytest.mark.asyncio
-async def test_llm_policy_records_rerank_charge_with_search_pricing(ctx):
+async def test_llm_policy_records_one_priced_rerank_usage_row(ctx):
     from decimal import Decimal
 
     from app.kernel.ports.llm.policy import LLMPolicyGateway
@@ -690,16 +718,22 @@ async def test_llm_policy_records_rerank_charge_with_search_pricing(ctx):
         run_id="run-rerank-priced",
     )
 
-    charges = [
+    usages = [
         call
         for call in writer.record_cost.call_args_list
-        if call.kwargs.get("entry_type") == "charge"
+        if call.kwargs.get("unit") == "rerank"
     ]
-    assert len(charges) == 1
-    assert charges[0].kwargs["currency"] == "USD"
-    assert charges[0].kwargs["amount"] == Decimal("0.008")
-    assert charges[0].kwargs["unit"] == "rerank"
-    assert charges[0].kwargs["quantity"] == 4
+    assert len(usages) == 1
+    assert usages[0].kwargs["prompt_tokens"] == 500
+    assert usages[0].kwargs["total_tokens"] == 500
+    assert usages[0].kwargs["currency"] == "USD"
+    assert usages[0].kwargs["amount"] == Decimal("0.008")
+    assert usages[0].kwargs["quantity"] == 4
+    snapshot = usages[0].kwargs["pricing_snapshot_json"]
+    assert snapshot["billing_basis"] == "searches"
+    assert snapshot["billing_unit"] == "1k_searches"
+    assert snapshot["unit_size"] == 1000
+    assert snapshot["quantities"] == {"searches": 4, "total_tokens": 500}
 
 
 @pytest.mark.asyncio

@@ -423,6 +423,10 @@ class ToolPolicyGateway(ToolPort):
                     quantity=1,
                     provider=_provider_from_tool_ref(tool_ref),
                     tool_ref=tool_ref,
+                    source_port="tools",
+                    operation="invoke",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
                 )
 
             if tool_execution_service and tool_execution_claim:

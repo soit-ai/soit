@@ -143,12 +143,14 @@ async def test_audit_logging(request_ctx, mock_llm_port, mock_trace_writer):
     # Verify step status updates
     mock_trace_writer.update_step_status.assert_called()
 
-    # Verify cost recording
-    assert mock_trace_writer.record_cost.call_count >= 2
-    token_call = next(
-        call for call in mock_trace_writer.record_cost.call_args_list if call.kwargs.get("unit") == "tokens"
-    )
+    # One metered invocation records exactly one usage row carrying latency.
+    assert mock_trace_writer.record_cost.call_count == 1
+    token_call = mock_trace_writer.record_cost.call_args_list[0]
+    assert token_call.kwargs["unit"] == "tokens"
     assert token_call.kwargs["quantity"] == 30
+    assert token_call.kwargs["latency_ms"] is not None
+    assert token_call.kwargs["source_port"] == "llm"
+    assert token_call.kwargs["operation"] == "chat"
 
 
 @pytest.mark.asyncio

@@ -71,6 +71,7 @@ def _build_pricing_snapshot(
     prompt_tokens: int | None,
     completion_tokens: int | None,
     total_tokens: int | None,
+    latency_ms: int | None = None,
 ) -> dict[str, Any]:
     """Complete the immutable pricing snapshot required on every cost row."""
     result = _json_safe(snapshot or {})
@@ -113,6 +114,8 @@ def _build_pricing_snapshot(
         quantities.setdefault("completion_tokens", completion_tokens)
     if total_tokens is not None:
         quantities.setdefault("total_tokens", total_tokens)
+    if latency_ms is not None:
+        quantities.setdefault("latency_ms", latency_ms)
     result["quantities"] = quantities
 
     result["currency"] = currency
@@ -786,11 +789,24 @@ class TraceWriter:
         model_ref: str | None = None,
         upstream_model: str | None = None,
         tool_ref: str | None = None,
+        source_port: str | None = None,
+        operation: str | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        latency_ms: int | None = None,
+        request_count: int | None = None,
+        embedding_count: int | None = None,
+        rerank_count: int | None = None,
+        vector_count: int | None = None,
+        storage_bytes: int | None = None,
     ) -> RunCostEntry:
-        """Record one usage fact with optional monetary calculation evidence."""
+        """Record one usage fact with optional monetary calculation evidence.
+
+        One metered invocation produces exactly one row; the dedicated
+        dimension columns (tokens, latency_ms, request_count, ...) carry the
+        measured facts, while unit/quantity only describe the billing basis.
+        """
         run = self.db.get(Run, run_id)
         if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
             raise ValueError("Run scope mismatch")
@@ -808,6 +824,16 @@ class TraceWriter:
             raise ValueError("Cost amount must not be negative")
         if raw_amount is not None and not currency:
             raise ValueError("Priced usage entries require a currency")
+        for dimension_name, dimension_value in (
+            ("latency_ms", latency_ms),
+            ("request_count", request_count),
+            ("embedding_count", embedding_count),
+            ("rerank_count", rerank_count),
+            ("vector_count", vector_count),
+            ("storage_bytes", storage_bytes),
+        ):
+            if dimension_value is not None and dimension_value < 0:
+                raise ValueError(f"{dimension_name} must not be negative")
         resolved_amount = raw_amount
         resolved_currency = currency if raw_amount is not None else None
         resolved_pricing_snapshot = _build_pricing_snapshot(
@@ -825,6 +851,7 @@ class TraceWriter:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            latency_ms=latency_ms,
         )
 
         entry = RunCostEntry(
@@ -845,9 +872,17 @@ class TraceWriter:
             model_ref=model_ref,
             upstream_model=upstream_model,
             tool_ref=tool_ref,
+            source_port=source_port,
+            operation=operation,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            latency_ms=latency_ms,
+            request_count=request_count,
+            embedding_count=embedding_count,
+            rerank_count=rerank_count,
+            vector_count=vector_count,
+            storage_bytes=storage_bytes,
         )
         self.db.add(entry)
         self.db.flush()
@@ -870,9 +905,17 @@ class TraceWriter:
             "model_ref": entry.model_ref,
             "upstream_model": entry.upstream_model,
             "tool_ref": entry.tool_ref,
+            "source_port": entry.source_port,
+            "operation": entry.operation,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "latency_ms": entry.latency_ms,
+            "request_count": entry.request_count,
+            "embedding_count": entry.embedding_count,
+            "rerank_count": entry.rerank_count,
+            "vector_count": entry.vector_count,
+            "storage_bytes": entry.storage_bytes,
         }
         OutboxPublisher(OutboxRepository(self.db)).publish(
             DomainEventEnvelope(

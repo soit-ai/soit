@@ -65,7 +65,7 @@ def test_artifact_registration_requires_scoped_key_and_evidence(db, ctx):
     assert artifact.size_bytes == 2
 
 
-def test_usage_and_charge_entries_have_distinct_money_semantics(db, ctx):
+def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
     writer = TraceWriter(db, ctx)
     run = writer.create_run("agent")
 
@@ -74,31 +74,106 @@ def test_usage_and_charge_entries_have_distinct_money_semantics(db, ctx):
         step_id=None,
         unit="tokens",
         quantity=15,
-        prompt_tokens=10,
-        completion_tokens=5,
-    )
-    charge = writer.record_cost(
-        run_id=run.id,
-        step_id=None,
-        entry_type="charge",
-        unit="prompt_tokens",
-        quantity=10,
         currency="USD",
         amount=Decimal("0.0025"),
+        model_ref="model:provider-a:model-a",
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        pricing_snapshot_json={
+            "source": "provider_model",
+            "billing_basis": "tokens",
+            "billing_unit": "mtok",
+            "unit_size": 1_000_000,
+            "rates": {
+                "input": {
+                    "price": "100",
+                    "unit": "mtok",
+                    "unit_size": 1_000_000,
+                },
+            },
+            "configured_pricing": {
+                "currency": "USD",
+                "unit": "mtok",
+                "input": 100,
+            },
+        },
     )
 
     assert usage.entry_type == "usage"
-    assert usage.amount is None
-    assert usage.currency is None
-    assert charge.entry_type == "charge"
-    assert charge.amount == Decimal("0.0025")
-    assert charge.currency == "USD"
+    assert usage.amount == Decimal("0.0025")
+    assert usage.currency == "USD"
+    assert usage.pricing_snapshot_json["model"]["resolved"] == "model:provider-a:model-a"
+    assert usage.pricing_snapshot_json["unit_size"] == 1_000_000
+    assert usage.pricing_snapshot_json["amount"] == "0.0025"
 
     detail = RunService(db, ctx).get_run(run.id)
+    assert len(detail.costs) == 1
     assert detail.usage_summary is not None
     assert detail.usage_summary.tokens_prompt == 10
+    assert detail.usage_summary.tokens_completion == 5
     assert detail.charge_summary is not None
     assert detail.charge_summary.amounts == {"USD": Decimal("0.0025")}
+
+
+def test_usage_row_carries_dimension_columns_for_one_invocation(db, ctx):
+    writer = TraceWriter(db, ctx)
+    run = writer.create_run("agent")
+
+    usage = writer.record_cost(
+        run_id=run.id,
+        step_id=None,
+        unit="tokens",
+        quantity=15,
+        model_ref="model:provider-a:model-a",
+        source_port="llm",
+        operation="chat",
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        latency_ms=120,
+    )
+
+    assert usage.source_port == "llm"
+    assert usage.operation == "chat"
+    assert usage.latency_ms == 120
+    assert usage.pricing_snapshot_json["quantities"]["latency_ms"] == 120
+
+    detail = RunService(db, ctx).get_run(run.id)
+    assert len(detail.costs) == 1
+    assert detail.usage_summary is not None
+    assert detail.usage_summary.ms_total == 120
+    assert detail.usage_summary.tokens_prompt == 10
+
+
+def test_trace_writer_rejects_negative_dimension_values(db, ctx):
+    writer = TraceWriter(db, ctx)
+    run = writer.create_run("agent")
+
+    with pytest.raises(ValueError, match="latency_ms must not be negative"):
+        writer.record_cost(
+            run_id=run.id,
+            step_id=None,
+            unit="tokens",
+            quantity=10,
+            latency_ms=-1,
+        )
+
+
+def test_trace_writer_rejects_new_charge_only_rows(db, ctx):
+    writer = TraceWriter(db, ctx)
+    run = writer.create_run("agent")
+
+    with pytest.raises(ValueError, match="combine usage and amount"):
+        writer.record_cost(
+            run_id=run.id,
+            step_id=None,
+            entry_type="charge",
+            unit="tokens",
+            quantity=10,
+            currency="USD",
+            amount=Decimal("0.0025"),
+        )
 
 
 @pytest.mark.asyncio

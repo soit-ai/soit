@@ -132,14 +132,19 @@ class StoragePolicyGateway(StreamingStoragePort):
 
         # Update cost if trace writer available
         if self.trace_writer and step:
+            elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
             self.trace_writer.record_cost(
                 run_id=_resolve_run_id(kwargs, self.ctx),
                 step_id=step.id,
                 unit="bytes",
                 quantity=len(data),
                 provider="storage",
+                source_port="storage",
+                operation="put",
+                latency_ms=elapsed_ms,
+                request_count=1,
+                storage_bytes=len(data),
             )
-            elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
             self.trace_writer.update_step_status(
                 step.id,
                 "succeeded",
@@ -201,6 +206,11 @@ class StoragePolicyGateway(StreamingStoragePort):
                     unit="bytes",
                     quantity=len(data),
                     provider="storage",
+                    source_port="storage",
+                    operation="get",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
+                    storage_bytes=len(data),
                 )
             return data
         except TimeoutError as exc:
@@ -273,6 +283,10 @@ class StoragePolicyGateway(StreamingStoragePort):
                     unit="requests",
                     quantity=1,
                     provider="storage",
+                    source_port="storage",
+                    operation="delete",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
@@ -343,6 +357,10 @@ class StoragePolicyGateway(StreamingStoragePort):
                     unit="requests",
                     quantity=1,
                     provider="storage",
+                    source_port="storage",
+                    operation="exists",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
                 )
             return result
         except TimeoutError as exc:

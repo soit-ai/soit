@@ -152,6 +152,10 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
                     quantity=1,
                     provider="plugin",
                     tool_ref=_plugin_tool_ref(plugin_name, tool_name),
+                    source_port="plugins",
+                    operation="invoke",
+                    latency_ms=elapsed_ms,
+                    request_count=1,
                 )
 
             return response
