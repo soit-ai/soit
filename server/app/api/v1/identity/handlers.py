@@ -4,6 +4,8 @@ Identity entrypoint handlers.
 """
 
 
+from typing import Any
+
 from fastapi import Depends, HTTPException, status
 
 from app.api.v1.identity.dependencies import get_identity_service
@@ -39,7 +41,6 @@ from app.modules.identity.application.schemas import (
     WorkspaceUpdate,
 )
 from app.modules.identity.application.service import IdentityService
-from app.modules.identity.domain.models import Workspace
 
 
 async def register(
@@ -159,7 +160,8 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def _workspace_response(workspace: Workspace) -> WorkspaceResponse:
+def _workspace_response(workspace: Any) -> WorkspaceResponse:
+    """Map a workspace domain object without importing the domain layer."""
     return WorkspaceResponse(
         id=workspace.id,
         tenant_id=workspace.tenant_id,
