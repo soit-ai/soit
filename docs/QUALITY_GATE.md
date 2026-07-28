@@ -27,8 +27,18 @@ uv run pytest tests/test_spec_validation.py tests/test_model_scope_audit.py test
 `tests/postgres/` is intentionally separate from the SQLite-backed unit-test
 fixtures. It requires `DATABASE_URL` to reference a migrated PostgreSQL database
 and verifies concurrent lease ownership, `FOR UPDATE SKIP LOCKED` worker claims,
-outbox recovery, response idempotency, serialized event sequencing, and native
-JSON query behavior. A skipped PostgreSQL suite is not a passing release gate.
+expired-lease reclaim of orphaned work, outbox recovery, response idempotency,
+serialized event sequencing, and native JSON query behavior. SQLite ignores
+`SKIP LOCKED`, so lease exclusivity is only ever proven here. A skipped
+PostgreSQL suite is not a passing release gate.
+
+Point `DATABASE_URL` at a dedicated acceptance database rather than a working
+development database:
+
+```bash
+DATABASE_URL="postgresql://<user>:<password>@<host>:5432/db_soit_pg_acceptance" uv run alembic upgrade head
+DATABASE_URL="postgresql://<user>:<password>@<host>:5432/db_soit_pg_acceptance" uv run pytest tests/postgres -q
+```
 
 ## Independent Release Acceptance
 

@@ -16,6 +16,7 @@ from sqlmodel import Session
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.events.outbox_repo import OutboxRepository
+from app.kernel.runtime.common import lease
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.responses import (
     Response,
@@ -244,6 +245,134 @@ def test_knowledge_workers_claim_distinct_rows_with_skip_locked(
 
     assert {item[0] for item in claimed} == task_ids
     assert {item[1] for item in claimed} == {"running"}
+
+
+def test_knowledge_lease_is_exclusive_until_it_expires_on_postgres(
+    postgres_engine: Engine,
+    scope_token,
+) -> None:
+    """A held knowledge lease blocks other workers; an expired one is reclaimed."""
+
+    token, tenant_id, workspace_id = scope_token
+    task_id = f"ingest-lease-{token}"
+    created_at = datetime(2000, 1, 1, tzinfo=UTC)
+    with Session(postgres_engine) as db:
+        db.add(
+            KnowledgeIngestTask(
+                id=task_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                knowledge_id=f"knowledge-{token}",
+                status="queued",
+                created_by="pg-user",
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+        db.commit()
+
+    holder = GlobalKnowledgeIngestWorker(worker_id="pg-worker-holder", lease_seconds=600)
+    rescuer = GlobalKnowledgeIngestWorker(worker_id="pg-worker-rescue", lease_seconds=600)
+
+    with Session(postgres_engine) as db:
+        claimed = holder._claim_next_task(db)
+        assert claimed is not None
+        assert claimed.id == task_id
+        assert claimed.lease_owner == "pg-worker-holder"
+        assert claimed.attempt_count == 1
+
+    with Session(postgres_engine) as db:
+        assert rescuer._claim_next_task(db) is None
+
+    with Session(postgres_engine) as db:
+        renewal = lease.renew_lease(
+            db,
+            KnowledgeIngestTask,
+            task_id,
+            worker_id="pg-worker-holder",
+            attempt_count=1,
+            lease_seconds=600,
+        )
+        assert renewal is lease.LeaseRenewal.RENEWED
+
+    # Simulate the holder dying: it stops renewing and the lease lapses.
+    with Session(postgres_engine) as db:
+        stranded = db.get(KnowledgeIngestTask, task_id)
+        assert stranded is not None
+        stranded.lease_expires_at = utc_now() - timedelta(minutes=5)
+        db.add(stranded)
+        db.commit()
+
+    with Session(postgres_engine) as db:
+        recovered = rescuer._claim_next_task(db)
+        assert recovered is not None
+        assert recovered.id == task_id
+        assert recovered.lease_owner == "pg-worker-rescue"
+        assert recovered.attempt_count == 2
+
+    with Session(postgres_engine) as db:
+        assert (
+            lease.renew_lease(
+                db,
+                KnowledgeIngestTask,
+                task_id,
+                worker_id="pg-worker-holder",
+                attempt_count=1,
+                lease_seconds=600,
+            )
+            is lease.LeaseRenewal.LOST
+        )
+
+
+def test_expired_knowledge_lease_has_one_concurrent_rescuer_on_postgres(
+    postgres_engine: Engine,
+    scope_token,
+) -> None:
+    """Only one of several racing workers reclaims an expired knowledge lease."""
+
+    token, tenant_id, workspace_id = scope_token
+    task_id = f"ingest-orphan-{token}"
+    created_at = datetime(2000, 1, 1, tzinfo=UTC)
+    with Session(postgres_engine) as db:
+        db.add(
+            KnowledgeIngestTask(
+                id=task_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                knowledge_id=f"knowledge-{token}",
+                status="running",
+                lease_owner="pg-worker-dead",
+                lease_expires_at=utc_now() - timedelta(minutes=5),
+                attempt_count=1,
+                created_by="pg-user",
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+        db.commit()
+
+    barrier = Barrier(3)
+
+    def reclaim(index: int) -> str | None:
+        worker = GlobalKnowledgeIngestWorker(
+            worker_id=f"pg-worker-rescue-{index}",
+            lease_seconds=600,
+        )
+        with Session(postgres_engine) as db:
+            barrier.wait()
+            claimed = worker._claim_next_task(db)
+            return None if claimed is None else claimed.lease_owner
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        owners = list(executor.map(reclaim, (1, 2, 3)))
+
+    winners = [owner for owner in owners if owner is not None]
+    assert len(winners) == 1
+    with Session(postgres_engine) as db:
+        row = db.get(KnowledgeIngestTask, task_id)
+        assert row is not None
+        assert row.lease_owner == winners[0]
+        assert row.attempt_count == 2
 
 
 def test_concurrent_response_idempotency_returns_one_owner(
