@@ -152,6 +152,93 @@ async def test_tenant_role_comes_from_authoritative_membership() -> None:
     assert context.tenant_role == "Viewer"
 
 
+def test_api_key_workspace_header_overrides_bound_workspace(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-override"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Test key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    access_resolver = _WorkspaceAccessResolver()
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=access_resolver,
+    )
+
+    context = resolver.resolve_from_api_key(raw_key, "workspace-b")
+
+    assert context.tenant_id == "tenant-1"
+    assert context.workspace_id == "workspace-b"
+    assert access_resolver.calls == [("tenant-1", "workspace-b", "user-1")]
+
+
+def test_api_key_without_header_keeps_bound_workspace(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-default"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Test key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    access_resolver = _WorkspaceAccessResolver()
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=access_resolver,
+    )
+
+    context = resolver.resolve_from_api_key(raw_key)
+
+    assert context.workspace_id == "workspace-a"
+    assert access_resolver.calls == [("tenant-1", "workspace-a", "user-1")]
+
+
+def test_api_key_workspace_header_requires_target_membership(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-forbidden"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Test key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    access_resolver = _WorkspaceAccessResolver()
+    access_resolver.resolve = lambda tenant_id, workspace_id, user_id: None
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=access_resolver,
+    )
+
+    with pytest.raises(ForbiddenError, match="workspace"):
+        resolver.resolve_from_api_key(raw_key, "workspace-b")
+
+
 def test_api_key_requires_current_workspace_membership(db, monkeypatch) -> None:
     raw_key = "soit-test-key"
     db.add(

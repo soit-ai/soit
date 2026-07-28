@@ -59,7 +59,7 @@ class ContextResolver:
             NotFoundError: If workspace not found or user not member.
         """
         if api_key:
-            return self.resolve_from_api_key(api_key)
+            return self.resolve_from_api_key(api_key, workspace_id_header)
 
         # Extract token from authorization header
         if not authorization:
@@ -115,8 +115,15 @@ class ContextResolver:
     def resolve_from_api_key(
         self,
         api_key: str,
+        workspace_id_header: str | None = None,
     ) -> RequestContext:
-        """Resolve RequestContext from API key."""
+        """Resolve RequestContext from API key.
+
+        The workspace defaults to the one bound at key creation. An
+        X-Workspace-Id header may target another workspace of the same
+        tenant; the authoritative membership check below gates the switch,
+        mirroring the JWT path.
+        """
         if not api_key:
             raise UnauthorizedError("Missing API key")
 
@@ -134,9 +141,10 @@ class ContextResolver:
             if not key or key.status != "active":
                 raise UnauthorizedError("Invalid or revoked API key")
 
+            target_workspace_id = workspace_id_header or key.workspace_id
             access = self.workspace_access_resolver.resolve(
                 key.tenant_id,
-                key.workspace_id,
+                target_workspace_id,
                 key.user_id,
             )
             if access is None:
@@ -154,7 +162,7 @@ class ContextResolver:
 
             return RequestContext(
                 tenant_id=key.tenant_id,
-                workspace_id=key.workspace_id,
+                workspace_id=target_workspace_id,
                 user_id=key.user_id,
                 tenant_role=tenant_role,
                 workspace_role=access.workspace_role,

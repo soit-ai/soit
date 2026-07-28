@@ -42,6 +42,84 @@ from app.kernel.runtime.status import (
 )
 
 
+def _json_safe(value: Any) -> Any:
+    """Return a deterministic JSON-compatible copy of pricing evidence."""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
+
+
+def _build_pricing_snapshot(
+    *,
+    snapshot: dict[str, Any] | None,
+    unit: str,
+    quantity: Decimal,
+    currency: str | None,
+    amount: Decimal | None,
+    provider: str | None,
+    provider_id: str | None,
+    provider_slug: str | None,
+    provider_kind: str | None,
+    model_ref: str | None,
+    upstream_model: str | None,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    total_tokens: int | None,
+) -> dict[str, Any]:
+    """Complete the immutable pricing snapshot required on every cost row."""
+    result = _json_safe(snapshot or {})
+    if not isinstance(result, dict):
+        result = {}
+
+    result.setdefault("schema_version", 1)
+    result.setdefault("source", "runtime")
+    result.setdefault("priced", amount is not None)
+    result.setdefault("billing_basis", unit)
+    result.setdefault("billing_unit", unit)
+    result.setdefault("unit_size", 1)
+    result.setdefault("rates", {})
+    result.setdefault("configured_pricing", {})
+
+    model = result.get("model")
+    if not isinstance(model, dict):
+        model = {}
+    model.setdefault("requested", model_ref)
+    model.setdefault("resolved", model_ref)
+    model.setdefault("upstream", upstream_model)
+    result["model"] = model
+
+    provider_snapshot = result.get("provider")
+    if not isinstance(provider_snapshot, dict):
+        provider_snapshot = {}
+    provider_snapshot.setdefault("name", provider)
+    provider_snapshot.setdefault("id", provider_id)
+    provider_snapshot.setdefault("slug", provider_slug)
+    provider_snapshot.setdefault("kind", provider_kind)
+    result["provider"] = provider_snapshot
+
+    quantities = result.get("quantities")
+    if not isinstance(quantities, dict):
+        quantities = {}
+    quantities.setdefault("quantity", format(quantity, "f"))
+    if prompt_tokens is not None:
+        quantities.setdefault("prompt_tokens", prompt_tokens)
+    if completion_tokens is not None:
+        quantities.setdefault("completion_tokens", completion_tokens)
+    if total_tokens is not None:
+        quantities.setdefault("total_tokens", total_tokens)
+    result["quantities"] = quantities
+
+    result["currency"] = currency
+    result["amount"] = format(amount, "f") if amount is not None else None
+    return result
+
+
 class TraceWriter:
     """Write trace data to database and object storage."""
 
@@ -698,8 +776,9 @@ class TraceWriter:
         unit: str,
         quantity: Decimal | int | float,
         entry_type: str | None = None,
-        currency: str | None = "USD",
+        currency: str | None = None,
         amount: Decimal | int | float | None = None,
+        pricing_snapshot_json: dict[str, Any] | None = None,
         provider: str | None = None,
         provider_id: str | None = None,
         provider_slug: str | None = None,
@@ -711,7 +790,7 @@ class TraceWriter:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
     ) -> RunCostEntry:
-        """Record a normalized cost entry."""
+        """Record one usage fact with optional monetary calculation evidence."""
         run = self.db.get(Run, run_id)
         if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
             raise ValueError("Run scope mismatch")
@@ -722,17 +801,31 @@ class TraceWriter:
 
         qty = Decimal(str(quantity))
         raw_amount = Decimal(str(amount)) if amount is not None else None
-        resolved_entry_type = entry_type or ("charge" if raw_amount is not None and raw_amount > 0 else "usage")
-        if resolved_entry_type not in {"usage", "charge"}:
-            raise ValueError("entry_type must be usage or charge")
-        if resolved_entry_type == "charge":
-            if raw_amount is None or raw_amount <= 0 or not currency:
-                raise ValueError("Charge entries require a positive amount and currency")
-            resolved_amount = raw_amount
-            resolved_currency = currency
-        else:
-            resolved_amount = None
-            resolved_currency = None
+        resolved_entry_type = entry_type or "usage"
+        if resolved_entry_type != "usage":
+            raise ValueError("New cost entries must combine usage and amount in one usage record")
+        if raw_amount is not None and raw_amount < 0:
+            raise ValueError("Cost amount must not be negative")
+        if raw_amount is not None and not currency:
+            raise ValueError("Priced usage entries require a currency")
+        resolved_amount = raw_amount
+        resolved_currency = currency if raw_amount is not None else None
+        resolved_pricing_snapshot = _build_pricing_snapshot(
+            snapshot=pricing_snapshot_json,
+            unit=unit,
+            quantity=qty,
+            currency=resolved_currency,
+            amount=resolved_amount,
+            provider=provider,
+            provider_id=provider_id,
+            provider_slug=provider_slug,
+            provider_kind=provider_kind,
+            model_ref=model_ref,
+            upstream_model=upstream_model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
 
         entry = RunCostEntry(
             run_id=run_id,
@@ -742,6 +835,7 @@ class TraceWriter:
             entry_type=resolved_entry_type,
             currency=resolved_currency,
             amount=resolved_amount,
+            pricing_snapshot_json=resolved_pricing_snapshot,
             unit=unit,
             quantity=qty,
             provider=provider,
@@ -768,6 +862,7 @@ class TraceWriter:
             "quantity": str(entry.quantity),
             "currency": entry.currency,
             "amount": str(entry.amount),
+            "pricing_snapshot_json": entry.pricing_snapshot_json,
             "provider": entry.provider,
             "provider_id": entry.provider_id,
             "provider_slug": entry.provider_slug,
@@ -807,6 +902,7 @@ class TraceWriter:
                 "quantity": str(entry.quantity),
                 "currency": entry.currency,
                 "amount": str(entry.amount),
+                "pricing_snapshot_json": entry.pricing_snapshot_json,
                 "provider": entry.provider,
                 "model_ref": entry.model_ref,
                 "tool_ref": entry.tool_ref,

@@ -1240,6 +1240,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1282,6 +1283,45 @@ class RunService:
             storage_bytes=int(row[5] or 0),
         )
 
+    def list_cost_entries(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        entry_type: str | None = None,
+        run_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[RunCostEntryResponse]:
+        """List normalized cost entries ordered by creation time.
+
+        Ascending created_at order keeps pages stable for external billing
+        systems that pull entries incrementally with a since watermark.
+        """
+        clauses = [
+            RunCostEntry.tenant_id == self.ctx.tenant_id,
+            RunCostEntry.workspace_id == self.ctx.workspace_id,
+        ]
+        if since:
+            clauses.append(RunCostEntry.created_at >= since)
+        if until:
+            clauses.append(RunCostEntry.created_at <= until)
+        if entry_type:
+            clauses.append(RunCostEntry.entry_type == entry_type)
+        if run_id:
+            clauses.append(RunCostEntry.run_id == run_id)
+
+        query = (
+            select(RunCostEntry)
+            .where(and_(*clauses))
+            .order_by(RunCostEntry.created_at, RunCostEntry.id)
+            .offset(offset)
+            .limit(limit)
+        )
+        rows = list(self.db.exec(query).all())
+        entries = [item if hasattr(item, "id") else item[0] for item in rows]
+        return [RunCostEntryResponse.model_validate(entry) for entry in entries]
+
     def summarize_costs_by_day(
         self,
         *,
@@ -1299,6 +1339,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1374,6 +1415,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1445,6 +1487,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1516,6 +1559,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1587,6 +1631,7 @@ class RunService:
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.entry_type == "usage",
             RunCostEntry.run_id == Run.id,
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -1676,7 +1721,7 @@ class RunService:
         amounts: dict[str, Decimal] = {}
         entry_count = 0
         for entry in entries:
-            if entry.entry_type != "charge" or not entry.currency or entry.amount is None:
+            if not entry.currency or entry.amount is None:
                 continue
             entry_count += 1
             amounts[entry.currency] = amounts.get(entry.currency, Decimal("0")) + entry.amount

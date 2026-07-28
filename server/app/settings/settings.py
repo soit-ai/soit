@@ -164,14 +164,17 @@ class Settings(BaseSettings):
     knowledge_ingest_worker_poll_interval: float = 1.0
     """Polling interval (seconds) for knowledge ingestion worker."""
 
-    knowledge_ingest_worker_max_tasks: int = 10
-    """Max tasks to process before worker exits."""
+    knowledge_ingest_worker_max_tasks: int = 0
+    """Max tasks to process before the worker exits; 0 runs without a limit."""
 
     knowledge_ingest_worker_concurrency: int = 1
     """Max concurrent ingestion tasks per worker loop."""
 
     knowledge_ingest_worker_heartbeat_seconds: int = 30
     """Heartbeat interval (seconds) for ingest worker logs."""
+
+    knowledge_ingest_worker_lease_seconds: int = 120
+    """Lease duration held while one ingestion task executes."""
 
     # Transactional outbox dispatcher (Phase 1)
     outbox_dispatcher_enabled: bool = False

@@ -24,6 +24,7 @@ from app.kernel.runtime.runs.schemas import (
     RunCostByProviderResponse,
     RunCostBySubjectResponse,
     RunCostDailyResponse,
+    RunCostEntryResponse,
     RunCostSummaryResponse,
     RunDetailResponse,
     RunResponse,
@@ -34,6 +35,30 @@ from app.kernel.runtime.runs.service import RunService
 from app.modules.workflow.application.service import WorkflowService
 
 router = APIRouter()
+
+
+@router.get("/costs/entries", response_model=PaginatedResponse[RunCostEntryResponse])
+async def list_cost_entries(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    entry_type: str | None = None,
+    run_id: str | None = None,
+    page_token: str | None = None,
+    page_size: int = 200,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RunService = Depends(get_run_service),
+):
+    """List per-run cost entries for incremental billing sync."""
+    handlers = RunHandlers(service)
+    return await handlers.list_cost_entries(
+        ctx,
+        since=since,
+        until=until,
+        entry_type=entry_type,
+        run_id=run_id,
+        page_token=page_token,
+        page_size=page_size,
+    )
 
 
 @router.get("/costs/summary", response_model=RunCostSummaryResponse)

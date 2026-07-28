@@ -135,6 +135,7 @@ export interface RunCostEntryResponse {
   entry_type: 'usage' | 'charge'
   currency?: string | null
   amount?: string | null
+  pricing_snapshot_json: Record<string, unknown>
   unit: string
   quantity: string
   provider?: string | null

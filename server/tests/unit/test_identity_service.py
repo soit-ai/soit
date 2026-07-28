@@ -11,6 +11,7 @@ from app.modules.identity.application.schemas import (
     MembershipCreate,
     UserCreate,
     WorkspaceCreate,
+    WorkspaceUpdate,
 )
 from app.wiring.services import build_identity_service
 
@@ -71,6 +72,63 @@ def test_identity_create_workspace_adds_owner_membership(db):
 
     role = service.get_user_workspace_role(workspace.id, user.id, ctx)
     assert role == WORKSPACE_ROLE_OWNER
+
+
+def test_identity_update_workspace_quota_fields(db):
+    """Tenant admins can set, clear, and are required for workspace quotas."""
+    service = build_identity_service(db=db)
+    user_data = UserCreate(
+        email="dora@example.com",
+        password="password123",
+        name="Dora",
+    )
+    user, tenant, _token, _workspace_id = service.register_user(user_data, tenant_name="acme-quota")
+
+    ctx = RequestContext(
+        tenant_id=tenant.id,
+        workspace_id="seed-workspace",
+        user_id=user.id,
+        tenant_role=TENANT_ROLE_OWNER,
+        workspace_role=WORKSPACE_ROLE_OWNER,
+    )
+    workspace = service.create_workspace(
+        WorkspaceCreate(name="workspace-quota", description=None),
+        ctx,
+    )
+
+    updated = service.update_workspace(
+        workspace.id,
+        ctx,
+        WorkspaceUpdate(llm_rate_limit_per_minute=60, llm_daily_quota=1000),
+    )
+    assert updated.llm_rate_limit_per_minute == 60
+    assert updated.llm_daily_quota == 1000
+    assert updated.tool_daily_quota is None
+
+    cleared = service.update_workspace(
+        workspace.id,
+        ctx,
+        WorkspaceUpdate(llm_rate_limit_per_minute=None),
+    )
+    assert cleared.llm_rate_limit_per_minute is None
+    assert cleared.llm_daily_quota == 1000
+
+    dev_ctx = RequestContext(
+        tenant_id=tenant.id,
+        workspace_id=workspace.id,
+        user_id=user.id,
+        tenant_role="Dev",
+        workspace_role="Dev",
+    )
+    try:
+        service.update_workspace(
+            workspace.id,
+            dev_ctx,
+            WorkspaceUpdate(llm_daily_quota=5),
+        )
+        raise AssertionError("Expected ValidationError for non tenant-admin quota change")
+    except ValidationError:
+        pass
 
 
 def test_identity_api_key_lifecycle(db):

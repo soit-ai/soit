@@ -16,6 +16,7 @@ from app.kernel.runtime.runs.schemas import (
     RunCostByProviderResponse,
     RunCostBySubjectResponse,
     RunCostDailyResponse,
+    RunCostEntryResponse,
     RunCostSummaryResponse,
     RunDetailResponse,
     RunResponse,
@@ -208,6 +209,42 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+        )
+
+    async def list_cost_entries(
+        self,
+        ctx: RequestContext,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        entry_type: str | None = None,
+        run_id: str | None = None,
+        page_token: str | None = None,
+        page_size: int = 200,
+    ) -> PaginatedResponse[RunCostEntryResponse]:
+        """List cost entries with pagination for incremental billing sync."""
+        limit, token_obj = parse_page_params(page_token, page_size, max_page_size=500)
+        offset = token_obj.offset if token_obj else 0
+        limit_plus = limit + 1
+
+        entries = self.service.list_cost_entries(
+            since=since,
+            until=until,
+            entry_type=entry_type,
+            run_id=run_id,
+            limit=limit_plus,
+            offset=offset,
+        )
+
+        has_next = len(entries) > limit
+        items = entries[:limit]
+        next_offset = offset + len(items) if has_next else None
+
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=next_offset,
         )
 
     async def summarize_costs_by_day(

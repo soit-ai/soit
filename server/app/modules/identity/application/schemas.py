@@ -73,6 +73,18 @@ class WorkspaceUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255, description="Workspace name")
     description: str | None = Field(None, description="Workspace description")
     metadata: dict[str, Any] | None = Field(default=None, description="Workspace metadata")
+    llm_rate_limit_per_minute: int | None = Field(
+        None, ge=0, description="Workspace LLM rate limit per minute (null clears the override)"
+    )
+    tool_rate_limit_per_minute: int | None = Field(
+        None, ge=0, description="Workspace tool rate limit per minute (null clears the override)"
+    )
+    llm_daily_quota: int | None = Field(
+        None, ge=0, description="Workspace LLM daily quota (null clears the override)"
+    )
+    tool_daily_quota: int | None = Field(
+        None, ge=0, description="Workspace tool daily quota (null clears the override)"
+    )
 
 
 # Response schemas
@@ -112,6 +124,10 @@ class WorkspaceResponse(BaseModel):
     name: str
     description: str | None
     metadata: dict[str, Any] | None = None
+    llm_rate_limit_per_minute: int | None = None
+    tool_rate_limit_per_minute: int | None = None
+    llm_daily_quota: int | None = None
+    tool_daily_quota: int | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

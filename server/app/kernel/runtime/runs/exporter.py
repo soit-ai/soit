@@ -137,14 +137,14 @@ def to_runtrace_spec(
 
     if cost_entries is not None:
         usage_entries = [entry for entry in cost_entries if entry.entry_type == "usage"]
-        charge_entries = [entry for entry in cost_entries if entry.entry_type == "charge"]
+        priced_entries = [entry for entry in cost_entries if entry.amount is not None]
         spec["usage_summary"] = _summarize_entries(usage_entries)
         charge_amounts: dict[str, float] = {}
-        for entry in charge_entries:
+        for entry in priced_entries:
             if entry.currency and entry.amount is not None:
                 charge_amounts[entry.currency] = charge_amounts.get(entry.currency, 0.0) + float(entry.amount)
         spec["charge_summary"] = {
-            "entry_count": len(charge_entries),
+            "entry_count": len(priced_entries),
             "amounts": charge_amounts,
         }
         spec["entries"] = [
@@ -155,6 +155,7 @@ def to_runtrace_spec(
                 "entry_type": entry.entry_type,
                 "currency": entry.currency,
                 "amount": float(entry.amount) if entry.amount is not None else None,
+                "pricing_snapshot_json": entry.pricing_snapshot_json,
                 "unit": entry.unit,
                 "quantity": float(entry.quantity),
                 "provider": entry.provider,

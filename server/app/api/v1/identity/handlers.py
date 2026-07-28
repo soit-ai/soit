@@ -39,6 +39,7 @@ from app.modules.identity.application.schemas import (
     WorkspaceUpdate,
 )
 from app.modules.identity.application.service import IdentityService
+from app.modules.identity.domain.models import Workspace
 
 
 async def register(
@@ -158,13 +159,17 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def _workspace_response(workspace) -> WorkspaceResponse:
+def _workspace_response(workspace: Workspace) -> WorkspaceResponse:
     return WorkspaceResponse(
         id=workspace.id,
         tenant_id=workspace.tenant_id,
         name=workspace.name,
         description=workspace.description,
         metadata=getattr(workspace, "metadata_json", {}) or {},
+        llm_rate_limit_per_minute=workspace.llm_rate_limit_per_minute,
+        tool_rate_limit_per_minute=workspace.tool_rate_limit_per_minute,
+        llm_daily_quota=workspace.llm_daily_quota,
+        tool_daily_quota=workspace.tool_daily_quota,
         created_at=workspace.created_at,
     )
 

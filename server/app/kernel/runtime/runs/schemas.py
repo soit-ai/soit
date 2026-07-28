@@ -189,7 +189,7 @@ class RunObserveSummaryResponse(BaseModel):
 
 
 class RunCostEntryResponse(BaseModel):
-    """Normalized cost entry response."""
+    """Normalized usage and cost entry response."""
 
     id: str
     run_id: str
@@ -199,6 +199,7 @@ class RunCostEntryResponse(BaseModel):
     entry_type: str
     currency: str | None
     amount: Decimal | None
+    pricing_snapshot_json: dict[str, Any]
     unit: str
     quantity: Decimal
     provider: str | None

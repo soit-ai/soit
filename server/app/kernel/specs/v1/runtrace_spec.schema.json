@@ -337,7 +337,8 @@
           "run_id",
           "entry_type",
           "unit",
-          "quantity"
+          "quantity",
+          "pricing_snapshot_json"
         ],
         "properties": {
           "cost_id": {
@@ -354,13 +355,18 @@
           },
           "entry_type": {
             "type": "string",
-            "enum": ["usage", "charge"]
+            "enum": ["usage", "charge"],
+            "description": "New records use usage; charge is retained only for historical exports."
           },
           "currency": {
             "type": ["string", "null"]
           },
           "amount": {
             "type": ["number", "null"]
+          },
+          "pricing_snapshot_json": {
+            "type": "object",
+            "description": "Immutable original and normalized pricing configuration used to calculate this record."
           },
           "unit": {
             "type": "string"
@@ -498,7 +504,7 @@
       }
     }
   },
-  "description": "Unified execution trace container with separate usage and monetary charge evidence.",
+  "description": "Unified execution trace container where one usage record may include monetary cost and immutable pricing evidence.",
   "examples": [
     {
       "run": {

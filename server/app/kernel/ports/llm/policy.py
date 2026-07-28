@@ -81,11 +81,12 @@ class _ResolvedPolicyRoute:
     pricing: dict[str, Any]
 
 
-def _chat_charge(
+def _token_charge(
     pricing: dict[str, Any],
     *,
     prompt_tokens: int,
-    completion_tokens: int,
+    completion_tokens: int = 0,
+    require_output_rate: bool = True,
 ) -> tuple[str, Decimal] | None:
     """Return a monetary charge only for a complete supported pricing contract."""
     try:
@@ -99,7 +100,10 @@ def _chat_charge(
         if not currency or divisor is None:
             return None
         input_rate = Decimal(str(pricing["input"]))
-        output_rate = Decimal(str(pricing["output"]))
+        output_raw = pricing.get("output")
+        if output_raw is None and require_output_rate:
+            return None
+        output_rate = Decimal(str(output_raw)) if output_raw is not None else Decimal("0")
         if input_rate < 0 or output_rate < 0:
             return None
         amount = (
@@ -111,6 +115,69 @@ def _chat_charge(
         return currency, amount
     except (InvalidOperation, KeyError, TypeError, ValueError):
         return None
+
+
+def _chat_charge(
+    pricing: dict[str, Any],
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> tuple[str, Decimal] | None:
+    """Chat pricing requires both input and output token rates."""
+    return _token_charge(
+        pricing,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+
+
+def _embed_charge(
+    pricing: dict[str, Any],
+    *,
+    tokens_used: int,
+) -> tuple[str, Decimal] | None:
+    """Embeddings bill input tokens only; the output rate is optional."""
+    if tokens_used <= 0:
+        return None
+    return _token_charge(
+        pricing,
+        prompt_tokens=tokens_used,
+        require_output_rate=False,
+    )
+
+
+def _rerank_charge(
+    pricing: dict[str, Any],
+    *,
+    searches: int,
+    tokens_used: int,
+) -> tuple[str, Decimal] | None:
+    """Per-search pricing takes precedence; token pricing is the fallback."""
+    if "search" in pricing:
+        try:
+            currency = str(pricing["currency"]).strip().upper()
+            search_unit = str(pricing.get("search_unit", "1k_searches")).strip().lower()
+            divisor = {
+                "search": Decimal("1"),
+                "1k_searches": Decimal("1000"),
+                "kilo_searches": Decimal("1000"),
+            }.get(search_unit)
+            rate = Decimal(str(pricing["search"]))
+            if not currency or divisor is None or rate < 0:
+                return None
+            amount = Decimal(searches) * rate / divisor
+            if amount <= 0:
+                return None
+            return currency, amount
+        except (InvalidOperation, KeyError, TypeError, ValueError):
+            return None
+    if tokens_used > 0:
+        return _token_charge(
+            pricing,
+            prompt_tokens=tokens_used,
+            require_output_rate=False,
+        )
+    return None
 
 
 class LLMPolicyGateway(LLMPort):
@@ -675,6 +742,24 @@ class LLMPolicyGateway(LLMPort):
                     quantity=len(texts),
                     **identity,
                 )
+                charge = _embed_charge(
+                    route.pricing,
+                    tokens_used=response.tokens_used or 0,
+                )
+                if charge is not None:
+                    currency, amount = charge
+                    self.trace_writer.record_cost(
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        step_id=step.id,
+                        entry_type="charge",
+                        unit="tokens",
+                        quantity=response.tokens_used,
+                        currency=currency,
+                        amount=amount,
+                        **identity,
+                        prompt_tokens=response.tokens_used,
+                        total_tokens=response.tokens_used,
+                    )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
@@ -791,6 +876,23 @@ class LLMPolicyGateway(LLMPort):
                     quantity=len(documents),
                     **identity,
                 )
+                charge = _rerank_charge(
+                    route.pricing,
+                    searches=len(documents),
+                    tokens_used=response.tokens_used or 0,
+                )
+                if charge is not None:
+                    currency, amount = charge
+                    self.trace_writer.record_cost(
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        step_id=step.id,
+                        entry_type="charge",
+                        unit="rerank",
+                        quantity=len(documents),
+                        currency=currency,
+                        amount=amount,
+                        **identity,
+                    )
                 self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,

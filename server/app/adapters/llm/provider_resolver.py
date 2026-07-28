@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 import anyio
@@ -15,6 +15,7 @@ from app.infra.db.session import get_db_sync
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.runtime_config import resolve_litellm_runtime_config
 from app.modules.modelhub.infra.repository import (
+    PlatformModelRepository,
     ProviderModelRepository,
     ProviderRepository,
 )
@@ -96,6 +97,31 @@ class DatabaseProviderResolver:
             pricing=getattr(model, "pricing_json", None) or {},
         )
 
+    @staticmethod
+    def _platform_default_pricing(
+        db: Any,
+        ctx: RequestContext,
+        provider_kind: str,
+        model_id: str,
+    ) -> dict[str, Any]:
+        """Catalog pricing fallback for models without a workspace-level price."""
+        platform = PlatformModelRepository(db, ctx).get_by_kind_and_model_id(
+            provider_kind,
+            model_id,
+        )
+        if platform is None:
+            return {}
+        raw_meta: dict[str, Any] = (
+            platform.raw_meta if isinstance(platform.raw_meta, dict) else {}
+        )
+        projection = raw_meta.get("modelhub")
+        if not isinstance(projection, dict):
+            return {}
+        pricing: Any = projection.get("pricing_json")
+        if not isinstance(pricing, dict):
+            return {}
+        return {str(key): value for key, value in pricing.items()}
+
     @classmethod
     def _resolve_from_database(
         cls,
@@ -112,7 +138,19 @@ class DatabaseProviderResolver:
                 provider.id,
                 model_id,
             )
-            return cls._config_from_provider(provider, model) if model is not None else None
+            if model is None:
+                return None
+            config = cls._config_from_provider(provider, model)
+            if not config.pricing:
+                pricing = cls._platform_default_pricing(
+                    db,
+                    ctx,
+                    provider.kind,
+                    model.model_id,
+                )
+                if pricing:
+                    config = replace(config, pricing=pricing)
+            return config
         finally:
             db.close()
 

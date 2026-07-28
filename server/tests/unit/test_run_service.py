@@ -97,6 +97,77 @@ def test_run_cost_summary_filters(db):
     assert summary.ms_total == 0
 
 
+def test_list_cost_entries_scope_since_and_order(db):
+    """Cost entry listing scopes by workspace, filters by since, orders ascending."""
+    SQLModel.metadata.create_all(db.get_bind())
+
+    ctx = RequestContext(
+        tenant_id="test_tenant",
+        workspace_id="test_workspace",
+        user_id="test_user",
+    )
+
+    run_id = generate_run_id()
+    db.add(
+        Run(
+            id=run_id,
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            mode="chat",
+            subject_kind="thread",
+            subject_id="thr-cost",
+            subject_version_id="ver-cost",
+            status="succeeded",
+        )
+    )
+
+    early = RunCostEntry(
+        run_id=run_id,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        unit="tokens",
+        quantity=5,
+        prompt_tokens=3,
+        completion_tokens=2,
+        created_at=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+    late = RunCostEntry(
+        run_id=run_id,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        unit="tokens",
+        quantity=9,
+        prompt_tokens=6,
+        completion_tokens=3,
+        created_at=datetime(2026, 7, 20, tzinfo=UTC),
+    )
+    foreign = RunCostEntry(
+        run_id=run_id,
+        tenant_id="other_tenant",
+        workspace_id=ctx.workspace_id,
+        unit="tokens",
+        quantity=1,
+        created_at=datetime(2026, 7, 5, tzinfo=UTC),
+    )
+    db.add(early)
+    db.add(late)
+    db.add(foreign)
+    db.commit()
+
+    service = RunService(db, ctx)
+
+    entries = service.list_cost_entries(limit=10, offset=0)
+    assert [entry.id for entry in entries] == [early.id, late.id]
+    assert entries[0].run_id == run_id
+    assert entries[0].prompt_tokens == 3
+
+    since_entries = service.list_cost_entries(since=datetime(2026, 7, 10, tzinfo=UTC))
+    assert [entry.id for entry in since_entries] == [late.id]
+
+    paged = service.list_cost_entries(limit=1, offset=1)
+    assert [entry.id for entry in paged] == [late.id]
+
+
 def test_list_runs_scope_filtering(db):
     """List runs respects tenant/workspace scope."""
     SQLModel.metadata.create_all(db.get_bind())

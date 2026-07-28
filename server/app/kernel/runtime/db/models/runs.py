@@ -266,7 +266,7 @@ class RunArtifact(SQLModel, table=True):
 
 
 class RunCostEntry(SQLModel, table=True):
-    """Normalized cost record for metered usage."""
+    """Normalized usage and cost record for one metered observation."""
 
     __tablename__ = "run_cost_entries"
 
@@ -286,13 +286,19 @@ class RunCostEntry(SQLModel, table=True):
     """Workspace ID."""
 
     entry_type: str = Field(default="usage", index=True)
-    """Entry semantic: usage or charge."""
+    """Entry semantic; new records use usage and charge is legacy-only."""
 
     currency: str | None = Field(default=None, nullable=True)
-    """Currency code for charge entries."""
+    """Currency code when this usage record has a calculated amount."""
 
     amount: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 6), nullable=True))
-    """Monetary amount for charge entries."""
+    """Calculated monetary amount for this usage record."""
+
+    pricing_snapshot_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
+    """Immutable pricing configuration and calculation snapshot."""
 
     unit: str = Field()
     """Unit (tokens/requests/seconds/bytes)."""

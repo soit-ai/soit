@@ -547,6 +547,162 @@ async def test_llm_policy_records_charge_only_for_valid_model_pricing(ctx):
 
 
 @pytest.mark.asyncio
+async def test_llm_policy_skips_chat_charge_without_output_rate(ctx):
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    port = UpstreamNamedPort()
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            provider_id="provider-partial-priced",
+            slug=slug,
+            kind="openai_compatible",
+            adapter_backend="litellm",
+            status="active",
+            provider_model_id="model-partial",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"chat": {"merged": True}},
+            pricing={
+                "currency": "USD",
+                "unit": "mtok",
+                "input": 1,
+            },
+        ),
+        litellm_factory=lambda config, credentials: port,
+    )
+    writer = MagicMock()
+    writer.create_step.return_value.id = "step-partial"
+    gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
+
+    await gateway.chat(
+        [ChatMessage(role="user", content="hi")],
+        model="model:partial:gpt-partial",
+        run_id="run-partial",
+    )
+
+    charges = [
+        call
+        for call in writer.record_cost.call_args_list
+        if call.kwargs.get("entry_type") == "charge"
+    ]
+    assert charges == []
+
+
+@pytest.mark.asyncio
+async def test_llm_policy_records_embed_charge_with_input_only_pricing(ctx):
+    from decimal import Decimal
+
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    class MeteredEmbedPort(DummyPort):
+        async def embed(self, texts, model, **kwargs):
+            self.calls.append(("embed", model))
+            return EmbeddingResponse(
+                embeddings=[[0.0]],
+                tokens_used=1000,
+                model=model,
+            )
+
+    port = MeteredEmbedPort()
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            provider_id="provider-embed",
+            slug=slug,
+            kind="openai_compatible",
+            adapter_backend="litellm",
+            status="active",
+            provider_model_id="model-embed",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"embeddings": {"merged": True}},
+            pricing={
+                "currency": "USD",
+                "unit": "mtok",
+                "input": 0.1,
+            },
+        ),
+        litellm_factory=lambda config, credentials: port,
+    )
+    writer = MagicMock()
+    writer.create_step.return_value.id = "step-embed-priced"
+    gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
+
+    await gateway.embed(
+        ["hello"],
+        model="model:embed-priced:embedder",
+        run_id="run-embed-priced",
+    )
+
+    charges = [
+        call
+        for call in writer.record_cost.call_args_list
+        if call.kwargs.get("entry_type") == "charge"
+    ]
+    assert len(charges) == 1
+    assert charges[0].kwargs["currency"] == "USD"
+    assert charges[0].kwargs["amount"] == Decimal("0.0001")
+    assert charges[0].kwargs["unit"] == "tokens"
+    assert charges[0].kwargs["quantity"] == 1000
+
+
+@pytest.mark.asyncio
+async def test_llm_policy_records_rerank_charge_with_search_pricing(ctx):
+    from decimal import Decimal
+
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    class MeteredRerankPort(DummyPort):
+        async def rerank(self, query, documents, model, top_n=None, **kwargs):
+            self.calls.append(("rerank", model))
+            return RerankResponse(results=[], tokens_used=500, model=model)
+
+    port = MeteredRerankPort()
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            provider_id="provider-rerank",
+            slug=slug,
+            kind="openai_compatible",
+            adapter_backend="litellm",
+            status="active",
+            provider_model_id="model-rerank",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"rerank": {"merged": True}},
+            pricing={
+                "currency": "USD",
+                "search": 2.0,
+                "search_unit": "1k_searches",
+            },
+        ),
+        litellm_factory=lambda config, credentials: port,
+    )
+    writer = MagicMock()
+    writer.create_step.return_value.id = "step-rerank-priced"
+    gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
+
+    await gateway.rerank(
+        "query",
+        ["a", "b", "c", "d"],
+        model="model:rerank-priced:reranker",
+        run_id="run-rerank-priced",
+    )
+
+    charges = [
+        call
+        for call in writer.record_cost.call_args_list
+        if call.kwargs.get("entry_type") == "charge"
+    ]
+    assert len(charges) == 1
+    assert charges[0].kwargs["currency"] == "USD"
+    assert charges[0].kwargs["amount"] == Decimal("0.008")
+    assert charges[0].kwargs["unit"] == "rerank"
+    assert charges[0].kwargs["quantity"] == 4
+
+
+@pytest.mark.asyncio
 async def test_llm_policy_uses_resolved_provider_timeout_and_retry_policy(ctx):
     import asyncio
 

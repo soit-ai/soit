@@ -564,6 +564,21 @@ class IdentityService:
             metadata = dict(getattr(workspace, "metadata_json", {}) or {})
             metadata.update(data.metadata)
             workspace.metadata_json = metadata
+        quota_fields = (
+            "llm_rate_limit_per_minute",
+            "tool_rate_limit_per_minute",
+            "llm_daily_quota",
+            "tool_daily_quota",
+        )
+        # Explicit null clears the workspace override so the tenant-level value applies.
+        provided_quota_fields = [
+            field for field in quota_fields if field in data.model_fields_set
+        ]
+        if provided_quota_fields:
+            if not ctx.is_tenant_admin():
+                raise ValidationError("Tenant admin role required to change workspace quotas")
+            for field in provided_quota_fields:
+                setattr(workspace, field, getattr(data, field))
         workspace.updated_at = utc_now()
         return repo.update(workspace)
 

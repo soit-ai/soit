@@ -167,6 +167,133 @@ async def test_provider_resolver_negative_caches_missing_provider(monkeypatch, c
 
 
 @pytest.mark.asyncio
+async def test_provider_resolver_falls_back_to_catalog_pricing(monkeypatch, ctx):
+    provider = SimpleNamespace(
+        id="provider-1",
+        slug="team-gateway",
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        status="active",
+        base_url=None,
+        credential_secret_id=None,
+        connection_config_json=None,
+        runtime_config_json=None,
+        auth_config_json=None,
+    )
+
+    class _Database:
+        def close(self):
+            return None
+
+    class _Repository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        def get_by_slug(self, slug):
+            return provider
+
+    class _ModelRepository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        def get_by_provider_and_model_id(self, provider_id, model_id):
+            return _provider_model(pricing_json=None)
+
+    class _PlatformRepository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        def get_by_kind_and_model_id(self, provider_kind, model_id):
+            assert provider_kind == "openai_compatible"
+            assert model_id == "gpt-4.1-mini"
+            return SimpleNamespace(
+                raw_meta={
+                    "modelhub": {
+                        "pricing_json": {
+                            "currency": "USD",
+                            "unit": "mtok",
+                            "input": 0.27,
+                            "output": 1.1,
+                        }
+                    }
+                }
+            )
+
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.get_db_sync", _Database)
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.ProviderRepository", _Repository)
+    monkeypatch.setattr(
+        "app.adapters.llm.provider_resolver.ProviderModelRepository",
+        _ModelRepository,
+    )
+    monkeypatch.setattr(
+        "app.adapters.llm.provider_resolver.PlatformModelRepository",
+        _PlatformRepository,
+    )
+    resolver = DatabaseProviderResolver(redis_client=_FakeRedis())
+
+    resolved = await resolver(ctx, "team-gateway", "gpt-4.1-mini")
+
+    assert resolved is not None
+    assert resolved.pricing["input"] == 0.27
+    assert resolved.pricing["currency"] == "USD"
+
+
+@pytest.mark.asyncio
+async def test_provider_resolver_workspace_pricing_wins_over_catalog(monkeypatch, ctx):
+    provider = SimpleNamespace(
+        id="provider-1",
+        slug="team-gateway",
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        status="active",
+        base_url=None,
+        credential_secret_id=None,
+        connection_config_json=None,
+        runtime_config_json=None,
+        auth_config_json=None,
+    )
+
+    class _Database:
+        def close(self):
+            return None
+
+    class _Repository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        def get_by_slug(self, slug):
+            return provider
+
+    class _ModelRepository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        def get_by_provider_and_model_id(self, provider_id, model_id):
+            return _provider_model()
+
+    class _PlatformRepository:
+        def __init__(self, db, request_ctx):
+            raise AssertionError("catalog lookup must not run when workspace pricing exists")
+
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.get_db_sync", _Database)
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.ProviderRepository", _Repository)
+    monkeypatch.setattr(
+        "app.adapters.llm.provider_resolver.ProviderModelRepository",
+        _ModelRepository,
+    )
+    monkeypatch.setattr(
+        "app.adapters.llm.provider_resolver.PlatformModelRepository",
+        _PlatformRepository,
+    )
+    resolver = DatabaseProviderResolver(redis_client=_FakeRedis())
+
+    resolved = await resolver(ctx, "team-gateway", "gpt-4.1-mini")
+
+    assert resolved is not None
+    assert resolved.pricing["input"] == 0.4
+
+
+@pytest.mark.asyncio
 async def test_provider_resolver_falls_back_to_database_when_redis_fails(monkeypatch, ctx):
     provider = SimpleNamespace(
         id="provider-1",

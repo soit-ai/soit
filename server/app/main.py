@@ -153,7 +153,10 @@ async def lifespan(app: FastAPI):
                             0.1,
                             app_settings.knowledge_ingest_worker_poll_interval,
                         ),
-                        max_tasks=app_settings.knowledge_ingest_worker_max_tasks,
+                        # A long-running API process must keep ingesting; a
+                        # positive limit is only meaningful for bounded runs.
+                        max_tasks=app_settings.knowledge_ingest_worker_max_tasks
+                        or None,
                         concurrency=app_settings.knowledge_ingest_worker_concurrency,
                     )
                 )
