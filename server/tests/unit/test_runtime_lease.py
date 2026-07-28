@@ -237,6 +237,12 @@ def test_heartbeat_interval_renews_several_times_per_lease():
     assert interval == 90 / lease.LEASE_RENEWALS_PER_LEASE
 
 
+def test_heartbeat_interval_honours_an_explicit_override():
+    # Callers that ask for a fast heartbeat get exactly that; clamping the
+    # override to the floor would stall tests that drive renewals by hand.
+    assert lease.heartbeat_interval_for(90, override=0.01) == 0.01
+
+
 def test_ingest_status_update_releases_lease_on_terminal(db, ctx):
     _queued_task(db, ctx, task_id="task_status_terminal")
     repo = IngestTaskRepository(db, ctx)

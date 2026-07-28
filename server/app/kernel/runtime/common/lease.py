@@ -57,9 +57,13 @@ def heartbeat_interval_for(
     *,
     override: float | None = None,
 ) -> float:
-    """Return the renewal interval that keeps a lease alive comfortably."""
+    """Return the renewal interval that keeps a lease alive comfortably.
+
+    An explicit override is honoured as given, which lets tests drive fast
+    heartbeats; the floor only guards the interval derived from the lease.
+    """
     if override:
-        return max(MIN_HEARTBEAT_INTERVAL_SECONDS, float(override))
+        return float(override)
     return max(
         MIN_HEARTBEAT_INTERVAL_SECONDS,
         lease_seconds / LEASE_RENEWALS_PER_LEASE,

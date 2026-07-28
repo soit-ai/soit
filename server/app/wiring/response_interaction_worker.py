@@ -6,9 +6,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import timedelta
 
-from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.agui.agent import PersistentAgUiAgentEmitter
@@ -17,6 +15,7 @@ from app.infra.db.session import get_db_sync
 from app.kernel.commons.errors import ConflictError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common import lease
 from app.kernel.runtime.db.models.responses import ResponseInteraction
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
 from app.kernel.runtime.tasks.service import TaskService
@@ -42,42 +41,18 @@ class GlobalResponseInteractionWorker:
     ) -> None:
         self.db_factory = db_factory
         self.worker_id = worker_id or f"response-worker-{uuid.uuid4()}"
-        self.lease_seconds = max(
-            30,
-            int(lease_seconds or settings.response_interaction_lease_seconds),
+        self.lease_seconds = lease.normalize_lease_seconds(
+            lease_seconds or settings.response_interaction_lease_seconds
         )
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
 
     def _claim_next(self, db: Session) -> ResponseInteraction | None:
-        now = utc_now()
-        query = (
-            select(ResponseInteraction)
-            .where(
-                or_(
-                    ResponseInteraction.status == "queued",
-                    and_(
-                        ResponseInteraction.status == "running",
-                        ResponseInteraction.lease_expires_at.is_not(None),
-                        ResponseInteraction.lease_expires_at < now,
-                    ),
-                )
-            )
-            .order_by(ResponseInteraction.created_at.asc())
-            .limit(1)
-            .with_for_update(skip_locked=True)
+        return lease.claim_next(
+            db,
+            ResponseInteraction,
+            worker_id=self.worker_id,
+            lease_seconds=self.lease_seconds,
         )
-        result = db.execute(query).scalars().first()
-        if result is None:
-            return None
-        result.status = "running"
-        result.lease_owner = self.worker_id
-        result.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
-        result.attempt_count = int(result.attempt_count or 0) + 1
-        result.updated_at = now
-        db.add(result)
-        db.commit()
-        db.refresh(result)
-        return result
 
     async def _heartbeat(
         self,
@@ -87,65 +62,26 @@ class GlobalResponseInteractionWorker:
         stop: asyncio.Event,
         lease_lost: asyncio.Event,
     ) -> None:
-        interval = self.heartbeat_interval_seconds or max(
-            10.0,
-            self.lease_seconds / 3,
-        )
-        while True:
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=interval)
-                return
-            except TimeoutError:
-                db: Session | None = None
-                try:
-                    db = self.db_factory()
-                    result = db.execute(
-                        update(ResponseInteraction)
-                        .where(
-                            ResponseInteraction.id == interaction_pk,
-                            ResponseInteraction.lease_owner == self.worker_id,
-                            ResponseInteraction.attempt_count == attempt_count,
-                            ResponseInteraction.status == "running",
-                        )
-                        .values(
-                            lease_expires_at=utc_now()
-                            + timedelta(seconds=self.lease_seconds),
-                            updated_at=utc_now(),
-                        )
-                    )
-                    db.commit()
-                    if result.rowcount != 1:
-                        current = db.get(ResponseInteraction, interaction_pk)
-                        owns_terminal = (
-                            current is not None
-                            and current.lease_owner == self.worker_id
-                            and current.attempt_count == attempt_count
-                            and current.status != "running"
-                        )
-                        if not owns_terminal:
-                            logger.warning(
-                                "Durable response interaction lease was lost",
-                                extra={"interaction_id": interaction_id},
-                            )
-                            lease_lost.set()
-                        return
-                except Exception:
-                    logger.exception(
-                        "Durable response interaction heartbeat failed",
-                        extra={"interaction_id": interaction_id},
-                    )
-                finally:
-                    if db is not None:
-                        db.close()
+        await lease.LeaseHeartbeat(
+            self.db_factory,
+            ResponseInteraction,
+            interaction_pk,
+            worker_id=self.worker_id,
+            attempt_count=attempt_count,
+            lease_seconds=self.lease_seconds,
+            interval_seconds=self.heartbeat_interval_seconds,
+            log_label=f"Durable response interaction lease {interaction_id}",
+        ).run(stop, lease_lost)
 
     def _assert_lease(self, interaction_pk: str, attempt_count: int) -> None:
         db = self.db_factory()
         try:
-            current = db.get(ResponseInteraction, interaction_pk)
-            if (
-                current is None
-                or current.lease_owner != self.worker_id
-                or current.attempt_count != attempt_count
+            if not lease.holds_lease(
+                db,
+                ResponseInteraction,
+                interaction_pk,
+                worker_id=self.worker_id,
+                attempt_count=attempt_count,
             ):
                 raise ConflictError("Interaction execution lease was lost")
         finally:
