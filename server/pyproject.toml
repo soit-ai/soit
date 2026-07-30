@@ -62,7 +62,10 @@ dependencies = [
     "opentelemetry-instrumentation-sqlalchemy>=0.64b0",
     "opentelemetry-instrumentation-celery>=0.64b0",
     "opentelemetry-instrumentation-redis>=0.64b0",
-    "mcp==1.28.1",
+    # v1.x is maintenance-only but still the stable line; the upper bound keeps
+    # v2 (2026-07-28 spec, stateless core, no initialize handshake) out until
+    # the adapter is migrated, while still admitting v1 security patches.
+    "mcp>=1.28.1,<2",
     "apprise==1.12.0",
     "ag-ui-protocol==0.1.19",
     "litellm==1.91.1",
