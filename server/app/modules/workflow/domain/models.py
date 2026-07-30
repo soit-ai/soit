@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import DateTime, Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -137,5 +137,25 @@ class WorkflowRun(SQLModel, table=True):
         default=None,
         sa_column=Column(JSON),
     )
+    inputs_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Execution inputs, so a worker can run this without the original request."""
+
+    request_context_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON),
+    )
+    """Caller scope captured at claim time, replayed by the worker."""
+
+    lease_owner: str | None = Field(default=None, nullable=True, index=True)
+    """Worker currently holding the execution lease."""
+
+    lease_expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
+    """Lease expiry; a running execution past this moment is reclaimable."""
+
+    attempt_count: int = Field(default=0)
+    """Number of times this execution has been claimed."""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

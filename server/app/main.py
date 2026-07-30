@@ -104,6 +104,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _handle_startup_failure("task drivers", exc)
 
+    workflow_reaper_coro = None
+    if getattr(app_settings, "workflow_orphan_reaper_enabled", False):
+        try:
+            from app.infra.db.session import get_db_sync
+            from app.modules.workflow.runtime.reaper import run_reaper_loop
+
+            workflow_reaper_coro = run_reaper_loop(
+                get_db_sync,
+                interval_seconds=app_settings.workflow_orphan_reaper_interval,
+            )
+        except Exception as exc:
+            _handle_startup_failure("workflow orphan reaper", exc)
+
     knowledge_worker = None
     if getattr(app_settings, "knowledge_ingest_worker_enabled", False):
         try:
@@ -152,6 +165,8 @@ async def lifespan(app: FastAPI):
 
     background_tasks: list[asyncio.Task] = []
     try:
+        if workflow_reaper_coro is not None:
+            background_tasks.append(asyncio.create_task(workflow_reaper_coro))
         if knowledge_worker is not None:
             background_tasks.append(
                 asyncio.create_task(

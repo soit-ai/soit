@@ -195,6 +195,20 @@ class Settings(BaseSettings):
     knowledge_ingest_worker_lease_seconds: int = 120
     """Lease duration held while one ingestion task executes."""
 
+    # Workflow execution
+    workflow_execution_lease_seconds: int = 120
+    """Lease duration renewed while a workflow execution is running."""
+
+    workflow_orphan_reaper_enabled: bool = False
+    """Fail workflow runs whose execution lease expired without renewal.
+
+    Disabled by default like the other background loops; deployments enable it
+    on the API service, which exists in every topology.
+    """
+
+    workflow_orphan_reaper_interval: float = 30.0
+    """Seconds between orphaned workflow run sweeps."""
+
     # Transactional outbox dispatcher (Phase 1)
     outbox_dispatcher_enabled: bool = False
     """Enable background outbox dispatcher in the API process."""

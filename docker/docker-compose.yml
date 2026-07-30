@@ -224,6 +224,7 @@ services:
         required: false
     environment:
       <<: *server_environment
+      WORKFLOW_ORPHAN_REAPER_ENABLED: ${WORKFLOW_ORPHAN_REAPER_ENABLED:-true}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
     ports:
       - "9200:9200"

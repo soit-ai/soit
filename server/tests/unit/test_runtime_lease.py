@@ -11,6 +11,7 @@ from app.kernel.runtime.common import lease
 from app.modules.knowledge.domain.models import KnowledgeIngestTask
 from app.modules.knowledge.infra.repository import IngestTaskRepository
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+from app.modules.workflow.domain.models import WorkflowRun
 from app.settings.settings import Settings
 
 
@@ -309,6 +310,59 @@ async def test_ingest_worker_loop_still_honours_an_explicit_limit(monkeypatch):
 
     assert total == 3
     assert calls["count"] == 3
+
+
+def test_workflow_runs_are_claimable_and_reclaimable(db, ctx):
+    # Workflow executions carry their own snapshot so a worker can run them
+    # without the originating request.
+    run = WorkflowRun(
+        id="wfr_lease",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        run_id="run_wf_lease",
+        workflow_id="wf_lease",
+        status="queued",
+        inputs_json={"topic": "leases"},
+        request_context_json={
+            "tenant_id": ctx.tenant_id,
+            "workspace_id": ctx.workspace_id,
+            "user_id": ctx.user_id,
+        },
+    )
+    db.add(run)
+    db.commit()
+
+    claimed = lease.claim_next(
+        db,
+        WorkflowRun,
+        worker_id="wf-worker-a",
+        lease_seconds=60,
+    )
+    assert claimed is not None
+    assert claimed.lease_owner == "wf-worker-a"
+    assert claimed.attempt_count == 1
+    assert claimed.inputs_json == {"topic": "leases"}
+    assert claimed.request_context_json["tenant_id"] == ctx.tenant_id
+
+    assert (
+        lease.claim_next(db, WorkflowRun, worker_id="wf-worker-b", lease_seconds=60)
+        is None
+    )
+
+    claimed.lease_expires_at = utc_now() - timedelta(minutes=5)
+    db.add(claimed)
+    db.commit()
+
+    recovered = lease.claim_next(
+        db,
+        WorkflowRun,
+        worker_id="wf-worker-b",
+        lease_seconds=60,
+    )
+    assert recovered is not None
+    assert recovered.id == "wfr_lease"
+    assert recovered.lease_owner == "wf-worker-b"
+    assert recovered.attempt_count == 2
 
 
 def test_requeued_ingest_task_is_claimable_again(db, ctx):

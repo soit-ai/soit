@@ -3,11 +3,122 @@
 import asyncio
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import asdict
+from datetime import timedelta
 
+from sqlmodel import Session as SQLModelSession
+
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common import lease
 from app.modules.workflow.application.service import WorkflowService
+from app.modules.workflow.domain.models import WorkflowRun
+from app.settings.settings import settings
 from app.wiring import get_container
+
+_detached_workflow_tasks: set[asyncio.Task] = set()
+
+
+def _claim_workflow_execution(
+    db,
+    ctx: RequestContext,
+    *,
+    run_id: str,
+    workflow_id: str,
+    inputs: dict,
+) -> str:
+    """Persist a leased WorkflowRun so the execution outlives this request."""
+    lease_seconds = lease.normalize_lease_seconds(
+        settings.workflow_execution_lease_seconds
+    )
+    claim = WorkflowRun(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        run_id=run_id,
+        workflow_id=workflow_id,
+        status="running",
+        inputs_json=dict(inputs or {}),
+        request_context_json=asdict(ctx),
+        lease_owner=f"workflow-api-{uuid.uuid4()}",
+        lease_expires_at=utc_now() + timedelta(seconds=lease_seconds),
+        attempt_count=1,
+    )
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+    return claim.id
+
+
+def _start_detached_execution(
+    *,
+    bind,
+    ctx: RequestContext,
+    plan,
+    claim_id: str,
+) -> asyncio.Task:
+    """Run the plan on an independent session, renewing the claim's lease.
+
+    The task is tracked at module level so it keeps running after the SSE
+    response is closed. Only process death ends it early, and then the lease
+    expiry makes the orphan visible.
+    """
+
+    def _session() -> SQLModelSession:
+        return SQLModelSession(bind=bind, expire_on_commit=False)
+
+    async def _execute() -> None:
+        from app.wiring.services import build_workflow_service
+
+        async def service_engine_execute(exec_db) -> None:
+            service = build_workflow_service(db=exec_db, ctx=ctx)
+            await service.engine.execute(plan)
+
+        claim = None
+        with _session() as probe:
+            claim = probe.get(WorkflowRun, claim_id)
+            worker_id = claim.lease_owner if claim else None
+            attempt = claim.attempt_count if claim else 0
+        stop = asyncio.Event()
+        lease_lost = asyncio.Event()
+        heartbeat = None
+        if worker_id:
+            heartbeat = asyncio.create_task(
+                lease.LeaseHeartbeat(
+                    _session,
+                    WorkflowRun,
+                    claim_id,
+                    worker_id=worker_id,
+                    attempt_count=attempt,
+                    lease_seconds=lease.normalize_lease_seconds(
+                        settings.workflow_execution_lease_seconds
+                    ),
+                    log_label="Workflow execution lease",
+                ).run(stop, lease_lost)
+            )
+        try:
+            with _session() as exec_db:
+                try:
+                    await service_engine_execute(exec_db)
+                finally:
+                    # The engine leaves its final run transition uncommitted
+                    # (request sessions used to flush it during teardown).
+                    # Closing without committing would roll the terminal
+                    # status back and strand the run as "running".
+                    exec_db.commit()
+        finally:
+            stop.set()
+            if heartbeat is not None:
+                await heartbeat
+            # The engine clears the lease on its terminal writes; a cancelled
+            # or interrupted attempt may leave the claim running, in which
+            # case the reaper resolves it once the lease lapses.
+
+    task = asyncio.create_task(_execute())
+    _detached_workflow_tasks.add(task)
+    task.add_done_callback(_detached_workflow_tasks.discard)
+    return task
 
 
 def _unwrap_model(row):
@@ -138,10 +249,8 @@ class SSEHandlers:
             yield "event: compiled\n"
             yield f"data: {json.dumps({'run_id': run_id, 'status': 'compiled'})}\n\n"
 
-            # Reuse the workflow service engine so SSE execution matches normal runtime wiring.
             db = self.workflow_service.db
             container = get_container()
-            execution_engine = self.workflow_service.engine
             event_bus = container.get_event_bus()
             subscription_id = await event_bus.subscribe(
                 _event_handler,
@@ -158,8 +267,26 @@ class SSEHandlers:
                 },
             )
 
-            # Start execution in background
-            execution_task = asyncio.create_task(execution_engine.execute(execution_plan))
+            # Claim the execution before it starts: the leased row with its
+            # input snapshot is what makes the run recoverable evidence rather
+            # than request-local state.
+            claim_id = _claim_workflow_execution(
+                db,
+                ctx,
+                run_id=run_id,
+                workflow_id=workflow_id,
+                inputs=inputs,
+            )
+
+            # Execution is detached from this request: it runs on its own
+            # database session and survives the SSE consumer disconnecting.
+            # This stream only tails persisted events.
+            execution_task = _start_detached_execution(
+                bind=db.get_bind(),
+                ctx=ctx,
+                plan=execution_plan,
+                claim_id=claim_id,
+            )
 
             while True:
                 if execution_task.done() and event_queue.empty():
@@ -227,8 +354,20 @@ class SSEHandlers:
                 yield f"data: {json.dumps({'run_id': run_id, 'error': str(exec_error)})}\n\n"
                 return
 
-            # Get final run status
-            run = _unwrap_model(db.get(Run, run_id))
+            # Get final run status. The executor wrote it from a detached
+            # session, so bypass anything this session cached.
+            final_query = (
+                select(Run)
+                .where(
+                    and_(
+                        Run.id == run_id,
+                        Run.tenant_id == ctx.tenant_id,
+                        Run.workspace_id == ctx.workspace_id,
+                    )
+                )
+                .execution_options(populate_existing=True)
+            )
+            run = _unwrap_model(db.exec(final_query).first())
 
             if run:
                 yield "event: complete\n"
@@ -254,8 +393,10 @@ class SSEHandlers:
                     await event_bus.unsubscribe(subscription_id)
                 except Exception:
                     pass
-            if execution_task and not execution_task.done():
-                execution_task.cancel()
+            # Deliberately do not cancel execution_task: the consumer leaving
+            # must not abort a side-effectful workflow. Cancellation goes
+            # through the cancel endpoint, which the executor observes at node
+            # boundaries via the persisted run status.
 
     async def stream_run(
         self,
@@ -341,7 +482,11 @@ class SSEHandlers:
                     Run.workspace_id == ctx.workspace_id,
                 )
             )
-            run = _unwrap_model(db.exec(run_query).first())
+            # The execution writes from its own session, so this tailer must
+            # bypass any instance this session cached earlier.
+            run = _unwrap_model(
+                db.exec(run_query.execution_options(populate_existing=True)).first()
+            )
             if not run:
                 yield "event: error\n"
                 yield f"data: {json.dumps({'run_id': run_id, 'error': 'Run not found'})}\n\n"
@@ -457,7 +602,16 @@ class SSEHandlers:
                         for line in _emit_step_event(payload, step.id):
                             yield line
                         known_step_ids.add(step.id)
-                    run = _unwrap_model(db.get(Run, run_id)) or run
+                    # db.get would return the cached instance unchanged; the
+                    # writer is another session, so force a fresh read.
+                    run = (
+                        _unwrap_model(
+                            db.exec(
+                                run_query.execution_options(populate_existing=True)
+                            ).first()
+                        )
+                        or run
+                    )
                     next_fallback_at = asyncio.get_running_loop().time() + fallback_interval
                     continue
 

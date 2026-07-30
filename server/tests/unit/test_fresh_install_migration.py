@@ -35,6 +35,9 @@ DROP_ENTRY_TYPE_PATH = (
 CREDIT_LEDGER_PATH = (
     VERSIONS_ROOT / "20260728200000_credit_ledger.py"
 )
+WORKFLOW_RUN_LEASE_PATH = (
+    VERSIONS_ROOT / "20260728220000_workflow_run_lease.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -79,6 +82,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         BILLING_SEMANTICS_PATH.name,
         DROP_ENTRY_TYPE_PATH.name,
         CREDIT_LEDGER_PATH.name,
+        WORKFLOW_RUN_LEASE_PATH.name,
     ]
 
     module = _load_baseline()
@@ -130,6 +134,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     ledger_migration = importlib.util.module_from_spec(ledger_spec)
     ledger_spec.loader.exec_module(ledger_migration)
     assert ledger_migration.down_revision == drop_migration.revision
+
+    workflow_lease_spec = importlib.util.spec_from_file_location(
+        "workflow_run_lease", WORKFLOW_RUN_LEASE_PATH
+    )
+    assert workflow_lease_spec and workflow_lease_spec.loader
+    workflow_lease_migration = importlib.util.module_from_spec(workflow_lease_spec)
+    workflow_lease_spec.loader.exec_module(workflow_lease_migration)
+    assert workflow_lease_migration.down_revision == ledger_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

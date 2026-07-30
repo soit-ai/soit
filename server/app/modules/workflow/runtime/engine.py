@@ -432,19 +432,47 @@ class ExecutionEngine:
             self.db.add(workflow_run_row)
             self.db.flush()
         else:
-            workflow_run_row = WorkflowRun(
-                tenant_id=self.ctx.tenant_id,
-                workspace_id=self.ctx.workspace_id,
-                run_id=plan.run_id,
-                workflow_id=plan.subject_id,
-                total_nodes=total_nodes,
-                completed_nodes=0,
-                failed_nodes=0,
-                waiting_nodes=total_nodes,
-                status="running",
+            from sqlalchemy import select as sa_select
+
+            # A streaming endpoint claims the WorkflowRun (with its lease and
+            # input snapshot) before execution starts. Adopt that row instead
+            # of creating a duplicate aggregate for the same run.
+            claimed = (
+                self.db.execute(
+                    sa_select(WorkflowRun).where(
+                        WorkflowRun.tenant_id == self.ctx.tenant_id,
+                        WorkflowRun.workspace_id == self.ctx.workspace_id,
+                        WorkflowRun.run_id == plan.run_id,
+                        WorkflowRun.status.in_(("queued", "running")),
+                    )
+                )
+                .scalars()
+                .first()
             )
-            self.db.add(workflow_run_row)
-            self.db.flush()
+            if claimed is not None:
+                claimed.status = "running"
+                claimed.total_nodes = total_nodes
+                claimed.completed_nodes = 0
+                claimed.failed_nodes = 0
+                claimed.waiting_nodes = total_nodes
+                claimed.updated_at = utc_now()
+                self.db.add(claimed)
+                self.db.flush()
+                workflow_run_row = claimed
+            else:
+                workflow_run_row = WorkflowRun(
+                    tenant_id=self.ctx.tenant_id,
+                    workspace_id=self.ctx.workspace_id,
+                    run_id=plan.run_id,
+                    workflow_id=plan.subject_id,
+                    total_nodes=total_nodes,
+                    completed_nodes=0,
+                    failed_nodes=0,
+                    waiting_nodes=total_nodes,
+                    status="running",
+                )
+                self.db.add(workflow_run_row)
+                self.db.flush()
             workflow_run_id = workflow_run_row.id
 
         # Get ports from container
@@ -496,6 +524,10 @@ class ExecutionEngine:
             row = self.db.get(WorkflowRun, workflow_run_id)
             if row is not None:
                 row.status = "failed"
+                # The execution attempt is over; a terminal row must never
+                # look like live leased work.
+                row.lease_owner = None
+                row.lease_expires_at = None
                 row.updated_at = utc_now()
                 self.db.add(row)
             self.db.commit()
@@ -509,6 +541,8 @@ class ExecutionEngine:
             else:
                 row.status = "succeeded"
                 row.checkpoint_json = None
+            row.lease_owner = None
+            row.lease_expires_at = None
             row.updated_at = utc_now()
             self.db.add(row)
         self.db.commit()
