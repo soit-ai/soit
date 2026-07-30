@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from app.adapters.tools.router import RegistryToolRouterPort
+from app.kernel.ports.tools.sandbox import SandboxToolPort
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.infra.db.session import get_db_sync
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
@@ -304,7 +306,11 @@ async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: S
             workflow_ref=workflow_ref,
             workflow_inputs=_workflow_inputs(),
         ),
-        tool_port=RegistryToolRouterPort(),
+        # The regression exercises real agents against real bindings. Isolate
+        # the ticket tool so rehearsing a release does not file real tickets,
+        # and mark the runs so their spend is not counted as production.
+        tool_port=SandboxToolPort(RegistryToolRouterPort()),
+        trace_writer=TraceWriter(db, ctx, sandbox=True),
         response_service=build_response_service(db=db, ctx=ctx),
         workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),

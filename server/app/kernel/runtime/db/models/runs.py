@@ -78,6 +78,14 @@ class Run(SQLModel, table=True):
     status: str = Field()
     """Status: queued, running, paused, succeeded, failed, canceled."""
 
+    sandbox: bool = Field(default=False, index=True)
+    """Whether this run was a rehearsal rather than real work.
+
+    Pre-release regression executes real agents. Marking those runs keeps their
+    cost and evidence distinguishable from production activity instead of
+    inflating it.
+    """
+
     input_summary: str | None = Field(default=None, max_length=8192, sa_column=Column(Text))
     """Input summary (bounded to 8KB)."""
 

@@ -41,6 +41,9 @@ WORKFLOW_RUN_LEASE_PATH = (
 API_KEY_SCOPES_PATH = (
     VERSIONS_ROOT / "20260728230000_api_key_scopes_and_expiry.py"
 )
+RUN_SANDBOX_PATH = (
+    VERSIONS_ROOT / "20260728240000_run_sandbox_flag.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -87,6 +90,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         CREDIT_LEDGER_PATH.name,
         WORKFLOW_RUN_LEASE_PATH.name,
         API_KEY_SCOPES_PATH.name,
+        RUN_SANDBOX_PATH.name,
     ]
 
     module = _load_baseline()
@@ -154,6 +158,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     api_key_migration = importlib.util.module_from_spec(api_key_spec)
     api_key_spec.loader.exec_module(api_key_migration)
     assert api_key_migration.down_revision == workflow_lease_migration.revision
+
+    sandbox_spec = importlib.util.spec_from_file_location(
+        "run_sandbox_flag", RUN_SANDBOX_PATH
+    )
+    assert sandbox_spec and sandbox_spec.loader
+    sandbox_migration = importlib.util.module_from_spec(sandbox_spec)
+    sandbox_spec.loader.exec_module(sandbox_migration)
+    assert sandbox_migration.down_revision == api_key_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

@@ -131,6 +131,7 @@ class TraceWriter:
         db: Session,
         ctx: RequestContext,
         event_bus: EventBus | None = None,
+        sandbox: bool = False,
     ):
         """Initialize trace writer.
 
@@ -138,10 +139,12 @@ class TraceWriter:
             db: Database session.
             ctx: Request context.
             event_bus: Optional event bus for trace events.
+            sandbox: Mark every run this writer creates as a rehearsal.
         """
         self.db = db
         self.ctx = ctx
         self.event_bus = event_bus
+        self.sandbox = sandbox
 
     def _emit_event(
         self,
@@ -205,6 +208,7 @@ class TraceWriter:
         parent_run_id: str | None = None,
         source_run_id: str | None = None,
         attempt_no: int = 1,
+        sandbox: bool | None = None,
     ) -> Run:
         """Create a new run.
 
@@ -244,6 +248,7 @@ class TraceWriter:
             subject_id=resolved_subject_id,
             subject_version_id=subject_version_id,
             status="queued",
+            sandbox=self.sandbox if sandbox is None else sandbox,
             input_summary=input_summary[:8192] if input_summary else None,
             started_at=utc_now(),
         )

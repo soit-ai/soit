@@ -1266,8 +1266,14 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        include_sandbox: bool = False,
     ) -> RunCostSummaryResponse:
-        """Aggregate cost metrics for runs."""
+        """Aggregate cost metrics for runs.
+
+        Rehearsal runs are excluded unless asked for: pre-release regression
+        executes real agents, and counting that spend as production would
+        misstate what the workspace actually cost.
+        """
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
@@ -1275,6 +1281,8 @@ class RunService:
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
         ]
+        if not include_sandbox:
+            clauses.append(Run.sandbox.is_(False))
         if mode:
             clauses.append(Run.mode == mode)
         if kind:
