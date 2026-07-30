@@ -161,10 +161,17 @@ def test_identity_api_key_lifecycle(db):
         workspace_role=WORKSPACE_ROLE_OWNER,
     )
 
-    api_key, raw_key = service.create_api_key(ApiKeyCreate(name="primary"), ctx)
+    api_key, raw_key = service.create_api_key(
+        ApiKeyCreate(name="primary", scopes=["write"], expires_in_days=30),
+        ctx,
+    )
     assert raw_key.startswith("sk_")
     assert api_key.key_prefix == raw_key[:12]
     assert api_key.status == "active"
+    # "write" implies "read", so the stored grant is explicit rather than
+    # requiring every caller to expand the hierarchy.
+    assert api_key.scopes_json == ["read", "write"]
+    assert api_key.expires_at is not None
 
     keys = service.list_api_keys(ctx, limit=10, offset=0)
     assert any(item.id == api_key.id for item in keys)
@@ -173,6 +180,9 @@ def test_identity_api_key_lifecycle(db):
     assert rotated_key.id != api_key.id
     assert rotated_key.status == "active"
     assert rotated_raw.startswith("sk_")
+    # Rotation replaces the secret, not the grant.
+    assert rotated_key.scopes_json == ["read", "write"]
+    assert rotated_key.expires_at is not None
 
     old_key = service.api_key_repo.get_by_id(api_key.id)
     assert old_key is not None

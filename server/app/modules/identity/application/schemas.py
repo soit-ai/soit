@@ -6,7 +6,9 @@ Identity domain Pydantic schemas for API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.kernel.identity.api_key_scopes import unknown_scopes
 
 
 # Request schemas
@@ -169,6 +171,25 @@ class ApiKeyCreate(BaseModel):
     """Schema for creating an API key."""
 
     name: str = Field(..., min_length=1, max_length=255, description="API key name")
+    scopes: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Granted scopes (read, write, admin); a ceiling on the key",
+    )
+    expires_in_days: int = Field(
+        ...,
+        ge=1,
+        le=365,
+        description="Lifetime in days; long-lived credentials must be reissued",
+    )
+
+    @field_validator("scopes")
+    @classmethod
+    def _known_scopes(cls, value: list[str]) -> list[str]:
+        unknown = unknown_scopes(value)
+        if unknown:
+            raise ValueError(f"Unknown API key scopes: {', '.join(unknown)}")
+        return value
 
 
 class ApiKeyResponse(BaseModel):
@@ -181,6 +202,8 @@ class ApiKeyResponse(BaseModel):
     name: str
     key_prefix: str
     status: str
+    scopes: list[str] = Field(default=[], validation_alias="scopes_json")
+    expires_at: datetime | None = None
     last_used_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime

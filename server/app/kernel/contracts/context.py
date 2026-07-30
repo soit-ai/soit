@@ -47,13 +47,26 @@ class RequestContext:
     tool_daily_quota: int | None = None
     """Optional tool daily request quota."""
 
+    scopes: frozenset[str] | None = None
+    """Ceiling imposed by a programmatic credential.
+
+    None means no credential restriction (an interactive session). A set
+    narrows what the caller's role would otherwise allow; it never widens it.
+    """
+
+    def has_scope(self, scope: str) -> bool:
+        """Return whether the credential permits this scope."""
+        return self.scopes is None or scope in self.scopes
+
     def is_tenant_admin(self) -> bool:
         """Check if user is tenant admin or owner.
 
         Returns:
             True if user has tenant admin/owner role.
         """
-        return self.tenant_role in ("Owner", "Admin")
+        # Tenant administration is the widest authority available, so a
+        # credential must carry the admin scope to exercise it.
+        return self.tenant_role in ("Owner", "Admin") and self.has_scope("admin")
 
     def is_workspace_admin(self) -> bool:
         """Check if user is workspace admin.
@@ -61,7 +74,7 @@ class RequestContext:
         Returns:
             True if user is workspace admin.
         """
-        return self.workspace_role == "Admin"
+        return self.workspace_role == "Admin" and self.has_scope("admin")
 
     def is_workspace_owner(self) -> bool:
         """Check if user is workspace owner.
@@ -69,7 +82,7 @@ class RequestContext:
         Returns:
             True if user is workspace owner.
         """
-        return self.workspace_role == "Owner"
+        return self.workspace_role == "Owner" and self.has_scope("admin")
 
     def is_workspace_dev(self) -> bool:
         """Check if user is workspace dev (write-level) or higher.
@@ -77,7 +90,9 @@ class RequestContext:
         Returns:
             True if user has workspace dev/admin/owner role.
         """
-        return self.workspace_role in ("Owner", "Admin", "Dev")
+        return self.workspace_role in ("Owner", "Admin", "Dev") and self.has_scope(
+            "write"
+        )
 
     def is_workspace_viewer(self) -> bool:
         """Check if user has workspace read access.
@@ -85,7 +100,12 @@ class RequestContext:
         Returns:
             True if user has any workspace role.
         """
-        return self.workspace_role in ("Owner", "Admin", "Dev", "Viewer")
+        return self.workspace_role in (
+            "Owner",
+            "Admin",
+            "Dev",
+            "Viewer",
+        ) and self.has_scope("read")
 
     def can_write(self) -> bool:
         """Check if user can write to workspace.

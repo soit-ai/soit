@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { NativeSelect } from '@/components/ui/native-select'
 import { Key, Plus, Copy, RefreshCw, Eye, EyeOff, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -16,6 +17,7 @@ import {
   revokeApiKey,
   rotateApiKey,
   type ApiKeyItem,
+  type ApiKeyScope,
 } from '@/services/api-key-service'
 import {
   getWorkspaceEgressPolicy,
@@ -26,6 +28,12 @@ import {
   type EgressPolicyAudit,
 } from '@/services/security-service'
 import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
+
+const SCOPE_LABELS: Record<string, string> = {
+  read: '只读',
+  write: '读写',
+  admin: '管理',
+}
 
 type PolicyFormState = {
   llm_rate_limit_per_minute: string
@@ -72,6 +80,10 @@ function Page() {
   const [showKey, setShowKey] = useState<Record<string, boolean>>({})
   const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({})
   const [newKeyName, setNewKeyName] = useState('')
+  // Scope and lifetime are required by the API: a key must never silently
+  // inherit its owner's full role or live forever.
+  const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>('read')
+  const [newKeyExpiresInDays, setNewKeyExpiresInDays] = useState(90)
   const [policyLoading, setPolicyLoading] = useState(false)
   const [policyForm, setPolicyForm] = useState<PolicyFormState>({
     llm_rate_limit_per_minute: '',
@@ -186,7 +198,11 @@ function Page() {
     }
     try {
       setActionLoading('create')
-      const result = await createApiKey({ name: newKeyName })
+      const result = await createApiKey({
+        name: newKeyName,
+        scopes: [newKeyScope],
+        expires_in_days: newKeyExpiresInDays,
+      })
       setApiKeys(prev => [result.item, ...prev])
       setRevealedKeys(prev => ({ ...prev, [result.item.id]: result.api_key }))
       setNewKeyName('')
@@ -330,6 +346,27 @@ function Page() {
                     placeholder="新密钥名称"
                     className="w-full sm:w-48"
                   />
+                  <NativeSelect
+                    aria-label="密钥权限范围"
+                    className="w-full sm:w-32"
+                    value={newKeyScope}
+                    onChange={(e) => setNewKeyScope(e.target.value as ApiKeyScope)}
+                  >
+                    <option value="read">只读</option>
+                    <option value="write">读写</option>
+                    <option value="admin">管理</option>
+                  </NativeSelect>
+                  <NativeSelect
+                    aria-label="密钥有效期"
+                    className="w-full sm:w-32"
+                    value={String(newKeyExpiresInDays)}
+                    onChange={(e) => setNewKeyExpiresInDays(Number(e.target.value))}
+                  >
+                    <option value="30">30 天</option>
+                    <option value="90">90 天</option>
+                    <option value="180">180 天</option>
+                    <option value="365">365 天</option>
+                  </NativeSelect>
                   <Button onClick={handleCreateKey} disabled={actionLoading === 'create'}>
                     <Plus className="mr-2 h-4 w-4" />
                     创建密钥
@@ -357,6 +394,11 @@ function Page() {
                           <Badge variant={apiKey.status === 'active' ? 'default' : 'destructive'}>
                             {statusLabel}
                           </Badge>
+                          {(apiKey.scopes ?? []).map((scope) => (
+                            <Badge key={scope} variant="outline">
+                              {SCOPE_LABELS[scope] ?? scope}
+                            </Badge>
+                          ))}
                         </div>
                         <div className="flex items-center gap-2">
                           {rawKey && (
@@ -407,6 +449,7 @@ function Page() {
                       </div>
                       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                         <span>创建于: {apiKey.created_at}</span>
+                        <span>过期时间: {apiKey.expires_at || '-'}</span>
                         <span>最后使用: {apiKey.last_used_at || '-'}</span>
                       </div>
                     </div>

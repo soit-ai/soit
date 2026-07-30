@@ -1,6 +1,7 @@
 """Unit tests for authoritative workspace access resolution."""
 
 import hashlib
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +9,8 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.auth.context_resolver import ContextResolver
-from app.kernel.commons.errors import ForbiddenError
+from app.kernel.commons.errors import ForbiddenError, UnauthorizedError
+from app.kernel.commons.time import utc_now
 from app.middleware import auth as auth_middleware
 from app.modules.identity.domain.models import (
     ApiKey,
@@ -152,6 +154,94 @@ async def test_tenant_role_comes_from_authoritative_membership() -> None:
     assert context.tenant_role == "Viewer"
 
 
+def test_api_key_scopes_reach_the_request_context(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-scoped"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Read only key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read"],
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=_WorkspaceAccessResolver(),
+    )
+
+    context = resolver.resolve_from_api_key(raw_key, None)
+
+    # The stub resolver reports an Owner workspace role; the scope must still
+    # cap the credential to reads.
+    assert context.scopes == frozenset({"read"})
+    assert context.can_read()
+    assert not context.can_write()
+
+
+def test_api_key_past_its_expiry_is_rejected(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-expired"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Expired key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read"],
+            expires_at=utc_now() - timedelta(minutes=1),
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=_WorkspaceAccessResolver(),
+    )
+
+    with pytest.raises(UnauthorizedError, match="expired"):
+        resolver.resolve_from_api_key(raw_key, None)
+
+
+def test_api_key_without_a_usable_scope_is_refused(db, monkeypatch) -> None:
+    raw_key = "soit-test-key-unscoped"
+    db.add(
+        ApiKey(
+            tenant_id="tenant-1",
+            workspace_id="workspace-a",
+            user_id="user-1",
+            name="Legacy key",
+            key_prefix="soit-test",
+            key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=[],
+        )
+    )
+    db.commit()
+
+    from app.infra.db import session as session_module
+
+    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=_WorkspaceAccessResolver(),
+    )
+
+    # Falling back to the owner's role is exactly the inheritance scopes remove.
+    with pytest.raises(ForbiddenError, match="usable scope"):
+        resolver.resolve_from_api_key(raw_key, None)
+
+
 def test_api_key_workspace_header_overrides_bound_workspace(db, monkeypatch) -> None:
     raw_key = "soit-test-key-override"
     db.add(
@@ -162,6 +252,7 @@ def test_api_key_workspace_header_overrides_bound_workspace(db, monkeypatch) -> 
             name="Test key",
             key_prefix="soit-test",
             key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read", "write"],
         )
     )
     db.commit()
@@ -192,6 +283,7 @@ def test_api_key_without_header_keeps_bound_workspace(db, monkeypatch) -> None:
             name="Test key",
             key_prefix="soit-test",
             key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read", "write"],
         )
     )
     db.commit()
@@ -221,6 +313,7 @@ def test_api_key_workspace_header_requires_target_membership(db, monkeypatch) ->
             name="Test key",
             key_prefix="soit-test",
             key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read", "write"],
         )
     )
     db.commit()
@@ -249,6 +342,7 @@ def test_api_key_requires_current_workspace_membership(db, monkeypatch) -> None:
             name="Test key",
             key_prefix="soit-test",
             key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            scopes_json=["read", "write"],
         )
     )
     db.commit()

@@ -3,6 +3,9 @@ import type { PaginatedResponse } from '@/types/api'
 
 export type { PaginatedResponse } from '@/types/api'
 
+/** A scope is a ceiling on the key, intersected with the owner's role. */
+export type ApiKeyScope = 'read' | 'write' | 'admin'
+
 export interface ApiKeyItem {
   id: string
   tenant_id: string
@@ -11,6 +14,8 @@ export interface ApiKeyItem {
   name: string
   key_prefix: string
   status: string
+  scopes: ApiKeyScope[]
+  expires_at?: string | null
   last_used_at?: string | null
   revoked_at?: string | null
   created_at: string
@@ -34,7 +39,11 @@ export const listApiKeys = (params?: {
   return get<PaginatedResponse<ApiKeyItem>>('/api-keys', params)
 }
 
-export const createApiKey = (data: { name: string }): Promise<ApiKeyCreateResponse> => {
+export const createApiKey = (data: {
+  name: string
+  scopes: ApiKeyScope[]
+  expires_in_days: number
+}): Promise<ApiKeyCreateResponse> => {
   return post<ApiKeyCreateResponse>('/api-keys', data)
 }
 

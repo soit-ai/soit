@@ -4,6 +4,7 @@ Resolve RequestContext from request + membership.
 """
 
 import hashlib
+from datetime import UTC
 
 from fastapi import Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -11,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.kernel.commons.errors import ForbiddenError, NotFoundError, UnauthorizedError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.workspace_access import WorkspaceAccessResolver
 
@@ -140,6 +142,20 @@ class ContextResolver:
             key = api_repo.get_by_hash(key_hash)
             if not key or key.status != "active":
                 raise UnauthorizedError("Invalid or revoked API key")
+            expires_at = key.expires_at
+            if expires_at is not None:
+                # Not every backend returns an aware datetime for a timestamptz
+                # column; expiries are stored in UTC, so read a naive value as
+                # UTC rather than letting the comparison raise.
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=UTC)
+                if expires_at <= utc_now():
+                    raise UnauthorizedError("API key has expired")
+            scopes = normalize_scopes(key.scopes_json)
+            if not scopes:
+                # A key with no usable scope must not fall back to the owner's
+                # role; that is exactly the inheritance this replaces.
+                raise ForbiddenError("API key has no usable scope")
 
             target_workspace_id = workspace_id_header or key.workspace_id
             access = self.workspace_access_resolver.resolve(
@@ -166,6 +182,7 @@ class ContextResolver:
                 user_id=key.user_id,
                 tenant_role=tenant_role,
                 workspace_role=access.workspace_role,
+                scopes=scopes,
                 llm_rate_limit_per_minute=access.llm_rate_limit_per_minute,
                 tool_rate_limit_per_minute=access.tool_rate_limit_per_minute,
                 llm_daily_quota=access.llm_daily_quota,

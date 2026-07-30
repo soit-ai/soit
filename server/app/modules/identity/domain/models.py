@@ -5,7 +5,7 @@ Identity domain DB models (users/tenants/workspaces/memberships).
 
 from datetime import datetime
 
-from sqlalchemy import PrimaryKeyConstraint
+from sqlalchemy import DateTime, PrimaryKeyConstraint
 from sqlmodel import JSON, Column, Field, Index, SQLModel, UniqueConstraint
 
 from app.kernel.commons.ids import generate_ulid
@@ -231,6 +231,15 @@ class ApiKey(SQLModel, table=True):
 
     status: str = Field(default="active")
     """Status: active, revoked."""
+
+    scopes_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    """Granted scopes; a ceiling on what this key may do."""
+
+    expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
+    """Expiry; requests presenting the key after this moment are rejected."""
 
     last_used_at: datetime | None = Field(default=None)
     """Last used timestamp."""

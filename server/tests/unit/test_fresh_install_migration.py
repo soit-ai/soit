@@ -38,6 +38,9 @@ CREDIT_LEDGER_PATH = (
 WORKFLOW_RUN_LEASE_PATH = (
     VERSIONS_ROOT / "20260728220000_workflow_run_lease.py"
 )
+API_KEY_SCOPES_PATH = (
+    VERSIONS_ROOT / "20260728230000_api_key_scopes_and_expiry.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -83,6 +86,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         DROP_ENTRY_TYPE_PATH.name,
         CREDIT_LEDGER_PATH.name,
         WORKFLOW_RUN_LEASE_PATH.name,
+        API_KEY_SCOPES_PATH.name,
     ]
 
     module = _load_baseline()
@@ -142,6 +146,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     workflow_lease_migration = importlib.util.module_from_spec(workflow_lease_spec)
     workflow_lease_spec.loader.exec_module(workflow_lease_migration)
     assert workflow_lease_migration.down_revision == ledger_migration.revision
+
+    api_key_spec = importlib.util.spec_from_file_location(
+        "api_key_scopes_and_expiry", API_KEY_SCOPES_PATH
+    )
+    assert api_key_spec and api_key_spec.loader
+    api_key_migration = importlib.util.module_from_spec(api_key_spec)
+    api_key_spec.loader.exec_module(api_key_migration)
+    assert api_key_migration.down_revision == workflow_lease_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

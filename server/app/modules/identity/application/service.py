@@ -6,6 +6,7 @@ Identity domain business logic.
 import asyncio
 import threading
 from collections.abc import Callable
+from datetime import timedelta
 
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.rbac import (
     TENANT_ROLE_ADMIN,
@@ -663,6 +665,8 @@ class IdentityService:
             key_prefix=key_prefix,
             key_hash=key_hash,
             status="active",
+            scopes_json=sorted(normalize_scopes(data.scopes)),
+            expires_at=utc_now() + timedelta(days=data.expires_in_days),
         )
         api_key = self.api_key_repo.create(api_key)
         return api_key, raw_key
@@ -714,7 +718,18 @@ class IdentityService:
         old_key.updated_at = utc_now()
         self.api_key_repo.update(old_key)
 
-        new_key_data = ApiKeyCreate(name=old_key.name)
+        # Rotation replaces the secret, not the grant: carry the scopes over and
+        # restart the same lifetime rather than silently widening either.
+        remaining_days = 1
+        if old_key.expires_at is not None:
+            remaining_days = max(
+                1, (old_key.expires_at - old_key.created_at).days or 1
+            )
+        new_key_data = ApiKeyCreate(
+            name=old_key.name,
+            scopes=list(old_key.scopes_json or []),
+            expires_in_days=min(365, remaining_days),
+        )
         return self.create_api_key(new_key_data, ctx)
 
     def create_resource_grant(
