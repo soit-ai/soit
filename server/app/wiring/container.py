@@ -249,6 +249,28 @@ class Container:
             timeout_seconds=settings.llm_timeout_seconds,
         )
 
+    def get_content_safety_port(self, ctx: RequestContext):
+        """Return the configured content safety adapter, or None.
+
+        None means the deployment has not plugged in a classifier. Callers must
+        treat that as "no such capability" rather than "everything is safe".
+        """
+        if not settings.content_safety_enabled:
+            return None
+        endpoint = (settings.content_safety_endpoint or "").strip()
+        if not endpoint:
+            return None
+
+        from app.adapters.safety.http_content_safety import HttpContentSafetyPort
+
+        return HttpContentSafetyPort(
+            ctx=ctx,
+            endpoint=endpoint,
+            timeout_seconds=settings.content_safety_timeout_seconds,
+            fail_closed=settings.content_safety_fail_closed,
+            api_key=settings.content_safety_api_key,
+        )
+
     def get_tool_port(
         self,
         ctx: RequestContext,

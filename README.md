@@ -100,6 +100,10 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Full audit log of privileged operations and runtime tool use
 - Cost attribution by run, model, tool, workflow, and workspace
 - Trace timeline and replay for agent, workflow, response, and tool-call execution
+- Separation of duties: changing egress policy, secrets, or installed plugins requires workspace Owner/Admin, not the Dev role that builds and runs agents
+- Scoped, expiring API keys: a key carries an explicit read/write/admin ceiling and never inherits its owner's full role
+
+**Content safety and PII detection are not implemented in SOIT.** The runtime exposes a content safety port and an HTTP adapter, so a deployment can plug in a classifier it operates; inspection outcomes then become part of run evidence. With no adapter configured, the platform performs no content or PII inspection at all.
 
 ## Quick start
 

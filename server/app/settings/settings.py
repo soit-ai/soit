@@ -274,6 +274,28 @@ class Settings(BaseSettings):
     plugin_integrity_required: bool = False
     """Require digest verification for plugin package installs."""
 
+    # Content safety / PII
+    content_safety_enabled: bool = False
+    """Enable content safety and PII inspection. Requires an endpoint."""
+
+    content_safety_endpoint: str | None = None
+    """HTTP endpoint of the external classifier the deployment operates."""
+
+    content_safety_api_key: str | None = None
+    """Optional bearer token for the classifier."""
+
+    content_safety_timeout_seconds: float = 10.0
+    """Per-inspection timeout."""
+
+    content_safety_fail_closed: bool = True
+    """Refuse content when the classifier is unreachable."""
+
+    content_safety_inspect_inbound: bool = True
+    """Inspect content entering the runtime."""
+
+    content_safety_inspect_outbound: bool = True
+    """Inspect content leaving the runtime."""
+
     # Feature flags
     enable_egress_policy: bool = True
     """Enable egress policy (deny-by-default)."""
@@ -346,6 +368,10 @@ class Settings(BaseSettings):
             )
         if not self.plugin_integrity_required:
             raise ValueError("Production requires plugin package digest verification")
+        if self.content_safety_enabled and not (self.content_safety_endpoint or "").strip():
+            # Enabled without an endpoint inspects nothing while reporting that
+            # inspection is on, which is worse than declaring it unavailable.
+            raise ValueError("Content safety is enabled but no endpoint is configured")
         if not self.otel_enabled:
             raise ValueError("Production requires OpenTelemetry tracing")
         if not (self.otel_exporter_otlp_endpoint or "").strip():
