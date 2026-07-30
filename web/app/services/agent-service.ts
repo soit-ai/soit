@@ -273,6 +273,12 @@ export const publishAgentVersion = (
   return post<Agent>(`/agents/${agentId}/publish`, data)
 }
 
+/**
+ * @deprecated Use the `/responses` AG-UI transport instead. This route now
+ * claims a persisted interaction and tails it, so it emits AG-UI events rather
+ * than the former `agent.*` frames, and it requires the durable interaction
+ * worker to be enabled.
+ */
 export const streamAgentExecution = (
   agentId: string,
   data: AgentRunRequest,

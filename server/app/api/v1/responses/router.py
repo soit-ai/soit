@@ -28,6 +28,10 @@ from app.api.v1.responses.dependencies import (
     get_response_service,
 )
 from app.api.v1.responses.handlers import ResponseHandlers
+from app.api.v1.responses.interaction_stream import (
+    format_agui_sse,
+    stream_claimed_interaction,
+)
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -89,10 +93,6 @@ class _DisconnectAwareQueue(asyncio.Queue[dict | None]):
 
 def _format_sse(event_type: str, payload: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
-def _format_agui_sse(event_id: str, payload: dict) -> str:
-    return f"id: {event_id}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def _resolve_after_sequence(
@@ -298,55 +298,11 @@ async def create_response(
 
         request_hash = str(internal_payload.metadata.get("request_hash") or payload.run_id)
 
-        async def generate_persisted(
-            response_id: str,
-            *,
-            interaction_id: str | None = None,
-        ):
-            async for item in tail_response_events(
+        def generate_claimed_interaction(interaction_id: str):
+            return stream_claimed_interaction(
                 projection_coordinator.response_service,
-                response_id,
-                interaction_id=interaction_id,
-            ):
-                if item["kind"] == "heartbeat":
-                    yield ": heartbeat\n\n"
-                elif item["kind"] == "done":
-                    return
-                else:
-                    event = item["event"]
-                    yield _format_agui_sse(
-                        f"{event.response_id}:{event.sequence}",
-                        event.payload_json,
-                    )
-
-        async def generate_claimed_interaction(interaction_id: str):
-            while True:
-                projection_coordinator.response_service.db.expire_all()
-                interaction = projection_coordinator.response_service.get_interaction(
-                    interaction_id
-                )
-                if interaction is None:
-                    raise ValidationError("Claimed interaction no longer exists")
-                if interaction.response_id:
-                    async for chunk in generate_persisted(
-                        interaction.response_id,
-                        interaction_id=interaction.interaction_id,
-                    ):
-                        yield chunk
-                    return
-                if interaction.status in {"failed", "canceled"}:
-                    if interaction.status == "failed":
-                        yield _format_agui_sse(
-                            "",
-                            {
-                                "type": "RUN_ERROR",
-                                "code": "interaction_execution_failed",
-                                "message": "Response execution failed",
-                            },
-                        )
-                    return
-                yield ": heartbeat\n\n"
-                await asyncio.sleep(0.1)
+                interaction_id,
+            )
 
         response_service = projection_coordinator.response_service
         if pending_approval_resolutions:
@@ -488,7 +444,7 @@ async def create_response(
                         if item is None:
                             break
                         if item["id"]:
-                            yield _format_agui_sse(item["id"], item["data"])
+                            yield format_agui_sse(item["id"], item["data"])
                         else:
                             yield f"data: {json.dumps(item['data'], ensure_ascii=False)}\n\n"
                 finally:
@@ -556,7 +512,7 @@ async def create_response(
                     if item is None:
                         break
                     if item["id"]:
-                        yield _format_agui_sse(item["id"], item["data"])
+                        yield format_agui_sse(item["id"], item["data"])
                     else:
                         yield f"data: {json.dumps(item['data'], ensure_ascii=False)}\n\n"
             finally:
@@ -670,7 +626,7 @@ async def stream_response_events(
                 return
             event = item["event"]
             if event.source == "ag-ui":
-                yield _format_agui_sse(f"{event.response_id}:{event.sequence}", event.payload_json)
+                yield format_agui_sse(f"{event.response_id}:{event.sequence}", event.payload_json)
             else:
                 yield _format_sse(event.type, event.payload_json)
 

@@ -3,26 +3,29 @@
 Agent API routes (FastAPI).
 """
 
-import asyncio
-import json
+from dataclasses import asdict
 
 from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.agent.dependencies import (
-    AgentStreamExecutor,
     get_agent_application_service,
     get_agent_service,
-    get_agent_stream_executor,
 )
 from app.api.v1.agent.handlers import AgentAppHandlers, AgentHandlers
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
+from app.api.v1.responses.dependencies import get_response_projection_coordinator
+from app.api.v1.responses.interaction_stream import stream_claimed_interaction
 from app.infra.db.pagination import PaginatedResponse
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import ConflictError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.identity.permissions import RESOURCE_AGENT, require_resource_run_async
+from app.kernel.runtime.db.models.responses import generate_response_interaction_id
+from app.kernel.runtime.db.models.threads import generate_thread_message_id
+from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import (
     AgentBindingResponse,
@@ -42,9 +45,9 @@ from app.modules.agent.application.schemas import (
     AgentWorkbenchResponse,
 )
 from app.modules.agent.application.service import AgentService
+from app.settings.settings import settings
 
 router = APIRouter()
-_background_agent_tasks: set[asyncio.Task[None]] = set()
 
 
 @router.post("/run", response_model=AgentRunResponse)
@@ -237,53 +240,62 @@ async def execute_agent(
     return await handlers.execute_agent(ctx, agent_id, data)
 
 
-@router.post("/{agent_id}/stream")
+@router.post(
+    "/{agent_id}/stream",
+    deprecated=True,
+    summary="Deprecated: stream agent execution (use POST /v1/responses)",
+)
 async def stream_agent(
     agent_id: str,
     data: AgentRunRequest = Body(...),
     ctx: RequestContext = Depends(require_workspace_write_ctx),
-    execute_stream: AgentStreamExecutor = Depends(get_agent_stream_executor),
+    projection_coordinator: ResponseProjectionCoordinator = Depends(
+        get_response_projection_coordinator
+    ),
 ):
-    """Stream agent execution events via SSE."""
-    from app.modules.agent.runtime.emitter import QueueEmitter
+    """Stream agent execution events via SSE.
 
-    _ = ctx
-    emitter = QueueEmitter()
+    Deprecated in favour of `POST /v1/responses`, which is the supported
+    transport for agent streaming. This route now shares that path's durable
+    machinery: execution is claimed and persisted before it starts, the
+    interaction worker runs it, and this response tails the persisted events.
+    Consequently it emits AG-UI events rather than the former `agent.*` frames.
+    """
+    await require_resource_run_async(ctx, RESOURCE_AGENT, agent_id)
+    if not settings.response_interaction_worker_enabled:
+        # Without the worker nothing would execute the claim and this stream
+        # would heartbeat indefinitely. Say so instead of hanging.
+        raise ConflictError(
+            "Deprecated agent streaming requires the durable interaction worker; "
+            "use POST /v1/responses instead"
+        )
 
-    async def run_agent():
-        try:
-            result = await execute_stream(
-                agent_id,
-                data.model_dump(exclude_none=True, exclude_unset=True),
-                emitter,
-            )
-            await emitter.queue.put(("agent.result", result))
-        except Exception as exc:
-            if not isinstance(exc, KernelError) or exc.code != "AGENT_RUN_CANCELED":
-                await emitter.queue.put(
-                    ("agent.error", {"error": "Agent execution failed"})
-                )
-        finally:
-            await emitter.done()
-
-    async def generate():
-        task = asyncio.create_task(run_agent())
-        _background_agent_tasks.add(task)
-        task.add_done_callback(_background_agent_tasks.discard)
-        while True:
-            item = await emitter.queue.get()
-            if item is None:
-                break
-            event_name, event_data = item
-            yield f"event: {event_name}\ndata: {json.dumps(event_data)}\n\n"
+    interaction_id = generate_response_interaction_id()
+    agent_inputs = data.model_dump(exclude_none=True, exclude_unset=True)
+    response_service = projection_coordinator.response_service
+    response_service.claim_interaction(
+        interaction_id=interaction_id,
+        parent_interaction_id=None,
+        thread_id="",
+        request_hash=interaction_id,
+        execution_json={
+            "mode": "agent",
+            "agent_id": agent_id,
+            "agent_inputs": agent_inputs,
+            "assistant_message_id": generate_thread_message_id(),
+        },
+        request_context_json=asdict(ctx),
+    )
 
     return StreamingResponse(
-        generate(),
+        stream_claimed_interaction(response_service, interaction_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Deprecation": "true",
+            "Link": '</api/v1/responses>; rel="successor-version"',
         },
     )
 
