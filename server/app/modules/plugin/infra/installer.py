@@ -76,7 +76,25 @@ class PluginInstaller:
     def _root(self) -> Path:
         return Path(self.settings.plugins_dir).resolve()
 
+    def _check_revocation(self, digest: str) -> None:
+        """Refuse a revoked package before trusting its signature.
+
+        A revoked artifact is normally one that was correctly signed, so this
+        must be checked independently of verification rather than after it.
+        """
+        revoked = self.settings.plugin_revoked_package_digests or []
+        if not revoked:
+            return
+        normalized = digest.strip().lower()
+        for entry in revoked:
+            candidate = (entry or "").strip().lower()
+            if candidate.startswith("sha256:"):
+                candidate = candidate.split(":", 1)[1]
+            if candidate and candidate == normalized:
+                raise ValidationError("Plugin package digest is revoked.")
+
     def _check_integrity(self, *, spec: dict[str, Any], digest: str) -> None:
+        self._check_revocation(digest)
         integrity = spec.get("integrity") or {}
         expected = (integrity.get("digest") or "").strip()
         if expected and self.settings.plugin_integrity_required:

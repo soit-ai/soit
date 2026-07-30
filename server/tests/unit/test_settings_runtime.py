@@ -19,9 +19,18 @@ def _production_settings(**overrides) -> Settings:
         "response_interaction_worker_enabled": True,
         "otel_enabled": True,
         "otel_exporter_otlp_endpoint": "http://otel-collector:4318/v1/traces",
+        "plugin_signature_required": True,
+        "plugin_signature_public_keys": ["trusted-key"],
+        "plugin_integrity_required": True,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
+
+
+def test_production_settings_accept_a_fully_configured_runtime() -> None:
+    # The baseline every case below derives from must itself be valid, or a
+    # single-field override could pass for the wrong reason.
+    _production_settings().validate_runtime_requirements()
 
 
 def test_production_settings_reject_memory_event_bus() -> None:
@@ -88,6 +97,27 @@ def test_production_settings_reject_placeholder_secret_key() -> None:
     config = _production_settings(secret_key="change-me")
 
     with pytest.raises(ValueError, match="SECRET_KEY"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_require_plugin_signature_verification() -> None:
+    config = _production_settings(plugin_signature_required=False)
+
+    with pytest.raises(ValueError, match="plugin signature verification"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_require_a_trusted_plugin_public_key() -> None:
+    config = _production_settings(plugin_signature_public_keys=[])
+
+    with pytest.raises(ValueError, match="plugin signature public key"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_require_plugin_digest_verification() -> None:
+    config = _production_settings(plugin_integrity_required=False)
+
+    with pytest.raises(ValueError, match="digest verification"):
         config.validate_runtime_requirements()
 
 

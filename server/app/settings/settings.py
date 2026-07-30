@@ -264,6 +264,13 @@ class Settings(BaseSettings):
     plugin_signature_public_keys: list[str] = []
     """Base64-encoded public keys for plugin signature verification."""
 
+    plugin_revoked_package_digests: list[str] = []
+    """Package digests refused on install even when correctly signed.
+
+    Removing a compromised key from the trusted set cannot un-trust artifacts
+    already signed with it, so revocation is expressed per artifact.
+    """
+
     plugin_integrity_required: bool = False
     """Require digest verification for plugin package installs."""
 
@@ -329,6 +336,16 @@ class Settings(BaseSettings):
             raise ValueError("Production forbids inline chat interaction execution")
         if not self.response_interaction_worker_enabled:
             raise ValueError("Production requires the durable chat interaction worker")
+        if not self.plugin_signature_required:
+            raise ValueError("Production requires plugin signature verification")
+        if not self.plugin_signature_public_keys:
+            # Requiring signatures with no trusted key rejects every package,
+            # which reads as a signature gate but is really a total block.
+            raise ValueError(
+                "Production requires at least one plugin signature public key"
+            )
+        if not self.plugin_integrity_required:
+            raise ValueError("Production requires plugin package digest verification")
         if not self.otel_enabled:
             raise ValueError("Production requires OpenTelemetry tracing")
         if not (self.otel_exporter_otlp_endpoint or "").strip():
