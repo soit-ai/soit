@@ -97,6 +97,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _handle_startup_failure("outbox handlers", exc)
 
+    try:
+        from app.wiring.task_drivers import register_task_drivers
+
+        register_task_drivers()
+    except Exception as exc:
+        _handle_startup_failure("task drivers", exc)
+
     knowledge_worker = None
     if getattr(app_settings, "knowledge_ingest_worker_enabled", False):
         try:
