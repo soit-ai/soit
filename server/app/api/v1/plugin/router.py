@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
 from app.api.v1.permissions import (
+    require_workspace_governance_ctx,
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
@@ -99,7 +100,7 @@ async def upload_plugin_package(
     package: UploadFile = File(...),
     mode: str = "auto",
     expected_sha256: str | None = None,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
@@ -179,7 +180,7 @@ async def publish_plugin_version(
 async def rollback_plugin_version(
     plugin_id: str,
     payload: PluginRollbackRequest,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     return await PluginHandlers(service).rollback_version(ctx, plugin_id, payload)
@@ -220,7 +221,7 @@ async def list_plugin_artifacts_for_plugin(
 async def install_plugin(
     plugin_id: str,
     install_request: PluginInstallRequest,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
@@ -242,7 +243,7 @@ async def install_plugin_package(
     plugin_id: str,
     package: UploadFile = File(...),
     expected_sha256: str | None = None,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
@@ -255,7 +256,7 @@ async def upgrade_plugin_package(
     plugin_id: str,
     package: UploadFile = File(...),
     expected_sha256: str | None = None,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
@@ -266,7 +267,7 @@ async def upgrade_plugin_package(
 @router.delete("/{plugin_id}/install", status_code=status.HTTP_204_NO_CONTENT)
 async def uninstall_plugin(
     plugin_id: str,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)

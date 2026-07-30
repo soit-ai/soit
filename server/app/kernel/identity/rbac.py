@@ -137,6 +137,24 @@ async def require_workspace_write_async(ctx: RequestContext) -> None:
     require_workspace_write(ctx)
 
 
+def require_workspace_governance(ctx: RequestContext) -> None:
+    """Require authority over workspace guardrails (Owner/Admin).
+
+    Args:
+        ctx: Request context.
+
+    Raises:
+        ForbiddenError: If the caller may not change guardrails.
+    """
+    if not ctx.can_govern():
+        raise ForbiddenError("Workspace governance permission required")
+
+
+async def require_workspace_governance_async(ctx: RequestContext) -> None:
+    """Require workspace governance permission (async)."""
+    require_workspace_governance(ctx)
+
+
 def require_workspace_read(ctx: RequestContext) -> None:
     """Require workspace read permission.
 

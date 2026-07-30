@@ -8,6 +8,7 @@ from fastapi import Depends
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.rbac import (
     require_tenant_admin_async,
+    require_workspace_governance_async,
     require_workspace_owner_async,
     require_workspace_read_async,
     require_workspace_write_async,
@@ -28,6 +29,14 @@ async def require_workspace_write_ctx(
 ) -> RequestContext:
     """Require workspace write access."""
     await require_workspace_write_async(ctx)
+    return ctx
+
+
+async def require_workspace_governance_ctx(
+    ctx: RequestContext = Depends(get_current_context),
+) -> RequestContext:
+    """Require authority to change workspace guardrails."""
+    await require_workspace_governance_async(ctx)
     return ctx
 
 

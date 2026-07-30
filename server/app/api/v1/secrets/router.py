@@ -7,8 +7,8 @@ Secrets API routes.
 from fastapi import APIRouter, Depends, status
 
 from app.api.v1.permissions import (
+    require_workspace_governance_ctx,
     require_workspace_read_ctx,
-    require_workspace_write_ctx,
 )
 from app.api.v1.secrets.dependencies import get_secrets_service
 from app.api.v1.secrets.handlers import SecretHandlers
@@ -50,7 +50,7 @@ async def get_secret(
 @router.post("", response_model=SecretResponse, status_code=status.HTTP_201_CREATED)
 async def create_secret(
     data: SecretCreate,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecretsService = Depends(get_secrets_service),
 ):
     """Create a secret."""
@@ -62,7 +62,7 @@ async def create_secret(
 async def update_secret(
     secret_id: str,
     data: SecretUpdate,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecretsService = Depends(get_secrets_service),
 ):
     """Update secret metadata or rotate value."""
@@ -73,7 +73,7 @@ async def update_secret(
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_secret(
     secret_id: str,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecretsService = Depends(get_secrets_service),
 ):
     """Delete a secret."""
@@ -84,7 +84,7 @@ async def delete_secret(
 @router.post("/{secret_id}/test", response_model=SecretTestResponse)
 async def test_secret(
     secret_id: str,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecretsService = Depends(get_secrets_service),
 ):
     """Test secret reference resolution."""

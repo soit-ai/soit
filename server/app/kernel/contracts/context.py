@@ -122,3 +122,13 @@ class RequestContext:
             True if user can read (any role).
         """
         return self.is_workspace_viewer()
+
+    def can_govern(self) -> bool:
+        """Check if the caller may change workspace guardrails.
+
+        Egress policy, secrets and plugin installation decide what agents are
+        allowed to reach and run with. Separating that authority from Dev means
+        whoever builds and runs agents cannot also widen the boundary those
+        agents operate inside.
+        """
+        return self.workspace_role in ("Owner", "Admin") and self.has_scope("admin")

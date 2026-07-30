@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1.permissions import (
     require_tenant_admin_ctx,
+    require_workspace_governance_ctx,
     require_workspace_read_ctx,
-    require_workspace_write_ctx,
 )
 from app.api.v1.security.dependencies import get_security_service
 from app.api.v1.security.handlers import SecurityHandlers
@@ -61,7 +61,7 @@ async def get_workspace_policy(
 @router.put("/egress/workspace", response_model=EgressPolicyResponse)
 async def update_workspace_policy(
     data: EgressPolicyUpdate,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecurityService = Depends(get_security_service),
 ):
     """Update workspace-level egress policy."""
@@ -116,7 +116,7 @@ async def get_workspace_limits(
 @router.put("/limits/workspace", response_model=UsagePolicyResponse)
 async def update_workspace_limits(
     data: UsagePolicyUpdate,
-    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
     service: SecurityService = Depends(get_security_service),
 ):
     """Update workspace-level rate limits and quotas."""
