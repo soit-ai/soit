@@ -33,7 +33,12 @@ _TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "expired"}
 
 
 def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
-    """Fail running workflow rows whose lease expired. Returns rows reaped."""
+    """Fail running workflow rows whose lease expired. Returns rows reaped.
+
+    Rows are locked with ``SKIP LOCKED`` so concurrent sweeps — every API
+    replica runs one — each take a distinct set instead of all redundantly
+    failing the same run.
+    """
     now = utc_now()
     orphans = (
         db.execute(
@@ -44,10 +49,15 @@ def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
                 WorkflowRun.lease_expires_at < now,
             )
             .limit(limit)
+            .with_for_update(skip_locked=True)
         )
         .scalars()
         .all()
     )
+    if not orphans:
+        # Release the snapshot this sweep opened.
+        db.rollback()
+        return 0
     reaped = 0
     for row in orphans:
         row.status = "failed"
@@ -70,8 +80,7 @@ def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
             extra={"workflow_run_id": row.id, "run_id": row.run_id},
         )
         reaped += 1
-    if reaped:
-        db.commit()
+    db.commit()
     return reaped
 
 

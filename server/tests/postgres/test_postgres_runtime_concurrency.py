@@ -23,6 +23,7 @@ from app.kernel.runtime.db.models.responses import (
     ResponseEvent,
     ResponseInteraction,
 )
+from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
@@ -31,6 +32,11 @@ from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.knowledge.domain.models import KnowledgeIngestTask
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+from app.modules.workflow.domain.models import WorkflowRun
+from app.modules.workflow.runtime.reaper import (
+    ORPHANED_ERROR_CODE,
+    reap_orphaned_workflow_runs,
+)
 from app.wiring.response_interaction_worker import GlobalResponseInteractionWorker
 
 
@@ -76,6 +82,8 @@ def scope_token(postgres_engine: Engine):
                 KnowledgeIngestTask.tenant_id == tenant_id
             )
         )
+        db.exec(delete(WorkflowRun).where(WorkflowRun.tenant_id == tenant_id))
+        db.exec(delete(Run).where(Run.tenant_id == tenant_id))
         db.exec(delete(EventOutbox).where(EventOutbox.tenant_id == tenant_id))
         db.commit()
 
@@ -373,6 +381,102 @@ def test_expired_knowledge_lease_has_one_concurrent_rescuer_on_postgres(
         assert row is not None
         assert row.lease_owner == winners[0]
         assert row.attempt_count == 2
+
+
+def test_orphaned_workflow_run_is_reaped_once_under_concurrency(
+    postgres_engine: Engine,
+    scope_token,
+) -> None:
+    """Concurrent sweeps fail an abandoned workflow run exactly once."""
+
+    token, tenant_id, workspace_id = scope_token
+    run_id = f"run-wf-orphan-{token}"
+    with Session(postgres_engine) as db:
+        db.add(
+            Run(
+                id=run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                user_id="pg-user",
+                trace_id=f"tr-{token}",
+                mode="workflow",
+                kind="workflow",
+                status="running",
+            )
+        )
+        db.add(
+            WorkflowRun(
+                id=f"wfr-orphan-{token}",
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                workflow_id=f"wf-{token}",
+                status="running",
+                lease_owner="workflow-api-dead",
+                lease_expires_at=utc_now() - timedelta(minutes=5),
+                attempt_count=1,
+            )
+        )
+        db.commit()
+
+    barrier = Barrier(3)
+
+    def sweep(_: int) -> int:
+        with Session(postgres_engine) as db:
+            barrier.wait()
+            try:
+                return reap_orphaned_workflow_runs(db)
+            except Exception:
+                # A loser may hit a write conflict; the contract is that the
+                # row ends up failed exactly once, not that every sweep wins.
+                db.rollback()
+                return 0
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        reaped = list(executor.map(sweep, (1, 2, 3)))
+
+    assert sum(reaped) == 1
+    with Session(postgres_engine) as db:
+        row = db.get(WorkflowRun, f"wfr-orphan-{token}")
+        run = db.get(Run, run_id)
+        assert row is not None and run is not None
+        assert row.status == "failed"
+        assert row.lease_owner is None
+        assert row.lease_expires_at is None
+        assert run.status == "failed"
+        assert run.error_code == ORPHANED_ERROR_CODE
+
+
+def test_live_workflow_lease_survives_a_sweep_on_postgres(
+    postgres_engine: Engine,
+    scope_token,
+) -> None:
+    """A workflow still renewing its lease is never reaped."""
+
+    token, tenant_id, workspace_id = scope_token
+    run_id = f"run-wf-live-{token}"
+    with Session(postgres_engine) as db:
+        db.add(
+            WorkflowRun(
+                id=f"wfr-live-{token}",
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                workflow_id=f"wf-{token}",
+                status="running",
+                lease_owner="workflow-api-alive",
+                lease_expires_at=utc_now() + timedelta(minutes=10),
+                attempt_count=1,
+            )
+        )
+        db.commit()
+
+    with Session(postgres_engine) as db:
+        assert reap_orphaned_workflow_runs(db) == 0
+        row = db.get(WorkflowRun, f"wfr-live-{token}")
+        assert row is not None
+        assert row.status == "running"
+        assert row.lease_owner == "workflow-api-alive"
 
 
 def test_concurrent_response_idempotency_returns_one_owner(
