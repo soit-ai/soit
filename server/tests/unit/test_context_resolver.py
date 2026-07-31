@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from app.auth.context_resolver import ContextResolver
 from app.kernel.commons.errors import ForbiddenError, UnauthorizedError
 from app.kernel.commons.time import utc_now
+from app.kernel.contracts.context import RequestContext
 from app.middleware import auth as auth_middleware
 from app.modules.identity.domain.models import (
     ApiKey,
@@ -425,3 +426,57 @@ def test_database_access_resolver_requires_tenant_membership(db, monkeypatch) ->
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_context_rebuild_preserves_every_field(monkeypatch) -> None:
+    """Attaching request ids must not drop any authorization state.
+
+    The dependency rebuilds RequestContext to attach request_id/trace_id.
+    Rebuilding by listing fields means a new field is silently lost until
+    something notices; scopes were lost exactly that way, which disabled every
+    API key ceiling on the real API path.
+    """
+    from dataclasses import fields
+
+    from app.middleware import auth as auth_middleware
+
+    resolved = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-a",
+        user_id="user-1",
+        tenant_role="Owner",
+        workspace_role="Owner",
+        scopes=frozenset({"read"}),
+        llm_rate_limit_per_minute=11,
+        tool_rate_limit_per_minute=22,
+        llm_daily_quota=33,
+        tool_daily_quota=44,
+    )
+
+    class _Resolver:
+        async def resolve_from_request(self, *args, **kwargs):
+            return resolved
+
+    monkeypatch.setattr(auth_middleware, "get_context_resolver", lambda: _Resolver())
+
+    request = _request()
+    request.state.request_id = "req-1"
+    request.state.trace_id = "trace-1"
+
+    context = await auth_middleware.get_current_context(
+        request,
+        credentials=None,
+        x_workspace_id="workspace-a",
+        x_api_key="soit-key",
+    )
+
+    assert context.request_id == "req-1"
+    assert context.trace_id == "trace-1"
+    carried = {"request_id", "trace_id"}
+    for field in fields(RequestContext):
+        if field.name in carried:
+            continue
+        assert getattr(context, field.name) == getattr(resolved, field.name), (
+            f"rebuild dropped {field.name}"
+        )

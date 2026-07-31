@@ -74,7 +74,10 @@ npm run test:e2e:real
 
 The regular Playwright suite is deterministic and may intercept API calls. The
 separate `test:e2e:real` release gate must run against a freshly migrated
-PostgreSQL database and a live API. It creates a new tenant and empty workspace,
+PostgreSQL database and a live API. It covers the empty-workspace journey,
+Observe run evidence, and API key scope enforcement; the governance specs in
+particular only mean anything against a live server, because a mocked response
+would assert the frontend assumption rather than the backend rule. It creates a new tenant and empty workspace,
 then completes the Knowledge, Agent publish/execute, Observe, and Workflow
 publish/execute journey without `page.route()` or seeded product records. Set
 `SOIT_REAL_API_BASE_URL` and `PLAYWRIGHT_BASE_URL` when the API or web ports

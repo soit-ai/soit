@@ -85,6 +85,9 @@ async def get_current_context(
                 trace_id=trace_id,
                 tenant_role=context.tenant_role,
                 workspace_role=context.workspace_role,
+                # Carrying the credential scope ceiling is not optional:
+                # dropping it here silently restores the caller full role.
+                scopes=context.scopes,
                 llm_rate_limit_per_minute=context.llm_rate_limit_per_minute,
                 tool_rate_limit_per_minute=context.tool_rate_limit_per_minute,
                 llm_daily_quota=context.llm_daily_quota,
@@ -151,6 +154,9 @@ async def get_current_context_from_request(
                 trace_id=trace_id,
                 tenant_role=context.tenant_role,
                 workspace_role=context.workspace_role,
+                # Carrying the credential scope ceiling is not optional:
+                # dropping it here silently restores the caller full role.
+                scopes=context.scopes,
                 llm_rate_limit_per_minute=context.llm_rate_limit_per_minute,
                 tool_rate_limit_per_minute=context.tool_rate_limit_per_minute,
                 llm_daily_quota=context.llm_daily_quota,

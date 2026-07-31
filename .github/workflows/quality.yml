@@ -414,7 +414,7 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium
 
-      - name: Real empty-workspace E2E
+      - name: Real backend E2E
         working-directory: web
         run: npm run test:e2e:real
 
