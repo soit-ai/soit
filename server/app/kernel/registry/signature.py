@@ -19,6 +19,36 @@ def sha256_hex(data: bytes) -> str:
     return h.hexdigest()
 
 
+MANIFEST_NAMES = ("plugin.json", "plugin.toml")
+"""Files that carry the declaration, and so cannot be part of what it covers."""
+
+
+def payload_digest(package_bytes: bytes) -> str:
+    """Digest the package payload, excluding the manifest that declares it.
+
+    A manifest cannot state the hash of an archive it is itself inside: adding
+    the value changes the archive, which changes the value. Hashing everything
+    except the manifest breaks that circularity, so a publisher can compute the
+    digest, record it, sign it, and have the result verify.
+
+    Entries are hashed in sorted order with their names, so the digest does not
+    depend on how the archive happened to be written.
+    """
+    import io
+    import zipfile
+
+    digest = hashlib.sha256()
+    with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as archive:
+        for name in sorted(archive.namelist()):
+            if name in MANIFEST_NAMES or name.endswith("/"):
+                continue
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(archive.read(name))
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def verify_sha256(data: bytes, expected_hex: str) -> bool:
     expected = (expected_hex or "").lower().strip()
     if not expected:

@@ -19,7 +19,12 @@ except Exception:  # pragma: no cover
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.registry.deps import get_registry
-from app.kernel.registry.signature import sha256_hex, verify_sha256, verify_signature
+from app.kernel.registry.signature import (
+    payload_digest,
+    sha256_hex,
+    verify_sha256,
+    verify_signature,
+)
 from app.kernel.specs.validator import SpecValidator
 from app.settings.settings import get_settings
 
@@ -93,20 +98,37 @@ class PluginInstaller:
             if candidate and candidate == normalized:
                 raise ValidationError("Plugin package digest is revoked.")
 
-    def _check_integrity(self, *, spec: dict[str, Any], digest: str) -> None:
+    def _check_integrity(
+        self,
+        *,
+        spec: dict[str, Any],
+        digest: str,
+        package_bytes: bytes | None = None,
+    ) -> None:
+        # Revocation names the exact artifact, so it uses the archive digest.
         self._check_revocation(digest)
         integrity = spec.get("integrity") or {}
         expected = (integrity.get("digest") or "").strip()
-        if expected and self.settings.plugin_integrity_required:
+        # The declaration lives inside the archive, so it can only cover the
+        # payload around it. Comparing it to the archive's own hash can never
+        # hold: writing the value changes the thing being hashed.
+        content_digest = (
+            payload_digest(package_bytes) if package_bytes is not None else digest
+        )
+        if self.settings.plugin_integrity_required:
+            # Skipping the check because nothing was declared would let a
+            # package opt out of the requirement by staying silent.
+            if not expected:
+                raise ValidationError("Plugin package must declare an integrity digest.")
             expected_hex = expected.split(":", 1)[1] if expected.startswith("sha256:") else expected
-            if expected_hex.lower() != digest.lower():
+            if expected_hex.lower() != content_digest.lower():
                 raise ValidationError("Plugin package digest mismatch.")
 
         signature = (integrity.get("signature") or "").strip()
         if signature:
             public_keys = self.settings.plugin_signature_public_keys or []
             verified = False
-            payload = (expected or f"sha256:{digest}").encode("utf-8")
+            payload = (expected or f"sha256:{content_digest}").encode("utf-8")
             for key in public_keys:
                 if verify_signature(data=payload, signature_b64=signature, public_key_b64=key):
                     verified = True
@@ -148,7 +170,7 @@ class PluginInstaller:
             if issues:
                 raise ValidationError(f"Invalid plugin_spec: {issues[0].message}")
 
-            self._check_integrity(spec=spec, digest=digest)
+            self._check_integrity(spec=spec, digest=digest, package_bytes=package_bytes)
 
             return manifest, spec
 
@@ -210,7 +232,7 @@ class PluginInstaller:
         if issues:
             raise ValidationError(f"Invalid plugin_spec: {issues[0].message}")
 
-        self._check_integrity(spec=spec, digest=digest)
+        self._check_integrity(spec=spec, digest=digest, package_bytes=package_bytes)
 
         # persist manifest/spec as normalized json
         manifest_path = install_dir / "manifest.json"

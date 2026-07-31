@@ -105,3 +105,41 @@ def test_unrevoked_digest_still_installs(monkeypatch):
     )
 
     installer._check_integrity(spec=_spec(), digest=DIGEST)
+
+
+def test_production_settings_can_actually_install_a_package(monkeypatch):
+    """The strict profile must be satisfiable, not merely strict.
+
+    The declared digest lives inside the archive. Comparing it to the archive's
+    own hash is self-referential — writing the value changes the thing being
+    hashed — so requiring integrity would have made every install impossible.
+    Hashing the payload without the manifest is what makes the requirement
+    something a publisher can meet.
+    """
+    from scripts.build_plugin_fixture import build_package, sign
+
+    package, manifest = build_package("strict-profile-plugin", "1.0.0")
+    signed, public_key = sign(package, manifest)
+    installer = _installer(
+        monkeypatch,
+        plugin_signature_required=True,
+        plugin_integrity_required=True,
+        plugin_signature_public_keys=[public_key],
+    )
+
+    _, spec = installer.inspect_package(signed)
+
+    assert spec["name"] == "strict-profile-plugin"
+
+
+def test_a_package_declaring_no_digest_is_refused_when_integrity_is_required(monkeypatch):
+    installer = _installer(
+        monkeypatch,
+        plugin_integrity_required=True,
+        plugin_signature_required=False,
+    )
+
+    # Skipping the check because nothing was declared would let any package
+    # opt out of the requirement simply by staying silent.
+    with pytest.raises(ValidationError, match="must declare an integrity digest"):
+        installer._check_integrity(spec=_spec(), digest=DIGEST)
