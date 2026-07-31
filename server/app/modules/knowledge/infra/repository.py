@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.infra.db.repository import Repository
+from app.kernel.commons.errors import ConflictError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
 from app.modules.knowledge.domain.models import (
@@ -580,9 +581,23 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         error_message: str | None = None,
         run_id: str | None = None,
         retry_count: int | None = None,
+        expected_lease_owner: str | None = None,
     ) -> KnowledgeIngestTask:
-        """Update task status and metadata."""
+        """Update task status and metadata.
+
+        When ``expected_lease_owner`` is given the write is refused unless that
+        worker still holds the lease. A worker whose lease lapsed has already
+        been superseded, and letting it record an outcome would overwrite the
+        result of the worker that actually owns the task.
+        """
         from app.kernel.commons.time import utc_now
+
+        if expected_lease_owner is not None:
+            self.db.refresh(task)
+            if task.lease_owner != expected_lease_owner:
+                raise ConflictError(
+                    f"Ingest task {task.id} is no longer owned by {expected_lease_owner}"
+                )
         task.status = status
         task.updated_at = utc_now()
         task.updated_by = self.ctx.user_id

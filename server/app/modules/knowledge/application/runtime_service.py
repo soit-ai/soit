@@ -793,8 +793,18 @@ class KnowledgeRuntimeService:
         task = self.ingest_task_repo.create(task)
         return document, task
 
-    async def process_ingest_task(self, task: KnowledgeIngestTask) -> KnowledgeDocument:
-        """Process a queued ingestion task."""
+    async def process_ingest_task(
+        self,
+        task: KnowledgeIngestTask,
+        *,
+        lease_owner: str | None = None,
+    ) -> KnowledgeDocument:
+        """Process a queued ingestion task.
+
+        ``lease_owner`` makes every terminal write conditional on this worker
+        still holding the lease, so a worker that was superseded cannot record
+        an outcome over the one that actually owns the task.
+        """
         if not self.ingest_task_repo:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
         if not self.pipeline:
@@ -860,7 +870,12 @@ class KnowledgeRuntimeService:
                 return document
             if self.trace_writer and run_id:
                 self.trace_writer.update_run_status(run_id, "succeeded")
-            self.ingest_task_repo.update_status(task, "succeeded", run_id=run_id)
+            self.ingest_task_repo.update_status(
+                task,
+                "succeeded",
+                run_id=run_id,
+                expected_lease_owner=lease_owner,
+            )
             return document
         except Exception as exc:
             if self.trace_writer and run_id:
@@ -890,6 +905,7 @@ class KnowledgeRuntimeService:
                     error_message=str(exc),
                     run_id=run_id,
                     retry_count=next_retry,
+                    expected_lease_owner=lease_owner,
                 )
             raise
 

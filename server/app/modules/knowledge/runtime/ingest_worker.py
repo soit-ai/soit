@@ -15,7 +15,7 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from app.infra.db.session import get_db_sync
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import ConflictError, KernelError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
@@ -54,7 +54,13 @@ class KnowledgeIngestWorker:
         if not task:
             return None
         try:
-            await self.service.process_ingest_task(task)
+            await self.service.process_ingest_task(task, lease_owner=self.worker_id)
+        except ConflictError:
+            logger.warning(
+                "Knowledge ingest lease was reclaimed; discarding this "
+                "worker's outcome",
+                extra={"task_id": task.id},
+            )
         except Exception:
             return task
         return task
@@ -172,17 +178,19 @@ class GlobalKnowledgeIngestWorker:
                 ).run(stop, lease_lost)
             )
             try:
-                await service.process_ingest_task(task)
+                await service.process_ingest_task(task, lease_owner=self.worker_id)
+            except ConflictError:
+                # The lease was reclaimed mid-flight, so another worker owns
+                # this task now. Its result stands; ours must not overwrite it.
+                logger.warning(
+                    "Knowledge ingest lease was reclaimed; discarding this "
+                    "worker's outcome",
+                    extra={"task_id": task.id},
+                )
             finally:
                 stop.set()
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat
-                if lease_lost.is_set():
-                    logger.error(
-                        "Knowledge ingest lease was lost while processing; "
-                        "another worker may have reclaimed this task",
-                        extra={"task_id": task.id},
-                    )
             return task
         finally:
             db.close()

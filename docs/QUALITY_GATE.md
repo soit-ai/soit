@@ -83,6 +83,34 @@ publish/execute journey without `page.route()` or seeded product records. Set
 `SOIT_REAL_API_BASE_URL` and `PLAYWRIGHT_BASE_URL` when the API or web ports
 differ from `9200` and `5000`.
 
+To reproduce this gate locally, start the API with the same environment CI
+uses. `SOIT_TESTING=1` is required, not optional: without it the container
+resolves real model providers and every spec fails at
+`MODEL_RUNTIME_NOT_FOUND`, because a workspace created by sign-up has no model
+route. Knowledge ingestion additionally needs the dedicated worker running,
+since the API no longer performs ingestion in-process.
+
+```bash
+cd server
+SOIT_TESTING=1 ALLOW_PUBLIC_REGISTRATION=true ENVIRONMENT=development \
+  EVENT_BUS_BACKEND=memory RESPONSE_INTERACTION_INLINE_EXECUTION=true \
+  OUTBOX_DISPATCHER_ENABLED=false KNOWLEDGE_INGEST_WORKER_ENABLED=false \
+  DATABASE_URL=<migrated database> \
+  uv run uvicorn app.main:app --host 127.0.0.1 --port 9200
+```
+
+```bash
+cd server
+SOIT_TESTING=1 KNOWLEDGE_INGEST_WORKER_ENABLED=true KNOWLEDGE_INGEST_WORKER_MAX_TASKS=0 \
+  DATABASE_URL=<same database> \
+  uv run python scripts/ingest_worker.py
+```
+
+```bash
+cd web
+SOIT_REAL_API_BASE_URL=http://127.0.0.1:9200/api/v1 npm run test:e2e:real
+```
+
 ## Blocking Container Gate
 
 The quality workflow validates the Compose model, builds the backend image,

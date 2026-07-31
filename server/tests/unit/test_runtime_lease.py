@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import pytest
 
+from app.kernel.commons.errors import ConflictError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
@@ -377,3 +378,55 @@ def test_requeued_ingest_task_is_claimable_again(db, ctx):
     assert reclaimed is not None
     assert reclaimed.id == claimed.id
     assert reclaimed.lease_owner == "worker-b"
+
+
+def test_terminal_write_is_refused_after_the_lease_is_reclaimed(db, ctx):
+    _queued_task(db, ctx, task_id="task_lease_guard")
+    repo = IngestTaskRepository(db, ctx)
+    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=60)
+    assert claimed is not None
+
+    # Another worker reclaims the task while the first is still working.
+    claimed.lease_expires_at = utc_now() - timedelta(minutes=5)
+    db.add(claimed)
+    db.commit()
+    reclaimed = lease.claim_next(
+        db,
+        KnowledgeIngestTask,
+        worker_id="worker-b",
+        lease_seconds=60,
+    )
+    assert reclaimed is not None and reclaimed.lease_owner == "worker-b"
+
+    # The superseded worker must not record an outcome over the owner's.
+    with pytest.raises(ConflictError):
+        repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
+
+    db.refresh(claimed)
+    assert claimed.status == "running"
+    assert claimed.lease_owner == "worker-b"
+
+
+def test_the_lease_holder_can_still_write_its_terminal_status(db, ctx):
+    _queued_task(db, ctx, task_id="task_lease_holder")
+    repo = IngestTaskRepository(db, ctx)
+    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=60)
+    assert claimed is not None
+
+    updated = repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
+
+    assert updated.status == "succeeded"
+    assert updated.lease_owner is None
+
+
+def test_an_unguarded_status_write_still_works(db, ctx):
+    # Callers outside the worker (cancel, requeue) have no lease to prove.
+    _queued_task(db, ctx, task_id="task_unguarded")
+    repo = IngestTaskRepository(db, ctx)
+
+    updated = repo.update_status(
+        repo.claim_next(worker_id="worker-a", lease_seconds=60),
+        "canceled",
+    )
+
+    assert updated.status == "canceled"
