@@ -13,10 +13,23 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.permissions import (
     PermissionCache,
     register_resource_grant_provider,
+    require_resource_delete_async,
     require_resource_read_async,
     require_resource_write_async,
     reset_resource_grant_provider,
 )
+
+
+def _owned_resource_ctx(scopes: frozenset[str] | None) -> RequestContext:
+    """Viewer context so only ownership can grant write-level actions."""
+
+    return RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="owner-user",
+        workspace_role="Viewer",
+        scopes=scopes,
+    )
 
 
 class AllowExecuteGrantProvider:
@@ -103,6 +116,94 @@ async def test_knowledge_resource_alias_allows_owner_read():
         resource_type="knowledge",
         resource_id="kb-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_owner_bypass_allows_interactive_session_write():
+    """Ownership still grants write to an unrestricted interactive session."""
+    await require_resource_write_async(
+        _owned_resource_ctx(scopes=None),
+        resource_type="workflow",
+        resource_id="wf-owned",
+        resource_owner_id="owner-user",
+    )
+
+
+@pytest.mark.asyncio
+async def test_owner_bypass_allows_write_scoped_key_write():
+    """A write-scoped key may write an owned resource."""
+    await require_resource_write_async(
+        _owned_resource_ctx(scopes=frozenset({"read", "write"})),
+        resource_type="workflow",
+        resource_id="wf-owned",
+        resource_owner_id="owner-user",
+    )
+
+
+@pytest.mark.asyncio
+async def test_owner_bypass_denies_read_scoped_key_write():
+    """A read-scoped key must not write even resources its owner created."""
+    with pytest.raises(ForbiddenError):
+        await require_resource_write_async(
+            _owned_resource_ctx(scopes=frozenset({"read"})),
+            resource_type="workflow",
+            resource_id="wf-owned",
+            resource_owner_id="owner-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_owner_bypass_denies_write_scoped_key_delete():
+    """Delete sits above write in the ladder, so it needs the admin scope."""
+    with pytest.raises(ForbiddenError):
+        await require_resource_delete_async(
+            _owned_resource_ctx(scopes=frozenset({"read", "write"})),
+            resource_type="workflow",
+            resource_id="wf-owned",
+            resource_owner_id="owner-user",
+        )
+    await require_resource_delete_async(
+        _owned_resource_ctx(scopes=frozenset({"read", "write", "admin"})),
+        resource_type="workflow",
+        resource_id="wf-owned",
+        resource_owner_id="owner-user",
+    )
+
+
+@pytest.mark.asyncio
+async def test_resource_grant_respects_scope_ceiling():
+    """Explicit grants are capped by the credential scope like every source."""
+    register_resource_grant_provider(AllowExecuteGrantProvider())
+    try:
+        granted_ctx = RequestContext(
+            tenant_id="tenant-1",
+            workspace_id="workspace-1",
+            user_id="shared-user",
+            workspace_role="Viewer",
+            scopes=frozenset({"read"}),
+        )
+        with pytest.raises(ForbiddenError):
+            await require_resource_write_async(
+                granted_ctx,
+                resource_type="workflow",
+                resource_id="wf-shared",
+            )
+    finally:
+        reset_resource_grant_provider()
+
+
+def test_permission_cache_key_distinguishes_credential_scopes():
+    """A scoped key and an interactive session must never share a cache entry."""
+    cache = PermissionCache()
+    interactive = _owned_resource_ctx(scopes=None)
+    read_key = _owned_resource_ctx(scopes=frozenset({"read"}))
+    write_key = _owned_resource_ctx(scopes=frozenset({"read", "write"}))
+
+    keys = {
+        cache._cache_key(c, "workflow", "wf-1", "write")
+        for c in (interactive, read_key, write_key)
+    }
+    assert len(keys) == 3
 
 
 def test_permission_cache_key_includes_scope_and_roles():

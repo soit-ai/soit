@@ -30,7 +30,7 @@ ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_RUN = "run"
 ACTION_EXECUTE_ALIAS = "execute"
-PERMISSION_CACHE_VERSION = "v2"
+PERMISSION_CACHE_VERSION = "v3"
 
 
 class ResourceGrantProvider(Protocol):
@@ -183,10 +183,17 @@ class PermissionCache:
         resource_id: str,
         action: str,
     ) -> str:
+        # The credential scope must be part of the identity: without it a
+        # decision computed for an unrestricted session would be replayed
+        # for a scoped API key of the same user, and vice versa.
+        scope_signature = (
+            "-" if ctx.scopes is None else ("+".join(sorted(ctx.scopes)) or "none")
+        )
         return (
             f"perm:{PERMISSION_CACHE_VERSION}:{ctx.user_id}:"
             f"{ctx.tenant_id}:{ctx.workspace_id}:"
             f"{ctx.tenant_role or ''}:{ctx.workspace_role or ''}:"
+            f"{scope_signature}:"
             f"{resource_type}:{resource_id}:{action}"
         )
 
@@ -215,13 +222,13 @@ class PermissionCache:
             if user_id and resource_type and resource_id:
                 patterns = [
                     f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:{alias}:{resource_id}:*"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:*:{alias}:{resource_id}:*"
                     for alias in aliases
                 ]
             elif user_id and resource_type:
                 patterns = [
                     f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:{alias}:*"
+                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:*:{alias}:*"
                     for alias in aliases
                 ]
             elif user_id:
@@ -315,12 +322,17 @@ async def check_resource_permission(
         if effective_action == ACTION_READ:
             allowed = True
 
-    # Resource owner can do everything (if resource_owner_id provided)
-    if resource_owner_id and resource_owner_id == ctx.user_id:
+    # A scope is a ceiling over every authority source: ownership and
+    # explicit grants must not hand a scoped credential more than its scope,
+    # or a read-only API key could still write resources its owner created.
+    scope_allows = ctx.has_scope(_required_scope(effective_action))
+
+    # Resource owner can do everything within scope (if resource_owner_id provided)
+    if resource_owner_id and resource_owner_id == ctx.user_id and scope_allows:
         allowed = True
 
     granted_by_resource_grant = False
-    if not allowed:
+    if not allowed and scope_allows:
         granted_by_resource_grant = _check_resource_grant(
             ctx=ctx,
             resource_type=resource_type,
@@ -363,6 +375,22 @@ def _resolve_effective_action(action: str) -> str:
     if action == ACTION_EXECUTE_ALIAS:
         return ACTION_EXECUTE
     return action
+
+
+def _required_scope(effective_action: str) -> str:
+    """Scope ceiling an action needs, mirroring the role ladder.
+
+    The ladder grants read to read-scoped viewers, write/execute to
+    write-scoped devs, and delete/publish only to admin-scoped owners and
+    admins. Ownership and explicit grants must clear the same bar, or a
+    scoped credential escalates through them.
+    """
+
+    if effective_action == ACTION_READ:
+        return "read"
+    if effective_action in (ACTION_WRITE, ACTION_EXECUTE):
+        return "write"
+    return "admin"
 
 
 def _check_resource_grant(
