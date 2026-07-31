@@ -14,6 +14,11 @@ from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import and_, select
 
 from app.adapters.http.governed_client import governed_httpx_client
+from app.adapters.tools.mcp_oauth import (
+    MCPOAuthClient,
+    ResourceChallenge,
+    parse_resource_challenge,
+)
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -69,6 +74,26 @@ async def _official_session_factory(
                 yield session
 
 
+def _authorization_challenge(exc: Exception) -> ResourceChallenge | None:
+    """Return the challenge if this failure was an authorization rejection.
+
+    The SDK surfaces transport errors as exceptions, so the HTTP response is
+    reached through the wrapped ``httpx`` error rather than a status code.
+    """
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code not in {401, 403}:
+        return None
+    headers = getattr(response, "headers", None)
+    www_authenticate = None
+    if headers is not None:
+        try:
+            www_authenticate = headers.get("WWW-Authenticate")
+        except Exception:
+            www_authenticate = None
+    return parse_resource_challenge(www_authenticate)
+
+
 def _dump_content_item(item: Any) -> dict[str, Any]:
     if hasattr(item, "model_dump"):
         return item.model_dump(by_alias=True, exclude_none=True)
@@ -111,6 +136,7 @@ class MCPToolAdapter(ToolPort):
         self._uses_official_factory = session_factory is None
         self._session_factory = session_factory or _official_session_factory
         self._egress_guard = egress_guard or GovernedEgressGuard()
+        self._oauth_clients: dict[str, MCPOAuthClient] = {}
 
     def _resolve_server(self, server_key: str, db: Any, ctx: RequestContext) -> Any | None:
         artifact_ref = f"mcp_server:{server_key}"
@@ -143,6 +169,34 @@ class MCPToolAdapter(ToolPort):
             )
         return None
 
+    def _oauth_client(self, ctx: RequestContext) -> MCPOAuthClient:
+        """Return the per-context OAuth client, keeping its token cache warm."""
+        cached = self._oauth_clients.get(ctx.workspace_id)
+        if cached is None:
+            cached = MCPOAuthClient(ctx=ctx, egress_guard=self._egress_guard)
+            self._oauth_clients[ctx.workspace_id] = cached
+        return cached
+
+    async def _oauth_token(
+        self,
+        ctx: RequestContext,
+        *,
+        server_key: str,
+        endpoint: str,
+        auth_config: dict[str, Any],
+        secrets_port: SecretsPort | None,
+        challenge: ResourceChallenge | None = None,
+        force_refresh: bool = False,
+    ) -> str:
+        return await self._oauth_client(ctx).get_access_token(
+            server_key=server_key,
+            endpoint=endpoint,
+            auth_config=auth_config,
+            secrets_port=secrets_port,
+            challenge=challenge,
+            force_refresh=force_refresh,
+        )
+
     async def _build_auth_headers(
         self,
         auth_config: dict[str, Any],
@@ -151,10 +205,15 @@ class MCPToolAdapter(ToolPort):
         if not auth_config:
             return {}
         auth_type = auth_config.get("type")
-        if auth_type not in {"bearer", "api_key"}:
+        if auth_type not in {"bearer", "api_key", "oauth2"}:
             raise ValueError(f"Unsupported MCP authentication type: {auth_type}")
         if "token" in auth_config or "value" in auth_config:
             raise ValueError("MCP credentials must use secret_id")
+
+        if auth_type == "oauth2":
+            # Handled separately: the token is obtained per invocation so it can
+            # be refreshed, and re-derived from the server's own challenge.
+            return {}
 
         if auth_type == "bearer":
             secret_id = auth_config.get("secret_id")
@@ -208,10 +267,13 @@ class MCPToolAdapter(ToolPort):
             )
 
             timeout = float(kwargs.get("timeout_s", self._timeout))
-            headers = await self._build_auth_headers(
-                server.auth_config,
-                kwargs.get("secrets_port"),
-            )
+            secrets_port = kwargs.get("secrets_port")
+            headers = await self._build_auth_headers(server.auth_config, secrets_port)
+            auth_config = server.auth_config or {}
+            uses_oauth = auth_config.get("type") == "oauth2"
+            if uses_oauth:
+                headers["Authorization"] = f"Bearer {await self._oauth_token(ctx, server_key=server_key, endpoint=endpoint, auth_config=auth_config, secrets_port=secrets_port)}"
+
             session_kwargs: dict[str, Any] = {
                 "endpoint": endpoint,
                 "headers": headers,
@@ -219,12 +281,30 @@ class MCPToolAdapter(ToolPort):
             }
             if self._uses_official_factory:
                 session_kwargs.update(ctx=ctx, egress_guard=self._egress_guard)
-            async with self._session_factory(**session_kwargs) as session:
-                await session.initialize()
-                tools_result = await session.list_tools()
-                if tool_name not in {tool.name for tool in tools_result.tools}:
-                    raise ValueError(f"MCP tool not found: {tool_name}")
-                call_result = await session.call_tool(tool_name, arguments=parameters)
+
+            async def _call() -> Any:
+                async with self._session_factory(**session_kwargs) as session:
+                    await session.initialize()
+                    tools_result = await session.list_tools()
+                    if tool_name not in {tool.name for tool in tools_result.tools}:
+                        raise ValueError(f"MCP tool not found: {tool_name}")
+                    return await session.call_tool(tool_name, arguments=parameters)
+
+            try:
+                call_result = await _call()
+            except Exception as exc:
+                challenge = _authorization_challenge(exc)
+                if not uses_oauth or challenge is None:
+                    raise
+                # The server told us how to authorize. Re-derive the token from
+                # its own challenge rather than assuming the cached one was
+                # merely stale: the required scopes may have changed.
+                self._oauth_client(ctx).invalidate(
+                    server_key=server_key, endpoint=endpoint
+                )
+                headers["Authorization"] = f"Bearer {await self._oauth_token(ctx, server_key=server_key, endpoint=endpoint, auth_config=auth_config, secrets_port=secrets_port, challenge=challenge, force_refresh=True)}"
+                session_kwargs["headers"] = headers
+                call_result = await _call()
 
             result, error_text = _content_result(call_result)
             is_error = bool(getattr(call_result, "isError", False))

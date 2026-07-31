@@ -204,3 +204,153 @@ async def test_plaintext_mcp_credentials_are_rejected(db, ctx):
     assert response.success is False
     assert "secret_id" in response.error
     assert factory.calls == []
+
+
+class _Unauthorized(Exception):
+    """Transport failure carrying the server's authorization challenge."""
+
+    def __init__(self, challenge: str) -> None:
+        super().__init__("unauthorized")
+        self.response = SimpleNamespace(
+            status_code=401,
+            headers={"WWW-Authenticate": challenge},
+        )
+
+
+class ChallengingSessionFactory(StubSessionFactory):
+    """Reject the first call the way a protected MCP server would."""
+
+    def __init__(self, result, challenge: str) -> None:
+        super().__init__(result)
+        self._challenge = challenge
+        self._rejected = False
+
+    @asynccontextmanager
+    async def __call__(self, *, endpoint: str, headers: dict[str, str], timeout: float):
+        self.calls.append({"endpoint": endpoint, "headers": headers, "timeout": timeout})
+        if not self._rejected:
+            self._rejected = True
+            raise _Unauthorized(self._challenge)
+        yield self.session
+
+
+@pytest.mark.asyncio
+async def test_oauth_server_is_authorized_before_the_first_call(db, ctx, monkeypatch):
+    _seed_artifact(
+        db,
+        ctx,
+        auth_config={
+            "type": "oauth2",
+            "client_id": "soit",
+            "client_secret_id": "sec_mcp",
+            "issuer": "https://auth.example.com",
+            "token_endpoint": "https://auth.example.com/token",
+        },
+    )
+    result = SimpleNamespace(structuredContent={"ok": True}, isError=False, content=[])
+    factory = StubSessionFactory(result)
+    adapter = MCPToolAdapter(session_factory=factory, egress_guard=AllowEgressGuard())
+
+    async def fake_token(_ctx=None, **_kwargs):
+        return "tok-first"
+
+    monkeypatch.setattr(adapter, "_oauth_token", fake_token)
+
+    response = await adapter.invoke(
+        "mcp_tool:official:echo",
+        {},
+        db=db,
+        ctx=ctx,
+        secrets_port=StubSecretsPort(),
+    )
+
+    assert response.success
+    assert factory.calls[0]["headers"]["Authorization"] == "Bearer tok-first"
+
+
+@pytest.mark.asyncio
+async def test_a_401_challenge_drives_a_re_authorized_retry(db, ctx, monkeypatch):
+    _seed_artifact(
+        db,
+        ctx,
+        auth_config={
+            "type": "oauth2",
+            "client_id": "soit",
+            "client_secret_id": "sec_mcp",
+            "issuer": "https://auth.example.com",
+            "token_endpoint": "https://auth.example.com/token",
+        },
+    )
+    result = SimpleNamespace(structuredContent={"ok": True}, isError=False, content=[])
+    factory = ChallengingSessionFactory(
+        result,
+        'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource", '
+        'scope="files:write"',
+    )
+    adapter = MCPToolAdapter(session_factory=factory, egress_guard=AllowEgressGuard())
+    issued: list[dict] = []
+
+    async def fake_token(_ctx=None, **kwargs):
+        issued.append(kwargs)
+        return f"tok-{len(issued)}"
+
+    monkeypatch.setattr(adapter, "_oauth_token", fake_token)
+
+    response = await adapter.invoke(
+        "mcp_tool:official:echo",
+        {},
+        db=db,
+        ctx=ctx,
+        secrets_port=StubSecretsPort(),
+    )
+
+    assert response.success
+    assert len(factory.calls) == 2
+    # The retry re-derives the token from the server's own challenge, so the
+    # scopes it now demands are the ones requested.
+    assert issued[1]["force_refresh"] is True
+    assert issued[1]["challenge"].scopes == ("files:write",)
+    assert factory.calls[1]["headers"]["Authorization"] == "Bearer tok-2"
+
+
+@pytest.mark.asyncio
+async def test_a_non_authorization_failure_is_not_retried(db, ctx, monkeypatch):
+    _seed_artifact(
+        db,
+        ctx,
+        auth_config={
+            "type": "oauth2",
+            "client_id": "soit",
+            "client_secret_id": "sec_mcp",
+            "issuer": "https://auth.example.com",
+            "token_endpoint": "https://auth.example.com/token",
+        },
+    )
+
+    class _Boom(StubSessionFactory):
+        @asynccontextmanager
+        async def __call__(self, *, endpoint, headers, timeout):
+            self.calls.append({"endpoint": endpoint, "headers": headers, "timeout": timeout})
+            raise RuntimeError("upstream exploded")
+            yield self.session  # pragma: no cover
+
+    factory = _Boom(SimpleNamespace(structuredContent={}, isError=False, content=[]))
+    adapter = MCPToolAdapter(session_factory=factory, egress_guard=AllowEgressGuard())
+
+    async def fake_token(_ctx=None, **_kwargs):
+        return "tok"
+
+    monkeypatch.setattr(adapter, "_oauth_token", fake_token)
+
+    response = await adapter.invoke(
+        "mcp_tool:official:echo",
+        {},
+        db=db,
+        ctx=ctx,
+        secrets_port=StubSecretsPort(),
+    )
+
+    # Retrying a plain failure would double a side effect the server may have
+    # already performed.
+    assert not response.success
+    assert len(factory.calls) == 1
