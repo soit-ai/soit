@@ -44,6 +44,16 @@ class RegressionCase(SQLModel, table=True):
     source_run_id: str = Field(index=True)
     name: str = Field(index=True)
     status: str = Field(default="active", index=True)
+    dataset: str = Field(default="default", index=True)
+    """Named set this case belongs to, so unrelated suites stay separable."""
+
+    dataset_revision: int = Field(default=1, index=True)
+    """Bumped whenever the set's membership changes.
+
+    Two reports are only comparable if they ran the same cases; without a
+    revision, a report that silently gained or lost cases would look like a
+    quality change.
+    """
     input_snapshot_json: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column(JSON)
     )
@@ -79,6 +89,25 @@ class RegressionReport(SQLModel, table=True):
     subject_id: str = Field(index=True)
     subject_version_id: str = Field(index=True)
     passed: bool = Field(default=False, index=True)
+    dataset: str = Field(default="default", index=True)
+    dataset_revision: int = Field(default=1)
+    """Which set, at which revision, this report actually ran."""
+
+    baseline_report_id: str | None = Field(default=None, nullable=True, index=True)
+    """The report this one was compared against, if any."""
+
+    regressed_case_ids_json: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON)
+    )
+    """Cases that passed in the baseline and fail here.
+
+    Kept apart from failures generally: a case that never passed is a known
+    gap, while one that used to pass is something this change broke.
+    """
+
+    fixed_case_ids_json: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON)
+    )
     summary_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     metrics_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     case_results_json: list[dict[str, Any]] = Field(

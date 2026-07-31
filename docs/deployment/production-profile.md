@@ -86,6 +86,27 @@ never emitted never fires, which reads as coverage while providing none.
 Sampling defaults to `OTEL_TRACES_SAMPLE_RATIO=0.1`. Raise it while
 investigating, and be aware of the cost at full sampling.
 
+### Verifying redaction
+
+Redaction is the one part of this config that is a promise about customer data,
+so confirm it on the wire rather than trusting the file. Run the collector
+pointed at an endpoint you control, send a span carrying the attributes that
+should be dropped alongside one that should survive, and inspect what arrives.
+The exporter gzips its payload, so decompress before searching — a plain search
+of the raw bytes finds nothing and reads as a pass.
+
+```bash
+docker run --rm -p 14318:4318 \
+  -v "$PWD/docker/production/otel-collector.yaml:/etc/otel/config.yaml:ro" \
+  -e OTEL_TRACES_BACKEND_ENDPOINT="http://<your sink>" \
+  otel/opentelemetry-collector-contrib:0.109.0 --config=/etc/otel/config.yaml
+```
+
+A correct result drops `soit.input_summary`, `soit.output_summary` and
+`soit.tool.parameters` entirely — key and value — while `soit.run_id`, the
+service name and the span name still arrive. Losing those too would mean the
+traces are redacted into uselessness.
+
 ## Not covered here
 
 - **Load and failure-injection baselines.** No numbers are published because

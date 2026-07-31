@@ -44,6 +44,9 @@ API_KEY_SCOPES_PATH = (
 RUN_SANDBOX_PATH = (
     VERSIONS_ROOT / "20260728240000_run_sandbox_flag.py"
 )
+REGRESSION_DATASETS_PATH = (
+    VERSIONS_ROOT / "20260731100000_regression_datasets_and_baselines.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -91,6 +94,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         WORKFLOW_RUN_LEASE_PATH.name,
         API_KEY_SCOPES_PATH.name,
         RUN_SANDBOX_PATH.name,
+        REGRESSION_DATASETS_PATH.name,
     ]
 
     module = _load_baseline()
@@ -166,6 +170,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     sandbox_migration = importlib.util.module_from_spec(sandbox_spec)
     sandbox_spec.loader.exec_module(sandbox_migration)
     assert sandbox_migration.down_revision == api_key_migration.revision
+
+    regression_spec = importlib.util.spec_from_file_location(
+        "regression_datasets_and_baselines", REGRESSION_DATASETS_PATH
+    )
+    assert regression_spec and regression_spec.loader
+    regression_migration = importlib.util.module_from_spec(regression_spec)
+    regression_spec.loader.exec_module(regression_migration)
+    assert regression_migration.down_revision == sandbox_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

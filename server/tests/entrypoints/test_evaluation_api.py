@@ -81,5 +81,14 @@ def test_regression_case_api_freezes_historical_run_and_exposes_latest_report(
     assert latest_response.status_code == status.HTTP_200_OK
     latest = latest_response.json()["data"]
     assert latest["id"] == report.report_id
-    assert latest["summary_json"] == {"total": 1, "passed": 1, "failed": 0}
+    assert latest["summary_json"] == {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "regressed": 0,
+        "fixed": 0,
+        "baseline_report_id": None,
+        "dataset": "default",
+        "dataset_revision": 1,
+    }
     assert latest["metrics_json"]["avg_latency_ms"] == 120

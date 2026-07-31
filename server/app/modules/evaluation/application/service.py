@@ -92,14 +92,32 @@ class RegressionEvaluationService:
         subject_id: str,
         subject_version_id: str,
         runner: RegressionRunner,
+        dataset: str = "default",
     ) -> RegressionEvaluationResult:
-        cases = self.list_cases(subject_kind=subject_kind, subject_id=subject_id)
+        cases = self.list_cases(
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            dataset=dataset,
+        )
+        revision = self.dataset_revision(cases)
+        baseline = self.find_baseline(
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            dataset=dataset,
+            dataset_revision=revision,
+        )
         case_results = [await self._evaluate_case(case, runner) for case in cases]
+        regressed, fixed = self.compare_to_baseline(case_results, baseline)
         passed_count = sum(1 for item in case_results if item["passed"])
         summary = {
             "total": len(case_results),
             "passed": passed_count,
             "failed": len(case_results) - passed_count,
+            "regressed": len(regressed),
+            "fixed": len(fixed),
+            "baseline_report_id": baseline.id if baseline else None,
+            "dataset": dataset,
+            "dataset_revision": revision,
         }
         metrics = self._aggregate_metrics(case_results)
         report = RegressionReport(
@@ -108,6 +126,11 @@ class RegressionEvaluationService:
             subject_kind=subject_kind,
             subject_id=subject_id,
             subject_version_id=subject_version_id,
+            dataset=dataset,
+            dataset_revision=revision,
+            baseline_report_id=baseline.id if baseline else None,
+            regressed_case_ids_json=regressed,
+            fixed_case_ids_json=fixed,
             passed=summary["failed"] == 0,
             summary_json=summary,
             metrics_json=metrics,
@@ -125,21 +148,100 @@ class RegressionEvaluationService:
             cases=case_results,
         )
 
-    def list_cases(self, *, subject_kind: str, subject_id: str) -> list[RegressionCase]:
+    def list_cases(
+        self,
+        *,
+        subject_kind: str,
+        subject_id: str,
+        dataset: str | None = None,
+    ) -> list[RegressionCase]:
+        conditions = [
+            RegressionCase.tenant_id == self.ctx.tenant_id,
+            RegressionCase.workspace_id == self.ctx.workspace_id,
+            RegressionCase.subject_kind == subject_kind,
+            RegressionCase.subject_id == subject_id,
+            RegressionCase.status == "active",
+        ]
+        if dataset is not None:
+            conditions.append(RegressionCase.dataset == dataset)
         rows = self.db.exec(
             select(RegressionCase)
-            .where(
-                and_(
-                    RegressionCase.tenant_id == self.ctx.tenant_id,
-                    RegressionCase.workspace_id == self.ctx.workspace_id,
-                    RegressionCase.subject_kind == subject_kind,
-                    RegressionCase.subject_id == subject_id,
-                    RegressionCase.status == "active",
-                )
-            )
+            .where(and_(*conditions))
             .order_by(RegressionCase.created_at)
         ).all()
         return [_unwrap_row(row) for row in rows]
+
+    def dataset_revision(self, cases: list[RegressionCase]) -> int:
+        """The revision a report should record for this set of cases.
+
+        Taking the highest revision present means adding a case advances it,
+        which is what makes two reports comparable or not.
+        """
+        return max((int(case.dataset_revision or 1) for case in cases), default=1)
+
+    def find_baseline(
+        self,
+        *,
+        subject_kind: str,
+        subject_id: str,
+        dataset: str,
+        dataset_revision: int,
+        exclude_report_id: str | None = None,
+    ) -> RegressionReport | None:
+        """The most recent comparable report, or None.
+
+        Comparability requires the same dataset at the same revision. A report
+        over a different set of cases would make an unrelated difference look
+        like a quality change.
+        """
+        conditions = [
+            RegressionReport.tenant_id == self.ctx.tenant_id,
+            RegressionReport.workspace_id == self.ctx.workspace_id,
+            RegressionReport.subject_kind == subject_kind,
+            RegressionReport.subject_id == subject_id,
+            RegressionReport.dataset == dataset,
+            RegressionReport.dataset_revision == dataset_revision,
+        ]
+        if exclude_report_id is not None:
+            conditions.append(RegressionReport.id != exclude_report_id)
+        return _unwrap_row(
+            self.db.exec(
+                select(RegressionReport)
+                .where(and_(*conditions))
+                .order_by(desc(RegressionReport.created_at))
+            ).first()
+        )
+
+    @staticmethod
+    def compare_to_baseline(
+        case_results: list[dict[str, Any]],
+        baseline: RegressionReport | None,
+    ) -> tuple[list[str], list[str]]:
+        """Split current failures into regressions and long-standing gaps.
+
+        A case that never passed is a known gap; one that used to pass is
+        something this change broke. Reporting them together is what makes a
+        "regression report" fail to report regressions.
+        """
+        if baseline is None:
+            return [], []
+        previous = {
+            str(item.get("case_id")): bool(item.get("passed"))
+            for item in (baseline.case_results_json or [])
+            if item.get("case_id")
+        }
+        regressed: list[str] = []
+        fixed: list[str] = []
+        for item in case_results:
+            case_id = str(item.get("case_id") or "")
+            if case_id not in previous:
+                continue
+            now_passed = bool(item.get("passed"))
+            if previous[case_id] and not now_passed:
+                regressed.append(case_id)
+            elif not previous[case_id] and now_passed:
+                fixed.append(case_id)
+        return regressed, fixed
 
     def get_latest_report(
         self,

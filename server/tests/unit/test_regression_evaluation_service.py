@@ -107,7 +107,18 @@ async def test_evaluate_subject_version_persists_report_with_success_cost_and_la
 
     assert isinstance(result, RegressionEvaluationResult)
     assert result.passed is True
-    assert result.summary == {"total": 1, "passed": 1, "failed": 0}
+    assert result.summary == {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        # A first report has nothing to compare against, so nothing can be
+        # called a regression.
+        "regressed": 0,
+        "fixed": 0,
+        "baseline_report_id": None,
+        "dataset": "default",
+        "dataset_revision": 1,
+    }
     assert result.metrics["avg_latency_ms"] == 120
     assert result.metrics["total_cost_amount"] == 0.05
     assert latest is not None

@@ -106,9 +106,23 @@ SOIT_TESTING=1 KNOWLEDGE_INGEST_WORKER_ENABLED=true KNOWLEDGE_INGEST_WORKER_MAX_
   uv run python scripts/ingest_worker.py
 ```
 
+The plugin specs install a real signed package, so the server must already
+trust the key that signed it. Build the fixture before starting the API and
+turn on strict verification; otherwise the install would pass because nothing
+was checked rather than because the trust chain held.
+
+```bash
+cd server
+uv run python scripts/build_plugin_fixture.py --out /tmp/plugfix
+```
+
+Start the API additionally with `PLUGIN_SIGNATURE_REQUIRED=true`,
+`PLUGIN_INTEGRITY_REQUIRED=true` and `PLUGIN_SIGNATURE_PUBLIC_KEYS` set to the
+`public_key_b64` in `/tmp/plugfix/keys.json`.
+
 ```bash
 cd web
-SOIT_REAL_API_BASE_URL=http://127.0.0.1:9200/api/v1 npm run test:e2e:real
+SOIT_PLUGIN_FIXTURE_DIR=/tmp/plugfix   SOIT_REAL_API_BASE_URL=http://127.0.0.1:9200/api/v1 npm run test:e2e:real
 ```
 
 ## Blocking Container Gate

@@ -157,7 +157,16 @@ async def test_publish_agent_version_replays_regression_cases_before_publish(db,
     assert published.published_version_id == version.id
     assert report is not None
     assert report.passed is True
-    assert report.summary_json == {"total": 1, "passed": 1, "failed": 0}
+    assert report.summary_json == {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "regressed": 0,
+        "fixed": 0,
+        "baseline_report_id": None,
+        "dataset": "default",
+        "dataset_revision": 1,
+    }
     assert report.metrics_json["total_cost_amount"] == 0.0
     assert report.case_results_json[0]["run_id"].startswith("run_")
 
@@ -216,7 +225,18 @@ async def test_publish_agent_version_blocks_when_regression_report_fails(db, ten
     assert current.published_version_id is None
     assert report is not None
     assert report.passed is False
-    assert report.summary_json == {"total": 1, "passed": 0, "failed": 1}
+    assert report.summary_json == {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        # Failing with no baseline is a known gap, not something this change
+        # broke.
+        "regressed": 0,
+        "fixed": 0,
+        "baseline_report_id": None,
+        "dataset": "default",
+        "dataset_revision": 1,
+    }
 
 
 @pytest.mark.asyncio
