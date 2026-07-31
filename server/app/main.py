@@ -104,6 +104,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _handle_startup_failure("task drivers", exc)
 
+    try:
+        from app.wiring.dead_letter_sources import register_dead_letter_sources
+
+        register_dead_letter_sources()
+    except Exception as exc:
+        _handle_startup_failure("dead letter sources", exc)
+
     workflow_reaper_coro = None
     if getattr(app_settings, "workflow_orphan_reaper_enabled", False):
         try:

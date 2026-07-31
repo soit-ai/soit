@@ -2,6 +2,7 @@
 
 
 from fastapi import APIRouter, Depends, status
+from sqlmodel import Session
 
 from app.api.v1.observe.dependencies import get_observe_service
 from app.api.v1.observe.handlers import ObserveHandlers
@@ -10,7 +11,11 @@ from app.api.v1.permissions import (
     require_workspace_write_ctx,
 )
 from app.infra.db.pagination import PaginatedResponse
+from app.infra.db.session import get_db
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.deadletter.contracts import DeadLetterKind
+from app.kernel.runtime.deadletter.schemas import DeadLetterResponse, RedriveResponse
+from app.kernel.runtime.deadletter.service import DeadLetterService
 from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
@@ -133,3 +138,34 @@ async def get_run_replay(
     service: ObserveService = Depends(get_observe_service),
 ):
     return await ObserveHandlers(service).get_run_replay(ctx, run_id)
+
+
+@router.get("/dead-letters", response_model=list[DeadLetterResponse])
+async def list_dead_letters(
+    kind: DeadLetterKind | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    db: Session = Depends(get_db),
+):
+    """List work that failed terminally, across every execution kind."""
+    letters = DeadLetterService(db, ctx).list_dead_letters(
+        kind=kind, limit=limit, offset=offset
+    )
+    return [DeadLetterResponse.from_domain(item) for item in letters]
+
+
+@router.post("/dead-letters/{kind}/{dead_letter_id}/redrive", response_model=RedriveResponse)
+async def redrive_dead_letter(
+    kind: DeadLetterKind,
+    dead_letter_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    db: Session = Depends(get_db),
+):
+    """Run one dead letter again, where the kind supports it."""
+    result = DeadLetterService(db, ctx).redrive(kind=kind, dead_letter_id=dead_letter_id)
+    return RedriveResponse(
+        outcome=result.outcome,
+        detail=result.detail,
+        redriven_as=result.redriven_as,
+    )
