@@ -1,0 +1,72 @@
+# Prometheus alert rules for the SOIT runtime.
+#
+# Every expression here references a metric the runtime actually exports from
+# app/kernel/observe/metrics.py. A rule naming a metric that is never emitted
+# never fires, which is worse than having no rule: it reads as coverage.
+
+groups:
+  - name: soit-runtime
+    interval: 30s
+    rules:
+      - alert: SoitOutboxDeadLetters
+        expr: soit_outbox_dead_letters > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox events have failed terminally"
+          description: >-
+            Events exhausted their dispatch attempts. Inspect them at
+            /api/v1/observe/dead-letters and redrive once the cause is fixed.
+
+      - alert: SoitOutboxBacklogStalled
+        expr: soit_outbox_oldest_pending_age_seconds > 900
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Oldest pending outbox event is over 15 minutes old"
+          description: >-
+            The dispatcher is not draining. Check that the dedicated
+            outbox-dispatcher process is running; production forbids the API
+            from dispatching in-process.
+
+      - alert: SoitOutboxRetryStorm
+        expr: rate(soit_outbox_retries[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox events are retrying continuously"
+
+      - alert: SoitRunFailureRatio
+        expr: >-
+          sum(rate(soit_runs_total{status="failed"}[10m]))
+          / clamp_min(sum(rate(soit_runs_total[10m])), 0.001) > 0.25
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than a quarter of runs are failing"
+
+      - alert: SoitRunLatencyP95
+        expr: >-
+          histogram_quantile(0.95, sum(rate(soit_run_duration_seconds_bucket[10m])) by (le))
+          > 120
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 run duration is above two minutes"
+
+      - alert: SoitActiveRunsStuck
+        expr: soit_active_runs > 0 and rate(soit_runs_total[15m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Runs are active but none are completing"
+          description: >-
+            Executions may have been orphaned by a restart. The workflow
+            orphan reaper marks those failed once their lease lapses; if this
+            persists, check that the reaper is enabled on the API service.

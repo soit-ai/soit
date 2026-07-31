@@ -1,0 +1,28 @@
+# TLS terminator for the SOIT production reference.
+#
+# Caddy obtains and renews a certificate automatically. The API and web app
+# listen on the internal network only; nothing reaches them except through here.
+
+{$SOIT_PUBLIC_HOSTNAME} {
+	encode zstd gzip
+
+	# Server-sent events must not be buffered, or Observe and chat streams
+	# arrive only when the response completes.
+	@sse {
+		path /api/v1/agents/*/stream /api/v1/workflows/*/stream /api/v1/runs/*/stream /api/v1/responses*
+	}
+	reverse_proxy @sse api:9200 {
+		flush_interval -1
+	}
+
+	reverse_proxy /api/* api:9200
+	reverse_proxy /* web:5000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

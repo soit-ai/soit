@@ -1,0 +1,48 @@
+# OpenTelemetry Collector for the SOIT production reference.
+#
+# The API exports traces over OTLP/HTTP and Prometheus metrics on its own
+# endpoint. The collector fans traces out to the operator's backend; point the
+# exporters below at whatever that is.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Bound memory so a trace spike cannot take the collector down with it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+  # Traces carry prompts and tool arguments. Drop the attributes that most
+  # often hold customer data before anything leaves the cluster.
+  attributes/redact:
+    actions:
+      - key: soit.input_summary
+        action: delete
+      - key: soit.output_summary
+        action: delete
+      - key: soit.tool.parameters
+        action: delete
+
+exporters:
+  # Replace with the operator's tracing backend.
+  otlphttp/traces:
+    endpoint: ${OTEL_TRACES_BACKEND_ENDPOINT}
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/traces]
+  telemetry:
+    logs:
+      level: warn

@@ -1,0 +1,173 @@
+# Hardened production reference.
+#
+# This file deliberately bundles no database, cache, object store or secret
+# manager. Running stateful infrastructure as disposable sibling containers is
+# what makes a "production" compose file a lie; those belong to the operator's
+# platform, and this file only points at them.
+#
+# What it does provide is the process topology the runtime requires: a TLS
+# terminator in front of the API, the outbox dispatcher as its own process
+# (settings refuse an in-process dispatcher in production), the durable
+# interaction worker enabled, and the knowledge ingest worker separate.
+#
+# Copy .env.production.example, fill in every value, then:
+#   docker compose -f docker/docker-compose.production.yml config --quiet
+#   docker compose -f docker/docker-compose.production.yml up -d
+
+x-server-environment: &server_environment
+  ENVIRONMENT: production
+  # Managed PostgreSQL, Redis and object storage supplied by the operator.
+  DATABASE_URL: ${DATABASE_URL:?production requires an external database URL}
+  REDIS_URL: ${REDIS_URL:?production requires an external Redis URL}
+  SECRET_KEY: ${SECRET_KEY:?production requires a non-placeholder secret key}
+
+  # Vault must not be a dev-mode server: a dev server keeps its data in memory
+  # and unseals itself with a fixed root token.
+  VAULT_URL: ${VAULT_URL:?production requires an external Vault}
+  VAULT_TOKEN: ${VAULT_TOKEN:?production requires a Vault token}
+
+  STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+  STORAGE_OPTIONS_JSON: ${STORAGE_OPTIONS_JSON:?production requires object storage options}
+  MILVUS_HOST: ${MILVUS_HOST:?production requires a vector store host}
+  MILVUS_PORT: ${MILVUS_PORT:-19530}
+
+  EVENT_BUS_BACKEND: redis
+  EVENT_BUS_REDIS_URL: ${EVENT_BUS_REDIS_URL:?production requires the Redis event bus}
+
+  # Execution must not run inside the API request.
+  RESPONSE_INTERACTION_INLINE_EXECUTION: "false"
+  RESPONSE_INTERACTION_WORKER_ENABLED: "true"
+  WORKFLOW_ORPHAN_REAPER_ENABLED: "true"
+  # The dispatcher runs as its own service below, so the API must not also run one.
+  OUTBOX_DISPATCHER_ENABLED: "false"
+
+  # Third-party code must be signed, verified and revocable.
+  PLUGIN_SIGNATURE_REQUIRED: "true"
+  PLUGIN_SIGNATURE_PUBLIC_KEYS: ${PLUGIN_SIGNATURE_PUBLIC_KEYS:?production requires trusted plugin keys}
+  PLUGIN_INTEGRITY_REQUIRED: "true"
+  PLUGIN_REVOKED_PACKAGE_DIGESTS: ${PLUGIN_REVOKED_PACKAGE_DIGESTS:-[]}
+
+  ENABLE_EGRESS_POLICY: "true"
+  EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-[]}
+  EGRESS_BLOCKLIST: ${EGRESS_BLOCKLIST:-[]}
+
+  OTEL_ENABLED: "true"
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-soit-api}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
+  OTEL_TRACES_SAMPLE_RATIO: ${OTEL_TRACES_SAMPLE_RATIO:-0.1}
+
+  # Content safety is not implemented in SOIT. Point this at a classifier you
+  # operate, or leave it disabled and accept that nothing is inspected.
+  CONTENT_SAFETY_ENABLED: ${CONTENT_SAFETY_ENABLED:-false}
+  CONTENT_SAFETY_ENDPOINT: ${CONTENT_SAFETY_ENDPOINT:-}
+  CONTENT_SAFETY_FAIL_CLOSED: ${CONTENT_SAFETY_FAIL_CLOSED:-true}
+
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+services:
+  # TLS terminates here. The API itself speaks plain HTTP on the internal
+  # network only and is never published directly.
+  gateway:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ${CADDYFILE_PATH:-./production/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      SOIT_PUBLIC_HOSTNAME: ${SOIT_PUBLIC_HOSTNAME:?production requires a public hostname for TLS}
+    depends_on:
+      - api
+      - web
+
+  migrate:
+    build:
+      context: ../server
+    environment:
+      <<: *server_environment
+    command: ["sh", "scripts/migrate.sh"]
+    restart: "no"
+
+  api:
+    build:
+      context: ../server
+    environment:
+      <<: *server_environment
+    # No published port: reachable only through the TLS gateway.
+    expose:
+      - "9200"
+    command:
+      - "uvicorn"
+      - "app.main:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "9200"
+      - "--workers"
+      - "${API_WORKERS:-4}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:9200/api/v1/health/ready')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../web
+    expose:
+      - "5000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  outbox-dispatcher:
+    build:
+      context: ../server
+    environment:
+      <<: *server_environment
+      OUTBOX_DISPATCHER_ENABLED: "true"
+    command: ["python", "scripts/outbox_dispatcher.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  knowledge-ingest-worker:
+    build:
+      context: ../server
+      target: knowledge-worker
+    environment:
+      <<: *server_environment
+      KNOWLEDGE_INGEST_WORKER_ENABLED: "true"
+      # 0 keeps the worker draining; a positive limit makes it exit and restart.
+      KNOWLEDGE_INGEST_WORKER_MAX_TASKS: "0"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    command: ["python", "scripts/ingest_worker.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ${OTEL_COLLECTOR_CONFIG:-./production/otel-collector.yaml}:/etc/otel/config.yaml:ro
+    expose:
+      - "4318"
+
+volumes:
+  caddy-data:
+  caddy-config:
