@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import Status, StatusCode, Tracer
 
 from app.kernel.commons.errors import KernelError
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
@@ -779,6 +779,22 @@ class LLMPolicyGateway(LLMPort):
         runtime_target: LLMRuntimeTarget | None = None
         output_preview = ""
 
+        # A stream yields to its consumer between chunks, so this span is kept
+        # off the context stack: a span attached across a yield can be resumed
+        # and detached in a different task. It still covers the whole stream.
+        span = self.otel_tracer.start_span(
+            "soit.llm.stream_chat",
+            attributes={
+                "gen_ai.operation.name": "chat",
+                "gen_ai.request.model": model,
+                "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                "soit.tenant.id": self.ctx.tenant_id,
+                "soit.workspace.id": self.ctx.workspace_id,
+                "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
+                "soit.step.id": step.id if step else "",
+                "soit.llm.streaming": True,
+            },
+        )
         try:
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
             route = await self._resolve_call_route(model, required_capabilities)
@@ -913,7 +929,12 @@ class LLMPolicyGateway(LLMPort):
                     total_tokens=tokens_prompt + tokens_completion,
                     latency_ms=elapsed_ms,
                 )
+            span.set_attribute("gen_ai.response.model", model_used or model)
+            span.set_attribute("gen_ai.usage.input_tokens", tokens_prompt)
+            span.set_attribute("gen_ai.usage.output_tokens", tokens_completion)
         except Exception as e:
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, str(e)))
             if step and self.trace_writer:
                 self.trace_writer.update_step_status(
                     step.id,
@@ -923,6 +944,8 @@ class LLMPolicyGateway(LLMPort):
                     error_details=error_details(e),
                 )
             raise
+        finally:
+            span.end()
 
     async def embed(
         self,
@@ -967,18 +990,33 @@ class LLMPolicyGateway(LLMPort):
         start_time = utc_now()
         try:
             route = await self._resolve_call_route(model, ("embeddings",))
-            response = await self._run_call(
-                lambda: route.port.embed(texts=texts, model=model, ctx=self.ctx, **kwargs),
-                timeout_factory=lambda: KernelTimeoutError(
-                    f"LLM embed request timed out after {route.timeout_seconds} seconds",
-                    {"timeout_seconds": route.timeout_seconds, "model": model}
-                ),
-                timeout_seconds=route.timeout_seconds,
-                max_retries=route.max_retries,
-                retry_backoff=route.retry_backoff,
-                retryable_status_codes=route.retryable_status_codes,
-            )
-            response.runtime_target = response.runtime_target or route.target
+            with self.otel_tracer.start_as_current_span(
+                "soit.llm.embed",
+                attributes={
+                    "gen_ai.operation.name": "embeddings",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                    "soit.tenant.id": self.ctx.tenant_id,
+                    "soit.workspace.id": self.ctx.workspace_id,
+                    "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
+                    "soit.step.id": step.id if step else "",
+                    "soit.llm.embed.input_count": len(texts),
+                },
+            ) as span:
+                response = await self._run_call(
+                    lambda: route.port.embed(texts=texts, model=model, ctx=self.ctx, **kwargs),
+                    timeout_factory=lambda: KernelTimeoutError(
+                        f"LLM embed request timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": model}
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+                response.runtime_target = response.runtime_target or route.target
+                span.set_attribute("gen_ai.response.model", response.model or model)
+                span.set_attribute("gen_ai.usage.input_tokens", response.tokens_used)
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -1225,25 +1263,41 @@ class LLMPolicyGateway(LLMPort):
         start_time = utc_now()
         try:
             route = await self._resolve_call_route(model, ("rerank",))
-            response = await self._run_call(
-                lambda: route.port.rerank(
-                    query=query,
-                    documents=documents,
-                    model=model,
-                    top_n=top_n,
-                    ctx=self.ctx,
-                    **kwargs,
-                ),
-                timeout_factory=lambda: KernelTimeoutError(
-                    f"LLM rerank request timed out after {route.timeout_seconds} seconds",
-                    {"timeout_seconds": route.timeout_seconds, "model": model}
-                ),
-                timeout_seconds=route.timeout_seconds,
-                max_retries=route.max_retries,
-                retry_backoff=route.retry_backoff,
-                retryable_status_codes=route.retryable_status_codes,
-            )
-            response.runtime_target = response.runtime_target or route.target
+            with self.otel_tracer.start_as_current_span(
+                "soit.llm.rerank",
+                attributes={
+                    "gen_ai.operation.name": "rerank",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                    "soit.tenant.id": self.ctx.tenant_id,
+                    "soit.workspace.id": self.ctx.workspace_id,
+                    "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
+                    "soit.step.id": step.id if step else "",
+                    "soit.llm.rerank.document_count": len(documents),
+                    "soit.llm.rerank.top_n": top_n or len(documents),
+                },
+            ) as span:
+                response = await self._run_call(
+                    lambda: route.port.rerank(
+                        query=query,
+                        documents=documents,
+                        model=model,
+                        top_n=top_n,
+                        ctx=self.ctx,
+                        **kwargs,
+                    ),
+                    timeout_factory=lambda: KernelTimeoutError(
+                        f"LLM rerank request timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": model}
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+                response.runtime_target = response.runtime_target or route.target
+                span.set_attribute("gen_ai.response.model", response.model or model)
+                span.set_attribute("gen_ai.usage.input_tokens", response.tokens_used)
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
