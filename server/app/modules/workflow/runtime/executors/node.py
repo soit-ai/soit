@@ -83,9 +83,11 @@ class RegistryNodeExecutor(NodeExecutor):
         if not tool_ref:
             raise ValidationError(f"Workflow node '{node_ref}' missing tool_ref")
 
+        # Attempt-stable identity: a retry or crash-resume must replay a
+        # completed call from the ledger instead of reissuing it.
         tool_call_id = (
             f"workflow:{context.workflow_run_id or context.run_id}:"
-            f"{node.get('id') or node_ref}:{context.step_id or 'untraced'}"
+            f"{node.get('id') or node_ref}:0"
         )
         response = await context.tool_port.invoke(
             tool_ref=tool_ref,
@@ -95,6 +97,7 @@ class RegistryNodeExecutor(NodeExecutor):
             strict_registry=True,
             tool_call_id=tool_call_id,
             idempotency_key=f"tool:{context.run_id}:{tool_call_id}",
+            retry_failed=True,
         )
         if not response.success:
             raise ValidationError(f"Node execution failed: {response.error}")

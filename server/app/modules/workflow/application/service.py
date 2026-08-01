@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC
+from dataclasses import dataclass
+from datetime import UTC, timedelta
 from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, select, update
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import NotFoundError, ValidationError
+from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
@@ -17,6 +19,7 @@ from app.kernel.contracts.pagination import PageToken
 from app.kernel.events.bus import EventBus
 from app.kernel.identity.guard import rbac_guard, workspace_guard
 from app.kernel.identity.permissions import RESOURCE_WORKFLOW
+from app.kernel.runtime.common import lease as runtime_lease
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
@@ -56,7 +59,19 @@ from app.modules.workflow.infra.repository import (
     WorkflowVersionRepository,
 )
 from app.modules.workflow.runtime.engine import ExecutionEngine
+from app.modules.workflow.runtime.resume import assess_resume
 from app.modules.workflow.templates.ticket_triage import build_ticket_triage_template
+from app.settings.settings import settings
+
+
+@dataclass(frozen=True)
+class PreparedRedrive:
+    """A failed run staged for resume: claimed row, plan and checkpoint."""
+
+    workflow_run_id: str
+    run_id: str
+    plan: ExecutionPlan
+    checkpoint: dict[str, Any]
 
 
 class WorkflowService:
@@ -265,6 +280,7 @@ class WorkflowService:
                     ui_type=capability.ui_type,
                     category=capability.category,
                     executable=capability.executable,
+                    effect_class=capability.effect_class,
                 )
                 for capability in get_workflow_node_capabilities()
             ],
@@ -652,6 +668,84 @@ class WorkflowService:
             "status": refreshed.status,
             "output": result,
         }
+
+    def prepare_redrive(self, workflow_run_id: str) -> PreparedRedrive:
+        """Stage one failed workflow run for resume from its crash checkpoint.
+
+        Staging is a compare-and-set on the failed status, so exactly one of
+        two concurrent redrives wins; the loser learns the row is no longer
+        dead instead of double-claiming it.
+        """
+
+        workflow_run = self.db.get(WorkflowRun, workflow_run_id)
+        if (
+            workflow_run is None
+            or workflow_run.tenant_id != self.ctx.tenant_id
+            or workflow_run.workspace_id != self.ctx.workspace_id
+        ):
+            raise NotFoundError("Workflow run not found")
+        if workflow_run.status != "failed":
+            raise ConflictError(
+                f"Workflow run is {workflow_run.status}, not a dead letter"
+            )
+        run = self._get_run_record(workflow_run.workflow_id, workflow_run.run_id)
+        if not run.subject_version_id:
+            raise ValidationError("Workflow run has no pinned version")
+        version = self.version_repo.get_by_id(run.subject_version_id)
+        if version is None or version.workflow_id != workflow_run.workflow_id:
+            raise ValidationError("Pinned workflow version is unavailable")
+
+        checkpoint = dict(workflow_run.checkpoint_json or {})
+        inputs = checkpoint.get("inputs")
+        if not isinstance(inputs, dict):
+            inputs = dict(workflow_run.inputs_json or {})
+        plan = self.compiler.compile(version.spec_json, inputs, run.id)
+        plan.subject_kind = "workflow"
+        plan.subject_id = workflow_run.workflow_id
+        plan.subject_version_id = version.id
+
+        assessment = assess_resume(
+            plan.plan_data.get("nodes") or {},
+            plan.plan_data.get("semantics") or {},
+            checkpoint,
+        )
+        if not assessment.resumable:
+            raise ValidationError(
+                assessment.detail or "Workflow run cannot be resumed",
+                {
+                    "reason_code": assessment.reason_code,
+                    "blocking_node_ids": assessment.blocking_node_ids,
+                },
+            )
+
+        now = utc_now()
+        lease_seconds = runtime_lease.normalize_lease_seconds(
+            settings.workflow_execution_lease_seconds
+        )
+        staged = self.db.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == workflow_run.id,
+                WorkflowRun.status == "failed",
+            )
+            .values(
+                status="queued",
+                lease_owner=f"workflow-redrive-{uuid4()}",
+                lease_expires_at=now + timedelta(seconds=lease_seconds),
+                attempt_count=WorkflowRun.attempt_count + 1,
+                updated_at=now,
+            )
+        )
+        if staged.rowcount != 1:
+            raise ConflictError("Workflow run was already redriven")
+        self.trace_writer.update_run_status(run.id, "retrying")
+        self.db.commit()
+        return PreparedRedrive(
+            workflow_run_id=workflow_run.id,
+            run_id=run.id,
+            plan=plan,
+            checkpoint=checkpoint,
+        )
 
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def cancel_run(

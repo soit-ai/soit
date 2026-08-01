@@ -35,29 +35,32 @@ class TestWorkflowAPI:
         ]
         assert payload["compatibility_node_types"] == ["http", "node"]
         assert payload["capabilities"] == [
-            {"type": "input", "ui_type": "input-node", "category": "input", "executable": True},
-            {"type": "transform", "ui_type": "transform-node", "category": "data", "executable": True},
+            {"type": "input", "ui_type": "input-node", "category": "input", "executable": True, "effect_class": "pure"},
+            {"type": "transform", "ui_type": "transform-node", "category": "data", "executable": True, "effect_class": "pure"},
             {
                 "type": "set_var",
                 "ui_type": "variable-assignment-node",
                 "category": "data",
                 "executable": True,
+                "effect_class": "pure",
             },
-            {"type": "llm", "ui_type": "llm-node", "category": "model", "executable": True},
+            {"type": "llm", "ui_type": "llm-node", "category": "model", "executable": True, "effect_class": "read"},
             {
                 "type": "retrieve",
                 "ui_type": "knowledge-search-node",
                 "category": "data",
                 "executable": True,
+                "effect_class": "read",
             },
-            {"type": "tool", "ui_type": "tool-node", "category": "tool", "executable": True},
+            {"type": "tool", "ui_type": "tool-node", "category": "tool", "executable": True, "effect_class": "effectful"},
             {
                 "type": "condition",
                 "ui_type": "conditional-node",
                 "category": "flow",
                 "executable": True,
+                "effect_class": "pure",
             },
-            {"type": "output", "ui_type": "output-node", "category": "output", "executable": True},
+            {"type": "output", "ui_type": "output-node", "category": "output", "executable": True, "effect_class": "pure"},
         ]
 
     def test_create_workflow_version_rejects_spoofed_created_by(self, client):

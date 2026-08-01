@@ -32,9 +32,11 @@ class HttpNodeExecutor(NodeExecutor):
         body = inputs.get("body", {})
 
         registry_only = bool(context.workflow_policy.get("registry_only_tools"))
+        # Attempt-stable identity: a retry or crash-resume must replay a
+        # completed request from the ledger instead of reissuing it.
         tool_call_id = (
             f"workflow:{context.workflow_run_id or context.run_id}:"
-            f"{node.get('id') or 'http'}:{context.step_id or 'untraced'}"
+            f"{node.get('id') or 'http'}:0"
         )
         response = await context.tool_port.invoke(
             tool_ref="tool:http:request",
@@ -50,6 +52,7 @@ class HttpNodeExecutor(NodeExecutor):
             strict_registry=registry_only,
             tool_call_id=tool_call_id,
             idempotency_key=f"tool:{context.run_id}:{tool_call_id}",
+            retry_failed=True,
         )
 
         if not response.success:

@@ -142,6 +142,11 @@
         "pause_poll_ms": {
           "type": ["integer", "null"],
           "minimum": 100
+        },
+        "resume_policy": {
+          "type": ["string", "null"],
+          "enum": [null, "never", "manual", "auto"],
+          "description": "Orphaned-run handling: never fails, manual allows operator redrive from checkpoint, auto requeues for resume. Historical specs without this field use manual."
         }
       }
     }
@@ -157,6 +162,16 @@
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
+    },
+    "effectClassOverride": {
+      "type": ["string", "null"],
+      "enum": [null, "read", "effectful"],
+      "description": "Side-effect override for externally reaching nodes. A node can never claim pure; read declares the call observably side-effect free (e.g. http GET)."
+    },
+    "onResume": {
+      "type": ["string", "null"],
+      "enum": [null, "fail", "require_approval"],
+      "description": "How a resume treats this node when it was mid-flight and its effects cannot be proven replay-safe."
     },
     "inputNode": {
       "type": "object",
@@ -272,6 +287,8 @@
         "id": {"$ref": "#/$defs/nonEmptyString"},
         "type": {"const": "tool"},
         "name": {"$ref": "#/$defs/nodeName"},
+        "effect_class": {"$ref": "#/$defs/effectClassOverride"},
+        "on_resume": {"$ref": "#/$defs/onResume"},
         "params": {
           "type": "object",
           "additionalProperties": false,
@@ -336,6 +353,8 @@
         "id": {"$ref": "#/$defs/nonEmptyString"},
         "type": {"const": "http"},
         "name": {"$ref": "#/$defs/nodeName"},
+        "effect_class": {"$ref": "#/$defs/effectClassOverride"},
+        "on_resume": {"$ref": "#/$defs/onResume"},
         "params": {
           "type": "object",
           "additionalProperties": false,
@@ -362,6 +381,8 @@
         "id": {"$ref": "#/$defs/nonEmptyString"},
         "type": {"const": "node"},
         "name": {"$ref": "#/$defs/nodeName"},
+        "effect_class": {"$ref": "#/$defs/effectClassOverride"},
+        "on_resume": {"$ref": "#/$defs/onResume"},
         "params": {
           "type": "object",
           "additionalProperties": false,

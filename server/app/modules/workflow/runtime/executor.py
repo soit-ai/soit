@@ -10,12 +10,19 @@ from dataclasses import asdict
 from typing import Any
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.modules.workflow.application.variable_resolver import VariableResolver
+from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executors import get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.modules.workflow.runtime.resume import (
+    RESUME_BLOCKED_OUTPUT_TRUNCATED,
+    build_checkpoint_snapshot,
+    referenced_truncated_nodes,
+)
 from app.modules.workflow.runtime.workflow_outbox_emit import (
     enqueue_workflow_node_completed,
     enqueue_workflow_node_failed,
@@ -38,12 +45,37 @@ class WorkflowApprovalRequired(Exception):
         super().__init__(f"Workflow node {node_id} is waiting for approval")
 
 
+def _stage_workflow_checkpoint(
+    context: ExecutionContext,
+    checkpoint: dict[str, Any] | None,
+) -> None:
+    """Stage the crash checkpoint so it commits with the node outbox event.
+
+    Sharing the transaction is the point: progress and its notification are
+    either both durable or neither, so a crash can never leave a checkpoint
+    claiming more (or less) than the ledger saw.
+    """
+
+    if checkpoint is None:
+        return
+    wid = getattr(context, "workflow_run_id", None)
+    if not wid:
+        return
+    row = context.trace_writer.db.get(WorkflowRun, wid)
+    if row is None or row.status not in {"running", "queued"}:
+        return
+    row.checkpoint_json = checkpoint
+    row.updated_at = utc_now()
+    context.trace_writer.db.add(row)
+
+
 def _emit_workflow_node_completed_outbox(
     context: ExecutionContext,
     *,
     node_id: str,
     run_step: RunStep,
     next_node_id: str | None = None,
+    checkpoint: dict[str, Any] | None = None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -61,6 +93,7 @@ def _emit_workflow_node_completed_outbox(
         step_pk=run_step.id,
         next_node_id=next_node_id,
     )
+    _stage_workflow_checkpoint(context, checkpoint)
     db.commit()
 
 
@@ -71,6 +104,7 @@ def _emit_workflow_node_failed_outbox(
     run_step: RunStep,
     error_code: str | None,
     error_message: str | None,
+    checkpoint: dict[str, Any] | None = None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -89,6 +123,7 @@ def _emit_workflow_node_failed_outbox(
         error_code=error_code,
         error_message=error_message,
     )
+    _stage_workflow_checkpoint(context, checkpoint)
     db.commit()
 
 
@@ -148,6 +183,14 @@ class WorkflowExecutor:
         resume_workflow_step_id = (
             str(checkpoint.get("workflow_run_step_id") or "") or None
         )
+        if checkpoint:
+            unreadable = referenced_truncated_nodes(nodes, checkpoint)
+            if unreadable:
+                raise ValidationError(
+                    f"{RESUME_BLOCKED_OUTPUT_TRUNCATED}: resume needs outputs "
+                    "that were too large to checkpoint: "
+                    + ", ".join(unreadable)
+                )
         in_degree = {node_id: len(reverse_edge_map.get(node_id, [])) for node_id in nodes}
         incoming_active = dict.fromkeys(nodes, 0)
         has_incoming = {node_id: in_degree[node_id] > 0 for node_id in nodes}
@@ -424,7 +467,14 @@ class WorkflowExecutor:
                         output_summary=str(output)[:8192] if output else None,
                         metrics=metrics,
                     )
-                    _emit_workflow_node_completed_outbox(context, node_id=node_id, run_step=run_step)
+                    _emit_workflow_node_completed_outbox(
+                        context,
+                        node_id=node_id,
+                        run_step=run_step,
+                        checkpoint=build_checkpoint_snapshot(
+                            plan.inputs, node_states, node_outputs
+                        ),
+                    )
 
                     resolve_outgoing_edges(node_id, allow_edges=True)
 
@@ -499,6 +549,9 @@ class WorkflowExecutor:
                         run_step=run_step,
                         error_code="NODE_EXECUTION_ERROR",
                         error_message=error_message[:8192],
+                        checkpoint=build_checkpoint_snapshot(
+                            plan.inputs, node_states, node_outputs
+                        ),
                     )
 
                     error_strategy = semantics.get("on_error", "fail_fast")

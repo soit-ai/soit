@@ -13,11 +13,13 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.responses import ResponseInteraction
+from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.deadletter.contracts import (
     DeadLetter,
@@ -31,6 +33,11 @@ from app.kernel.runtime.tasks.drivers import is_drivable
 from app.kernel.runtime.tasks.service import TaskService
 from app.modules.knowledge.domain.models import KnowledgeIngestTask
 from app.modules.workflow.domain.models import WorkflowRun
+from app.modules.workflow.runtime.resume import (
+    RESUME_BLOCKED_CHECKPOINT_MISSING,
+    ResumeAssessment,
+    assess_resume,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +283,50 @@ class ResponseInteractionDeadLetterSource:
 
 
 class WorkflowRunDeadLetterSource:
-    """Workflow runs that failed, including those orphaned by a restart."""
+    """Workflow runs that failed, including those orphaned by a restart.
+
+    A run is redrivable only when resuming it is provably safe: every
+    unfinished node must be re-enterable without repeating an external side
+    effect. That verdict comes from the node effect vocabulary and the crash
+    checkpoint, never from an assumption.
+    """
 
     kind = DeadLetterKind.WORKFLOW_RUN
-    redrivable = False
+    redrivable = True
+
+    def _assess(
+        self, db: Session, ctx: RequestContext, row: WorkflowRun
+    ) -> ResumeAssessment:
+        from app.wiring.services import build_workflow_service
+
+        try:
+            service = build_workflow_service(db=db, ctx=ctx)
+            run = db.get(Run, row.run_id)
+            if run is None or not run.subject_version_id:
+                return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
+            version = service.version_repo.get_by_id(run.subject_version_id)
+            if version is None:
+                return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
+            checkpoint = dict(row.checkpoint_json or {})
+            inputs = checkpoint.get("inputs")
+            plan = service.compiler.compile(
+                version.spec_json,
+                inputs if isinstance(inputs, dict) else dict(row.inputs_json or {}),
+                row.run_id,
+            )
+            return assess_resume(
+                plan.plan_data.get("nodes") or {},
+                plan.plan_data.get("semantics") or {},
+                checkpoint,
+            )
+        except Exception:
+            # A listing must never fail because one row cannot be planned;
+            # report it as not resumable and keep the rest readable.
+            logger.exception(
+                "Workflow resume assessment failed",
+                extra={"workflow_run_id": row.id},
+            )
+            return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
 
     def list_dead_letters(
         self, db: Session, ctx: RequestContext, *, limit: int, offset: int
@@ -299,35 +346,75 @@ class WorkflowRunDeadLetterSource:
             .scalars()
             .all()
         )
-        return [
-            DeadLetter(
-                kind=self.kind,
-                id=row.id,
-                tenant_id=row.tenant_id,
-                workspace_id=row.workspace_id,
-                failed_at=row.updated_at,
-                attempt_count=int(row.attempt_count or 0),
-                run_id=row.run_id,
-                subject=row.workflow_id,
-                # Nodes cause external side effects and per-node idempotency
-                # across attempts is undefined, so an automatic replay could
-                # repeat them. Re-running is the operator's deliberate call.
-                redrivable=False,
-                details={"completed_nodes": row.completed_nodes, "total_nodes": row.total_nodes},
+        letters: list[DeadLetter] = []
+        for row in rows:
+            assessment = self._assess(db, ctx, row)
+            details: dict[str, object] = {
+                "completed_nodes": row.completed_nodes,
+                "total_nodes": row.total_nodes,
+            }
+            if not assessment.resumable:
+                details["resume_blocked_reason"] = assessment.reason_code
+                details["resume_blocking_node_ids"] = assessment.blocking_node_ids
+            letters.append(
+                DeadLetter(
+                    kind=self.kind,
+                    id=row.id,
+                    tenant_id=row.tenant_id,
+                    workspace_id=row.workspace_id,
+                    failed_at=row.updated_at,
+                    attempt_count=int(row.attempt_count or 0),
+                    run_id=row.run_id,
+                    subject=row.workflow_id,
+                    redrivable=assessment.resumable,
+                    details=details,
+                )
             )
-            for row in rows
-        ]
+        return letters
 
     def redrive(
         self, db: Session, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
+        from app.wiring.services import build_workflow_service
+        from app.wiring.workflow_redrive import start_detached_redrive
+
+        row = db.get(WorkflowRun, dead_letter_id)
+        if row is None or row.tenant_id != ctx.tenant_id or row.workspace_id != ctx.workspace_id:
+            return RedriveResult(outcome=RedriveOutcome.NOT_FOUND)
+        if row.status != "failed":
+            return RedriveResult(
+                outcome=RedriveOutcome.NOT_DEAD,
+                detail=f"Workflow run is {row.status}",
+            )
+        service = build_workflow_service(db=db, ctx=ctx)
+        try:
+            prepared = service.prepare_redrive(dead_letter_id)
+        except ValidationError as exc:
+            # Resuming would risk repeating a side effect, or the checkpoint
+            # cannot carry the run forward. Say which, rather than pretending
+            # the work was recovered.
+            return RedriveResult(outcome=RedriveOutcome.UNSUPPORTED, detail=str(exc))
+        except ConflictError as exc:
+            return RedriveResult(outcome=RedriveOutcome.NOT_DEAD, detail=str(exc))
+        except NotFoundError as exc:
+            # The dead letter itself exists — it was listed above — so this is
+            # a missing dependency (run record or pinned version), not a bad
+            # id. Reporting NOT_FOUND here would tell the operator the wrong
+            # thing about a row they can see.
+            return RedriveResult(
+                outcome=RedriveOutcome.UNSUPPORTED,
+                detail=f"Workflow run cannot be resumed: {exc}",
+            )
+
+        start_detached_redrive(
+            bind=db.get_bind(),
+            ctx=ctx,
+            plan=prepared.plan,
+            workflow_run_id=prepared.workflow_run_id,
+            checkpoint=prepared.checkpoint,
+        )
         return RedriveResult(
-            outcome=RedriveOutcome.UNSUPPORTED,
-            detail=(
-                "Workflow nodes cause external side effects and have no "
-                "cross-attempt idempotency, so a run must be restarted "
-                "deliberately rather than replayed automatically"
-            ),
+            outcome=RedriveOutcome.REDRIVEN, redriven_as=prepared.workflow_run_id
         )
 
 

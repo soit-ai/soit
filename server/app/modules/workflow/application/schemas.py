@@ -100,6 +100,7 @@ class WorkflowNodeCapabilityResponse(BaseModel):
     ui_type: str
     category: str
     executable: bool
+    effect_class: str
 
 
 class WorkflowCapabilitiesResponse(BaseModel):

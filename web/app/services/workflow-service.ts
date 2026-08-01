@@ -54,6 +54,7 @@ export interface WorkflowNodeCapability {
   ui_type: string
   category: string
   executable: boolean
+  effect_class: 'pure' | 'read' | 'effectful'
 }
 
 export interface WorkflowCapabilitiesResponse {

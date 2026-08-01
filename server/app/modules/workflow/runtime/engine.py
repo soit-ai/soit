@@ -256,6 +256,66 @@ class ExecutionEngine:
                 output_summary=str(exc)[:8192],
             )
             raise
+
+    async def redrive_workflow(
+        self,
+        plan: ExecutionPlan,
+        *,
+        workflow_run_id: str,
+        checkpoint: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resume one failed workflow from its crash checkpoint.
+
+        The caller must already have staged the redrive: the Run in
+        ``retrying`` and the WorkflowRun claimed back to ``queued``. Staging
+        is a guarded compare-and-set, so two operators cannot redrive the
+        same run twice.
+        """
+
+        run = self.db.get(Run, plan.run_id)
+        if (
+            run is None
+            or run.tenant_id != self.ctx.tenant_id
+            or run.workspace_id != self.ctx.workspace_id
+            or run.status != RunStatus.RETRYING.value
+        ):
+            raise ValueError("Workflow run is not staged for redrive")
+        self.state_machine.transition_run(run, RunStatus.RUNNING.value)
+        self.trace_writer.update_run_status(run.id, run.status)
+        try:
+            result = await self._execute_workflow(
+                plan,
+                workflow_run_id=workflow_run_id,
+                checkpoint=checkpoint,
+                resume_statuses=("queued",),
+            )
+            if result.get("status") == "waiting_approval":
+                self.state_machine.transition_run(
+                    run,
+                    RunStatus.WAITING_APPROVAL.value,
+                )
+                self.trace_writer.update_run_status(
+                    run.id,
+                    run.status,
+                    output_summary="waiting_approval",
+                )
+                return result
+            self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
+            self.trace_writer.update_run_status(
+                run.id,
+                run.status,
+                output_summary=str(result)[:8192] if result else None,
+            )
+            return result
+        except Exception as exc:
+            self.state_machine.transition_run(run, RunStatus.FAILED.value)
+            self.trace_writer.update_run_status(
+                run.id,
+                run.status,
+                output_summary=str(exc)[:8192],
+            )
+            raise
+
     async def _execute_chat(self, plan: ExecutionPlan) -> dict[str, Any]:
         """Execute chat mode.
 
@@ -401,6 +461,7 @@ class ExecutionEngine:
         *,
         workflow_run_id: str | None = None,
         checkpoint: dict[str, Any] | None = None,
+        resume_statuses: tuple[str, ...] = ("waiting_approval",),
     ) -> dict[str, Any]:
         """Execute workflow mode.
 
@@ -424,9 +485,9 @@ class ExecutionEngine:
                 or workflow_run_row.tenant_id != self.ctx.tenant_id
                 or workflow_run_row.workspace_id != self.ctx.workspace_id
                 or workflow_run_row.run_id != plan.run_id
-                or workflow_run_row.status != "waiting_approval"
+                or workflow_run_row.status not in resume_statuses
             ):
-                raise ValueError("Workflow approval checkpoint is not resumable")
+                raise ValueError("Workflow checkpoint is not resumable")
             workflow_run_row.status = "running"
             workflow_run_row.updated_at = utc_now()
             self.db.add(workflow_run_row)

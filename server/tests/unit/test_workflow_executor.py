@@ -645,6 +645,123 @@ async def test_tool_node_uses_canonical_arguments_payload(
     }
 
 
+class TransientlyRaisingToolPort(ToolPort):
+    """Tool port that raises a configured number of times, then succeeds."""
+
+    def __init__(self, fail_times: int = 0) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.fail_times = fail_times
+
+    async def invoke(self, tool_ref: str, parameters: dict[str, Any], **kwargs: Any) -> ToolResponse:
+        self.calls.append({"tool_ref": tool_ref, "parameters": parameters})
+        if len(self.calls) <= self.fail_times:
+            raise RuntimeError("transient adapter outage")
+        return ToolResponse(result={"call_count": len(self.calls)}, success=True, metadata={})
+
+
+def _attempt_context(
+    trace_writer: TraceWriter,
+    ctx: RequestContext,
+    run_id: str,
+    *,
+    node_id: str,
+    attempt: int,
+    tool_port: ToolPort,
+) -> ExecutionContext:
+    step = trace_writer.create_step(
+        run_id=run_id,
+        step_type="workflow_node",
+        step_id=f"st_{node_id}" if attempt == 1 else f"st_{node_id}_retry{attempt}",
+        node_id=node_id,
+    )
+    return ExecutionContext(
+        run_id=run_id,
+        step_id=step.id,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        tool_port=tool_port,
+        workflow_policy={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_node_second_attempt_replays_completed_call(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    """A retry after a completed tool call must not reissue the side effect."""
+
+    trace_writer = TraceWriter(db, ctx)
+    tool_port = TransientlyRaisingToolPort(fail_times=0)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_tool_replay",
+        subject_version_id="ver_workflow",
+    )
+    node = {"id": "ticket", "type": "tool"}
+    inputs = {"tool_ref": "builtin.ticket.create", "arguments": {"customer_id": "c1"}}
+
+    first_ctx = _attempt_context(
+        trace_writer, ctx, run.id, node_id="ticket", attempt=1, tool_port=tool_port
+    )
+    first = await ToolNodeExecutor().execute(node, first_ctx, inputs)
+    second_ctx = _attempt_context(
+        trace_writer, ctx, run.id, node_id="ticket", attempt=2, tool_port=tool_port
+    )
+    second = await ToolNodeExecutor().execute(node, second_ctx, inputs)
+
+    assert len(tool_port.calls) == 1
+    assert first["result"]["call_count"] == 1
+    assert second["result"]["call_count"] == 1
+    record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    assert record.tool_call_id == f"workflow:{run.id}:ticket:0"
+    assert record.status == "succeeded"
+    tool_steps = db.execute(
+        select(RunStep).where(RunStep.run_id == run.id, RunStep.step_type == "tool")
+    ).scalars().all()
+    assert len(tool_steps) == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_node_retry_reexecutes_failed_call(
+    db: Session,
+    ctx: RequestContext,
+) -> None:
+    """A retry after a failed tool call must re-execute, not replay the failure."""
+
+    trace_writer = TraceWriter(db, ctx)
+    tool_port = TransientlyRaisingToolPort(fail_times=1)
+    run = trace_writer.create_run(
+        mode="workflow",
+        subject_kind="workflow",
+        subject_id="wf_tool_retry",
+        subject_version_id="ver_workflow",
+    )
+    node = {"id": "ticket", "type": "tool"}
+    inputs = {"tool_ref": "builtin.ticket.create", "arguments": {"customer_id": "c1"}}
+
+    first_ctx = _attempt_context(
+        trace_writer, ctx, run.id, node_id="ticket", attempt=1, tool_port=tool_port
+    )
+    with pytest.raises(RuntimeError, match="transient adapter outage"):
+        await ToolNodeExecutor().execute(node, first_ctx, inputs)
+    second_ctx = _attempt_context(
+        trace_writer, ctx, run.id, node_id="ticket", attempt=2, tool_port=tool_port
+    )
+    second = await ToolNodeExecutor().execute(node, second_ctx, inputs)
+
+    assert len(tool_port.calls) == 2
+    assert second["result"]["call_count"] == 2
+    record = db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    ).scalars().one()
+    assert record.status == "succeeded"
+    assert record.attempt_count == 2
+
+
 @pytest.mark.asyncio
 async def test_input_node_exposes_validated_workflow_inputs(db: Session, ctx: RequestContext) -> None:
     trace_writer = TraceWriter(db, ctx)
@@ -910,8 +1027,12 @@ async def test_registry_workflow_node_passes_stable_tool_identity(db: Session, c
 
     assert len(fake_tool.calls) == 1
     kwargs = fake_tool.calls[0]["kwargs"]
-    assert kwargs["tool_call_id"] == f"workflow:wfr-1:plugin1:{node_step.id}"
+    assert kwargs["tool_call_id"] == "workflow:wfr-1:plugin1:0"
+    # Attempt-independent: a retry or crash-resume must reach the same ledger
+    # record and replay it rather than reissuing the call.
+    assert node_step.id not in kwargs["tool_call_id"]
     assert kwargs["idempotency_key"] == f"tool:{run.id}:{kwargs['tool_call_id']}"
+    assert kwargs["retry_failed"] is True
 
 
 @pytest.mark.asyncio
@@ -1297,7 +1418,9 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
     ).scalars().one()
     tool_step = db.get(RunStep, call_record.run_step_id)
-    assert call_record.tool_call_id == f"workflow:{run.id}:tool1:{node_step.id}"
+    assert call_record.tool_call_id == f"workflow:{run.id}:tool1:0"
+    # The identity must stay attempt-independent or retries re-run side effects.
+    assert node_step.id not in call_record.tool_call_id
     assert tool_step is not None
     assert tool_step.step_type == "tool"
     tool_events = [event for event in events if event.type.startswith("tool.call.")]

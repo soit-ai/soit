@@ -20,6 +20,22 @@ from app.kernel.runtime.tools.approval import (
 from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
 
 
+def stable_workflow_tool_call_id(
+    scope_id: str,
+    node_id: str,
+    invocation_seq: int = 0,
+) -> str:
+    """Identity of one logical tool invocation, stable across attempts.
+
+    Attempt-scoped step ids must never leak into this identity: the durable
+    tool-call ledger dedupes on it, so a retry or crash-resume replays a
+    completed call instead of reissuing the side effect. invocation_seq is
+    reserved for future loop iterations and stays 0 today.
+    """
+
+    return f"workflow:{scope_id}:{node_id}:{invocation_seq}"
+
+
 class ToolNodeExecutor(NodeExecutor):
     """Executor for tool nodes."""
 
@@ -73,11 +89,25 @@ class ToolNodeExecutor(NodeExecutor):
         tool_call_id = str(
             context.resume_tool_call_id
             if resuming_approval and context.resume_tool_call_id
-            else (
-                f"workflow:{context.workflow_run_id or context.run_id}:"
-                f"{node_id}:{node_attempt_step_id}"
+            else stable_workflow_tool_call_id(
+                str(context.workflow_run_id or context.run_id),
+                node_id,
             )
         )
+        tool_lease_owner = str(
+            context.ctx.request_id or f"workflow:{context.run_id}"
+        )
+        tool_execution_service = (
+            RuntimeToolExecutionService(
+                db=context.trace_writer.db,
+                ctx=context.ctx,
+                trace_writer=context.trace_writer,
+                lease_owner=tool_lease_owner,
+            )
+            if context.trace_writer
+            else None
+        )
+        tool_execution_claim = None
         tool_run_step_id = None
         if (
             resuming_approval
@@ -97,28 +127,28 @@ class ToolNodeExecutor(NodeExecutor):
                 raise ValidationError("Workflow approval tool step is not resumable")
             tool_run_step_id = tool_step.id
         elif context.trace_writer:
-            tool_step = context.trace_writer.create_step(
-                run_id=context.run_id,
-                step_type="tool",
-                step_id=f"tool:{node_id}:{node_attempt_step_id}",
-                input_summary=f"tool_ref={tool_ref}",
+            prior_claim = (
+                tool_execution_service.get_by_call(
+                    run_id=context.run_id,
+                    tool_call_id=tool_call_id,
+                )
+                if tool_execution_service is not None
+                else None
             )
-            tool_run_step_id = tool_step.id
+            if prior_claim is not None:
+                # A previous attempt of this stable identity already owns a
+                # tool step; creating another per attempt would leave an
+                # orphaned queued step in the trace.
+                tool_run_step_id = prior_claim.run_step.id
+            else:
+                tool_step = context.trace_writer.create_step(
+                    run_id=context.run_id,
+                    step_type="tool",
+                    step_id=f"tool:{node_id}:{node_attempt_step_id}",
+                    input_summary=f"tool_ref={tool_ref}",
+                )
+                tool_run_step_id = tool_step.id
         linked_response = None
-        tool_lease_owner = str(
-            context.ctx.request_id or f"workflow:{context.run_id}"
-        )
-        tool_execution_service = (
-            RuntimeToolExecutionService(
-                db=context.trace_writer.db,
-                ctx=context.ctx,
-                trace_writer=context.trace_writer,
-                lease_owner=tool_lease_owner,
-            )
-            if context.trace_writer
-            else None
-        )
-        tool_execution_claim = None
 
         def build_tool_metrics(
             *,
@@ -314,6 +344,10 @@ class ToolNodeExecutor(NodeExecutor):
                     idempotency_key=f"tool:{context.run_id}:{tool_call_id}",
                     created_by=context.ctx.user_id,
                     resume_approval=resuming_approval,
+                    # The identity is attempt-stable, so a node retry lands on
+                    # the previous attempt's record: replay it when it
+                    # succeeded, re-execute it when it failed.
+                    retry_failed=True,
                 )
             )
             tool_run_step_id = tool_execution_claim.run_step.id

@@ -9,7 +9,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
@@ -445,6 +445,96 @@ def test_orphaned_workflow_run_is_reaped_once_under_concurrency(
         assert row.lease_expires_at is None
         assert run.status == "failed"
         assert run.error_code == ORPHANED_ERROR_CODE
+
+
+def test_concurrent_redrive_staging_claims_a_dead_run_once(
+    postgres_engine: Engine,
+    scope_token,
+) -> None:
+    """Two operators redriving the same dead run produce one resumed attempt.
+
+    Staging is a conditional UPDATE on the failed status. SQLite cannot prove
+    this: without real row locking both writers would appear to succeed and
+    the run would be executed twice, repeating every side effect after the
+    checkpoint.
+    """
+
+    token, tenant_id, workspace_id = scope_token
+    run_id = f"run-wf-redrive-{token}"
+    row_id = f"wfr-redrive-{token}"
+    with Session(postgres_engine) as db:
+        db.add(
+            Run(
+                id=run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                user_id="pg-user",
+                trace_id=f"tr-{token}",
+                mode="workflow",
+                kind="workflow",
+                status="failed",
+            )
+        )
+        db.add(
+            WorkflowRun(
+                id=row_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                workflow_id=f"wf-{token}",
+                status="failed",
+                completed_nodes=1,
+                total_nodes=3,
+                checkpoint_json={
+                    "inputs": {},
+                    "node_states": {"a": "succeeded"},
+                    "node_outputs": {"a": {"x": 1}},
+                    "truncated_node_ids": [],
+                },
+            )
+        )
+        db.commit()
+
+    barrier = Barrier(3)
+
+    def stage(worker: int) -> int:
+        """Run the same compare-and-set the redrive path uses."""
+        with Session(postgres_engine) as db:
+            barrier.wait()
+            try:
+                result = db.execute(
+                    update(WorkflowRun)
+                    .where(
+                        WorkflowRun.id == row_id,
+                        WorkflowRun.status == "failed",
+                    )
+                    .values(
+                        status="queued",
+                        lease_owner=f"workflow-redrive-{worker}",
+                        lease_expires_at=utc_now() + timedelta(minutes=2),
+                        attempt_count=WorkflowRun.attempt_count + 1,
+                        updated_at=utc_now(),
+                    )
+                )
+                db.commit()
+                return int(result.rowcount or 0)
+            except Exception:
+                db.rollback()
+                return 0
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        staged = list(executor.map(stage, (1, 2, 3)))
+
+    assert sum(staged) == 1
+    with Session(postgres_engine) as db:
+        row = db.get(WorkflowRun, row_id)
+        assert row is not None
+        assert row.status == "queued"
+        # Exactly one increment: a second claim would mean a second execution.
+        assert row.attempt_count == 1
+        assert row.lease_owner is not None
+        # The checkpoint must survive staging, or the resume restarts from zero.
+        assert (row.checkpoint_json or {})["node_states"] == {"a": "succeeded"}
 
 
 def test_live_workflow_lease_survives_a_sweep_on_postgres(
