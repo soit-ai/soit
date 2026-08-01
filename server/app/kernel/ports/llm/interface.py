@@ -200,6 +200,41 @@ class EmbeddingResponse:
         self.runtime_target = runtime_target
 
 
+class GeneratedImage:
+    """One generated image, either inline base64 bytes or a provider URL."""
+
+    def __init__(self, b64_json: str | None = None, url: str | None = None):
+        """Initialize generated image.
+
+        Args:
+            b64_json: Base64-encoded image bytes (preferred; self-contained).
+            url: Provider-hosted URL (short-lived on most providers; callers
+                that need durable storage must download and re-store it).
+        """
+        self.b64_json = b64_json
+        self.url = url
+
+
+class ImageGenerationResponse:
+    """Image generation response from LLM."""
+
+    def __init__(
+        self,
+        images: list[GeneratedImage],
+        model: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
+    ):
+        """Initialize image generation response.
+
+        Args:
+            images: Generated images.
+            model: Model used.
+        """
+        self.images = images
+        self.model = model
+        self.runtime_target = runtime_target
+
+
 class RerankResponse:
     """Rerank response from LLM."""
 
@@ -288,6 +323,34 @@ class LLMPort(ABC):
             EmbeddingResponse instance.
         """
         pass
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        """Generate images from a text prompt.
+
+        Not abstract on purpose: only gateways with an image-capable backend
+        (LiteLLM channel) implement it; chat-only native adapters keep working
+        without changes and fail loudly if ever routed an image request.
+
+        Args:
+            prompt: Text prompt describing the image.
+            model: Model reference (e.g., "model:volcengine:doubao-seedream").
+            n: Number of images to generate.
+            size: Optional image size hint (e.g., "1024x1024").
+            **kwargs: Additional model-specific parameters.
+
+        Returns:
+            ImageGenerationResponse instance.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support image generation"
+        )
 
     @abstractmethod
     async def rerank(

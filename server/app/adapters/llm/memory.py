@@ -13,10 +13,17 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    GeneratedImage,
+    ImageGenerationResponse,
     LLMPort,
     RerankResponse,
     ToolCall,
     ToolDefinition,
+)
+
+# 1x1 red-dot PNG so image-pipeline tests exercise real bytes end to end
+_TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
 
@@ -149,6 +156,20 @@ class InMemoryLLMPort(LLMPort):
         return EmbeddingResponse(
             embeddings=embeddings,
             tokens_used=tokens_used,
+            model=model_name,
+        )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        model_name = model.split(":")[-1] if ":" in model else model
+        return ImageGenerationResponse(
+            images=[GeneratedImage(b64_json=_TINY_PNG_B64) for _ in range(max(1, n))],
             model=model_name,
         )
 

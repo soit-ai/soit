@@ -12,6 +12,8 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    GeneratedImage,
+    ImageGenerationResponse,
     LLMPort,
     RerankResponse,
     ToolCall,
@@ -60,6 +62,7 @@ class LiteLLMPort(LLMPort):
         completion_fn: SDKCall | None = None,
         embedding_fn: SDKCall | None = None,
         rerank_fn: SDKCall | None = None,
+        image_generation_fn: SDKCall | None = None,
         load_sdk_defaults: bool = True,
     ) -> None:
         self.provider_kind = provider_kind
@@ -77,18 +80,24 @@ class LiteLLMPort(LLMPort):
         self.timeout = timeout
         self.max_retries = max_retries
 
-        if load_sdk_defaults and (completion_fn is None or embedding_fn is None):
+        if load_sdk_defaults and (
+            completion_fn is None or embedding_fn is None or image_generation_fn is None
+        ):
             import litellm
 
             completion_fn = completion_fn or litellm.acompletion
             embedding_fn = embedding_fn or litellm.aembedding
             rerank_fn = rerank_fn or getattr(litellm, "arerank", None)
+            image_generation_fn = image_generation_fn or getattr(
+                litellm, "aimage_generation", None
+            )
 
         if completion_fn is None or embedding_fn is None:
             raise ValueError("LiteLLM completion and embedding callables are required")
         self._completion = completion_fn
         self._embedding = embedding_fn
         self._rerank = rerank_fn
+        self._image_generation = image_generation_fn
 
     def _model_name(self, model: str) -> str:
         model_id = model
@@ -332,6 +341,41 @@ class LiteLLMPort(LLMPort):
             embeddings=[list(_value(item, "embedding", [])) for item in data],
             tokens_used=int(_value(usage, "total_tokens", 0) or 0),
             model=_value(response, "model", self._model_name(model)),
+        )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        if self._image_generation is None:
+            raise ValidationError("LiteLLM image generation capability is unavailable")
+        params: dict[str, Any] = {
+            "model": self._model_name(model),
+            "prompt": prompt,
+            "n": n,
+            **self._connection_params(),
+        }
+        if size is not None:
+            params["size"] = size
+        # Prefer inline bytes so callers own storage; providers without
+        # b64 support ignore the hint and return URLs instead.
+        params["response_format"] = kwargs.get("response_format") or "b64_json"
+        response = await self._image_generation(**params)
+        images: list[GeneratedImage] = []
+        for item in _value(response, "data", []) or []:
+            images.append(
+                GeneratedImage(
+                    b64_json=_value(item, "b64_json"),
+                    url=_value(item, "url"),
+                )
+            )
+        return ImageGenerationResponse(
+            images=images,
+            model=_value(response, "model", params["model"]),
         )
 
     async def rerank(

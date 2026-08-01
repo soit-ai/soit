@@ -247,6 +247,8 @@ class Container:
             daily_quota=ctx.llm_daily_quota,
             credit_guard=credit_guard,
             timeout_seconds=settings.llm_timeout_seconds,
+            image_timeout_seconds=settings.llm_image_timeout_seconds,
+            image_max_retries=settings.llm_image_max_retries,
         )
 
     def get_content_safety_port(self, ctx: RequestContext):

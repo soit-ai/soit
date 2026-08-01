@@ -10,7 +10,12 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from app.infra.telemetry import build_tracer_provider
 from app.kernel.contracts.context import RequestContext
 from app.kernel.observe.tracing import OpenTelemetryTracer
-from app.kernel.ports.llm.interface import ChatMessage, ChatResponse
+from app.kernel.ports.llm.interface import (
+    ChatMessage,
+    ChatResponse,
+    GeneratedImage,
+    ImageGenerationResponse,
+)
 from app.kernel.ports.llm.policy import LLMPolicyGateway
 from app.kernel.ports.tools.interface import ToolResponse
 from app.kernel.ports.tools.policy import ToolPolicyGateway
@@ -115,3 +120,46 @@ async def test_llm_and_tool_gateways_emit_linked_dependency_spans() -> None:
     assert spans[0].attributes["gen_ai.usage.input_tokens"] == 3
     assert spans[1].attributes["soit.run.id"] == "run-1"
     assert spans[1].attributes["soit.tool.success"] is True
+
+
+@pytest.mark.asyncio
+async def test_image_generation_emits_a_linked_dependency_span() -> None:
+    exporter = InMemorySpanExporter()
+    provider = build_tracer_provider(
+        service_name="soit-test",
+        exporter=exporter,
+        batch=False,
+    )
+    ctx = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        user_id="user-1",
+    )
+    llm_port = AsyncMock()
+    llm_port.generate_image.return_value = ImageGenerationResponse(
+        images=[GeneratedImage(b64_json="aW1n"), GeneratedImage(b64_json="aW1n")],
+        model="seedream-4",
+    )
+
+    await LLMPolicyGateway(
+        llm_port,
+        ctx,
+        max_retries=0,
+        otel_tracer=provider.get_tracer("soit.llm"),
+    ).generate_image(
+        "a red dot",
+        "model:volcengine:seedream-4",
+        n=2,
+        run_id="run-1",
+    )
+
+    spans = exporter.get_finished_spans()
+    assert [span.name for span in spans] == ["soit.llm.generate_image"]
+    attributes = spans[0].attributes
+    assert attributes["soit.run.id"] == "run-1"
+    assert attributes["soit.tenant.id"] == "tenant-1"
+    assert attributes["gen_ai.operation.name"] == "image_generation"
+    assert attributes["gen_ai.provider.name"] == "volcengine"
+    assert attributes["gen_ai.response.model"] == "seedream-4"
+    assert attributes["soit.llm.image.requested_count"] == 2
+    assert attributes["soit.llm.image.generated_count"] == 2

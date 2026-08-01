@@ -131,6 +131,26 @@ class Settings(BaseSettings):
     mid-flight; workspace-configured providers still override this per route.
     """
 
+    llm_image_timeout_seconds: float = 300.0
+    """
+    Fallback timeout for a single image generation call, in seconds.
+
+    Applies whenever the resolved route carries no timeout of its own. Image
+    models routinely spend minutes on a multi-image request, so the chat
+    fallback is too short; workspace-configured providers still override this
+    per route.
+    """
+
+    llm_image_max_retries: int = 0
+    """
+    Retry ceiling for image generation, capping the per-route retry budget.
+
+    Image generation is billed per generated image and is not idempotent: a
+    platform-side timeout does not cancel the provider-side generation, so a
+    retry can bill the workspace again while the platform records a single
+    usage fact. Zero keeps recorded cost aligned with provider charges.
+    """
+
     openai_api_key: str | None = None
     """OpenAI API key."""
 

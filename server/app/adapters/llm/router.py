@@ -15,6 +15,7 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    ImageGenerationResponse,
     LLMPort,
     LLMRuntimeTarget,
     RerankResponse,
@@ -475,6 +476,25 @@ class LLMRouterPort(LLMPort):
         response = await route.port.embed(
             texts=texts,
             model=model,
+            **self._downstream_kwargs(kwargs),
+        )
+        response.runtime_target = route.target
+        return response
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        route = await self.resolve_route(model, kwargs.get("ctx"), ("image_generation",))
+        response = await route.port.generate_image(
+            prompt=prompt,
+            model=model,
+            n=n,
+            size=size,
             **self._downstream_kwargs(kwargs),
         )
         response.runtime_target = route.target

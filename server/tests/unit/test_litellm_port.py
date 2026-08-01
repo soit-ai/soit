@@ -335,3 +335,77 @@ async def test_litellm_stream_exposes_provider_reasoning_delta():
     ]
 
     assert chunks[0].reasoning_delta == "Checking."
+
+
+@pytest.mark.asyncio
+async def test_litellm_image_generation_maps_params_and_results():
+    from app.adapters.llm.litellm import LiteLLMPort
+
+    image_generation = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                SimpleNamespace(b64_json="aGVsbG8=", url=None),
+                SimpleNamespace(b64_json=None, url="https://cdn.example.com/img.png"),
+            ],
+            model="doubao-seedream-3-0",
+        )
+    )
+    port = LiteLLMPort(
+        provider_kind="openai_compatible",
+        api_key="secret-value",
+        api_base="https://llm.example.com/v1",
+        completion_fn=AsyncMock(),
+        embedding_fn=AsyncMock(),
+        image_generation_fn=image_generation,
+    )
+
+    response = await port.generate_image(
+        prompt="a red dot",
+        model="model:workspace-gateway:doubao-seedream-3-0",
+        n=2,
+        size="1024x1024",
+    )
+
+    assert [image.b64_json for image in response.images] == ["aGVsbG8=", None]
+    assert response.images[1].url == "https://cdn.example.com/img.png"
+    assert response.model == "doubao-seedream-3-0"
+    kwargs = image_generation.await_args.kwargs
+    assert kwargs["model"] == "openai/doubao-seedream-3-0"
+    assert kwargs["prompt"] == "a red dot"
+    assert kwargs["n"] == 2
+    assert kwargs["size"] == "1024x1024"
+    assert kwargs["response_format"] == "b64_json"
+
+
+@pytest.mark.asyncio
+async def test_litellm_image_generation_unavailable_without_sdk_fn():
+    from app.adapters.llm.litellm import LiteLLMPort
+
+    port = LiteLLMPort(
+        provider_kind="openai_compatible",
+        completion_fn=AsyncMock(),
+        embedding_fn=AsyncMock(),
+        load_sdk_defaults=False,
+    )
+
+    with pytest.raises(ValidationError):
+        await port.generate_image(prompt="x", model="model:openai:dall-e-3")
+
+
+def test_image_pricing_per_image_and_unpriced_fallback():
+    from decimal import Decimal
+
+    from app.kernel.ports.llm.policy import _image_pricing
+
+    priced = _image_pricing(
+        {"currency": "USD", "image": 0.04, "image_unit": "image"},
+        image_count=3,
+    )
+    assert priced.currency == "USD"
+    assert priced.amount == Decimal("0.12")
+    assert priced.snapshot["billing_basis"] == "images"
+    assert priced.snapshot["quantities"] == {"images": 3}
+
+    unpriced = _image_pricing({}, image_count=2)
+    assert unpriced.amount is None
+    assert unpriced.snapshot["priced"] is False

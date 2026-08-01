@@ -27,6 +27,7 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    ImageGenerationResponse,
     LLMPort,
     LLMRuntimeTarget,
     RerankResponse,
@@ -71,6 +72,11 @@ def _runtime_cost_fields(
     }
 
 
+def _capped_retries(max_retries: int, cap: int | None) -> int:
+    """Clamp a route retry budget to an operation-specific ceiling."""
+    return max_retries if cap is None else min(max_retries, cap)
+
+
 @dataclass(frozen=True)
 class _ResolvedPolicyRoute:
     port: LLMPort
@@ -106,6 +112,10 @@ _SEARCH_UNIT_SIZES = {
     "searches": 1,
     "1k_searches": 1_000,
     "kilo_searches": 1_000,
+}
+_IMAGE_UNIT_SIZES = {
+    "image": 1,
+    "images": 1,
 }
 
 
@@ -369,6 +379,46 @@ def _rerank_pricing(
     return calculation
 
 
+def _image_pricing(
+    pricing: dict[str, Any],
+    *,
+    image_count: int,
+) -> _PricingCalculation:
+    """Images bill per generated image; pricing key "image" with unit "image"."""
+    quantities = {"images": image_count}
+    try:
+        currency = str(pricing["currency"]).strip().upper()
+    except (KeyError, TypeError, ValueError):
+        return _unpriced_calculation(
+            pricing,
+            billing_basis="images",
+            quantities=quantities,
+        )
+    image_rate = _rate_definition(
+        pricing,
+        nested_key="image",
+        flat_key="image",
+        unit_key="image_unit",
+        unit_sizes=_IMAGE_UNIT_SIZES,
+        default_unit="image",
+    )
+    if not currency or image_rate is None:
+        return _unpriced_calculation(
+            pricing,
+            billing_basis="images",
+            quantities=quantities,
+        )
+    amount = Decimal(image_count) * image_rate[0] / Decimal(image_rate[2])
+    return _priced_calculation(
+        pricing,
+        billing_basis="images",
+        rates={"image": image_rate},
+        quantities=quantities,
+        amount=amount,
+        currency=currency,
+    )
+
+
 def _with_runtime_identity(
     calculation: _PricingCalculation,
     *,
@@ -412,6 +462,8 @@ class LLMPolicyGateway(LLMPort):
         retry_backoff: str = "exponential",
         retryable_status_codes: tuple[int, ...] = (408, 409, 429, 500, 502, 503, 504),
         credit_guard: CreditGuard | None = None,
+        image_timeout_seconds: float = 300.0,
+        image_max_retries: int = 0,
     ):
         """Initialize policy gateway.
 
@@ -428,6 +480,11 @@ class LLMPolicyGateway(LLMPort):
             rate_limit_per_minute: Optional rate limit per minute.
             daily_quota: Optional daily request quota.
             rate_limiter: Optional rate limiter instance.
+            image_timeout_seconds: Fallback request timeout for image
+                generation, which is slower than chat.
+            image_max_retries: Retry ceiling for image generation. A retried
+                image call can bill the provider twice for one recorded usage
+                fact, so the default suppresses route-configured retries.
         """
         self.gateway = gateway
         self.ctx = ctx
@@ -442,19 +499,25 @@ class LLMPolicyGateway(LLMPort):
         self.retry_backoff = retry_backoff
         self.retryable_status_codes = retryable_status_codes
         self.credit_guard = credit_guard
+        self.image_timeout_seconds = image_timeout_seconds
+        self.image_max_retries = image_max_retries
 
     async def _resolve_call_route(
         self,
         model: str,
         required_capabilities: tuple[str, ...],
+        *,
+        timeout_fallback: float | None = None,
+        max_retries_cap: int | None = None,
     ) -> _ResolvedPolicyRoute:
+        fallback_timeout = timeout_fallback or self.timeout_seconds
         resolver = getattr(type(self.gateway), "resolve_route", None)
         if resolver is None:
             return _ResolvedPolicyRoute(
                 port=self.gateway,
                 target=None,
-                timeout_seconds=self.timeout_seconds,
-                max_retries=self.max_retries,
+                timeout_seconds=fallback_timeout,
+                max_retries=_capped_retries(self.max_retries, max_retries_cap),
                 retry_backoff=self.retry_backoff,
                 retryable_status_codes=self.retryable_status_codes,
                 pricing={},
@@ -465,8 +528,11 @@ class LLMPolicyGateway(LLMPort):
         return _ResolvedPolicyRoute(
             port=route.port,
             target=route.target,
-            timeout_seconds=route.timeout_seconds or self.timeout_seconds,
-            max_retries=self.max_retries if route.max_retries is None else route.max_retries,
+            timeout_seconds=route.timeout_seconds or fallback_timeout,
+            max_retries=_capped_retries(
+                self.max_retries if route.max_retries is None else route.max_retries,
+                max_retries_cap,
+            ),
             retry_backoff=route.retry_backoff,
             retryable_status_codes=route.retryable_status_codes,
             pricing=route.pricing,
@@ -969,6 +1035,144 @@ class LLMPolicyGateway(LLMPort):
                     step.id,
                     "failed",
                     error_code="EMBED_ERROR",
+                    error_message=str(e),
+                    error_details=error_details(e),
+                )
+            raise
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        """Generate images with policy enforcement.
+
+        Args:
+            prompt: Text prompt describing the image.
+            model: Model reference.
+            n: Number of images to generate.
+            size: Optional image size hint.
+            **kwargs: Additional parameters.
+
+        Returns:
+            ImageGenerationResponse instance.
+        """
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:image:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        await self._check_daily_quota(key_suffix="image")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="generate_image")
+
+        step = None
+        if self.trace_writer:
+            run_id = resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            step = self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="llm",
+                input_summary=f"model={model}, images={n}, prompt={prompt[:200]}",
+            )
+            self.trace_writer.update_step_status(step.id, "running")
+
+        start_time = utc_now()
+        try:
+            route = await self._resolve_call_route(
+                model,
+                ("image_generation",),
+                timeout_fallback=self.image_timeout_seconds,
+                max_retries_cap=self.image_max_retries,
+            )
+            with self.otel_tracer.start_as_current_span(
+                "soit.llm.generate_image",
+                attributes={
+                    "gen_ai.operation.name": "image_generation",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                    "soit.tenant.id": self.ctx.tenant_id,
+                    "soit.workspace.id": self.ctx.workspace_id,
+                    "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
+                    "soit.step.id": step.id if step else "",
+                    "soit.llm.image.requested_count": n,
+                },
+            ) as span:
+                response = await self._run_call(
+                    lambda: route.port.generate_image(
+                        prompt=prompt, model=model, n=n, size=size, ctx=self.ctx, **kwargs
+                    ),
+                    timeout_factory=lambda: KernelTimeoutError(
+                        f"LLM image request timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": model},
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+                response.runtime_target = response.runtime_target or route.target
+                span.set_attribute("gen_ai.response.model", response.model or model)
+                span.set_attribute(
+                    "soit.llm.image.generated_count",
+                    len(response.images),
+                )
+
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                image_count = len(response.images)
+                identity = _runtime_cost_fields(
+                    requested_model=model,
+                    upstream_model=response.model,
+                    target=response.runtime_target,
+                )
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    metrics={
+                        "image_count": image_count,
+                        "latency_ms": elapsed_ms,
+                        "model": response.model or model,
+                        "model_ref": identity["model_ref"],
+                        "provider_id": identity["provider_id"],
+                        "provider_slug": identity["provider_slug"],
+                        "provider_kind": identity["provider_kind"],
+                        "upstream_model": identity["upstream_model"],
+                    },
+                )
+                pricing = _with_runtime_identity(
+                    _image_pricing(route.pricing, image_count=image_count),
+                    requested_model=model,
+                    identity=identity,
+                )
+                self.trace_writer.record_cost(
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    billing_basis="images",
+                    billed_quantity=image_count,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
+                    **identity,
+                    source_port="llm",
+                    operation="generate_image",
+                    latency_ms=elapsed_ms,
+                    request_count=n,
+                )
+
+            return response
+        except Exception as e:
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="IMAGE_ERROR",
                     error_message=str(e),
                     error_details=error_details(e),
                 )
