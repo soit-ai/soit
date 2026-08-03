@@ -3,7 +3,7 @@
   "schemaVersion": 1,
   "backup_id": "backup_example_20260723T160000Z",
   "platform_version": "1.0.0",
-  "alembic_revision": "20260728200000",
+  "alembic_revision": "20260803090000",
   "startedAt": "2026-07-23T16:00:00Z",
   "finishedAt": "2026-07-23T16:04:00Z",
   "rpo_target_minutes": 60,

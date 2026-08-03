@@ -34,6 +34,7 @@ from app.kernel.runtime.threads.service import ThreadService
 
 # Agent
 from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.evaluation.application.judge import LLMRegressionJudge
 from app.modules.evaluation.application.service import RegressionEvaluationService
 
 # Identity
@@ -330,7 +331,14 @@ def build_observe_service(*, db: Session, ctx: RequestContext) -> ObserveService
 def build_evaluation_service(*, db: Session, ctx: RequestContext) -> RegressionEvaluationService:
     """Regression evaluation service factory."""
 
-    return RegressionEvaluationService(db=db, ctx=ctx)
+    judge = None
+    if settings.evaluation_judge_model_ref:
+        container = get_container()
+        judge = LLMRegressionJudge(
+            llm_port=container.get_llm_port(ctx=ctx),
+            default_model=settings.evaluation_judge_model_ref,
+        )
+    return RegressionEvaluationService(db=db, ctx=ctx, judge=judge)
 
 
 def build_workflow_service(*, db: Session, ctx: RequestContext) -> WorkflowService:

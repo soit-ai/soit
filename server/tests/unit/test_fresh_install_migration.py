@@ -47,6 +47,9 @@ RUN_SANDBOX_PATH = (
 REGRESSION_DATASETS_PATH = (
     VERSIONS_ROOT / "20260731100000_regression_datasets_and_baselines.py"
 )
+REGRESSION_ANNOTATIONS_PATH = (
+    VERSIONS_ROOT / "20260803090000_regression_annotations.py"
+)
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -95,6 +98,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         API_KEY_SCOPES_PATH.name,
         RUN_SANDBOX_PATH.name,
         REGRESSION_DATASETS_PATH.name,
+        REGRESSION_ANNOTATIONS_PATH.name,
     ]
 
     module = _load_baseline()
@@ -178,6 +182,14 @@ def test_fresh_install_has_one_root_revision() -> None:
     regression_migration = importlib.util.module_from_spec(regression_spec)
     regression_spec.loader.exec_module(regression_migration)
     assert regression_migration.down_revision == sandbox_migration.revision
+
+    annotations_spec = importlib.util.spec_from_file_location(
+        "regression_annotations", REGRESSION_ANNOTATIONS_PATH
+    )
+    assert annotations_spec and annotations_spec.loader
+    annotations_migration = importlib.util.module_from_spec(annotations_spec)
+    annotations_spec.loader.exec_module(annotations_migration)
+    assert annotations_migration.down_revision == regression_migration.revision
 
 
 def test_run_cost_pricing_migration_merges_legacy_charge_rows(monkeypatch) -> None:

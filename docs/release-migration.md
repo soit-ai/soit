@@ -4,8 +4,8 @@
 
 SOIT 1.0 supports exactly two PostgreSQL schema paths:
 
-- **Fresh Installation**: an empty database upgrades from `base` through the explicit schema baseline `20260718140000` to head `20260728200000`.
-- **N-1 Upgrade**: a database at release-candidate revision `20260718140000` upgrades in place to `20260728200000`.
+- **Fresh Installation**: an empty database upgrades from `base` through the explicit schema baseline `20260718140000` to head `20260803090000`.
+- **N-1 Upgrade**: a database at release-candidate revision `20260718140000` upgrades in place to `20260803090000`.
 
 Databases older than `20260718140000`, unknown development snapshots, and skipped revisions are not supported. Back up the database and object storage before an N-1 upgrade. Do not delete `docker/data/` or another persistent data directory as a recovery shortcut.
 
@@ -21,7 +21,7 @@ uv run alembic history --verbose
 
 Expected output:
 
-- `uv run alembic heads` reports `20260728200000 (head)`.
+- `uv run alembic heads` reports `20260803090000 (head)`.
 - `20260718140000` is the only root revision and contains an explicit, reviewable schema snapshot.
 - The chain is linear, with each revision directly revising the one above it:
 
@@ -35,8 +35,13 @@ Expected output:
 | `20260728160000` | Narrows billing semantics to `billing_basis`/`billed_quantity` and adds an idempotency key. |
 | `20260728180000` | Drops `run_cost_entries.entry_type`, retiring the usage/charge split. |
 | `20260728200000` | Creates `credit_ledger_entries` for credit deduction derived from priced usage. |
+| `20260728220000` | Adds execution leases and input snapshots to workflow runs so interrupted runs are reclaimed and resumed. |
+| `20260728230000` | Adds scopes and expiry to API keys. |
+| `20260728240000` | Marks rehearsal runs so their cost and evidence stay separable. |
+| `20260731100000` | Gives regression cases a versioned dataset and reports a baseline. |
+| `20260803090000` | Records human verdicts on regression cases. |
 
-- `server/alembic/versions/` contains those eight revisions only.
+- `server/alembic/versions/` contains those thirteen revisions only.
 
 ## Fresh Installation
 
@@ -50,8 +55,8 @@ uv run pytest tests/unit/test_fresh_install_migration.py -q
 
 Required results:
 
-- the upgrade runs all eight revisions and exits successfully;
-- `uv run alembic current` reports `20260728200000 (head)`;
+- the upgrade runs all thirteen revisions and exits successfully;
+- `uv run alembic current` reports `20260803090000 (head)`;
 - the explicit-baseline contract test passes;
 - the created table set matches current SQLModel metadata.
 
@@ -82,7 +87,7 @@ uv run pytest tests/unit/test_n1_migration_fixture.py tests/unit/test_scoped_sec
 Required results:
 
 - the pre-upgrade revision is exactly `20260718140000`;
-- the upgrade exits successfully and current becomes `20260728200000`;
+- the upgrade exits successfully and current becomes `20260803090000`;
 - tenant, workspace, user, membership, Agent, Workflow, Knowledge, Run, outbox, and artifact sentinel data remain present;
 - legacy `secret:*` references are converted to in-scope opaque Secret IDs;
 - unresolved, malformed, cross-tenant, or cross-workspace secret references fail the migration instead of being silently retained.
@@ -97,7 +102,7 @@ Copy `docs/deployment/release-migration-evidence.example.json` to a local eviden
 uv run python scripts/verify_release_migration_paths.py ../docs/deployment/release-migration-evidence.json
 ```
 
-The verifier requires one Alembic head, the `base..20260728200000` fresh-install path, the `20260718140000..20260728200000` N-1 path, schema checks, preservation checks, smoke tests, and matching release-note ranges.
+The verifier requires one Alembic head, the `base..20260803090000` fresh-install path, the `20260718140000..20260803090000` N-1 path, schema checks, preservation checks, smoke tests, and matching release-note ranges.
 
 Local command output, operator notes, database dumps, and environment-specific evidence belong outside the open-source repository.
 

@@ -11,10 +11,15 @@ from typing import Any
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import NotFoundError
+from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run
-from app.modules.evaluation.domain.models import RegressionCase, RegressionReport
+from app.modules.evaluation.application.judge import JudgeError, RegressionJudge
+from app.modules.evaluation.domain.models import (
+    RegressionAnnotation,
+    RegressionCase,
+    RegressionReport,
+)
 
 
 @dataclass(frozen=True)
@@ -56,9 +61,16 @@ def _unwrap_row(row: Any) -> Any:
 class RegressionEvaluationService:
     """Create frozen regression cases and evaluate subject versions."""
 
-    def __init__(self, *, db: Session, ctx: RequestContext) -> None:
+    def __init__(
+        self,
+        *,
+        db: Session,
+        ctx: RequestContext,
+        judge: RegressionJudge | None = None,
+    ) -> None:
         self.db = db
         self.ctx = ctx
+        self.judge = judge
 
     def create_case_from_run(
         self,
@@ -266,6 +278,144 @@ class RegressionEvaluationService:
             ).first()
         )
 
+    def annotate_case(
+        self,
+        *,
+        case_id: str,
+        verdict: str,
+        note: str = "",
+        report_id: str | None = None,
+    ) -> RegressionAnnotation:
+        """Record a human verdict on a case, optionally tied to one report."""
+        if verdict not in ("pass", "fail"):
+            raise ValidationError("Annotation verdict must be 'pass' or 'fail'")
+        case = self._get_case(case_id)
+        if report_id is not None:
+            self._get_report(report_id)
+        annotation = RegressionAnnotation(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            case_id=case.id,
+            report_id=report_id,
+            verdict=verdict,
+            note=note,
+            annotated_by=self.ctx.user_id,
+        )
+        self.db.add(annotation)
+        self.db.commit()
+        self.db.refresh(annotation)
+        return annotation
+
+    def list_annotations(
+        self,
+        *,
+        case_id: str | None = None,
+        report_id: str | None = None,
+    ) -> list[RegressionAnnotation]:
+        if case_id is None and report_id is None:
+            raise ValidationError("Provide case_id or report_id to list annotations")
+        conditions = [
+            RegressionAnnotation.tenant_id == self.ctx.tenant_id,
+            RegressionAnnotation.workspace_id == self.ctx.workspace_id,
+        ]
+        if case_id is not None:
+            conditions.append(RegressionAnnotation.case_id == case_id)
+        if report_id is not None:
+            conditions.append(RegressionAnnotation.report_id == report_id)
+        rows = self.db.exec(
+            select(RegressionAnnotation)
+            .where(and_(*conditions))
+            .order_by(RegressionAnnotation.created_at)
+        ).all()
+        return [_unwrap_row(row) for row in rows]
+
+    def report_trend(
+        self,
+        *,
+        subject_kind: str,
+        subject_id: str,
+        dataset: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Per-report quality series for a subject, oldest first.
+
+        Points spanning different dataset revisions are still returned —
+        hiding them would make a suite change look like missing history — but
+        each point carries its revision so a consumer can segment the series.
+        """
+        conditions = [
+            RegressionReport.tenant_id == self.ctx.tenant_id,
+            RegressionReport.workspace_id == self.ctx.workspace_id,
+            RegressionReport.subject_kind == subject_kind,
+            RegressionReport.subject_id == subject_id,
+        ]
+        if dataset is not None:
+            conditions.append(RegressionReport.dataset == dataset)
+        rows = self.db.exec(
+            select(RegressionReport)
+            .where(and_(*conditions))
+            .order_by(desc(RegressionReport.created_at))
+            .limit(max(1, min(limit, 100)))
+        ).all()
+        reports = [_unwrap_row(row) for row in rows]
+        reports.reverse()
+        points: list[dict[str, Any]] = []
+        for report in reports:
+            summary = report.summary_json or {}
+            total = int(summary.get("total") or 0)
+            passed_count = int(summary.get("passed") or 0)
+            metrics = report.metrics_json or {}
+            points.append(
+                {
+                    "report_id": report.id,
+                    "subject_version_id": report.subject_version_id,
+                    "dataset": report.dataset,
+                    "dataset_revision": report.dataset_revision,
+                    "created_at": report.created_at,
+                    "passed": report.passed,
+                    "total": total,
+                    "passed_count": passed_count,
+                    "pass_rate": round(passed_count / total, 4) if total else None,
+                    "regressed": len(report.regressed_case_ids_json or []),
+                    "fixed": len(report.fixed_case_ids_json or []),
+                    "avg_latency_ms": metrics.get("avg_latency_ms"),
+                    "total_cost_amount": metrics.get("total_cost_amount"),
+                }
+            )
+        return points
+
+    def _get_case(self, case_id: str) -> RegressionCase:
+        case = _unwrap_row(
+            self.db.exec(
+                select(RegressionCase).where(
+                    and_(
+                        RegressionCase.id == case_id,
+                        RegressionCase.tenant_id == self.ctx.tenant_id,
+                        RegressionCase.workspace_id == self.ctx.workspace_id,
+                    )
+                )
+            ).first()
+        )
+        if case is None:
+            raise NotFoundError(f"Regression case not found: {case_id}")
+        return case
+
+    def _get_report(self, report_id: str) -> RegressionReport:
+        report = _unwrap_row(
+            self.db.exec(
+                select(RegressionReport).where(
+                    and_(
+                        RegressionReport.id == report_id,
+                        RegressionReport.tenant_id == self.ctx.tenant_id,
+                        RegressionReport.workspace_id == self.ctx.workspace_id,
+                    )
+                )
+            ).first()
+        )
+        if report is None:
+            raise NotFoundError(f"Regression report not found: {report_id}")
+        return report
+
     async def _evaluate_case(
         self, case: RegressionCase, runner: RegressionRunner
     ) -> dict[str, Any]:
@@ -274,15 +424,61 @@ class RegressionEvaluationService:
             await maybe_result if inspect.isawaitable(maybe_result) else maybe_result
         )
         failures = self._failure_reasons(case, result)
-        return {
+        item: dict[str, Any] = {
             "case_id": case.id,
             "name": case.name,
-            "passed": not failures,
-            "failure_reasons": failures,
             "run_id": result.run_id,
             "latency_ms": result.latency_ms,
             "cost": result.cost,
         }
+        criteria = (case.expected_features_json or {}).get("llm_judge")
+        if criteria is not None:
+            verdict_payload, judge_failures = await self._judge_case(
+                case, result, criteria
+            )
+            if verdict_payload is not None:
+                item["judge"] = verdict_payload
+            failures.extend(judge_failures)
+        item["passed"] = not failures
+        item["failure_reasons"] = failures
+        return item
+
+    async def _judge_case(
+        self,
+        case: RegressionCase,
+        result: RegressionRunResult,
+        criteria: Any,
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """Score one output against the case's rubric, failing closed.
+
+        A case that asks for judgment must never pass because the judge was
+        missing or broken; that would report quality that was never measured.
+        """
+        if not isinstance(criteria, dict) or not str(criteria.get("rubric") or "").strip():
+            return None, ["llm_judge_criteria_invalid"]
+        if self.judge is None:
+            return None, ["llm_judge_unconfigured"]
+        min_score = float(criteria.get("min_score", 0.7))
+        try:
+            verdict = await self.judge.score(
+                rubric=str(criteria["rubric"]),
+                case_input=case.input_snapshot_json or {},
+                output=result.output,
+                model=criteria.get("model"),
+            )
+        except JudgeError as exc:
+            return {"error": str(exc), "min_score": min_score}, [
+                f"llm_judge_error: {exc}"
+            ]
+        payload = {
+            "score": verdict.score,
+            "reasoning": verdict.reasoning,
+            "model": verdict.model,
+            "min_score": min_score,
+        }
+        if verdict.score < min_score:
+            return payload, ["llm_judge_below_threshold"]
+        return payload, []
 
     def _get_run(self, run_id: str) -> Run:
         run = _unwrap_row(

@@ -169,6 +169,13 @@ class Settings(BaseSettings):
     memory_embedding_model_ref: str = "model:openai:text-embedding-3-small"
     """Default embedding model for memory module."""
 
+    evaluation_judge_model_ref: str = ""
+    """Default model for LLM-as-judge regression scoring.
+
+    Empty disables the judge; cases that declare an llm_judge expectation then
+    fail with llm_judge_unconfigured instead of silently passing.
+    """
+
     agent_rate_limit_per_minute: int | None = None
     """Optional rate limit for agent runs (per minute)."""
 

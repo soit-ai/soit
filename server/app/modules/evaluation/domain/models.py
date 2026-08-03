@@ -20,6 +20,10 @@ def generate_regression_report_id() -> str:
     return f"regrep_{generate_ulid()}"
 
 
+def generate_regression_annotation_id() -> str:
+    return f"regann_{generate_ulid()}"
+
+
 class RegressionCase(SQLModel, table=True):
     """Frozen historical run input and expected behavior."""
 
@@ -114,4 +118,36 @@ class RegressionReport(SQLModel, table=True):
         default_factory=list, sa_column=Column(JSON)
     )
     created_by: str | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+class RegressionAnnotation(SQLModel, table=True):
+    """Human verdict on one case, optionally tied to one report's run of it.
+
+    Annotations never change the automated result; they are review evidence
+    that sits next to it, so a disagreement stays visible instead of being
+    overwritten.
+    """
+
+    __tablename__ = "regression_annotations"
+    __table_args__ = (
+        Index(
+            "ix_regression_annotations_case",
+            "tenant_id",
+            "workspace_id",
+            "case_id",
+        ),
+        Index("ix_regression_annotations_report", "report_id"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_regression_annotation_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    case_id: str = Field(index=True)
+    report_id: str | None = Field(default=None, nullable=True)
+    verdict: str = Field(index=True)
+    """Human judgment: "pass" or "fail"."""
+
+    note: str = Field(default="")
+    annotated_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)

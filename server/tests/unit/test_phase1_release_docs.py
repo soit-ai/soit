@@ -226,7 +226,7 @@ def test_phase1_migration_runbook_documents_fresh_install_and_n1_upgrade() -> No
         "N-1 Upgrade",
         "20260718140000",
         "20260723160000",
-        "20260728200000",
+        "20260803090000",
         "uv run alembic heads",
         "uv run alembic upgrade head",
         "uv run alembic current",
@@ -251,10 +251,10 @@ def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:
     report = validate_migration_evidence(evidence)
 
     assert report["passed"] is True
-    assert report["head_revision"] == "20260728200000"
+    assert report["head_revision"] == "20260803090000"
     assert report["paths"] == {
-        "fresh_install": "20260728200000",
-        "n1_upgrade": "20260718140000..20260728200000",
+        "fresh_install": "20260803090000",
+        "n1_upgrade": "20260718140000..20260803090000",
     }
 
     broken = deepcopy(evidence)
