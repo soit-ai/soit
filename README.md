@@ -63,7 +63,7 @@ SOIT is organized around four capabilities. Each is a first-class citizen, desig
 Compose agents from a unified capability registry: models, knowledge bases, workflows, skills, and tools. Every binding is typed, versioned, and source-agnostic — a tool from a plugin, an MCP server, or a built-in adapter looks identical from the agent's perspective.
 
 - Visual agent assembly console with versioning and release management
-- DAG workflow editor with 18+ node types — LLM, tool, condition, loop, transform, knowledge search, code execution, parameter extraction, and more
+- DAG workflow editor with 8 core node types — input, LLM, knowledge retrieval, tool, condition, transform, variable assignment, and output — plus plugin-exported node types resolved through the plugin registry
 - Knowledge ingestion pipeline for PDF, DOCX, Markdown, and HTML, with chunking, embedding, and Milvus-backed retrieval
 - MCP-friendly: any Model Context Protocol server resolves into the runtime tool registry without code changes. Transport is streamable HTTP. Protected servers are reached with OAuth 2.1 using authorization-server discovery (RFC 9728, RFC 8414 / OpenID Connect) and resource-bound tokens (RFC 8707), via the `client_credentials` grant — SOIT calls MCP servers on its own behalf, so the browser-based authorization-code flow is not implemented. The adapter targets the MCP SDK v1 line; the stateless 2026-07-28 protocol revision is not yet supported
 - Plugin-first governance: MCP servers and Skills are installed as Plugin artifacts, so permission checks, secret injection, egress limits, audit, cost attribution, trace, and replay apply automatically at runtime

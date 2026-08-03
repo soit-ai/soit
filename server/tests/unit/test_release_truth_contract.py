@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
 import yaml
+
+from app.modules.workflow.application.capabilities import BUILDER_NODE_TYPES
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_VERSION = "1.0.0"
@@ -129,6 +132,20 @@ def test_product_navigation_has_no_hash_only_links() -> None:
     for fake_team_label in ("Acme Inc", "Acme Corp.", "Evil Corp.", "Add team"):
         assert fake_team_label not in sidebar_source
         assert fake_team_label not in team_switcher_source
+
+
+def test_readme_workflow_node_count_matches_the_builder_contract() -> None:
+    english = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    match = re.search(r"(\d+) core node types", english)
+    assert match is not None, "README must state the workflow builder node count"
+    assert int(match.group(1)) == len(BUILDER_NODE_TYPES)
+
+    for fabricated_claim in (
+        "18+ node types",
+        "code execution, parameter extraction",
+    ):
+        assert fabricated_claim not in english
 
 
 def test_runtime_source_does_not_claim_unimplemented_production_guardrails() -> None:
