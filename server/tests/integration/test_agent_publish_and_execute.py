@@ -803,3 +803,106 @@ async def test_execute_agent_requires_published_version(db, tenant1_ctx: Request
                 input="Run the task",
             ).model_dump(exclude_none=True),
         )
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_persists_a_replayable_interaction_snapshot(
+    db, tenant1_ctx: RequestContext
+):
+    """The inline path must leave a snapshot a later retry can re-enqueue."""
+    from sqlmodel import select
+
+    from app.kernel.runtime.db.models.responses import ResponseInteraction
+    from app.kernel.runtime.status import TaskStatus
+    from app.kernel.runtime.tasks.repository import TaskRepository as _TaskRepository
+    from app.wiring.task_drivers import drive_agent_task_retry
+
+    service = AgentApplicationService(
+        db=db,
+        ctx=tenant1_ctx,
+        llm_port=QueueLLMPort(
+            [
+                ChatResponse(
+                    text="agent done",
+                    tokens_prompt=1,
+                    tokens_completion=1,
+                    finish_reason="stop",
+                ),
+                ChatResponse(
+                    text=None,
+                    tokens_prompt=1,
+                    tokens_completion=1,
+                    finish_reason="tool_calls",
+                    tool_calls=[
+                        ToolCall(
+                            id="call_v",
+                            name="verify_response",
+                            arguments={"ok": True, "reason": "ok"},
+                        )
+                    ],
+                ),
+            ]
+        ),
+        tool_port=StubToolPort(),
+        memory_service=StubMemoryService(),
+    )
+    agent = await service.create_agent(
+        AgentCreate(
+            name="ops-agent-snapshot",
+            description="Snapshot persistence test agent",
+            visibility="private",
+            tags=["ops"],
+        )
+    )
+    version = await service.create_version(
+        agent.id,
+        AgentVersionCreate(
+            system_prompt="You are precise.",
+            bindings={"model_ref": "model:test:primary"},
+        ),
+    )
+    await service.publish_version(agent.id, version.id)
+
+    request_inputs = AgentRunRequest(input="Run the task").model_dump(exclude_none=True)
+    result = await service.execute_agent(agent.id, request_inputs)
+
+    snapshot = (
+        db.execute(
+            select(ResponseInteraction).where(
+                ResponseInteraction.run_id == result["run_id"]
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert snapshot is not None
+    assert snapshot.status == "succeeded"
+    assert snapshot.thread_id == result["thread_id"]
+    assert snapshot.execution_json["mode"] == "agent"
+    assert snapshot.execution_json["agent_id"] == agent.id
+    assert snapshot.execution_json["agent_inputs"] == request_inputs
+    assert snapshot.request_context_json["tenant_id"] == tenant1_ctx.tenant_id
+
+    # A retry of this task re-enqueues the snapshot for the durable worker.
+    task_repo = _TaskRepository(db, tenant1_ctx)
+    task = task_repo.get_task(result["task_id"])
+    task.status = TaskStatus.QUEUED.value
+    db.add(task)
+    db.commit()
+    drive_agent_task_retry(db, task)
+
+    replay = (
+        db.execute(
+            select(ResponseInteraction).where(ResponseInteraction.status == "queued")
+        )
+        .scalars()
+        .one()
+    )
+    assert replay.execution_json["agent_inputs"] == request_inputs
+    assert replay.interaction_id != snapshot.interaction_id
+    assert (
+        replay.execution_json["assistant_message_id"]
+        != snapshot.execution_json["assistant_message_id"]
+    )
+    db.refresh(task)
+    assert task.status == TaskStatus.CANCELED.value

@@ -84,6 +84,62 @@ def test_agent_stream_tasks_are_registered_as_retryable():
     assert drivers.is_drivable("agent.stream")
 
 
+def test_agent_execute_tasks_are_registered_as_retryable():
+    assert drivers.is_drivable("agent.execute")
+
+
+def test_retry_replays_an_inline_execute_snapshot(db, ctx):
+    """The non-streaming path persists an "inline" snapshot; retry replays it."""
+    service = TaskService(db, ctx)
+    task = service.create_task(
+        task_type="agent.execute",
+        agent_id="agt_retry",
+        thread_id="thread_retry",
+        run_id="run_inline_retry",
+    )
+    task.status = TaskStatus.QUEUED.value
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    interaction = ResponseInteraction(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        interaction_id="rint_inline",
+        response_id=None,
+        run_id="run_inline_retry",
+        thread_id="thread_retry",
+        request_hash="rint_inline",
+        execution_json={
+            "mode": "agent",
+            "agent_id": "agt_retry",
+            "agent_inputs": {"input": "run the task"},
+            "assistant_message_id": "thmsg_inline",
+        },
+        request_context_json={
+            "tenant_id": ctx.tenant_id,
+            "workspace_id": ctx.workspace_id,
+            "user_id": ctx.user_id,
+        },
+        # A crash mid-inline-execution leaves the snapshot in this state; it
+        # must still be replayable.
+        status="inline",
+    )
+    db.add(interaction)
+    db.commit()
+
+    drive_agent_task_retry(db, task)
+
+    replays = _queued_replays(db)
+    assert len(replays) == 1
+    replay = replays[0]
+    assert replay.execution_json["agent_inputs"] == {"input": "run the task"}
+    assert replay.execution_json["assistant_message_id"] != "thmsg_inline"
+    assert replay.response_id is None
+    db.refresh(task)
+    assert task.status == TaskStatus.CANCELED.value
+    assert task.progress_json["retried_as_interaction_id"] == replay.interaction_id
+
+
 def test_retry_enqueues_a_replay_the_durable_worker_can_claim(db, ctx):
     task = _failed_agent_task(db, ctx, run_id="run_retry_replay")
     _snapshot(db, ctx, run_id="run_retry_replay")

@@ -8,6 +8,7 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from dataclasses import asdict
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
@@ -25,9 +26,14 @@ from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.attachments.service import AttachmentService
-from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.db.models.responses import (
+    Response,
+    ResponseInteraction,
+    generate_response_interaction_id,
+)
 from app.kernel.runtime.db.models.runs import Run, RunArtifact
 from app.kernel.runtime.db.models.tasks import Task
+from app.kernel.runtime.db.models.threads import generate_thread_message_id
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
@@ -1261,6 +1267,37 @@ class AgentApplicationService:
             progress={"phase": "agent_loop"},
         )
 
+        # Persist the execution snapshot before running so a retry has
+        # something to replay. The "inline" status keeps the durable worker
+        # from ever claiming this row: this attempt runs here, in-request.
+        snapshot_interaction_id = generate_response_interaction_id()
+        snapshot_interaction = ResponseInteraction(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            interaction_id=snapshot_interaction_id,
+            parent_interaction_id=None,
+            response_id=None,
+            run_id=run.id,
+            thread_id=thread.id,
+            request_hash=snapshot_interaction_id,
+            execution_json={
+                "mode": "agent",
+                "agent_id": agent.id,
+                "agent_inputs": dict(inputs),
+                "assistant_message_id": generate_thread_message_id(),
+            },
+            request_context_json=asdict(self.ctx),
+            kind="run",
+            status="inline",
+            created_by=self.ctx.user_id,
+        )
+        self.db.add(snapshot_interaction)
+
+        def _finalize_snapshot(status: str) -> None:
+            snapshot_interaction.status = status
+            snapshot_interaction.updated_at = utc_now()
+            self.db.add(snapshot_interaction)
+
         if self.response_service:
             linked_response = self.response_service.create_linked_response(
                 run_id=run.id,
@@ -1290,6 +1327,7 @@ class AgentApplicationService:
             result = await runner.run(request, existing_run_id=run.id, response_id=linked_response.id if linked_response else None)
         except Exception as exc:
             if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
+                _finalize_snapshot("canceled")
                 if linked_response:
                     self.response_service.cancel_response(linked_response.id)
                 self.task_service.cancel_task(task_id=task.id)
@@ -1298,6 +1336,7 @@ class AgentApplicationService:
                 "Agent execution failed",
                 extra={"agent_id": agent.id, "run_id": run.id, "task_id": task.id},
             )
+            _finalize_snapshot("failed")
             error_message = _PUBLIC_AGENT_EXECUTION_ERROR
             if linked_response:
                 linked_response = self.response_service.fail_response(
@@ -1327,6 +1366,9 @@ class AgentApplicationService:
 
         response_id = linked_response.id if linked_response else None
         if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
+            # Deliberately left "inline": the attempt is still in flight through
+            # approval, and "waiting_approval" would collide with the resume
+            # claim that targets durable worker interactions in that status.
             current_task = self.task_service.get_task(task.id)
             if current_task.status != TaskStatus.WAITING_APPROVAL.value:
                 self.task_service.transition_task(
@@ -1343,6 +1385,7 @@ class AgentApplicationService:
                 "request_id": request.request_id,
             }
 
+        _finalize_snapshot("succeeded")
         result = {
             **result,
             "artifacts": self._run_artifact_descriptors(run.id),

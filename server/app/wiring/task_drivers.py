@@ -27,8 +27,13 @@ from app.kernel.runtime.tasks.service import TaskService
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_TASK_TYPES = ("agent.stream",)
-"""Task types whose execution is captured in a replayable interaction."""
+RETRYABLE_TASK_TYPES = ("agent.stream", "agent.execute")
+"""Task types whose execution is captured in a replayable interaction.
+
+Non-streaming agent.execute runs inline, but it persists the same
+interaction snapshot shape; its retry re-enqueues that snapshot onto the
+durable worker path, so a retried attempt survives process restarts.
+"""
 
 SNAPSHOT_MISSING_ERROR_CODE = "TASK_RETRY_SNAPSHOT_MISSING"
 
