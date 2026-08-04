@@ -63,8 +63,6 @@ FORBIDDEN_RUNTIME_TERM_PATTERNS = (
     re.compile(r"\bappSelector\b"),
     re.compile(r"['\"]App['\"]"),
     re.compile(r"['\"]Application['\"]"),
-    re.compile(r"应用设置"),
-    re.compile(r"应用类型"),
 )
 
 

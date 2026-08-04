@@ -106,7 +106,9 @@ def test_outbox_lease_has_one_concurrent_winner_and_can_be_reclaimed(
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
                 idempotency_key=f"idem-{token}",
-                payload_json={"nested": {"enabled": True}, "items": [1, None, "中"]},
+                # The non-ASCII item is deliberate: it proves JSONB round-trips
+                # multi-byte UTF-8 (2-byte and 3-byte code points).
+                payload_json={"nested": {"enabled": True}, "items": [1, None, "ünicode-✓"]},
                 available_at=now,
                 occurred_at=now,
                 created_at=now,
@@ -139,7 +141,7 @@ def test_outbox_lease_has_one_concurrent_winner_and_can_be_reclaimed(
         assert row.lock_owner in {"worker-a", "worker-b"}
         assert row.payload_json == {
             "nested": {"enabled": True},
-            "items": [1, None, "中"],
+            "items": [1, None, "ünicode-✓"],
         }
         selected = db.exec(
             select(EventOutbox).where(
