@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Key, Plus, Copy, RefreshCw, Eye, EyeOff, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { useTranslation } from '@/i18n'
+import type { TFunction } from '@/i18n/types'
 import {
   createApiKey,
   listApiKeys,
@@ -29,10 +31,11 @@ import {
 } from '@/services/security-service'
 import { formatDateTime, isoToZonedDate } from '@/utils/date-time'
 
-const SCOPE_LABELS: Record<string, string> = {
-  read: '只读',
-  write: '读写',
-  admin: '管理',
+const scopeLabel = (t: TFunction, scope: string) => {
+  if (scope === 'read') return t('system.settings.api.keys.scopes.read')
+  if (scope === 'write') return t('system.settings.api.keys.scopes.write')
+  if (scope === 'admin') return t('system.settings.api.keys.scopes.admin')
+  return scope
 }
 
 type PolicyFormState = {
@@ -74,6 +77,7 @@ const formatTimestamp = (value?: string | null) => {
 }
 
 function Page() {
+  const { t } = useTranslation()
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([])
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -106,8 +110,8 @@ function Page() {
       setApiKeys(data.items || [])
     } catch (error) {
       toast({
-        title: '错误',
-        description: '获取 API 密钥失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.fetchKeysError'),
         type: 'error',
       })
     } finally {
@@ -126,8 +130,8 @@ function Page() {
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '获取用量限制失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.fetchUsageError'),
         type: 'error',
       })
     }
@@ -142,8 +146,8 @@ function Page() {
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '获取出口策略失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.fetchEgressError'),
         type: 'error',
       })
     }
@@ -156,8 +160,8 @@ function Page() {
       setEgressAudits(data.items || [])
     } catch (error) {
       toast({
-        title: '错误',
-        description: '获取出口策略审计失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.fetchEgressAuditError'),
         type: 'error',
       })
     } finally {
@@ -175,8 +179,8 @@ function Page() {
   const handleCopyKey = (value: string) => {
     navigator.clipboard.writeText(value)
     toast({
-      title: '复制成功',
-      description: 'API 密钥已复制到剪贴板',
+      title: t('system.settings.api.toast.copiedTitle'),
+      description: t('system.settings.api.toast.copiedDescription'),
     })
   }
 
@@ -190,8 +194,8 @@ function Page() {
   const handleCreateKey = async () => {
     if (!newKeyName.trim()) {
       toast({
-        title: '错误',
-        description: '请输入密钥名称',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.nameRequired'),
         type: 'error',
       })
       return
@@ -207,13 +211,13 @@ function Page() {
       setRevealedKeys(prev => ({ ...prev, [result.item.id]: result.api_key }))
       setNewKeyName('')
       toast({
-        title: '创建成功',
-        description: 'API 密钥已创建，请立即保存',
+        title: t('system.settings.api.toast.createdTitle'),
+        description: t('system.settings.api.toast.createdDescription'),
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '创建 API 密钥失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.createError'),
         type: 'error',
       })
     } finally {
@@ -227,13 +231,13 @@ function Page() {
       const result = await revokeApiKey(id)
       setApiKeys(prev => prev.map(item => (item.id === id ? result : item)))
       toast({
-        title: '撤销成功',
-        description: 'API 密钥已撤销',
+        title: t('system.settings.api.toast.revokedTitle'),
+        description: t('system.settings.api.toast.revokedDescription'),
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '撤销 API 密钥失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.revokeError'),
         type: 'error',
       })
     } finally {
@@ -248,13 +252,13 @@ function Page() {
       setApiKeys(prev => prev.map(item => (item.id === id ? result.item : item)))
       setRevealedKeys(prev => ({ ...prev, [id]: result.api_key }))
       toast({
-        title: '轮换成功',
-        description: '新密钥已生成，请立即保存',
+        title: t('system.settings.api.toast.rotatedTitle'),
+        description: t('system.settings.api.toast.rotatedDescription'),
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '轮换 API 密钥失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.rotateError'),
         type: 'error',
       })
     } finally {
@@ -272,13 +276,13 @@ function Page() {
         tool_daily_quota: parseNumber(policyForm.tool_daily_quota),
       })
       toast({
-        title: '保存成功',
-        description: '用量限制已更新',
+        title: t('system.settings.api.toast.savedTitle'),
+        description: t('system.settings.api.toast.usageSaved'),
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '保存用量限制失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.usageSaveError'),
         type: 'error',
       })
     } finally {
@@ -299,13 +303,13 @@ function Page() {
       })
       await fetchEgressAudits()
       toast({
-        title: '保存成功',
-        description: '工作区出口策略已更新',
+        title: t('system.settings.api.toast.savedTitle'),
+        description: t('system.settings.api.toast.egressSaved'),
       })
     } catch (error) {
       toast({
-        title: '错误',
-        description: '保存出口策略失败',
+        title: t('system.settings.api.toast.errorTitle'),
+        description: t('system.settings.api.toast.egressSaveError'),
         type: 'error',
       })
     } finally {
@@ -320,15 +324,15 @@ function Page() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div>
-        <h3 className="text-lg font-bold tracking-tight">API 管理</h3>
-        <p className="text-sm text-muted-foreground mt-1">管理您的 API 密钥与用量限制</p>
+        <h3 className="text-lg font-bold tracking-tight">{t('system.settings.api.title')}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{t('system.settings.api.description')}</p>
       </div>
 
       <Tabs defaultValue="keys" className="w-full">
         <TabsList className="mb-4 grid w-full max-w-xl grid-cols-3">
-          <TabsTrigger value="keys">API 密钥</TabsTrigger>
-          <TabsTrigger value="limits">用量限制</TabsTrigger>
-          <TabsTrigger value="egress">出口策略</TabsTrigger>
+          <TabsTrigger value="keys">{t('system.settings.api.tabs.keys')}</TabsTrigger>
+          <TabsTrigger value="limits">{t('system.settings.api.tabs.limits')}</TabsTrigger>
+          <TabsTrigger value="egress">{t('system.settings.api.tabs.egress')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="keys">
@@ -336,55 +340,57 @@ function Page() {
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle>API 密钥</CardTitle>
-                  <CardDescription>创建、轮换和撤销 API 访问密钥</CardDescription>
+                  <CardTitle>{t('system.settings.api.keys.title')}</CardTitle>
+                  <CardDescription>{t('system.settings.api.keys.description')}</CardDescription>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                   <Input
                     value={newKeyName}
                     onChange={(e) => setNewKeyName(e.target.value)}
-                    placeholder="新密钥名称"
+                    placeholder={t('system.settings.api.keys.namePlaceholder')}
                     className="w-full sm:w-48"
                   />
                   <NativeSelect
-                    aria-label="密钥权限范围"
+                    aria-label={t('system.settings.api.keys.scopeLabel')}
                     className="w-full sm:w-32"
                     value={newKeyScope}
                     onChange={(e) => setNewKeyScope(e.target.value as ApiKeyScope)}
                   >
-                    <option value="read">只读</option>
-                    <option value="write">读写</option>
-                    <option value="admin">管理</option>
+                    <option value="read">{t('system.settings.api.keys.scopes.read')}</option>
+                    <option value="write">{t('system.settings.api.keys.scopes.write')}</option>
+                    <option value="admin">{t('system.settings.api.keys.scopes.admin')}</option>
                   </NativeSelect>
                   <NativeSelect
-                    aria-label="密钥有效期"
+                    aria-label={t('system.settings.api.keys.expiresLabel')}
                     className="w-full sm:w-32"
                     value={String(newKeyExpiresInDays)}
                     onChange={(e) => setNewKeyExpiresInDays(Number(e.target.value))}
                   >
-                    <option value="30">30 天</option>
-                    <option value="90">90 天</option>
-                    <option value="180">180 天</option>
-                    <option value="365">365 天</option>
+                    <option value="30">{t('system.settings.api.keys.expiresDays', { days: 30 })}</option>
+                    <option value="90">{t('system.settings.api.keys.expiresDays', { days: 90 })}</option>
+                    <option value="180">{t('system.settings.api.keys.expiresDays', { days: 180 })}</option>
+                    <option value="365">{t('system.settings.api.keys.expiresDays', { days: 365 })}</option>
                   </NativeSelect>
                   <Button onClick={handleCreateKey} disabled={actionLoading === 'create'}>
                     <Plus className="mr-2 h-4 w-4" />
-                    创建密钥
+                    {t('system.settings.api.keys.create')}
                   </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              {loading && <div className="text-sm text-muted-foreground">加载中...</div>}
+              {loading && <div className="text-sm text-muted-foreground">{t('system.settings.api.keys.loading')}</div>}
               {!loading && sortedKeys.length === 0 && (
-                <div className="text-sm text-muted-foreground">暂无 API 密钥</div>
+                <div className="text-sm text-muted-foreground">{t('system.settings.api.keys.empty')}</div>
               )}
               <div className="space-y-4">
                 {sortedKeys.map((apiKey) => {
                   const rawKey = revealedKeys[apiKey.id]
                   const displayValue = rawKey || `${apiKey.key_prefix}...`
                   const isVisible = showKey[apiKey.id] && rawKey
-                  const statusLabel = apiKey.status === 'active' ? '活跃' : '已撤销'
+                  const statusLabel = apiKey.status === 'active'
+                    ? t('system.settings.api.keys.statusActive')
+                    : t('system.settings.api.keys.statusRevoked')
                   return (
                     <div key={apiKey.id} className="flex flex-col space-y-2 rounded-md border p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -396,7 +402,7 @@ function Page() {
                           </Badge>
                           {(apiKey.scopes ?? []).map((scope) => (
                             <Badge key={scope} variant="outline">
-                              {SCOPE_LABELS[scope] ?? scope}
+                              {scopeLabel(t, scope)}
                             </Badge>
                           ))}
                         </div>
@@ -406,7 +412,7 @@ function Page() {
                               variant="ghost"
                               size="icon"
                               onClick={() => toggleShowKey(apiKey.id)}
-                              title={isVisible ? '隐藏密钥' : '显示密钥'}
+                              title={isVisible ? t('system.settings.api.keys.hide') : t('system.settings.api.keys.show')}
                             >
                               {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </Button>
@@ -415,7 +421,7 @@ function Page() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleCopyKey(rawKey || displayValue)}
-                            title="复制密钥"
+                            title={t('system.settings.api.keys.copy')}
                           >
                             <Copy className="h-4 w-4" />
                           </Button>
@@ -428,7 +434,7 @@ function Page() {
                                 disabled={actionLoading === apiKey.id}
                               >
                                 <RefreshCw className="mr-2 h-4 w-4" />
-                                轮换
+                                {t('system.settings.api.keys.rotate')}
                               </Button>
                               <Button
                                 variant="destructive"
@@ -436,7 +442,7 @@ function Page() {
                                 onClick={() => handleRevokeKey(apiKey.id)}
                                 disabled={actionLoading === apiKey.id}
                               >
-                                撤销
+                                {t('system.settings.api.keys.revoke')}
                               </Button>
                             </>
                           )}
@@ -448,9 +454,9 @@ function Page() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                        <span>创建于: {apiKey.created_at}</span>
-                        <span>过期时间: {apiKey.expires_at || '-'}</span>
-                        <span>最后使用: {apiKey.last_used_at || '-'}</span>
+                        <span>{t('system.settings.api.keys.createdAt', { value: apiKey.created_at })}</span>
+                        <span>{t('system.settings.api.keys.expiresAt', { value: apiKey.expires_at || '-' })}</span>
+                        <span>{t('system.settings.api.keys.lastUsedAt', { value: apiKey.last_used_at || '-' })}</span>
                       </div>
                     </div>
                   )
@@ -463,21 +469,21 @@ function Page() {
         <TabsContent value="limits">
           <Card>
             <CardHeader>
-              <CardTitle>用量限制</CardTitle>
-              <CardDescription>配置当前工作区的速率限制与配额</CardDescription>
+              <CardTitle>{t('system.settings.api.limits.title')}</CardTitle>
+              <CardDescription>{t('system.settings.api.limits.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>注意</AlertTitle>
+                <AlertTitle>{t('system.settings.api.limits.noticeTitle')}</AlertTitle>
                 <AlertDescription>
-                  限制为空表示使用默认值或不限制。更改限制可能影响工作区运行。
+                  {t('system.settings.api.limits.noticeDescription')}
                 </AlertDescription>
               </Alert>
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="llm-rate-limit">LLM 每分钟请求数</Label>
+                  <Label htmlFor="llm-rate-limit">{t('system.settings.api.limits.llmRateLimit')}</Label>
                   <Input
                     id="llm-rate-limit"
                     type="number"
@@ -489,7 +495,7 @@ function Page() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="tool-rate-limit">工具每分钟请求数</Label>
+                  <Label htmlFor="tool-rate-limit">{t('system.settings.api.limits.toolRateLimit')}</Label>
                   <Input
                     id="tool-rate-limit"
                     type="number"
@@ -501,7 +507,7 @@ function Page() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="llm-daily-quota">LLM 每日配额</Label>
+                  <Label htmlFor="llm-daily-quota">{t('system.settings.api.limits.llmDailyQuota')}</Label>
                   <Input
                     id="llm-daily-quota"
                     type="number"
@@ -511,7 +517,7 @@ function Page() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="tool-daily-quota">工具每日配额</Label>
+                  <Label htmlFor="tool-daily-quota">{t('system.settings.api.limits.toolDailyQuota')}</Label>
                   <Input
                     id="tool-daily-quota"
                     type="number"
@@ -524,7 +530,7 @@ function Page() {
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button onClick={handleSavePolicy} disabled={policyLoading}>
-                保存配置
+                {t('system.settings.api.limits.save')}
               </Button>
             </CardFooter>
           </Card>
@@ -534,21 +540,21 @@ function Page() {
           <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
             <Card>
               <CardHeader>
-                <CardTitle>工作区出口策略</CardTitle>
-                <CardDescription>配置工具和运行时外部 HTTP 调用允许访问的域名与显式阻断域名</CardDescription>
+                <CardTitle>{t('system.settings.api.egress.title')}</CardTitle>
+                <CardDescription>{t('system.settings.api.egress.description')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <Alert>
                   <ShieldCheck className="h-4 w-4" />
-                  <AlertTitle>运行时生效</AlertTitle>
+                  <AlertTitle>{t('system.settings.api.egress.noticeTitle')}</AlertTitle>
                   <AlertDescription>
-                    外部 URL 会先匹配阻断列表，再匹配工作区、租户和全局允许列表。支持通配符，例如 *.example.com。
+                    {t('system.settings.api.egress.noticeDescription')}
                   </AlertDescription>
                 </Alert>
 
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="egress-allowlist">允许域名</Label>
+                    <Label htmlFor="egress-allowlist">{t('system.settings.api.egress.allowlist')}</Label>
                     <Textarea
                       id="egress-allowlist"
                       value={egressForm.allowlist}
@@ -556,10 +562,10 @@ function Page() {
                       placeholder={'api.example.com\n*.trusted.internal'}
                       className="min-h-40 font-mono text-sm"
                     />
-                    <p className="text-xs text-muted-foreground">每行一个域名，也可以用逗号分隔。</p>
+                    <p className="text-xs text-muted-foreground">{t('system.settings.api.egress.allowlistHint')}</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="egress-blocklist">阻断域名</Label>
+                    <Label htmlFor="egress-blocklist">{t('system.settings.api.egress.blocklist')}</Label>
                     <Textarea
                       id="egress-blocklist"
                       value={egressForm.blocklist}
@@ -567,13 +573,13 @@ function Page() {
                       placeholder={'*.blocked.example\n169.254.169.254'}
                       className="min-h-40 font-mono text-sm"
                     />
-                    <p className="text-xs text-muted-foreground">阻断列表优先于所有允许列表。</p>
+                    <p className="text-xs text-muted-foreground">{t('system.settings.api.egress.blocklistHint')}</p>
                   </div>
                 </div>
               </CardContent>
               <CardFooter className="flex justify-end">
                 <Button onClick={handleSaveEgressPolicy} disabled={egressLoading}>
-                  保存出口策略
+                  {t('system.settings.api.egress.save')}
                 </Button>
               </CardFooter>
             </Card>
@@ -582,28 +588,28 @@ function Page() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <CardTitle>策略审计</CardTitle>
-                    <CardDescription>最近的工作区出口策略变更记录</CardDescription>
+                    <CardTitle>{t('system.settings.api.egress.auditTitle')}</CardTitle>
+                    <CardDescription>{t('system.settings.api.egress.auditDescription')}</CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={fetchEgressAudits} disabled={egressAuditLoading}>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    刷新
+                    {t('system.settings.api.egress.refresh')}
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {egressAuditLoading && <div className="text-sm text-muted-foreground">加载中...</div>}
+                {egressAuditLoading && <div className="text-sm text-muted-foreground">{t('system.settings.api.egress.auditLoading')}</div>}
                 {!egressAuditLoading && egressAudits.length === 0 && (
-                  <div className="text-sm text-muted-foreground">暂无策略变更记录</div>
+                  <div className="text-sm text-muted-foreground">{t('system.settings.api.egress.auditEmpty')}</div>
                 )}
                 {egressAudits.length > 0 && (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>时间</TableHead>
-                        <TableHead>允许</TableHead>
-                        <TableHead>阻断</TableHead>
-                        <TableHead>操作者</TableHead>
+                        <TableHead>{t('system.settings.api.egress.auditColumns.time')}</TableHead>
+                        <TableHead>{t('system.settings.api.egress.auditColumns.allow')}</TableHead>
+                        <TableHead>{t('system.settings.api.egress.auditColumns.block')}</TableHead>
+                        <TableHead>{t('system.settings.api.egress.auditColumns.operator')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

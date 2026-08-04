@@ -32,7 +32,6 @@ function Page() {
     { value: 'YYYY-MM-DD', label: t('system.settings.lang.dateFormats.iso') },
     { value: 'DD/MM/YYYY', label: t('system.settings.lang.dateFormats.european') },
     { value: 'MM/DD/YYYY', label: t('system.settings.lang.dateFormats.american') },
-    { value: 'YYYY年MM月DD日', label: t('system.settings.lang.dateFormats.chinese') },
   ]
 
   // Handle language changes.

@@ -105,12 +105,12 @@ test('workspace egress policy can be edited from settings', async ({ page }) => 
   await mockSettingsApi(page, state)
 
   await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('tab', { name: '出口策略' }).click()
+  await page.getByRole('tab', { name: 'Egress Policy' }).click()
 
-  await expect(page.getByLabel('允许域名')).toHaveValue('api.initial.example')
-  await page.getByLabel('允许域名').fill('api.example.com\n*.trusted.internal')
-  await page.getByLabel('阻断域名').fill('*.blocked.example')
-  await page.getByRole('button', { name: '保存出口策略' }).click()
+  await expect(page.getByLabel('Allowed domains')).toHaveValue('api.initial.example')
+  await page.getByLabel('Allowed domains').fill('api.example.com\n*.trusted.internal')
+  await page.getByLabel('Blocked domains').fill('*.blocked.example')
+  await page.getByRole('button', { name: 'Save Egress Policy' }).click()
 
   await expect.poll(() => state.savedEgressPayload).toEqual({
     allowlist: ['api.example.com', '*.trusted.internal'],
@@ -145,6 +145,8 @@ test('community settings do not simulate security, privacy, or billing operation
 
   await page.goto('/settings/about', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Community build')).toBeVisible()
-  await expect(page.getByText('张三')).toHaveCount(0)
+  // Retired demo values that must never come back on the About page: the
+  // fabricated team roster and the synthesized release date.
+  await expect(page.locator('img[src^="/avatars/"]')).toHaveCount(0)
   await expect(page.getByText('2025-05-30')).toHaveCount(0)
 })
