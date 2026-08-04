@@ -122,6 +122,13 @@ date, and a fresh `[Unreleased]` section is started.
 - `plugin_refs` deprecated and merged into `tool_refs`.
 - Explicit N-1 database schema baseline frozen; migrations aligned with
   acceptance contracts.
+- Observe, Task, Run Explorer, and API settings surfaces moved off hardcoded
+  Chinese copy onto the i18n system, with English (`en-US`) as the default
+  locale and matching `zh-CN` translations; server-generated observability
+  labels are now English.
+- The CJK date-format option was removed from language and region settings;
+  `YYYY-MM-DD` covers the same field order. Workspaces still holding the retired
+  value fall back to an unselected date format until one is chosen.
 
 ### Fixed
 
