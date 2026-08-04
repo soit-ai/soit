@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type {
   DashboardSection,
@@ -48,6 +49,7 @@ function useMeasuredChartWidth() {
 }
 
 function MiniMetric({ item }: { item: MetricCard }) {
+  const { t } = useTranslation()
   const tone = toneClasses[item.tone] || toneClasses.blue
   return (
     <div className="min-w-0 rounded-lg border border-border/80 bg-panel/80 p-3">
@@ -56,27 +58,28 @@ function MiniMetric({ item }: { item: MetricCard }) {
         <span className="truncate">{item.label}</span>
       </div>
       <div className="mt-2 truncate text-xl font-semibold leading-none">{item.value}</div>
-      {item.delta ? <div className={cn('mt-2 text-xs font-medium', tone.delta)}>较昨日 {item.delta}</div> : null}
+      {item.delta ? <div className={cn('mt-2 text-xs font-medium', tone.delta)}>{t('observe.metric.deltaVsYesterday')} {item.delta}</div> : null}
     </div>
   )
 }
 
 function TrendChart({ data, tab }: { data: TrendPoint[]; tab: ObserveTabId }) {
+  const { t } = useTranslation()
   const { ref, width } = useMeasuredChartWidth()
   const lines = tab === 'tool_reliability'
     ? [
-        { key: 'tool_count', color: '#2563eb', name: '调用数' },
-        { key: 'tool_failed_count', color: '#ef4444', name: '错误数' },
+        { key: 'tool_count', color: '#2563eb', name: t('observe.charts.series.calls') },
+        { key: 'tool_failed_count', color: '#ef4444', name: t('observe.charts.series.errors') },
       ]
     : tab === 'knowledge_quality'
       ? [
-          { key: 'retrieval_count', color: '#2563eb', name: '召回数' },
-          { key: 'retrieval_failed_count', color: '#ef4444', name: '失败数' },
+          { key: 'retrieval_count', color: '#2563eb', name: t('observe.charts.series.retrievals') },
+          { key: 'retrieval_failed_count', color: '#ef4444', name: t('observe.charts.series.failures') },
         ]
       : [
-          { key: 'run_count', color: '#2563eb', name: '运行数' },
-          { key: 'failed_run_count', color: '#ef4444', name: '失败数' },
-          { key: 'success_rate', color: '#06b6d4', name: '成功率' },
+          { key: 'run_count', color: '#2563eb', name: t('observe.charts.series.runs') },
+          { key: 'failed_run_count', color: '#ef4444', name: t('observe.charts.series.failures') },
+          { key: 'success_rate', color: '#06b6d4', name: t('observe.charts.series.successRate') },
         ]
   return (
     <div ref={ref} className="h-[220px] min-w-[1px] w-full overflow-hidden">
@@ -116,6 +119,7 @@ function DonutChart({
   data: DonutDatum[]
   legendLabel: string
 }) {
+  const { t } = useTranslation()
   const normalizedData = data.map((item) => ({
     ...item,
     value: Number.isFinite(item.value) ? Math.max(0, item.value) : 0,
@@ -123,7 +127,7 @@ function DonutChart({
   const hasData = normalizedData.some((item) => item.value > 0)
   const items = hasData
     ? normalizedData
-    : [{ name: '暂无数据', value: 0, color: '#94a3b8' }]
+    : [{ name: t('observe.charts.noData'), value: 0, color: '#94a3b8' }]
   const total = items.reduce((sum, item) => sum + item.value, 0)
   let cursor = 0
   const gradient = hasData
@@ -159,12 +163,14 @@ function DonutChart({
 }
 
 export function SectionCharts({ section }: { section: DashboardSection }) {
+  const { t } = useTranslation()
+
   if (section.id === 'workflow_bottlenecks') {
     const { queue_distribution: queueDistribution } = section.charts
     return (
       <div className="grid gap-3 xl:grid-cols-[1.55fr_1fr]">
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">瓶颈拓扑</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.bottleneckTopology')}</CardTitle></CardHeader>
           <CardContent className="flex min-h-[168px] flex-wrap items-center gap-3 p-4">
             {queueDistribution.length ? queueDistribution.map((row, index) => (
               <div key={String(row.id)} className="flex items-center gap-3">
@@ -174,11 +180,11 @@ export function SectionCharts({ section }: { section: DashboardSection }) {
                 </div>
                 {index < queueDistribution.length - 1 ? <ArrowRight className="h-4 w-4 text-muted-foreground" /> : null}
               </div>
-            )) : <div className="text-sm text-muted-foreground">暂无瓶颈阶段</div>}
+            )) : <div className="text-sm text-muted-foreground">{t('observe.charts.noBottleneckStage')}</div>}
           </CardContent>
         </Card>
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">排队与耗时分布</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.queueDistribution')}</CardTitle></CardHeader>
           <CardContent className="space-y-3 p-4">
             {queueDistribution.map((row) => (
               <div key={String(row.id)} className="grid grid-cols-[120px_1fr_64px] items-center gap-3 text-sm">
@@ -198,14 +204,14 @@ export function SectionCharts({ section }: { section: DashboardSection }) {
     return (
       <div className="grid gap-3 xl:grid-cols-[1.45fr_0.75fr_0.95fr]">
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">工具调用可靠性趋势</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.toolReliabilityTrend')}</CardTitle></CardHeader>
           <CardContent className="p-4"><TrendChart data={trend} tab={section.id} /></CardContent>
         </Card>
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">错误类型分布</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.errorTypeDistribution')}</CardTitle></CardHeader>
           <CardContent className="p-4">
             <DonutChart
-              legendLabel="错误类型分布图例"
+              legendLabel={t('observe.charts.errorTypeDistributionLegend')}
               data={errorDistribution.map((item, index) => ({
                 name: item.type,
                 value: item.count,
@@ -230,21 +236,21 @@ export function SectionCharts({ section }: { section: DashboardSection }) {
     return (
       <div className="grid gap-3 xl:grid-cols-[1.4fr_0.8fr_1fr]">
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">知识召回质量趋势</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.knowledgeQualityTrend')}</CardTitle></CardHeader>
           <CardContent className="p-4"><TrendChart data={trend} tab={section.id} /></CardContent>
         </Card>
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">质量评分</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.qualityScore')}</CardTitle></CardHeader>
           <CardContent className="flex items-center justify-center">
             <div className="relative my-6 flex h-36 w-36 items-center justify-center rounded-full bg-[conic-gradient(#2563eb_0_66%,#10b981_66%_100%)]">
               <div className="flex h-[112px] w-[112px] items-center justify-center rounded-full bg-panel text-center">
-                <div><div className="text-3xl font-semibold">{qualityScore}</div><div className="text-xs text-muted-foreground">综合评分</div></div>
+                <div><div className="text-3xl font-semibold">{qualityScore}</div><div className="text-xs text-muted-foreground">{t('observe.charts.overallScore')}</div></div>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className={cardChrome}>
-          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">低质量来源</CardTitle></CardHeader>
+          <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.lowQualitySources')}</CardTitle></CardHeader>
           <CardContent className="space-y-3 p-4">
             {lowQualitySources.map((row, index) => (
               <div key={String(row.id)} className="grid grid-cols-[24px_1fr_52px] items-center gap-3 text-sm">
@@ -268,14 +274,14 @@ export function SectionCharts({ section }: { section: DashboardSection }) {
   return (
     <div className="grid gap-3 xl:grid-cols-[1.5fr_0.8fr_1fr]">
       <Card className={cardChrome}>
-        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">Agent 运行与异常趋势</CardTitle></CardHeader>
+        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.agentRunTrend')}</CardTitle></CardHeader>
         <CardContent className="p-4"><TrendChart data={trend} tab={section.id} /></CardContent>
       </Card>
       <Card className={cardChrome}>
-        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">健康摘要</CardTitle></CardHeader>
+        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.healthSummary')}</CardTitle></CardHeader>
         <CardContent className="grid gap-3 p-4">
           <DonutChart
-            legendLabel="健康摘要图例"
+            legendLabel={t('observe.charts.healthSummaryLegend')}
             data={healthDistribution.map((item) => ({
               name: item.status,
               value: item.count,
@@ -290,12 +296,12 @@ export function SectionCharts({ section }: { section: DashboardSection }) {
         </CardContent>
       </Card>
       <Card className={cardChrome}>
-        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">告警压缩</CardTitle></CardHeader>
+        <CardHeader className="border-b px-4 py-3"><CardTitle className="text-[15px]">{t('observe.charts.alertCompression')}</CardTitle></CardHeader>
         <CardContent className="space-y-4 p-4">
-          <div><div className="text-3xl font-semibold">{alertCompression.compressed_alerts}</div><div className="text-sm text-muted-foreground">压缩后告警</div></div>
+          <div><div className="text-3xl font-semibold">{alertCompression.compressed_alerts}</div><div className="text-sm text-muted-foreground">{t('observe.charts.compressedAlerts')}</div></div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">原始告警</div><div className="text-xl font-semibold">{alertCompression.raw_alerts}</div></div>
-            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">状态</div><div className="text-xl font-semibold">收敛中</div></div>
+            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">{t('observe.charts.rawAlerts')}</div><div className="text-xl font-semibold">{alertCompression.raw_alerts}</div></div>
+            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">{t('observe.charts.status')}</div><div className="text-xl font-semibold">{t('observe.charts.converging')}</div></div>
           </div>
         </CardContent>
       </Card>

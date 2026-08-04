@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
+import { useTranslation } from '@/i18n'
 import {
   getObserveDashboard,
   type ObserveBucket,
@@ -24,6 +25,7 @@ import {
 } from './ui/dashboard-utils'
 
 function ObservePage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = OBSERVE_TAB_IDS.includes(searchParams.get('tab') as ObserveTabId)
@@ -101,9 +103,9 @@ function ObservePage() {
         {isLoading ? <DashboardSkeleton /> : isError || !dashboard ? (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>观测数据加载失败</AlertTitle>
+            <AlertTitle>{t('observe.error.title')}</AlertTitle>
             <AlertDescription>
-              <Button variant="outline" size="sm" onClick={() => void refetch()}>重试</Button>
+              <Button variant="outline" size="sm" onClick={() => void refetch()}>{t('observe.error.retry')}</Button>
             </AlertDescription>
           </Alert>
         ) : (

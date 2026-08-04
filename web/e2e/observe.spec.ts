@@ -10,10 +10,10 @@ const seedLocalStorage = () => {
 }
 
 const tabs = [
-  { id: 'agent_health', label: 'Agent 健康', rowId: 'agent:support' },
-  { id: 'workflow_bottlenecks', label: '工作流瓶颈', rowId: 'tool-call' },
-  { id: 'tool_reliability', label: '工具可靠性', rowId: 'search_tool' },
-  { id: 'knowledge_quality', label: '知识质量', rowId: 'knowledge:kb_support' },
+  { id: 'agent_health', label: 'Agent Health', rowId: 'agent:support' },
+  { id: 'workflow_bottlenecks', label: 'Workflow Bottlenecks', rowId: 'tool-call' },
+  { id: 'tool_reliability', label: 'Tool Reliability', rowId: 'search_tool' },
+  { id: 'knowledge_quality', label: 'Knowledge Quality', rowId: 'knowledge:kb_support' },
 ] satisfies Array<{ id: ObserveTabId; label: string; rowId: string }>
 
 function parseObserveTab(value: string | null): ObserveTabId {
@@ -35,10 +35,10 @@ function baseDashboard(
       { id: 'agent:support', name: 'agent:support', status: 'warning', run_count: 3, failed_run_count: 1, success_rate: 0.667, avg_latency_ms: 186, last_error: 'timeout', owner: 'Jude', last_run_at: '2026-06-01T20:45:00Z', latest_run_id: 'run-dashboard-latest', latest_run_status: 'failed', latest_run_cost_usd: 1.25, latest_failure_reason: 'timeout', detail_url: '/observe/runs/run-dashboard-latest' },
     ],
     workflow_bottlenecks: [
-      { id: 'tool-call', name: 'tool-call', description: 'Workflow stage', stage: '工具调用', current_queue: 76, avg_wait_ms: 1400, failure_rate: 0.012, affected_agents: ['agent:support'], owner: 'Jude', latest_run_id: 'run-dashboard-workflow', latest_run_status: 'failed', latest_run_cost_usd: 0.8, latest_failure_reason: 'queue timeout', detail_url: '/observe/runs/run-dashboard-workflow' },
+      { id: 'tool-call', name: 'tool-call', description: 'Workflow stage', stage: 'tool-call', current_queue: 76, avg_wait_ms: 1400, failure_rate: 0.012, affected_agents: ['agent:support'], owner: 'Jude', latest_run_id: 'run-dashboard-workflow', latest_run_status: 'failed', latest_run_cost_usd: 0.8, latest_failure_reason: 'queue timeout', detail_url: '/observe/runs/run-dashboard-workflow' },
     ],
     tool_reliability: [
-      { id: 'search_tool', name: 'search_tool', type: '查询工具', call_count: 12, success_rate: 0.978, avg_latency_ms: 312, failure_reason: { timeout: 1 }, related_agents: ['agent:support'], owner: 'Alice', status: 'warning', latest_run_id: 'run-dashboard-tool', latest_run_status: 'failed', latest_run_cost_usd: 0.5, latest_failure_reason: 'tool timeout', detail_url: '/observe/runs/run-dashboard-tool' },
+      { id: 'search_tool', name: 'search_tool', type: 'search', call_count: 12, success_rate: 0.978, avg_latency_ms: 312, failure_reason: { timeout: 1 }, related_agents: ['agent:support'], owner: 'Alice', status: 'warning', latest_run_id: 'run-dashboard-tool', latest_run_status: 'failed', latest_run_cost_usd: 0.5, latest_failure_reason: 'tool timeout', detail_url: '/observe/runs/run-dashboard-tool' },
     ],
     knowledge_quality: [
       { id: 'knowledge:kb_support', name: 'knowledge:kb_support', description: 'Knowledge retrieval quality', related_agents: ['agent:support'], hit_rate: 0.962, missing_answer_rate: 0.038, expired_chunks: 8, last_updated: '2026-06-01 18:20', status: 'healthy', owner: 'Jude', latest_run_id: 'run-dashboard-knowledge', latest_run_status: 'succeeded', latest_run_cost_usd: 0.3, latest_failure_reason: null, detail_url: '/observe/runs/run-dashboard-knowledge' },
@@ -79,19 +79,19 @@ function baseDashboard(
       refreshed_at: '2026-06-01T20:45:00Z',
     },
     metric_cards: [
-      { id: 'run_count', label: '运行次数', value: '234', delta: '+12.4%', trend: [1, 3, 2, 5], tone: 'blue', run_id: 'run-dashboard-latest', detail_url: '/observe/runs/run-dashboard-latest', status: 'failed', cost_usd: 1.25, failure_reason: 'timeout' },
-      { id: 'failed_run_count', label: '失败运行', value: '45', delta: '+28.6%', trend: [1, 2, 1, 3], tone: 'red', run_id: 'run-dashboard-latest', detail_url: '/observe/runs/run-dashboard-latest', status: 'failed', cost_usd: 1.25, failure_reason: 'timeout' },
-      { id: 'active_run_count', label: '活跃运行', value: '18', delta: '-10.0%', trend: [2, 4, 3], tone: 'cyan' },
-      { id: 'pending_approvals', label: '待审批', value: '0', delta: '0', trend: [0], tone: 'amber' },
-      { id: 'total_cost_usd', label: '成本 (USD)', value: '0.00', delta: '0', trend: [0], tone: 'green' },
+      { id: 'run_count', label: 'Runs', value: '234', delta: '+12.4%', trend: [1, 3, 2, 5], tone: 'blue', run_id: 'run-dashboard-latest', detail_url: '/observe/runs/run-dashboard-latest', status: 'failed', cost_usd: 1.25, failure_reason: 'timeout' },
+      { id: 'failed_run_count', label: 'Failed Runs', value: '45', delta: '+28.6%', trend: [1, 2, 1, 3], tone: 'red', run_id: 'run-dashboard-latest', detail_url: '/observe/runs/run-dashboard-latest', status: 'failed', cost_usd: 1.25, failure_reason: 'timeout' },
+      { id: 'active_run_count', label: 'Active Runs', value: '18', delta: '-10.0%', trend: [2, 4, 3], tone: 'cyan' },
+      { id: 'pending_approvals', label: 'Pending Approvals', value: '0', delta: '0', trend: [0], tone: 'amber' },
+      { id: 'total_cost_usd', label: 'Cost (USD)', value: '0.00', delta: '0', trend: [0], tone: 'green' },
     ],
     priority_alert: {
       priority: 'P1',
-      title: 'Workflow 队列延迟上升',
+      title: 'Workflow queue latency is rising',
       started_at: '2026-06-01T20:35:00Z',
-      scope: '3 个工作区',
+      scope: '3 workspaces',
       affected_agents: 12,
-      duration_label: '18 分钟',
+      duration_label: '18 min',
       detail_url: '/observe/runs',
     },
     recent_runs: [
@@ -122,12 +122,12 @@ function baseDashboard(
     section: {
       id: tab,
       summary_cards: [
-        { id: `${tab}_summary`, label: '摘要', value: '1', delta: null, trend: [1], tone: 'green' },
+        { id: `${tab}_summary`, label: 'Summary', value: '1', delta: null, trend: [1], tone: 'green' },
       ],
       charts: chartsByTab[tab],
       rows,
       page: { page_size: rows.length, next_page_token: null, total_count: rows.length },
-      empty_state: { title: '暂无数据', description: '当前时间范围内没有可展示的观测数据。' },
+      empty_state: { title: 'No data', description: 'No observability data to show for the selected time range.' },
     },
   }
 }
@@ -262,8 +262,8 @@ async function mockEmptyObserveApi(page: Page) {
             rows: [],
             page: { page_size: 0, next_page_token: null, total_count: 0 },
             empty_state: {
-              title: `暂无${tabs.find((item) => item.id === tab)?.label || '观测'}数据`,
-              description: '当前时间范围内没有对应应用观测数据。',
+              title: `No ${tabs.find((item) => item.id === tab)?.label || 'observability'} data`,
+              description: 'No observability data for the selected time range.',
             },
           },
         },
@@ -301,11 +301,11 @@ test.beforeEach(async ({ page }) => {
 test('observe dashboard keeps tab state in the URL', async ({ page }) => {
   await page.goto('/observe?tab=tool_reliability&range=1h&bucket=10m', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
-  await expect(page.getByRole('tab', { name: '工具可靠性' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(page.getByRole('tab', { name: 'Tool Reliability' })).toHaveAttribute('data-state', 'active')
   await expect(page.getByRole('row').filter({ hasText: 'search_tool' })).toBeVisible()
 
-  await page.getByRole('tab', { name: '知识质量' }).click()
+  await page.getByRole('tab', { name: 'Knowledge Quality' }).click()
   await expect(page).toHaveURL(/tab=knowledge_quality/)
   await expect(page.getByRole('row').filter({ hasText: 'knowledge:kb_support' })).toBeVisible()
 })
@@ -313,27 +313,27 @@ test('observe dashboard keeps tab state in the URL', async ({ page }) => {
 test('observe dashboard defaults to 24h but preserves explicit range', async ({ page }) => {
   await page.goto('/observe', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
-  await expect(page.getByLabel('时间范围')).toHaveValue('24h')
-  await page.getByLabel('时间范围').selectOption('1h')
+  await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(page.getByLabel('Time range')).toHaveValue('24h')
+  await page.getByLabel('Time range').selectOption('1h')
   await expect(page).toHaveURL(/range=1h/)
-  await expect(page.getByLabel('时间范围')).toHaveValue('1h')
+  await expect(page.getByLabel('Time range')).toHaveValue('1h')
 })
 
 test('observe search updates the current tab query', async ({ page }) => {
   await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
 
-  await page.getByPlaceholder('搜索名称').fill('missing')
+  await page.getByPlaceholder('Search by name').fill('missing')
 
   await expect(page).toHaveURL(/q=missing/)
-  await expect(page.getByText('暂无数据')).toBeVisible()
+  await expect(page.getByText('No data')).toBeVisible()
 })
 
 test('observe run explorer action is available', async ({ page }) => {
   await page.goto('/observe?tab=agent_health', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
 
-  await page.getByRole('link', { name: '打开 Run Explorer' }).first().click()
+  await page.getByRole('link', { name: 'Open Run Explorer' }).first().click()
 
   await expect(page).toHaveURL(/\/observe\/runs/)
   await expect(page).toHaveURL(/include_observe_summary=true/)
@@ -341,28 +341,28 @@ test('observe run explorer action is available', async ({ page }) => {
 
 test('observe dashboard cards and rows link to run detail', async ({ page }) => {
   await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
+  await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
 
-  await page.getByRole('button', { name: '打开运行详情：运行次数' }).click()
+  await page.getByRole('button', { name: 'Open run detail: Runs' }).click()
   await expect(page).toHaveURL(/\/observe\/runs\/run-dashboard-latest/)
 
   await page.goBack({ waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: '观测工作台' })).toBeVisible({ timeout: pageReadyTimeout })
-  await page.getByRole('row').filter({ hasText: 'search_tool' }).getByRole('button', { name: '查看运行' }).click()
+  await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
+  await page.getByRole('row').filter({ hasText: 'search_tool' }).getByRole('button', { name: 'View runs' }).click()
   await expect(page).toHaveURL(/\/observe\/runs\/run-dashboard-tool/)
 })
 
 test('observe dashboard surfaces recent run observability summary', async ({ page }) => {
   await page.goto('/observe', { waitUntil: 'domcontentloaded' })
 
-  const recentRun = page.getByRole('button', { name: /打开运行详情：run-dashboard-latest/ })
+  const recentRun = page.getByRole('button', { name: /Open run detail: run-dashboard-latest/ })
   await expect(recentRun).toBeVisible({ timeout: pageReadyTimeout })
   await expect(recentRun).toContainText('agent · agent:support')
   await expect(recentRun).toContainText('1.24s')
-  await expect(recentRun).toContainText('步骤 6')
-  await expect(recentRun).toContainText('工具 1')
-  await expect(recentRun).toContainText('引用 2')
-  await expect(recentRun).toContainText('审计 1')
+  await expect(recentRun).toContainText('Steps 6')
+  await expect(recentRun).toContainText('Tools 1')
+  await expect(recentRun).toContainText('Citations 2')
+  await expect(recentRun).toContainText('Audits 1')
 
   await recentRun.click()
   await expect(page).toHaveURL(/\/observe\/runs\/run-dashboard-latest/)
@@ -373,15 +373,15 @@ test('observe tabs show diagnostic empty state with run explorer entry', async (
 
   await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByText('当前时间范围内没有对应应用观测数据。')).toBeVisible({ timeout: pageReadyTimeout })
-  await page.getByRole('link', { name: '打开 Run Explorer' }).first().click()
+  await expect(page.getByText('No observability data for the selected time range.')).toBeVisible({ timeout: pageReadyTimeout })
+  await page.getByRole('link', { name: 'Open Run Explorer' }).first().click()
   await expect(page).toHaveURL(/\/observe\/runs/)
 })
 
 test('observe error distribution exposes a labeled legend', async ({ page }) => {
   await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
 
-  const legend = page.getByRole('list', { name: '错误类型分布图例' })
+  const legend = page.getByRole('list', { name: 'Error type distribution legend' })
   await expect(legend).toBeVisible({ timeout: pageReadyTimeout })
   await expect(legend.getByRole('listitem')).toHaveCount(1)
   await expect(legend).toContainText('timeout')
@@ -392,9 +392,9 @@ test('observe error distribution legend exposes an honest empty state', async ({
   await mockEmptyErrorDistributionApi(page)
   await page.goto('/observe?tab=tool_reliability', { waitUntil: 'domcontentloaded' })
 
-  const legend = page.getByRole('list', { name: '错误类型分布图例' })
+  const legend = page.getByRole('list', { name: 'Error type distribution legend' })
   await expect(legend).toBeVisible({ timeout: pageReadyTimeout })
   await expect(legend.getByRole('listitem')).toHaveCount(1)
-  await expect(legend).toContainText('暂无数据')
+  await expect(legend).toContainText('No data')
   await expect(legend).toContainText('0 · 0%')
 })

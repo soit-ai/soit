@@ -9,6 +9,7 @@ type TranslationKeys = {
   model: typeof import('./en-US/model').default
   chat: typeof import('./en-US/chat').default
   knowledge: typeof import('./en-US/knowledge').default
+  observe: typeof import('./en-US/observe').default
   run: typeof import('./en-US/run').default
   plugin: typeof import('./en-US/plugin').default
   tools: typeof import('./en-US/tools').default
