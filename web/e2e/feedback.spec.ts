@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockShellApi } from './helpers'
+import zhSystem from '../app/i18n/zh-CN/system'
+
+// This suite runs the UI in zh-CN on purpose, so every locator reads its copy
+// from the zh-CN resource bundle instead of hardcoding translated strings.
+const zh = zhSystem.feedback
 
 const seedLocalStorage = () => {
   localStorage.setItem('token', 'test-token')
@@ -145,10 +150,10 @@ test('workspace owner submits and reviews product feedback', async ({ page }) =>
 
   await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByRole('heading', { name: '产品反馈' })).toBeVisible()
-  await page.getByLabel('标题').fill('Workflow editor loses changes')
-  await page.getByLabel('详细描述').fill('Switching tabs discards the selected node configuration.')
-  await page.getByRole('button', { name: '提交反馈' }).click()
+  await expect(page.getByRole('heading', { name: zh.title })).toBeVisible()
+  await page.getByLabel(zh.form.fields.title).fill('Workflow editor loses changes')
+  await page.getByLabel(zh.form.fields.description).fill('Switching tabs discards the selected node configuration.')
+  await page.getByRole('button', { name: zh.actions.submit }).click()
 
   await expect.poll(() => state.submitted).toMatchObject({
     title: 'Workflow editor loses changes',
@@ -157,10 +162,10 @@ test('workspace owner submits and reviews product feedback', async ({ page }) =>
     priority: 'medium',
   })
 
-  await page.getByRole('tab', { name: '我的工单' }).click()
+  await page.getByRole('tab', { name: zh.tabs.mine }).click()
   await expect(page.getByText('Workflow editor loses changes')).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Workspace 队列' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '统计' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: zh.tabs.workspace })).toBeVisible()
+  await expect(page.getByRole('tab', { name: zh.tabs.stats })).toBeVisible()
 })
 
 test('workspace owner resolves a feedback ticket with a resolution note', async ({ page }) => {
@@ -185,18 +190,20 @@ test('workspace owner resolves a feedback ticket with a resolution note', async 
   await mockFeedbackApi(page, state)
 
   await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('tab', { name: 'Workspace 队列' }).click()
-  await page.getByRole('button', { name: '处理: Legacy adapter is still visible' }).click()
-  await page.getByLabel('状态').click()
-  await page.getByRole('option', { name: '已解决' }).click()
-  await page.getByLabel('处理说明').fill('Removed the unsupported adapter from the publish panel.')
-  await page.getByRole('button', { name: '保存更新' }).click()
+  await page.getByRole('tab', { name: zh.tabs.workspace }).click()
+  await page.getByRole('button', {
+    name: zh.queue.manageAria.replace('{{title}}', 'Legacy adapter is still visible'),
+  }).click()
+  await page.getByLabel(zh.queue.status).click()
+  await page.getByRole('option', { name: zh.status.resolved }).click()
+  await page.getByLabel(zh.queue.resolutionNote).fill('Removed the unsupported adapter from the publish panel.')
+  await page.getByRole('button', { name: zh.actions.save }).click()
 
   await expect.poll(() => state.updated).toMatchObject({
     status: 'resolved',
     resolution_note: 'Removed the unsupported adapter from the publish panel.',
   })
-  await expect(page.getByText('已解决').first()).toBeVisible()
+  await expect(page.getByText(zh.status.resolved).first()).toBeVisible()
 })
 
 test('non-owner only sees submission and own tickets', async ({ page }) => {
@@ -209,8 +216,8 @@ test('non-owner only sees submission and own tickets', async ({ page }) => {
 
   await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByRole('tab', { name: '提交反馈' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '我的工单' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Workspace 队列' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: '统计' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: zh.tabs.submit })).toBeVisible()
+  await expect(page.getByRole('tab', { name: zh.tabs.mine })).toBeVisible()
+  await expect(page.getByRole('tab', { name: zh.tabs.workspace })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: zh.tabs.stats })).toHaveCount(0)
 })
