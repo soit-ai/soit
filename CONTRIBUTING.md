@@ -54,6 +54,38 @@ records out of this repository.
 When changing a documented command, path, or release template, update the
 corresponding tests under `server/tests/unit/` if they validate that artifact.
 
+## Commit Messages
+
+Commits and pull request titles must follow
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and are
+enforced in CI by `.github/workflows/commit-style.yml` via
+[commitlint](https://commitlint.js.org/) with the configuration in
+`commitlint.config.mjs`.
+
+Format: `type(scope): subject`, written in English, lowercase subject, no
+trailing period, header at most 100 characters.
+
+Allowed types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `style`,
+`build`, `perf`, `ci`, `security`, `hardening`, `revert`.
+
+Use `security` for changes that close a security gap and `hardening` for
+defense-in-depth improvements without a known vulnerability. Mark breaking
+changes with `!` after the type or scope (for example `feat(api)!: ...`) and
+describe the migration in the commit body.
+
+To check locally before pushing:
+
+```powershell
+npx --package @commitlint/cli --package @commitlint/config-conventional commitlint --from origin/main --verbose
+```
+
+## Changelog
+
+User-facing changes (features, fixes, security changes, deprecations) should
+add an entry to the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) in
+the same pull request. Internal refactors, test-only, and CI-only changes do
+not need an entry.
+
 ## Pull Requests
 
 Before opening a pull request:
