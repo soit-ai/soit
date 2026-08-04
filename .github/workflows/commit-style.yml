@@ -36,3 +36,24 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: printf '%s\n' "$PR_TITLE" | npx commitlint --verbose
+
+  dco:
+    name: dco
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Signed-off-by on pull request commits
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges \
+              ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::Commit $sha is missing a Signed-off-by line. Use 'git commit -s' (see CONTRIBUTING.md)."
+              missing=1
+            fi
+          done
+          exit $missing

@@ -79,6 +79,24 @@ To check locally before pushing:
 npx --package @commitlint/cli --package @commitlint/config-conventional commitlint --from origin/main --verbose
 ```
 
+## Developer Certificate of Origin
+
+Every commit must be signed off to certify that you have the right to submit
+the contribution under the project license, per the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/):
+
+```powershell
+git commit -s -m "feat(scope): subject"
+```
+
+This appends a `Signed-off-by: Your Name <your@email>` line to the commit
+message, which CI verifies on every pull request. To fix a branch that is
+missing sign-offs:
+
+```powershell
+git rebase --signoff origin/main
+```
+
 ## Changelog
 
 User-facing changes (features, fixes, security changes, deprecations) should

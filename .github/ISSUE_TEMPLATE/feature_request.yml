@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement or new capability for SOIT Community
+title: "feat: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the [roadmap](../../docs/roadmap.md) and search
+        existing issues and discussions for the same idea.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >-
+        What problem are you trying to solve? Describe the situation and why
+        current SOIT capabilities are not enough.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen? Sketch the behavior, API, or UI.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other designs you considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, prior art in other tools, or governance/compliance requirements.

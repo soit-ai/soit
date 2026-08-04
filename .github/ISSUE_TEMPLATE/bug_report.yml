@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a defect in SOIT Community
+title: "bug: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please do **not** report
+        security vulnerabilities here — follow [SECURITY.md](../../SECURITY.md)
+        instead.
+  - type: input
+    id: version
+    attributes:
+      label: SOIT version or commit
+      description: Release tag (e.g. v1.0.0) or the output of `git rev-parse HEAD`.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker quickstart (docker/docker-compose.yml)
+        - Local development (hot reload)
+        - Custom / other (describe below)
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Agent runtime
+        - Workflow engine
+        - Knowledge / retrieval
+        - ModelHub / providers
+        - Plugin / MCP / tools
+        - Chat
+        - Observe / runs / audit
+        - Billing / cost
+        - Identity / permissions / API keys
+        - Web UI
+        - Deployment / migrations
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal, ordered steps to reproduce the behavior.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs and screenshots
+      description: >-
+        Server logs, browser console output, or screenshots. Remove secrets,
+        API keys, tokens, and customer data before pasting.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, model providers in use, and anything non-default.
+      placeholder: |
+        OS: Ubuntu 24.04
+        Browser: Chrome 130
+        Providers: OpenAI, DeepSeek

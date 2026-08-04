@@ -1,5 +1,13 @@
 # SOIT
 
+<p>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
+  <a href="https://github.com/soit-ai/soit/actions/workflows/quality.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/quality.yml/badge.svg" alt="Quality gate" /></a>
+  <a href="https://github.com/soit-ai/soit/releases"><img src="https://img.shields.io/github/v/release/soit-ai/soit?include_prereleases&label=release" alt="Latest release" /></a>
+</p>
+
+[English](./README.md) · [更新日志](./CHANGELOG.md) · [贡献指南](./CONTRIBUTING.md)
+
 面向企业 AI 系统的可治理 Agent Runtime：把权限、密钥、外联控制、审计、成本、追踪和回放放在 Agent 运行时的核心位置。
 
 ## 项目概述

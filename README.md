@@ -8,9 +8,11 @@
   </p>
 
   <p>
-    <a href="./LICENSE">Apache-2.0</a> &nbsp;·&nbsp;
-    <a href="./CONTRIBUTING.md">Contributing</a> &nbsp;·&nbsp;
-    <a href="./.github/workflows/quality.yml">Quality gate</a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
+    <a href="https://github.com/soit-ai/soit/actions/workflows/quality.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/quality.yml/badge.svg" alt="Quality gate" /></a>
+    <a href="https://github.com/soit-ai/soit/actions/workflows/security.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/security.yml/badge.svg" alt="Security checks" /></a>
+    <a href="https://github.com/soit-ai/soit/releases"><img src="https://img.shields.io/github/v/release/soit-ai/soit?include_prereleases&label=release" alt="Latest release" /></a>
+    <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep%20a%20changelog-E05735.svg" alt="Changelog" /></a>
   </p>
 
   <p>
@@ -18,6 +20,8 @@
     <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
     <a href="./docs/quickstart.md">Documentation</a> &nbsp;·&nbsp;
     <a href="#roadmap">Roadmap</a> &nbsp;·&nbsp;
+    <a href="./CHANGELOG.md">Changelog</a> &nbsp;·&nbsp;
+    <a href="./CONTRIBUTING.md">Contributing</a> &nbsp;·&nbsp;
     <a href="./README-cn.md">中文</a>
   </p>
 </div>
