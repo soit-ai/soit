@@ -54,6 +54,21 @@ const translation = {
       actions: 'Actions',
       empty: 'No runs found',
       view: 'View',
+      observeSummary: 'Observe Summary',
+    },
+    quickFilters: {
+      mvp: 'MVP main path',
+      all: 'All runs',
+      failed: 'Failed runs',
+      tool: 'Has tool call',
+      citation: 'Has citation',
+      audit: 'Has audit',
+    },
+    observeSummary: {
+      steps: 'Steps {{value}}',
+      tools: 'Tools {{value}}',
+      citations: 'Citations {{value}}',
+      audits: 'Audits {{value}}',
     },
     actions: {
       refresh: 'Refresh',

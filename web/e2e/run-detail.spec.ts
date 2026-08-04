@@ -338,15 +338,15 @@ test('run detail displays normalized enterprise mvp evidence', async ({ page }) 
 test('run explorer quick filters and summary columns are visible', async ({ page }) => {
   await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
 
-  await expect(page.getByRole('button', { name: '有工具调用' })).toBeVisible({ timeout: 15000 })
-  await page.getByRole('button', { name: '有工具调用' }).click()
+  await expect(page.getByRole('button', { name: 'Has tool call' })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('button', { name: 'Has tool call' }).click()
   await expect(page).toHaveURL(/has_tool_call=true/)
-  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('步骤 6')
-  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('工具 1')
-  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('引用 2')
-  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('审计 1')
+  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('Steps 6')
+  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('Tools 1')
+  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('Citations 2')
+  await expect(page.getByRole('row').filter({ hasText: 'run-1' })).toContainText('Audits 1')
 
-  await page.getByRole('button', { name: '有 citation' }).click()
+  await page.getByRole('button', { name: 'Has citation' }).click()
   await expect(page).toHaveURL(/has_citation=true/)
 })
 

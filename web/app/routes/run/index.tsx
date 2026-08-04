@@ -6,6 +6,7 @@ import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useTranslation } from '@/i18n'
+import type { TFunction } from '@/i18n/types'
 import {
   listRuns,
   getRunCostSummary,
@@ -120,14 +121,14 @@ const formatTimestamp = (value?: string | null) => {
   return formatDateTime(isoToZonedDate(value))
 }
 
-const formatObserveSummary = (run: RunResponse) => {
+const formatObserveSummary = (t: TFunction, run: RunResponse) => {
   const summary = run.observe_summary
   if (!summary) return '-'
   return [
-    `步骤 ${summary.step_count}`,
-    `工具 ${summary.tool_call_count}`,
-    `引用 ${summary.citation_count}`,
-    `审计 ${summary.audit_count}`,
+    t('run.list.observeSummary.steps', { value: summary.step_count }),
+    t('run.list.observeSummary.tools', { value: summary.tool_call_count }),
+    t('run.list.observeSummary.citations', { value: summary.citation_count }),
+    t('run.list.observeSummary.audits', { value: summary.audit_count }),
   ].join(' · ')
 }
 
@@ -276,12 +277,12 @@ function Page() {
     <div className="flex flex-1 flex-col gap-4 p-4">
       <div className="rounded-lg border bg-card p-3">
         <div className="mb-3 flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('mvp')}>MVP 主链路</Button>
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('all')}>全部应用 Run</Button>
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('failed')}>失败 Run</Button>
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('tool')}>有工具调用</Button>
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('citation')}>有 citation</Button>
-          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('audit')}>有 audit</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('mvp')}>{t('run.list.quickFilters.mvp')}</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('all')}>{t('run.list.quickFilters.all')}</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('failed')}>{t('run.list.quickFilters.failed')}</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('tool')}>{t('run.list.quickFilters.tool')}</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('citation')}>{t('run.list.quickFilters.citation')}</Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickFilter('audit')}>{t('run.list.quickFilters.audit')}</Button>
         </div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-1 flex-wrap gap-3">
@@ -515,7 +516,7 @@ function Page() {
                   <TableHead>{t('run.list.table.status')}</TableHead>
                   <TableHead>{t('run.list.table.startedAt')}</TableHead>
                   <TableHead>{t('run.list.table.duration')}</TableHead>
-                  <TableHead>观测摘要</TableHead>
+                  <TableHead>{t('run.list.table.observeSummary')}</TableHead>
                   <TableHead>{t('run.list.table.input')}</TableHead>
                   <TableHead className="text-right">{t('run.list.table.actions')}</TableHead>
                 </TableRow>
@@ -530,7 +531,7 @@ function Page() {
                     <TableCell>{run.status}</TableCell>
                     <TableCell>{formatTimestamp(run.started_at)}</TableCell>
                     <TableCell>{run.duration_ms ? `${run.duration_ms} ms` : '-'}</TableCell>
-                    <TableCell className="min-w-[220px] text-xs text-muted-foreground">{formatObserveSummary(run)}</TableCell>
+                    <TableCell className="min-w-[220px] text-xs text-muted-foreground">{formatObserveSummary(t, run)}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{run.input_summary || '-'}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => navigate(`/observe/runs/${run.id}`)}>

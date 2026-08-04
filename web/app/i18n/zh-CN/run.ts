@@ -54,6 +54,21 @@ const translation = {
       actions: '操作',
       empty: '暂无运行记录',
       view: '查看',
+      observeSummary: '观测摘要',
+    },
+    quickFilters: {
+      mvp: 'MVP 主链路',
+      all: '全部应用 Run',
+      failed: '失败 Run',
+      tool: '有工具调用',
+      citation: '有 citation',
+      audit: '有 audit',
+    },
+    observeSummary: {
+      steps: '步骤 {{value}}',
+      tools: '工具 {{value}}',
+      citations: '引用 {{value}}',
+      audits: '审计 {{value}}',
     },
     actions: {
       refresh: '刷新',
