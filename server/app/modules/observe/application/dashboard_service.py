@@ -56,10 +56,10 @@ BUCKET_SECONDS = {
 }
 
 TAB_LABELS = {
-    "agent_health": "Agent 健康",
-    "workflow_bottlenecks": "工作流瓶颈",
-    "tool_reliability": "工具可靠性",
-    "knowledge_quality": "知识质量",
+    "agent_health": "Agent Health",
+    "workflow_bottlenecks": "Workflow Bottlenecks",
+    "tool_reliability": "Tool Reliability",
+    "knowledge_quality": "Knowledge Quality",
 }
 
 MAINLINE_RUN_MODES = {"agent", "workflow", "knowledge", "chat", "response"}
@@ -728,21 +728,21 @@ class ObserveDashboardService:
         )
 
         metric_cards = [
-            MetricCardResponse(id="run_count", label="运行次数", value=str(len(runs)), delta=str(len(runs) - previous_run_count), trend=[row["run_count"] for row in trend_rows], tone="blue", **self._metric_run_fields(latest_run, cost_by_run)),
-            MetricCardResponse(id="failed_run_count", label="失败运行", value=str(failed_run_count), delta=str(failed_run_count - previous_failed_run_count), trend=[row["failed_run_count"] for row in trend_rows], tone="red", **self._metric_run_fields(latest_failed_run, cost_by_run)),
-            MetricCardResponse(id="active_run_count", label="活跃运行", value=str(active_run_count), delta="0", trend=[active_run_count], tone="cyan", **self._metric_run_fields(latest_active_run, cost_by_run)),
-            MetricCardResponse(id="pending_approvals", label="待审批", value=str(approvals_summary.pending), delta="0", trend=[approvals_summary.pending], tone="amber"),
-            MetricCardResponse(id="total_cost_usd", label="成本 (USD)", value=f"{total_cost_usd:.2f}", delta=f"{total_cost_usd - previous_cost_usd:.2f}", trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green", **self._metric_run_fields(latest_run, cost_by_run)),
+            MetricCardResponse(id="run_count", label="Runs", value=str(len(runs)), delta=str(len(runs) - previous_run_count), trend=[row["run_count"] for row in trend_rows], tone="blue", **self._metric_run_fields(latest_run, cost_by_run)),
+            MetricCardResponse(id="failed_run_count", label="Failed Runs", value=str(failed_run_count), delta=str(failed_run_count - previous_failed_run_count), trend=[row["failed_run_count"] for row in trend_rows], tone="red", **self._metric_run_fields(latest_failed_run, cost_by_run)),
+            MetricCardResponse(id="active_run_count", label="Active Runs", value=str(active_run_count), delta="0", trend=[active_run_count], tone="cyan", **self._metric_run_fields(latest_active_run, cost_by_run)),
+            MetricCardResponse(id="pending_approvals", label="Pending Approvals", value=str(approvals_summary.pending), delta="0", trend=[approvals_summary.pending], tone="amber"),
+            MetricCardResponse(id="total_cost_usd", label="Cost (USD)", value=f"{total_cost_usd:.2f}", delta=f"{total_cost_usd - previous_cost_usd:.2f}", trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green", **self._metric_run_fields(latest_run, cost_by_run)),
         ]
 
         priority_alert = None
         if active_alert_count:
             priority_alert = PriorityAlertResponse(
-                title="Workflow 队列延迟上升" if workflow_bottlenecks else "运行异常需要关注",
+                title="Workflow queue latency is rising" if workflow_bottlenecks else "Run failures need attention",
                 started_at=to_iso8601(min((run.started_at for run in runs if run.status == "failed"), default=now)),
-                scope=f"{len(workflow_bottlenecks)} 个工作区",
+                scope=f"{len(workflow_bottlenecks)} workspaces",
                 affected_agents=len(agent_summaries),
-                duration_label=f"{max(1, int(range_delta.total_seconds() // 60))} 分钟",
+                duration_label=f"{max(1, int(range_delta.total_seconds() // 60))} min",
                 detail_url=f"/observe/runs/{latest_failed_run.id}" if latest_failed_run else "/observe/runs",
             )
 
@@ -833,8 +833,8 @@ class ObserveDashboardService:
                 "rows": paged_rows,
                 "page": page,
                 "empty_state": EmptyStateResponse(
-                    title=f"暂无{TAB_LABELS[active_tab]}数据",
-                    description="当前时间范围内没有对应应用观测数据。",
+                    title=f"No {TAB_LABELS[active_tab]} data",
+                    description="No observability data for the selected time range.",
                 ),
             }
         )
@@ -867,24 +867,24 @@ class ObserveDashboardService:
         if tab == "agent_health":
             healthy = sum(1 for row in agent_rows if row["status"] == "healthy")
             return [
-                MetricCardResponse(id="healthy_agents", label="健康 Agent", value=str(healthy), tone="green"),
-                MetricCardResponse(id="warning_agents", label="需关注 Agent", value=str(len(agent_rows) - healthy), tone="red"),
+                MetricCardResponse(id="healthy_agents", label="Healthy Agents", value=str(healthy), tone="green"),
+                MetricCardResponse(id="warning_agents", label="Agents Needing Attention", value=str(len(agent_rows) - healthy), tone="red"),
             ]
         if tab == "workflow_bottlenecks":
             return [
-                MetricCardResponse(id="bottlenecks", label="瓶颈数", value=str(len(workflow_rows)), tone="red"),
-                MetricCardResponse(id="queued", label="当前队列", value=str(sum(row["current_queue"] for row in workflow_rows)), tone="amber"),
+                MetricCardResponse(id="bottlenecks", label="Bottlenecks", value=str(len(workflow_rows)), tone="red"),
+                MetricCardResponse(id="queued", label="Current Queue", value=str(sum(row["current_queue"] for row in workflow_rows)), tone="amber"),
             ]
         if tab == "tool_reliability":
             avg_success = sum(row["success_rate"] for row in tool_rows) / len(tool_rows) if tool_rows else 0
             return [
-                MetricCardResponse(id="avg_success_rate", label="平均成功率", value=self._percent(avg_success), tone="green"),
-                MetricCardResponse(id="tool_count", label="工具数", value=str(len(tool_rows)), tone="blue"),
+                MetricCardResponse(id="avg_success_rate", label="Avg Success Rate", value=self._percent(avg_success), tone="green"),
+                MetricCardResponse(id="tool_count", label="Tools", value=str(len(tool_rows)), tone="blue"),
             ]
         avg_hit = sum(row["hit_rate"] for row in knowledge_rows) / len(knowledge_rows) if knowledge_rows else 0
         return [
-            MetricCardResponse(id="hit_rate", label="引用覆盖率", value=self._percent(avg_hit), tone="green"),
-            MetricCardResponse(id="knowledge_count", label="知识库", value=str(len(knowledge_rows)), tone="blue"),
+            MetricCardResponse(id="hit_rate", label="Citation Coverage", value=self._percent(avg_hit), tone="green"),
+            MetricCardResponse(id="knowledge_count", label="Knowledge Bases", value=str(len(knowledge_rows)), tone="blue"),
         ]
 
     def _section_charts(

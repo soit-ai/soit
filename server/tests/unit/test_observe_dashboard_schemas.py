@@ -19,7 +19,7 @@ def test_dashboard_section_rejects_charts_from_another_tab() -> None:
         },
         "rows": [],
         "page": {"page_size": 0, "next_page_token": None, "total_count": 0},
-        "empty_state": {"title": "暂无数据", "description": "暂无数据"},
+        "empty_state": {"title": "No data", "description": "No data"},
     }
 
     with pytest.raises(ValidationError):
