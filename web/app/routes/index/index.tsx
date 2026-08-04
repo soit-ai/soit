@@ -12,7 +12,7 @@ export function meta() {
     { title: 'SOIT Agent Workspace' },
     {
       name: 'description',
-      content: 'SOIT 工作区首页，集中查看 Agent、Knowledge、Workflow、Task 与 Runs 运行状态。',
+      content: 'SOIT workspace home: a single view of Agent, Knowledge, Workflow, Task, and Run status.',
     },
   ]
 }

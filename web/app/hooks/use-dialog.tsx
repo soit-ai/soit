@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { useTranslation } from '@/i18n'
 
 interface DialogOptions {
   title: string
@@ -20,12 +21,13 @@ interface DialogOptions {
 }
 
 export function useDialog() {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [options, setOptions] = useState<DialogOptions>({
     title: '',
     description: '',
-    confirmText: '确认',
-    cancelText: '取消'
+    confirmText: t('common.operation.confirm'),
+    cancelText: t('common.operation.cancel')
   })
 
   const DialogComponent = useCallback(() => {
@@ -65,22 +67,22 @@ export function useDialog() {
     setOptions({
       ...options,
       ...newOptions,
-      confirmText: newOptions.confirmText || '确认',
-      cancelText: newOptions.cancelText || '取消'
+      confirmText: newOptions.confirmText || t('common.operation.confirm'),
+      cancelText: newOptions.cancelText || t('common.operation.cancel')
     })
     setOpen(true)
     return DialogComponent
-  }, [options, DialogComponent])
+  }, [options, DialogComponent, t])
 
   const alert = useCallback((newOptions: Omit<DialogOptions, 'cancelText' | 'onCancel'>) => {
     setOptions({
       ...options,
       ...newOptions,
-      confirmText: newOptions.confirmText || '确认'
+      confirmText: newOptions.confirmText || t('common.operation.confirm')
     })
     setOpen(true)
     return DialogComponent
-  }, [options, DialogComponent])
+  }, [options, DialogComponent, t])
 
   return {
     confirm,

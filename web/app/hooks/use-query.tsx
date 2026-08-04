@@ -29,7 +29,7 @@ export function useQuery<TData = any, TError = any>({
   })
 } 
 
-// 再封装下useMutation
+// Thin wrapper around useMutation
 export function useMutation<TData = any, TError = any, TVariables = any>({
   mutationKey,
   mutationFn,

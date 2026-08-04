@@ -34,8 +34,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from '@/i18n';
 
-// 表单项类型定义
+// Form field type definition
 export type FormFieldType<T extends string = string> = 
   | 'text'
   | 'password'
@@ -47,13 +48,13 @@ export type FormFieldType<T extends string = string> =
   | 'custom'
   | T;
 
-// 选择项类型
+// Select option type
 export interface SelectOption {
   label: React.ReactNode;
   value: string;
 }
 
-// 表单项配置
+// Form field configuration
 export interface FormFieldConfig<T extends FieldValues = any> {
   name: Path<T>;
   label?: React.ReactNode;
@@ -69,7 +70,7 @@ export interface FormFieldConfig<T extends FieldValues = any> {
   render?: (field: any, error?: FieldErrors) => React.ReactNode;
 }
 
-// 表单配置
+// Form configuration
 export interface FormConfig<T extends FieldValues = any> {
   fields: FormFieldConfig<T>[];
   defaultValues?: DefaultValues<T>;
@@ -83,7 +84,7 @@ export interface FormConfig<T extends FieldValues = any> {
   fieldClassName?: string;
 }
 
-// 表单实例接口
+// Form instance interface
 export interface FormInstance<T extends FieldValues = any> {
   submit: () => Promise<T | undefined>;
   reset: (values?: DefaultValues<T>) => void;
@@ -99,13 +100,13 @@ export interface FormInstance<T extends FieldValues = any> {
   };
 }
 
-// 创建表单的返回值
+// Return value of createForm
 export interface CreateFormResult<T extends FieldValues = any> {
   FormComponent: React.FC;
   formInstance: FormInstance<T>;
 }
 
-// 表单上下文
+// Form context
 interface FormContextValue<T extends FieldValues = any> {
   config: FormConfig<T>;
   formInstance: FormInstance<T>;
@@ -113,7 +114,7 @@ interface FormContextValue<T extends FieldValues = any> {
 
 const FormContext = React.createContext<FormContextValue | null>(null);
 
-// 使用表单上下文的hook
+// Hook for consuming the form context
 export const useFormContext = <T extends FieldValues = any>() => {
   const context = React.useContext(FormContext) as FormContextValue<T> | null;
   if (!context) {
@@ -124,14 +125,14 @@ export const useFormContext = <T extends FieldValues = any>() => {
 
 
 
-// 渲染表单字段
+// Render a form field
 const renderFormField = <T extends FieldValues>(
   field: FormFieldConfig<T>,
   errors: FieldErrors<T>
 ) => {
   if (field.hidden) return null;
 
-  // 如果提供了自定义渲染函数，使用它
+  // Use the custom render function when one is provided.
   if (field.type === 'custom' && field.render) {
     return field.render(field, errors);
   }
@@ -145,11 +146,11 @@ const renderFormField = <T extends FieldValues>(
           {field.label && <FormLabel>{field.label}</FormLabel>}
           
           <FormControl>
-            {/* 使用组件注册机制渲染表单组件 */}
+            {/* Render the form component through the component registry */}
             {renderFormComponent(field.type, {
               ...formField,
             }) || (
-              // 默认渲染逻辑，作为后备
+              // Default rendering, used as a fallback
               <>
                 {field.type === 'text' && (
                   <Input
@@ -243,17 +244,17 @@ const renderFormField = <T extends FieldValues>(
   );
 };
 
-// 创建表单组件
+// Create the form component
 export const createForm = <T extends FieldValues>(
   config: FormConfig<T>
 ): CreateFormResult<T> => {
-  // 创建表单实例
+  // Create the form instance
   const methods = useReactHookForm<T>({
     defaultValues: config.defaultValues,
     resolver: config.schema ? zodResolver(config.schema) : undefined,
   });
 
-  // 创建表单实例接口
+  // Build the form instance interface
   const formInstance: FormInstance<T> = {
     submit: async () => {
       try {
@@ -277,8 +278,9 @@ export const createForm = <T extends FieldValues>(
     formState: methods.formState,
   };
 
-  // 表单组件
+  // Form component
   const FormComponent: React.FC = () => {
+    const { t } = useTranslation();
     const handleSubmit = methods.handleSubmit(config.onSubmit || (() => {}));
 
     return (
@@ -292,11 +294,11 @@ export const createForm = <T extends FieldValues>(
             <div className="flex justify-end space-x-2 mt-6">
               {config.onCancel && (
                 <Button type="button" variant="outline" onClick={config.onCancel}>
-                  {config.cancelText || '取消'}
+                  {config.cancelText || t('common.operation.cancel')}
                 </Button>
               )}
               <Button type="submit">
-                {config.submitText || '提交'}
+                {config.submitText || t('common.operation.submit')}
               </Button>
             </div>
           )}
@@ -308,14 +310,14 @@ export const createForm = <T extends FieldValues>(
   return { FormComponent, formInstance };
 };
 
-// 表单提供者组件
+// Form provider component
 export interface FormProviderProps {
   children: React.ReactNode;
 }
 
-// 表单提供者上下文
+// Form provider context
 export const HookFormProvider: React.FC<FormProviderProps> = ({ children }) => {
-  // 创建一个默认的表单上下文
+  // Build a default form context
   const defaultFormContext = React.useMemo<FormContextValue>(() => {
     const defaultConfig: FormConfig = {
       fields: [],
@@ -336,13 +338,13 @@ export const HookFormProvider: React.FC<FormProviderProps> = ({ children }) => {
   );
 };
 
-// 使用表单的hook
+// Hook for accessing the current form
 export const useHookForm = <T extends FieldValues>(): FormInstance<T> => {
   const { formInstance } = useFormContext<T>();
   return formInstance;
 };
 
-// 创建独立表单实例
+// Create a standalone form instance
 export const createHookForm = <T extends FieldValues>(): {
   create: (config: FormConfig<T>) => React.ReactNode;
 } => {
@@ -350,7 +352,7 @@ export const createHookForm = <T extends FieldValues>(): {
     create: (config: FormConfig<T>) => {
       const { FormComponent, formInstance } = createForm<T>(config);
       
-      // 创建一个包装组件，提供表单上下文
+      // Wrapper component that provides the form context
       const WrappedFormComponent: React.FC = () => {
         const formContext = React.useMemo<FormContextValue<T>>(() => {
           return {

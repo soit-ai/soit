@@ -8,27 +8,27 @@ export const i18n = {
 
 export type Locale = (typeof i18n)['locales'][number]
 
-// 获取当前语言设置
+// Read the current language setting
 export const getLocaleOnClient = (): Locale => {
   const savedLocale = localStorage.getItem('i18nextLng')
-  // 如果在localStorage中找到了语言设置并且是支持的语言，则使用它
+  // Use the stored language when it is present and supported.
   if (savedLocale && i18n.locales.includes(savedLocale as Locale)) {
     return savedLocale as Locale
   }
-  
-  // 尝试从locale键获取
+
+  // Fall back to the legacy `locale` key.
   const localeSetting = localStorage.getItem('locale')
   if (localeSetting && i18n.locales.includes(localeSetting as Locale)) {
-    // 同步到i18nextLng
+    // Mirror it back to i18nextLng.
     localStorage.setItem('i18nextLng', localeSetting)
     return localeSetting as Locale
   }
-  
-  // 如果都没有找到，返回默认语言
+
+  // Nothing stored: fall back to the default language.
   return i18n.defaultLocale
 }
 
-// 设置语言，不刷新页面
+// Change the language without reloading the page
 export const setLocaleOnClient = async (locale: Locale) => {
   if (!i18n.locales.includes(locale)) {
     console.warn(`Invalid locale: ${locale}, falling back to ${i18n.defaultLocale}`)
@@ -44,6 +44,6 @@ export const setLocaleOnClient = async (locale: Locale) => {
   }
 }
 
-// 导出类型安全的翻译函数
+// Re-export the type-safe translation helpers
 export const changeLanguage = _changeLanguage
 export const useTranslation = _useTranslation

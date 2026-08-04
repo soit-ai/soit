@@ -57,17 +57,17 @@ interface DrawerContentState {
 }
 
 export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handleOnly = true }) => {
-  // 使用数组存储多个drawer状态
+  // Track multiple drawers in an array
   const [drawers, setDrawers] = React.useState<DrawerContentState[]>([]);
   const [portalContainer, setPortalContainer] = React.useState<HTMLElement | null>(null);
 
   React.useEffect(() => {
-    // 创建一个新的div元素作为portal容器
+    // Create a new div to act as the portal container
     const div = document.createElement('div');
     document.body.appendChild(div);
     setPortalContainer(div);
 
-    // 组件卸载时移除portal容器
+    // Remove the portal container when the component unmounts
     return () => {
       document.body.removeChild(div);
     };
@@ -76,7 +76,7 @@ export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handle
   const handleOpenChange = React.useCallback(
     (value: boolean, drawerId: string) => {
       if (!value) {
-        // 关闭特定的drawer
+        // Close the requested drawer
         const drawerToClose = drawers.find(d => d.id === drawerId);
         if (drawerToClose?.options.onClose) {
           drawerToClose.options.onClose();
@@ -84,7 +84,7 @@ export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handle
         if (drawerToClose?.options.onOpenChange) {
           drawerToClose.options.onOpenChange(value);
         }
-        // 从数组中移除该drawer
+        // Drop the drawer from the array
         setDrawers(prev => prev.filter(d => d.id !== drawerId));
       }
     },
@@ -94,20 +94,20 @@ export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handle
   const api = React.useMemo<DrawerInstance>(
     () => ({
       open: (content, options = {}) => {
-        // 生成唯一ID
+        // Generate a unique id
         const id = `drawer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        // 添加新的drawer到数组
+        // Append the new drawer to the array
         setDrawers(prev => [...prev, { id, content, options }]);
       },
       close: () => {
-        // 关闭最后一个drawer
+        // Close the last drawer
         if (drawers.length > 0) {
           const lastDrawer = drawers[drawers.length - 1];
           handleOpenChange(false, lastDrawer.id);
         }
       },
       update: (content, options = {}) => {
-        // 更新最后一个drawer
+        // Update the last drawer
         if (drawers.length > 0) {
           setDrawers(prev => {
             const newDrawers = [...prev];
@@ -175,7 +175,7 @@ export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handle
   );
 };
 
-// 创建一个独立的drawer实例，不需要使用Provider
+// Create a standalone drawer instance that does not need the Provider
 export const createDrawer = (): DrawerInstance => {
   let drawerRoot: HTMLDivElement | null = null;
   let drawerInstance: DrawerInstance | null = null;
@@ -195,18 +195,18 @@ export const createDrawer = (): DrawerInstance => {
         if (options.onOpenChange) {
           options.onOpenChange(open);
         }
-        // 关闭后移除DOM节点
+        // Remove the DOM node once the drawer is closed
         setTimeout(() => {
           try {
             if (drawerRoot && document.body.contains(drawerRoot)) {
               document.body.removeChild(drawerRoot);
             }
           } catch (error) {
-            console.warn('移除抽屉DOM节点时出错:', error);
+            console.warn('Failed to remove the drawer DOM node:', error);
           } finally {
             drawerRoot = null;
           }
-        }, 300); // 等待动画完成
+        }, 300); // Wait for the close animation to finish
       }
     };
 
@@ -230,20 +230,20 @@ export const createDrawer = (): DrawerInstance => {
   };
 
   const render = (content: React.ReactNode, options?: DrawerOptions) => {
-    // 如果已存在，先移除旧的
+    // Remove the previous container first when one exists
     try {
       if (drawerRoot && document.body.contains(drawerRoot)) {
         document.body.removeChild(drawerRoot);
       }
     } catch (error) {
-      console.warn('移除旧抽屉DOM节点时出错:', error);
+      console.warn('Failed to remove the previous drawer DOM node:', error);
     }
 
-    // 创建新的容器
+    // Create the new container
     drawerRoot = document.createElement('div');
     document.body.appendChild(drawerRoot);
 
-    // 渲染抽屉到容器
+    // Render the drawer into the container
     const root = ReactDOM.createRoot(drawerRoot);
     root.render(<DrawerComponent content={content} options={options} />);
   };
