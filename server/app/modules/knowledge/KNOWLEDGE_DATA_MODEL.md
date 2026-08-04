@@ -1,260 +1,295 @@
-# Knowledge 数据模块（知识库内部存储模型，长期稳定版 v1）
+# Knowledge Data Module (internal storage model, long-term stable v1)
 
-> 本文档描述的是当前知识库能力背后的内部存储模型。
-> 对外产品语义、数据库表名与代码目录均已统一为 `knowledge`。
+> This document describes the internal storage model behind the current
+> knowledge-base capability. The external product language, database table
+> names, and code directories are all unified as `knowledge`.
 
-本文件定义 SOIT 知识库（Knowledge）相关的**长期稳定数据模型**，目标是：
+This file defines the **long-term stable data model** for SOIT knowledge
+bases. Its goals are:
 
-- 强制 `tenant_id + workspace_id` 双层隔离
-- 支持文档多来源（上传/爬虫/API）
-- 支持多版本文档与增量重建
-- 支持多索引（不同 embedding / 不同 provider / 不同检索策略）
-- 数据库只存 **摘要与元数据**；大文本/解析产物走对象存储；向量走向量库
-- 为审计/可观测/计费预留字段，尽量减少后续 schema 变更
+- Enforce two-level `tenant_id + workspace_id` isolation
+- Support multiple document sources (upload / crawler / API)
+- Support multi-version documents and incremental rebuilds
+- Support multiple indexes (different embeddings / providers / retrieval
+  strategies)
+- The database stores **summaries and metadata only**; large text and parsing
+  artifacts go to object storage; vectors go to the vector store
+- Reserve fields for audit / observability / billing to minimize future
+  schema changes
 
-> 表命名按要求使用：`knowledge`, `knowledge_documents`, `knowledge_chunks`, `knowledge_indexes`
+> Table names as required: `knowledge`, `knowledge_documents`,
+> `knowledge_chunks`, `knowledge_indexes`
 
 ---
 
-## 0. 统一约定
+## 0. Shared Conventions
 
-### 0.1 主键与时间字段
-- `id`: 推荐 ULID（字符串或 128bit），便于按时间排序
+### 0.1 Primary keys and timestamps
+- `id`: ULID recommended (string or 128-bit), sortable by time
 - `created_at`, `updated_at`: `timestamptz`
-- `deleted_at`: 软删除（可选，建议保留）
-- `created_by`, `updated_by`: `user_id`（可空，系统任务为空）
+- `deleted_at`: soft delete (optional, recommended)
+- `created_by`, `updated_by`: `user_id` (nullable; empty for system tasks)
 
-### 0.2 隔离字段（强制）
-- 除极少 tenant 级全局表外，业务表一律包含：
+### 0.2 Isolation fields (mandatory)
+- Except for a very small number of tenant-level global tables, every
+  business table includes:
   - `tenant_id` (NOT NULL)
   - `workspace_id` (NOT NULL)
 
-### 0.3 JSON 字段策略
-- `*_json` 仅存**可演进配置/元数据**，避免频繁加列
-- 关键查询字段必须独立成列（例如 status / type / version 等）
+### 0.3 JSON field policy
+- `*_json` fields hold **evolvable configuration/metadata only**, to avoid
+  frequent column additions
+- Fields used in critical queries must be dedicated columns (e.g. status /
+  type / version)
 
-### 0.4 状态机（推荐枚举）
-- Document pipeline：`uploaded -> parsed -> chunked -> indexed`（失败：`failed`）
-- Index pipeline：`draft -> building -> ready`（失败：`failed`，停用：`disabled`）
+### 0.4 State machines (recommended enums)
+- Document pipeline: `uploaded -> parsed -> chunked -> indexed`
+  (failure: `failed`)
+- Index pipeline: `draft -> building -> ready`
+  (failure: `failed`; deactivated: `disabled`)
 
 ---
 
-## 1. knowledge（知识库）
+## 1. knowledge (knowledge base)
 
-### 1.1 设计要点
-- 一个 workspace 内，knowledge 名称唯一
-- knowledge 维护默认的 chunk/retrieval 策略，但允许 index 覆盖
-- 支持“逻辑删除”、标签、描述、统计信息（便于展示/计费/配额）
+### 1.1 Design notes
+- Knowledge-base names are unique within a workspace
+- A knowledge base holds default chunk/retrieval strategies, which an index
+  may override
+- Supports logical deletion, tags, description, and statistics (for display /
+  billing / quota)
 
-### 1.2 字段（建议）
-- 基础
+### 1.2 Fields (recommended)
+- Base
   - `id` PK
   - `tenant_id`, `workspace_id` (NOT NULL)
   - `name` (NOT NULL)
-  - `type` (NOT NULL) 例：`document | qa | code | graph`
+  - `type` (NOT NULL), e.g. `document | qa | code | graph`
   - `description` (NULL)
-  - `status` (NOT NULL) 例：`active | archived | disabled`
-  - `visibility` (NOT NULL) 例：`private | workspace | tenant`
-- 配置（可演进）
-  - `settings_json`：知识库通用配置（解析器/语言/过滤规则等）
-  - `chunking_json`：默认分块策略（size/overlap/separators）
-  - `retrieval_json`：默认检索策略（top_k/rerank/filters）
-- 绑定与默认策略
-  - `default_embedding_model_ref`：如 `model:openai:text-embedding-3-large`
-  - `default_reranker_ref`（可空）
-  - `default_index_id`（可空，指向 knowledge_indexes.id）
-- 统计（冗余字段，便于列表展示）
+  - `status` (NOT NULL), e.g. `active | archived | disabled`
+  - `visibility` (NOT NULL), e.g. `private | workspace | tenant`
+- Configuration (evolvable)
+  - `settings_json`: general knowledge-base configuration (parser / language /
+    filter rules, etc.)
+  - `chunking_json`: default chunking strategy (size/overlap/separators)
+  - `retrieval_json`: default retrieval strategy (top_k/rerank/filters)
+- Bindings and defaults
+  - `default_embedding_model_ref`: e.g. `model:openai:text-embedding-3-large`
+  - `default_reranker_ref` (nullable)
+  - `default_index_id` (nullable, points to knowledge_indexes.id)
+- Statistics (denormalized for list views)
   - `doc_count` (NOT NULL default 0)
   - `chunk_count` (NOT NULL default 0)
   - `last_ingested_at` (NULL)
   - `last_indexed_at` (NULL)
-- 审计
-  - `tags`（text[] 或 json）
+- Audit
+  - `tags` (text[] or json)
   - `created_by`, `updated_by`, `created_at`, `updated_at`, `deleted_at`
 
-### 1.3 关键约束与索引
-- UNIQUE：`(tenant_id, workspace_id, name)`
-- INDEX：
+### 1.3 Key constraints and indexes
+- UNIQUE: `(tenant_id, workspace_id, name)`
+- INDEX:
   - `(tenant_id, workspace_id, status)`
   - `(tenant_id, workspace_id, updated_at DESC)`
 
 ---
 
-## 2. knowledge_documents（知识库文档）
+## 2. knowledge_documents
 
-### 2.1 设计要点
-- 一个 knowledge 内文档支持**多版本**（version）
-- 支持多来源：上传文件、爬虫 URL、API 推送、手工文本
-- 解析产物（原文提取、结构化信息）建议存对象存储，DB 存引用与摘要
-- 为后续权限与合规预留：`access_policy_json`
+### 2.1 Design notes
+- Documents within a knowledge base support **multiple versions** (`version`)
+- Multiple sources: file upload, crawled URL, API push, manual text
+- Parsing artifacts (extracted text, structured output) belong in object
+  storage; the database stores references and summaries
+- Reserved for future permissions and compliance: `access_policy_json`
 
-### 2.2 字段（建议）
-- 标识与隔离
+### 2.2 Fields (recommended)
+- Identity and isolation
   - `id` PK
   - `tenant_id`, `workspace_id` (NOT NULL)
   - `knowledge_id` (FK -> knowledge.id)
-  - `doc_key`：同一逻辑文档的稳定 key（例如基于 URL 或业务 id），用于多版本聚合（NOT NULL）
-  - `version`：从 1 递增（NOT NULL）
-  - `is_latest`：最新版本标记（NOT NULL default true）
-- 来源
-  - `source_kind`：`upload | crawler | api | manual` (NOT NULL)
-  - `source_uri`：URL/外部引用（可空）
-  - `external_id`：业务系统的 id（可空）
-  - `file_id`：上传文件 id（可空，指向 files 模块）
-- 文件/内容元信息
-  - `title`（可空）
-  - `language`（可空，ISO 639-1）
-  - `mime_type`（可空）
-  - `filename`（可空）
-  - `size_bytes`（可空）
-  - `checksum`（可空，sha256）
-  - `content_hash`（可空，原文 hash，便于去重）
-- 处理流水线状态
-  - `status`：`uploaded | parsing | parsed | chunking | chunked | indexing | indexed | failed | deleted`
-  - `error_code`（可空）
-  - `error_message`（可空，建议短文本）
-  - `retry_count`（NOT NULL default 0）
-- 解析/分块/索引元数据（引用对象存储）
-  - `raw_text_artifact_key`：抽取后的纯文本（可空）
-  - `parsed_artifact_key`：结构化解析结果（可空，如 markdown/json）
-  - `chunking_json`：本次版本采用的分块策略（可空，默认继承 knowledge.chunking_json）
-  - `parse_meta_json`：页数、表格数、图片数、耗时等
-  - `index_meta_json`：写入向量数、失败原因摘要等
-- 权限与合规
-  - `access_policy_json`：例如部门/角色可见、脱敏策略等（可空）
-- 审计
+  - `doc_key`: stable key for the same logical document (e.g. based on URL or
+    a business id), used to aggregate versions (NOT NULL)
+  - `version`: incrementing from 1 (NOT NULL)
+  - `is_latest`: latest-version marker (NOT NULL default true)
+- Source
+  - `source_kind`: `upload | crawler | api | manual` (NOT NULL)
+  - `source_uri`: URL / external reference (nullable)
+  - `external_id`: id in the source business system (nullable)
+  - `file_id`: uploaded file id (nullable, points to the files module)
+- File/content metadata
+  - `title` (nullable)
+  - `language` (nullable, ISO 639-1)
+  - `mime_type` (nullable)
+  - `filename` (nullable)
+  - `size_bytes` (nullable)
+  - `checksum` (nullable, sha256)
+  - `content_hash` (nullable, hash of the source text, for deduplication)
+- Pipeline status
+  - `status`: `uploaded | parsing | parsed | chunking | chunked | indexing |
+    indexed | failed | deleted`
+  - `error_code` (nullable)
+  - `error_message` (nullable, short text recommended)
+  - `retry_count` (NOT NULL default 0)
+- Parsing/chunking/indexing metadata (object-storage references)
+  - `raw_text_artifact_key`: extracted plain text (nullable)
+  - `parsed_artifact_key`: structured parsing output (nullable, e.g.
+    markdown/json)
+  - `chunking_json`: chunking strategy used by this version (nullable,
+    defaults to knowledge.chunking_json)
+  - `parse_meta_json`: page count, table count, image count, duration, etc.
+  - `index_meta_json`: vectors written, failure summary, etc.
+- Permissions and compliance
+  - `access_policy_json`: e.g. department/role visibility, redaction policy
+    (nullable)
+- Audit
   - `created_by`, `updated_by`, `created_at`, `updated_at`, `deleted_at`
 
-### 2.3 关键约束与索引
-- UNIQUE：
+### 2.3 Key constraints and indexes
+- UNIQUE:
   - `(tenant_id, workspace_id, knowledge_id, doc_key, version)`
-- 推荐索引：
+- Recommended indexes:
   - `(tenant_id, workspace_id, knowledge_id, is_latest)`
   - `(tenant_id, workspace_id, knowledge_id, status)`
   - `(tenant_id, workspace_id, knowledge_id, updated_at DESC)`
-  - `(tenant_id, workspace_id, knowledge_id, content_hash)`（可选，用于去重）
+  - `(tenant_id, workspace_id, knowledge_id, content_hash)` (optional, for
+    deduplication)
 
-> `is_latest` 建议通过事务保证：同一 `(knowledge_id, doc_key)` 只有一条 latest=true。
+> Guarantee `is_latest` transactionally: only one row with latest=true per
+> `(knowledge_id, doc_key)`.
 
 ---
 
-## 3. knowledge_chunks（文档分块）
+## 3. knowledge_chunks
 
-### 3.1 设计要点
-- chunk 不一定存全文：推荐存 `text_artifact_key` 指向对象存储，DB 存摘要与定位信息
-- 支持来源定位：页码/段落/代码块/标题层级
-- 支持与向量库映射：每个 chunk 对应一个 `vector_ref`（或 upsert 产生的主键）
+### 3.1 Design notes
+- A chunk does not necessarily store full text: prefer `text_artifact_key`
+  pointing to object storage, with the database holding a summary and
+  location info
+- Supports source location: page number / paragraph / code block / heading
+  hierarchy
+- Supports vector-store mapping: each chunk has a `vector_ref` (or the
+  primary key produced by upsert)
 
-### 3.2 字段（建议）
-- 标识与隔离
+### 3.2 Fields (recommended)
+- Identity and isolation
   - `id` PK
   - `tenant_id`, `workspace_id` (NOT NULL)
-  - `knowledge_id`（冗余，便于查询；与 document 约束一致）
+  - `knowledge_id` (denormalized for querying; consistent with the document
+    constraint)
   - `document_id` (FK -> knowledge_documents.id)
-  - `document_version`（冗余，便于追溯；NOT NULL）
-- 分块信息
-  - `chunk_no`：从 0 递增（NOT NULL）
-  - `chunk_key`：稳定标识（可空；如 `{doc_key}:{version}:{chunk_no}`）
-  - `content_hash`（可空）
-  - `text_preview`：短预览（可空，建议 <= 512）
-  - `text_artifact_key`：全文存储 key（可空）
-- 定位与结构
-  - `start_offset` / `end_offset`（可空，字符偏移）
-  - `page_no`（可空）
-  - `section_path`（可空，如 `["H1","H2"]`）
-  - `bbox_json`（可空，PDF 坐标）
-  - `source_meta_json`（可空：表格/代码/图片引用等）
-- 统计
-  - `char_count`（可空）
-  - `token_count`（可空）
-- 向量映射与索引状态
-  - `embedding_model_ref`（可空；默认继承 knowledge/default 或 index）
-  - `vector_ref`：向量库主键/引用（可空，写入后填充）
-  - `indexed_at`（可空）
-  - `index_status`：`pending | indexed | failed`（NOT NULL default pending）
-  - `index_error`（可空）
-- 审计
+  - `document_version` (denormalized for traceability; NOT NULL)
+- Chunk info
+  - `chunk_no`: incrementing from 0 (NOT NULL)
+  - `chunk_key`: stable identifier (nullable; e.g.
+    `{doc_key}:{version}:{chunk_no}`)
+  - `content_hash` (nullable)
+  - `text_preview`: short preview (nullable, <= 512 recommended)
+  - `text_artifact_key`: full-text storage key (nullable)
+- Location and structure
+  - `start_offset` / `end_offset` (nullable, character offsets)
+  - `page_no` (nullable)
+  - `section_path` (nullable, e.g. `["H1","H2"]`)
+  - `bbox_json` (nullable, PDF coordinates)
+  - `source_meta_json` (nullable: table/code/image references, etc.)
+- Statistics
+  - `char_count` (nullable)
+  - `token_count` (nullable)
+- Vector mapping and index status
+  - `embedding_model_ref` (nullable; defaults inherited from
+    knowledge/default or the index)
+  - `vector_ref`: vector-store primary key / reference (nullable, filled
+    after write)
+  - `indexed_at` (nullable)
+  - `index_status`: `pending | indexed | failed` (NOT NULL default pending)
+  - `index_error` (nullable)
+- Audit
   - `created_at`, `updated_at`
 
-### 3.3 关键约束与索引
-- UNIQUE：
+### 3.3 Key constraints and indexes
+- UNIQUE:
   - `(tenant_id, workspace_id, document_id, chunk_no, document_version)`
-- 索引：
+- Indexes:
   - `(tenant_id, workspace_id, knowledge_id, document_id)`
   - `(tenant_id, workspace_id, knowledge_id, index_status)`
   - `(tenant_id, workspace_id, knowledge_id, updated_at DESC)`
 
 ---
 
-## 4. knowledge_indexes（索引配置与映射）
+## 4. knowledge_indexes (index configuration and mapping)
 
-### 4.1 设计要点
-- 一个 knowledge 可以有多个 index（不同 embedding / 不同 provider / 不同检索配置）
-- index 需要记录：向量维度、距离度量、collection/partition 策略、构建版本、统计信息
-- 支持灰度：`is_primary` + `status`
+### 4.1 Design notes
+- A knowledge base can have multiple indexes (different embeddings /
+  providers / retrieval configurations)
+- An index records: vector dimension, distance metric, collection/partition
+  strategy, build version, statistics
+- Supports gradual rollout: `is_primary` + `status`
 
-### 4.2 字段（建议）
-- 标识与隔离
+### 4.2 Fields (recommended)
+- Identity and isolation
   - `id` PK
   - `tenant_id`, `workspace_id` (NOT NULL)
   - `knowledge_id` (FK -> knowledge.id)
-  - `name`（NOT NULL）
-  - `is_primary`（NOT NULL default false）
-- Provider/存储映射
-  - `provider`：`milvus | pgvector | elastic | other` (NOT NULL)
-  - `endpoint_ref`（可空，引用 gateway 配置）
-  - `collection_name`（可空）
-  - `partition_strategy`（可空：`tenant|workspace|knowledge|none`）
-  - `namespace`（可空：用于逻辑隔离）
-- Embedding/检索配置
-  - `embedding_model_ref`（NOT NULL）
-  - `dimension`（NOT NULL）
-  - `metric_type`（NOT NULL：`cosine | ip | l2`）
-  - `index_params_json`（可空：建索引参数）
-  - `search_params_json`（可空：检索参数，如 ef/top_k）
-  - `reranker_ref`（可空）
-  - `filters_json`（可空：默认过滤策略）
-- 构建与统计
-  - `status`：`draft | building | ready | failed | disabled` (NOT NULL)
-  - `build_version`（NOT NULL default 1，重建递增）
-  - `last_build_at`（可空）
-  - `doc_count`（NOT NULL default 0）
-  - `chunk_count`（NOT NULL default 0）
-  - `vector_count`（NOT NULL default 0）
-  - `last_error_code`（可空）
-  - `last_error_message`（可空）
-- 审计
+  - `name` (NOT NULL)
+  - `is_primary` (NOT NULL default false)
+- Provider/storage mapping
+  - `provider`: `milvus | pgvector | elastic | other` (NOT NULL)
+  - `endpoint_ref` (nullable, references gateway configuration)
+  - `collection_name` (nullable)
+  - `partition_strategy` (nullable: `tenant|workspace|knowledge|none`)
+  - `namespace` (nullable: logical isolation)
+- Embedding/retrieval configuration
+  - `embedding_model_ref` (NOT NULL)
+  - `dimension` (NOT NULL)
+  - `metric_type` (NOT NULL: `cosine | ip | l2`)
+  - `index_params_json` (nullable: index-build parameters)
+  - `search_params_json` (nullable: search parameters, e.g. ef/top_k)
+  - `reranker_ref` (nullable)
+  - `filters_json` (nullable: default filter policy)
+- Build and statistics
+  - `status`: `draft | building | ready | failed | disabled` (NOT NULL)
+  - `build_version` (NOT NULL default 1, incremented on rebuild)
+  - `last_build_at` (nullable)
+  - `doc_count` (NOT NULL default 0)
+  - `chunk_count` (NOT NULL default 0)
+  - `vector_count` (NOT NULL default 0)
+  - `last_error_code` (nullable)
+  - `last_error_message` (nullable)
+- Audit
   - `created_by`, `updated_by`, `created_at`, `updated_at`, `deleted_at`
 
-### 4.3 关键约束与索引
-- UNIQUE：
+### 4.3 Key constraints and indexes
+- UNIQUE:
   - `(tenant_id, workspace_id, knowledge_id, name)`
-- 索引：
+- Indexes:
   - `(tenant_id, workspace_id, knowledge_id, status)`
   - `(tenant_id, workspace_id, knowledge_id, is_primary)`
   - `(tenant_id, workspace_id, updated_at DESC)`
 
-> `is_primary` 建议通过事务保证同一 knowledge 只有一个 primary=true。
+> Guarantee `is_primary` transactionally: only one primary=true per
+> knowledge base.
 
 ---
 
-## 5. 推荐的对象存储 Key 规范（可选但强烈建议）
-- 原始文件：`tenants/{tenant}/workspaces/{ws}/knowledge/{ds}/raw/{file_id}`
-- 解析文本：`.../docs/{doc_id}/v{version}/raw_text.txt`
-- 解析结构：`.../docs/{doc_id}/v{version}/parsed.json`
-- chunk 全文：`.../chunks/{chunk_id}.txt`
-- 运行日志（如果关联 run）：`.../runs/{run_id}/...`
+## 5. Recommended Object-Storage Key Layout (optional but strongly advised)
+- Raw file: `tenants/{tenant}/workspaces/{ws}/knowledge/{ds}/raw/{file_id}`
+- Extracted text: `.../docs/{doc_id}/v{version}/raw_text.txt`
+- Parsed structure: `.../docs/{doc_id}/v{version}/parsed.json`
+- Chunk full text: `.../chunks/{chunk_id}.txt`
+- Run logs (when tied to a run): `.../runs/{run_id}/...`
 
 ---
 
-## 6. 与向量库映射建议（Milvus 参考）
-- collection 维度建议：`tenant` 或 `workspace`（取决于规模）
-- 过滤维度建议：`workspace_id + knowledge_id + document_id + chunk_id`
-- chunk 表保留 `vector_ref`，支持回收/重建
+## 6. Vector-Store Mapping Recommendations (Milvus reference)
+- Collection granularity: `tenant` or `workspace` (depending on scale)
+- Filter dimensions: `workspace_id + knowledge_id + document_id + chunk_id`
+- The chunk table keeps `vector_ref` to support reclamation/rebuild
 
 ---
 
-## 7. 迁移建议
-- 先落表结构与索引
-- 再实现 pipeline：document.status 与 chunk.index_status 的状态流转
-- 再实现 index 构建：knowledge_indexes.build_version 递增 + 统计回写
+## 7. Migration Guidance
+- Land the table structures and indexes first
+- Then implement the pipeline: state transitions for document.status and
+  chunk.index_status
+- Then implement index builds: increment knowledge_indexes.build_version and
+  write statistics back

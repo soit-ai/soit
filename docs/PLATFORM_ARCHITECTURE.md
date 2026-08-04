@@ -1,30 +1,33 @@
-# SOIT 平台架构图
+# SOIT Platform Architecture
 
-本文档汇总 SOIT 当前平台架构。图中边界来自根目录 `README.md`、`server/docs/architecture/PROJECT_STRUCTURE.md`、`web/docs/PROJECT_STRUCTURE.md` 以及当前源码目录。
+This document summarizes the current SOIT platform architecture. The
+boundaries in the diagrams come from the root `README.md`,
+`server/docs/architecture/PROJECT_STRUCTURE.md`,
+`web/docs/PROJECT_STRUCTURE.md`, and the current source tree.
 
-## 平台总览
+## Platform Overview
 
 ```mermaid
 flowchart TB
-  Users["用户 / 管理员 / 开发者"]
+  Users["Users / Admins / Developers"]
 
-  subgraph Web["web/ 前端应用"]
-    WebRoutes["路由工作台<br/>agents · chat · workflow · knowledge · tasks · observe"]
-    WebUI["共享 UI 与业务组件<br/>components · hooks · stores · i18n"]
-    WebServices["API 客户端<br/>services · request · config"]
+  subgraph Web["web/ frontend application"]
+    WebRoutes["route workbenches<br/>agents · chat · workflow · knowledge · tasks · observe"]
+    WebUI["shared UI and business components<br/>components · hooks · stores · i18n"]
+    WebServices["API clients<br/>services · request · config"]
     WebRoutes --> WebUI
     WebRoutes --> WebServices
   end
 
-  subgraph Server["server/app 后端平台"]
-    Main["main.py<br/>FastAPI 入口与路由注册"]
+  subgraph Server["server/app backend platform"]
+    Main["main.py<br/>FastAPI entry and router registration"]
     Middleware["middleware<br/>request_id · error · envelope"]
 
-    subgraph API["api/v1 传输层"]
+    subgraph API["api/v1 transport layer"]
       APIRoutes["REST · WebSocket · SSE<br/>agents · threads · tasks · knowledge · workflows · runs · plugins · responses"]
     end
 
-    subgraph Modules["modules 业务域"]
+    subgraph Modules["modules business domains"]
       Agent["agent"]
       Workflow["workflow"]
       Knowledge["knowledge"]
@@ -35,7 +38,7 @@ flowchart TB
       Notification["notification"]
     end
 
-    subgraph Kernel["kernel 稳定核心"]
+    subgraph Kernel["kernel stable core"]
       Contracts["contracts · specs"]
       Runtime["runtime · execution · responses"]
       Registry["registry · projections"]
@@ -45,7 +48,7 @@ flowchart TB
       Ports["ports<br/>llm · tools · vector · storage · secrets"]
     end
 
-    subgraph Adapters["adapters 端口实现"]
+    subgraph Adapters["adapters port implementations"]
       LLM["llm"]
       Tools["tools"]
       Vector["vector"]
@@ -54,7 +57,7 @@ flowchart TB
       PluginAdapters["plugins"]
     end
 
-    subgraph Infra["infra 基础设施"]
+    subgraph Infra["infra infrastructure"]
       DBSession["db session"]
     end
 
@@ -68,20 +71,20 @@ flowchart TB
     Adapters --> Infra
   end
 
-  subgraph DataInfra["数据与运行基础设施"]
-    PostgreSQL["PostgreSQL<br/>业务数据 · 运行账本 · outbox"]
-    Redis["Redis<br/>缓存 · 队列"]
-    Milvus["Milvus<br/>向量检索"]
-    MinIO["MinIO<br/>对象存储"]
-    Vault["Vault<br/>密钥管理"]
-    Celery["Celery / workers<br/>异步任务 · 事件分发"]
+  subgraph DataInfra["data and runtime infrastructure"]
+    PostgreSQL["PostgreSQL<br/>business data · run ledger · outbox"]
+    Redis["Redis<br/>cache · queues"]
+    Milvus["Milvus<br/>vector retrieval"]
+    MinIO["MinIO<br/>object storage"]
+    Vault["Vault<br/>secret management"]
+    Celery["Celery / workers<br/>async tasks · event dispatch"]
   end
 
-  subgraph External["外部能力"]
-    ModelProviders["模型供应商<br/>OpenAI · Anthropic · DeepSeek · Qwen · compatible APIs"]
+  subgraph External["external capabilities"]
+    ModelProviders["model providers<br/>OpenAI · Anthropic · DeepSeek · Qwen · compatible APIs"]
     MCP["MCP servers"]
-    PluginSources["插件 / 内置工具"]
-    ThirdParty["受控外部 HTTP / 企业系统"]
+    PluginSources["plugins / built-in tools"]
+    ThirdParty["governed external HTTP / enterprise systems"]
   end
 
   Users --> Web
@@ -99,13 +102,13 @@ flowchart TB
   PluginAdapters --> PluginSources
 ```
 
-## 核心执行链路
+## Core Execution Path
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant User as 用户
-  participant Web as web 工作台
+  participant User as User
+  participant Web as web workspace
   participant API as api/v1
   participant Module as domain module
   participant Kernel as kernel runtime
@@ -113,42 +116,59 @@ sequenceDiagram
   participant Outbox as outbox / events
   participant Worker as Celery worker
   participant Adapter as governed adapter
-  participant External as 外部模型/工具/存储
+  participant External as external model/tool/storage
 
-  User->>Web: 发起聊天、任务、工作流或知识操作
+  User->>Web: start a chat, task, workflow, or knowledge operation
   Web->>API: REST / WebSocket / SSE
-  API->>Module: 编排请求并调用业务服务
-  Module->>Kernel: 使用 specs、registry、runtime、security、ports
-  Kernel->>DB: 写入 Run / Task / RunStep / Trace / 状态变更
-  Kernel->>Outbox: 记录待分发事件
-  Outbox->>Worker: 可靠分发异步事件
-  Worker->>Adapter: 通过端口实现执行副作用
-  Adapter->>External: 调用模型、工具、向量库、对象存储或密钥服务
-  Adapter-->>Kernel: 返回结果、成本、延迟、错误信息
-  Kernel->>DB: 更新账本、trace、观测数据
-  API-->>Web: 返回同步结果或流式事件
-  Web-->>User: 展示运行状态、审批、反馈和详情
+  API->>Module: orchestrate the request and call business services
+  Module->>Kernel: use specs, registry, runtime, security, ports
+  Kernel->>DB: write Run / Task / RunStep / Trace / state transitions
+  Kernel->>Outbox: record events pending dispatch
+  Outbox->>Worker: reliably dispatch async events
+  Worker->>Adapter: execute side effects through port implementations
+  Adapter->>External: call models, tools, vector store, object storage, or secret service
+  Adapter-->>Kernel: return results, cost, latency, error details
+  Kernel->>DB: update ledger, trace, observability data
+  API-->>Web: return synchronous results or streamed events
+  Web-->>User: show run status, approvals, feedback, and detail
 ```
 
-## 架构边界
+## Architecture Boundaries
 
-- `web/` 负责用户工作台、路由、状态和 API 客户端，不承载后端业务规则。
-- `api/` 只做 HTTP、WebSocket、SSE 传输和请求编排，保持薄层。
-- `modules/` 承载 agent、workflow、knowledge、plugin、observe 等业务域逻辑。
-- `kernel/` 是稳定核心，定义 contracts、specs、runtime、registry、security、events 和 ports；`kernel/` 不依赖 `modules/`。执行态与持久化态集中在 `kernel/runtime/`，其中 run trace 属于 `runtime/runs/`。
-- `adapters/` 实现 kernel ports，连接模型、工具、向量库、对象存储和密钥系统，不放业务逻辑。
-- `infra/` 提供数据库会话和 OpenTelemetry SDK/OTLP 配置等基础设施能力。
-- 外部调用必须经由受治理的 adapters/gateways，业务代码不直接调用模型 SDK、HTTP 客户端或外部服务。
+- `web/` owns the user workspace, routes, state, and API clients; it carries
+  no backend business rules.
+- `api/` only handles HTTP, WebSocket, and SSE transport plus request
+  orchestration, and stays thin.
+- `modules/` carries the business domain logic for agent, workflow,
+  knowledge, plugin, observe, and related domains.
+- `kernel/` is the stable core defining contracts, specs, runtime, registry,
+  security, events, and ports; `kernel/` does not depend on `modules/`.
+  Execution and persistence state are concentrated in `kernel/runtime/`,
+  where run traces belong to `runtime/runs/`.
+- `adapters/` implements kernel ports and connects models, tools, the vector
+  store, object storage, and secret systems; it contains no business logic.
+- `infra/` provides infrastructure capabilities such as database sessions and
+  the OpenTelemetry SDK/OTLP configuration.
+- External calls must go through governed adapters/gateways; business code
+  never calls model SDKs, HTTP clients, or external services directly.
 
-## 设计原则映射
+## Design Principle Mapping
 
-- Spec-first: Agent、Workflow、Tool、Knowledge、Plugin 等平台原语由版本化 specs/contracts 约束。
-- Scope-by-default: API、业务域和数据层围绕 tenant/workspace 作用域组织。
-- Trace everything: 执行统一落到 Run、Task、RunStep、Cost 和 observe 数据，并通过 W3C Trace Context 将 API、Outbox、Knowledge Worker、数据库、HTTP、LLM 与 Tool span 串联；`run_id`、`step_id`、`trace_id` 是产品审计与技术链路的关联键。
-- Gateway-only: LLM、tool、vector、storage、secrets 通过 ports/adapters 接入。
-- Immutable versions: agent、workflow、skill、plugin 等版本追加写入，release 指针表达当前发布状态。
+- Spec-first: platform primitives such as Agent, Workflow, Tool, Knowledge,
+  and Plugin are constrained by versioned specs/contracts.
+- Scope-by-default: the API, business domains, and data layer are organized
+  around tenant/workspace scope.
+- Trace everything: execution lands uniformly in Run, Task, RunStep, Cost,
+  and observe data, and W3C Trace Context links API, Outbox, Knowledge
+  Worker, database, HTTP, LLM, and Tool spans; `run_id`, `step_id`, and
+  `trace_id` are the correlation keys between product audit and the technical
+  call chain.
+- Gateway-only: LLM, tool, vector, storage, and secrets access goes through
+  ports/adapters.
+- Immutable versions: agent, workflow, skill, and plugin versions are
+  append-only, and release pointers express the currently published state.
 
-## 部署拓扑图
+## Deployment Topology
 
 ```mermaid
 flowchart TB
@@ -186,7 +206,7 @@ flowchart TB
   Worker --> Enterprise
 ```
 
-## 前端信息架构图
+## Frontend Information Architecture
 
 ```mermaid
 flowchart TB
@@ -223,7 +243,7 @@ flowchart TB
   Services -->|"REST / WS / SSE"| Backend["api/v1"]
 ```
 
-## 后端边界图
+## Backend Boundary Diagram
 
 ```mermaid
 flowchart LR
@@ -248,7 +268,7 @@ flowchart LR
   Adapters --> External
 ```
 
-## 运行时事件图
+## Runtime Event Diagram
 
 ```mermaid
 flowchart TB
@@ -281,7 +301,7 @@ flowchart TB
   Result --> Ledger
 ```
 
-## 能力与版本治理图
+## Capability and Version Governance
 
 ```mermaid
 flowchart TB

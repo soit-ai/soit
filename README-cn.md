@@ -142,7 +142,6 @@ soit/
 - [后端架构文档](server/docs/architecture/PROJECT_STRUCTURE.md)
 - [前端结构文档](web/docs/PROJECT_STRUCTURE.md)
 - [AGENTS规范文档](AGENTS.md)
-- [开发规范文档](dev.md)
 - [工程指南](server/docs/engineering/ENGINEERING_GUIDE.md)
 - [架构文档](server/docs/architecture/)
 
@@ -194,7 +193,6 @@ docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milv
 发布与运维参考：
 
 - [Community 发布流程](docs/release-process.md)
-- [公开前审查清单](docs/publication-review.md)
 - [备份恢复与回滚手册](docs/operations/backup-restore.md)
 - [安全政策](SECURITY.md)
 

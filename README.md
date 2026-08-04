@@ -239,7 +239,6 @@ See the full [roadmap](./docs/roadmap.md) and [contributing guide](./CONTRIBUTIN
 Operational and release references:
 
 - [Community release process](./docs/release-process.md)
-- [Community publication review](./docs/publication-review.md)
 - [Backup and restore runbook](./docs/operations/backup-restore.md)
 - [Security policy](./SECURITY.md)
 
