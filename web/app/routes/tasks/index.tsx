@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
+import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { getTaskWorkbench, getTaskWorkbenchItems, type TaskWorkbenchRow } from '@/services/task-service'
 
@@ -24,8 +25,9 @@ import {
   metricIconForTab,
   sceneForType,
   sparkline,
-  statusLabels,
+  statusLabel,
   statusVariant,
+  taskTabLabel,
   taskTabs,
   type TaskTab,
 } from './task-display'
@@ -33,7 +35,8 @@ import {
 const priorityTabs: TaskTab[] = ['waiting_approval', 'failed', 'waiting_input', 'long_running']
 
 function TaskNameCell({ row }: { row: TaskWorkbenchRow }) {
-  const scene = sceneForType(row.task_type)
+  const { t } = useTranslation()
+  const scene = sceneForType(t, row.task_type)
   const Icon = scene.icon
 
   return (
@@ -50,15 +53,18 @@ function TaskNameCell({ row }: { row: TaskWorkbenchRow }) {
 }
 
 function SceneBadge({ row }: { row: TaskWorkbenchRow }) {
-  const scene = sceneForType(row.task_type)
+  const { t } = useTranslation()
+  const scene = sceneForType(t, row.task_type)
   return <Badge variant="outline">{scene.label}</Badge>
 }
 
 function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={statusVariant(status) as any}>{statusLabels[status] || status}</Badge>
+  const { t } = useTranslation()
+  return <Badge variant={statusVariant(status) as any}>{statusLabel(t, status)}</Badge>
 }
 
 function TaskCenterPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<TaskTab>('all')
   const [status, setStatus] = useState('all')
@@ -117,27 +123,27 @@ function TaskCenterPage() {
   const metrics = useMemo(() => {
     const summary = workbench?.summary
     return [
-      { id: 'all', label: '全部任务', value: (summary?.total_tasks ?? 0).toLocaleString(), icon: metricIconForTab('all'), tone: 'blue' as const },
-      { id: 'waiting_approval', label: '待审批', value: String(summary?.waiting_approval ?? 0), icon: metricIconForTab('waiting_approval'), tone: 'amber' as const },
-      { id: 'failed', label: '失败', value: String(summary?.failed ?? 0), icon: metricIconForTab('failed'), tone: 'red' as const },
-      { id: 'waiting_input', label: '等待输入', value: String(summary?.waiting_input ?? 0), icon: metricIconForTab('waiting_input'), tone: 'cyan' as const },
-      { id: 'running', label: '运行中', value: String(summary?.running ?? 0), icon: metricIconForTab('running'), tone: 'green' as const },
+      { id: 'all', label: t('task.sidebar.stats.total'), value: (summary?.total_tasks ?? 0).toLocaleString(), icon: metricIconForTab('all'), tone: 'blue' as const },
+      { id: 'waiting_approval', label: t('task.tabs.waiting_approval'), value: String(summary?.waiting_approval ?? 0), icon: metricIconForTab('waiting_approval'), tone: 'amber' as const },
+      { id: 'failed', label: t('task.tabs.failed'), value: String(summary?.failed ?? 0), icon: metricIconForTab('failed'), tone: 'red' as const },
+      { id: 'waiting_input', label: t('task.tabs.waiting_input'), value: String(summary?.waiting_input ?? 0), icon: metricIconForTab('waiting_input'), tone: 'cyan' as const },
+      { id: 'running', label: t('task.tabs.running'), value: String(summary?.running ?? 0), icon: metricIconForTab('running'), tone: 'green' as const },
     ].map((item) => ({ ...item, trend: sparkline }))
-  }, [workbench?.summary])
+  }, [workbench?.summary, t])
 
   const tabs = useMemo(
     () =>
-      taskTabs.map((tab) => ({
+      taskTabs(t).map((tab) => ({
         id: tab.id,
         label: tab.label,
         count: workbench?.tabs?.[tab.id] ?? 0,
       })),
-    [workbench?.tabs],
+    [workbench?.tabs, t],
   )
 
   const rows = tableData?.items || []
   const priorityCards = priorityTabs.map((tab) => {
-    const label = taskTabs.find((item) => item.id === tab)?.label || tab
+    const label = taskTabLabel(t, tab)
     const items = (workbench?.items || []).filter((item) => {
       if (tab === 'long_running') return false
       return item.status === tab
@@ -179,15 +185,15 @@ function TaskCenterPage() {
 
   const columns = useMemo<BoxDataTableColumn<TaskWorkbenchRow>[]>(
     () => [
-      { id: 'name', header: '任务名称', render: (row) => <TaskNameCell row={row} /> },
-      { id: 'scene', header: '场景', render: (row) => <SceneBadge row={row} /> },
-      { id: 'status', header: '状态', render: (row) => <StatusBadge status={row.status} /> },
-      { id: 'type', header: '类型', render: (row) => <span className="font-mono text-xs">{row.task_type}</span> },
-      { id: 'owner', header: '负责人', render: (row) => row.owner || '-' },
-      { id: 'updated', header: '更新时间', render: (row) => formatTaskTime(row.updated_at) },
+      { id: 'name', header: t('task.columns.name'), render: (row) => <TaskNameCell row={row} /> },
+      { id: 'scene', header: t('task.columns.scene'), render: (row) => <SceneBadge row={row} /> },
+      { id: 'status', header: t('task.columns.status'), render: (row) => <StatusBadge status={row.status} /> },
+      { id: 'type', header: t('task.columns.type'), render: (row) => <span className="font-mono text-xs">{row.task_type}</span> },
+      { id: 'owner', header: t('task.columns.owner'), render: (row) => row.owner || '-' },
+      { id: 'updated', header: t('task.columns.updated'), render: (row) => formatTaskTime(row.updated_at) },
       {
         id: 'actions',
-        header: '操作',
+        header: t('task.columns.actions'),
         render: (row) => (
           <div className="flex items-center gap-2">
             <Button variant="outline" size="icon-xs" onClick={() => navigate(`/tasks/${row.id}`)}>
@@ -200,29 +206,29 @@ function TaskCenterPage() {
         ),
       },
     ],
-    [navigate],
+    [navigate, t],
   )
 
   return (
     <BoxShell>
       <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
-        <BoxPageHeader title="任务运行中心" description="优先处理审批、失败与等待输入的运行任务" />
+        <BoxPageHeader title={t('task.center.title')} description={t('task.center.description')} />
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center 2xl:justify-end">
           <div className="relative min-w-[260px] sm:w-[320px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称、ID、负责人..." className="h-10 pl-9" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('task.center.searchPlaceholder')} className="h-10 pl-9" />
           </div>
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger className="h-10 w-[150px] bg-panel">
-              <SelectValue placeholder="全部状态" />
+              <SelectValue placeholder={t('task.center.statusPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部状态</SelectItem>
-              <SelectItem value="running">运行中</SelectItem>
-              <SelectItem value="waiting_approval">待审批</SelectItem>
-              <SelectItem value="waiting_input">等待输入</SelectItem>
-              <SelectItem value="failed">失败</SelectItem>
-              <SelectItem value="succeeded">成功</SelectItem>
+              <SelectItem value="all">{t('task.center.statusOptions.all')}</SelectItem>
+              <SelectItem value="running">{t('task.center.statusOptions.running')}</SelectItem>
+              <SelectItem value="waiting_approval">{t('task.center.statusOptions.waiting_approval')}</SelectItem>
+              <SelectItem value="waiting_input">{t('task.center.statusOptions.waiting_input')}</SelectItem>
+              <SelectItem value="failed">{t('task.center.statusOptions.failed')}</SelectItem>
+              <SelectItem value="succeeded">{t('task.center.statusOptions.succeeded')}</SelectItem>
             </SelectContent>
           </Select>
           <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="h-10 w-[150px]" />
@@ -236,22 +242,22 @@ function TaskCenterPage() {
       {isWorkbenchError || isTableError ? (
         <BoxAlert
           severity="warning"
-          title="任务数据加载失败"
+          title={t('task.center.errorTitle')}
           description={tableError instanceof Error ? tableError.message : workbenchError instanceof Error ? workbenchError.message : undefined}
-          action={<Button variant="outline" size="sm" onClick={() => { void refetchWorkbench(); void refetchTable() }}>重试</Button>}
+          action={<Button variant="outline" size="sm" onClick={() => { void refetchWorkbench(); void refetchTable() }}>{t('task.center.retry')}</Button>}
         />
       ) : null}
 
-      <MetricStrip items={metrics} deltaLabel="较昨日" />
+      <MetricStrip items={metrics} deltaLabel={t('task.center.deltaLabel')} />
 
       <section>
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">优先处理</h2>
-            <p className="text-sm text-muted-foreground">需要重点关注的运行任务</p>
+            <h2 className="text-base font-semibold text-foreground">{t('task.center.priorityTitle')}</h2>
+            <p className="text-sm text-muted-foreground">{t('task.center.priorityDescription')}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/tasks/processing')}>
-            查看全部
+            {t('task.center.viewAll')}
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
@@ -266,7 +272,7 @@ function TaskCenterPage() {
                     <span className="font-semibold">{card.label}</span>
                     <span className="text-lg font-semibold text-foreground">{card.count}</span>
                   </div>
-                  <Button variant="outline" size="sm" className="h-8" onClick={() => navigate(`/tasks/processing?tab=${card.tab}`)}>处理</Button>
+                  <Button variant="outline" size="sm" className="h-8" onClick={() => navigate(`/tasks/processing?tab=${card.tab}`)}>{t('task.center.handle')}</Button>
                 </div>
                 <div className="space-y-2 p-3">
                   {card.items.slice(0, 2).map((item) => (
@@ -278,7 +284,7 @@ function TaskCenterPage() {
                       </div>
                     </button>
                   ))}
-                  {card.items.length === 0 ? <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">暂无任务</div> : null}
+                  {card.items.length === 0 ? <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">{t('task.center.emptyTasks')}</div> : null}
                 </div>
               </div>
             )
@@ -289,13 +295,13 @@ function TaskCenterPage() {
       <section className="space-y-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">运行任务账本</h2>
-            <p className="text-sm text-muted-foreground">完整运行任务记录与处理入口</p>
+            <h2 className="text-base font-semibold text-foreground">{t('task.center.ledgerTitle')}</h2>
+            <p className="text-sm text-muted-foreground">{t('task.center.ledgerDescription')}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="h-10">
               <SlidersHorizontal className="h-4 w-4" />
-              筛选
+              {t('task.center.filter')}
             </Button>
           </div>
         </div>
@@ -316,7 +322,7 @@ function TaskCenterPage() {
           ))}
         </div>
 
-        <BoxDataTable columns={columns} rows={rows} emptyMessage={isTableLoading ? '正在加载任务...' : '暂无任务'} />
+        <BoxDataTable columns={columns} rows={rows} emptyMessage={isTableLoading ? t('task.center.loading') : t('task.center.emptyTasks')} />
         <BoxPagination
           total={tableData?.total ?? 0}
           pageSize={tableData?.page_size || 10}
@@ -327,7 +333,12 @@ function TaskCenterPage() {
           onPrevious={goToPreviousPage}
           onNext={goToNextPage}
           onPageChange={goToPage}
-          labels={{ totalSuffix: '条', pageSizeSuffix: '条/页', goTo: '前往', page: '页' }}
+          labels={{
+            totalSuffix: t('task.pagination.totalSuffix'),
+            pageSizeSuffix: t('task.pagination.pageSizeSuffix'),
+            goTo: t('task.pagination.goTo'),
+            page: t('task.pagination.page'),
+          }}
         />
       </section>
     </BoxShell>

@@ -17,25 +17,38 @@ import {
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useQuery } from '@/hooks/use-query'
+import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { getTaskWorkbench } from '@/services/task-service'
 
-const primaryItems = [
-  { id: 'center', label: '任务中心', url: '/tasks', icon: Home, disabled: false },
-  { id: 'processing', label: '任务处理', url: '/tasks/processing', icon: Wrench, disabled: false },
-]
+import { formatTaskTime } from '../task-display'
 
-const managementItems = [
-  { id: 'library', label: '任务库', url: '/tasks?view=library', icon: ClipboardList, disabled: true },
-  { id: 'history', label: '运行记录', url: '/tasks?view=history', icon: Activity, disabled: true },
-  { id: 'exceptions', label: '异常处理', url: '/tasks?view=exceptions', icon: AlertTriangle, disabled: true },
-]
+type SidebarItem = {
+  id: string
+  label: string
+  url: string
+  icon: typeof Home
+  disabled: boolean
+}
 
 export function TaskSidebar({
   activeTab = 'center',
   ...props
 }: { activeTab?: string } & React.ComponentProps<typeof Sidebar>) {
+  const { t } = useTranslation()
   const { setOpen } = useSidebar()
+
+  const primaryItems: SidebarItem[] = [
+    { id: 'center', label: t('task.sidebar.center'), url: '/tasks', icon: Home, disabled: false },
+    { id: 'processing', label: t('task.sidebar.processing'), url: '/tasks/processing', icon: Wrench, disabled: false },
+  ]
+
+  const managementItems: SidebarItem[] = [
+    { id: 'library', label: t('task.sidebar.library'), url: '/tasks?view=library', icon: ClipboardList, disabled: true },
+    { id: 'history', label: t('task.sidebar.history'), url: '/tasks?view=history', icon: Activity, disabled: true },
+    { id: 'exceptions', label: t('task.sidebar.exceptions'), url: '/tasks?view=exceptions', icon: AlertTriangle, disabled: true },
+  ]
+
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['tasks', 'workbench', 'sidebar'],
     queryFn: () => getTaskWorkbench({ page_size: 1 }),
@@ -49,7 +62,7 @@ export function TaskSidebar({
   const attention = (summary?.failed || 0) + (summary?.waiting_input || 0) + (summary?.waiting_approval || 0)
   const attentionRate = total ? Math.min((attention / total) * 100, 100) : 0
 
-  const renderItem = (item: (typeof primaryItems)[number] | (typeof managementItems)[number]) => {
+  const renderItem = (item: SidebarItem) => {
     const Icon = item.icon
     const isActive = activeTab === item.id
 
@@ -94,7 +107,7 @@ export function TaskSidebar({
           <div className="text-lg font-semibold text-foreground">Task</div>
           <SidebarTrigger className="-mr-1" />
         </div>
-        <SidebarInput placeholder="搜索任务..." className="mx-2 w-auto" />
+        <SidebarInput placeholder={t('task.sidebar.searchPlaceholder')} className="mx-2 w-auto" />
       </SidebarHeader>
 
       <SidebarContent>
@@ -107,7 +120,7 @@ export function TaskSidebar({
             </div>
 
             <div className="px-2 py-2">
-              <h2 className="mb-2 px-2 text-sm font-semibold tracking-tight text-muted-foreground">管理</h2>
+              <h2 className="mb-2 px-2 text-sm font-semibold tracking-tight text-muted-foreground">{t('task.sidebar.management')}</h2>
               <div className="space-y-1">{managementItems.map(renderItem)}</div>
             </div>
           </div>
@@ -121,7 +134,7 @@ export function TaskSidebar({
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <ClipboardList className="mr-2 h-5 w-5 text-primary" />
-                  <h3 className="font-semibold">任务统计</h3>
+                  <h3 className="font-semibold">{t('task.sidebar.stats.title')}</h3>
                 </div>
                 <Button
                   variant="ghost"
@@ -136,33 +149,33 @@ export function TaskSidebar({
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex flex-col">
-                  <span className="text-xs text-muted-foreground">全部任务</span>
+                  <span className="text-xs text-muted-foreground">{t('task.sidebar.stats.total')}</span>
                   <span className="font-semibold">{total.toLocaleString()}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-muted-foreground">运行中</span>
+                  <span className="text-xs text-muted-foreground">{t('task.sidebar.stats.running')}</span>
                   <span className="font-semibold">{summary?.running ?? 0}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-muted-foreground">需处理</span>
+                  <span className="text-xs text-muted-foreground">{t('task.sidebar.stats.attention')}</span>
                   <span className="font-semibold">{attention}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-muted-foreground">今日新增</span>
+                  <span className="text-xs text-muted-foreground">{t('task.sidebar.stats.todayCreated')}</span>
                   <span className="font-semibold">{summary?.today_created ?? 0}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">处理压力</span>
+                  <span className="text-muted-foreground">{t('task.sidebar.stats.pressure')}</span>
                   <span>{attention}</span>
                 </div>
                 <Progress value={attentionRate} className="h-1.5 bg-orange-100 dark:bg-orange-400/10" />
               </div>
 
               <div className="text-xs text-muted-foreground">
-                更新时间：{summary?.updated_at ? new Date(summary.updated_at).toLocaleString('zh-CN', { hour12: false }) : '-'}
+                {t('task.sidebar.stats.updatedAt', { time: formatTaskTime(summary?.updated_at) })}
               </div>
             </div>
           </div>

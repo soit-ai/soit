@@ -11,7 +11,7 @@ const taskRows = [
     id: 'task_failed_contract',
     tenant_id: 'tenant-1',
     workspace_id: 'workspace-1',
-    display_name: '合同审批流程 - 合同评审',
+    display_name: 'Contract approval flow - contract review',
     task_type: 'wf_step',
     status: 'failed',
     agent_id: 'agt_contract',
@@ -29,7 +29,7 @@ const taskRows = [
     id: 'task_running_contract',
     tenant_id: 'tenant-1',
     workspace_id: 'workspace-1',
-    display_name: '客户画像智能问答更新',
+    display_name: 'Customer profile Q&A refresh',
     task_type: 'agent.execute',
     status: 'running',
     agent_id: 'agt_customer',
@@ -81,7 +81,7 @@ const taskHandling = {
     updated_by: 'Bob',
   },
   summary: {
-    title: '合同审批流程 - 合同评审',
+    title: 'Contract approval flow - contract review',
     status: 'failed',
     task_type: 'wf_step',
     error_code: 'TASK_FAILED',
@@ -113,7 +113,7 @@ const taskHandling = {
       task_id: 'task_failed_contract',
       checkpoint_no: 1,
       status: 'failed',
-      payload_json: { node: '合同评审' },
+      payload_json: { node: 'contract-review' },
       created_at: '2026-06-01T20:27:55.000Z',
     },
   ],
@@ -189,28 +189,28 @@ test('task center renders workbench data and opens processing page from sidebar'
   await mockTaskApi(page)
 
   await page.goto('/tasks', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: '任务运行中心' })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('button', { name: '全部 249' })).toBeVisible()
-  await expect(page.getByRole('table').getByText('合同审批流程 - 合同评审')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Task Run Center' })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'All 249' })).toBeVisible()
+  await expect(page.getByRole('table').getByText('Contract approval flow - contract review')).toBeVisible()
 
-  await page.getByRole('link', { name: '任务处理' }).click()
+  await page.getByRole('link', { name: 'Task Processing' }).click()
   await expect(page).toHaveURL(/\/tasks\/processing/)
-  await expect(page.getByRole('heading', { name: '任务处理' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Task Processing' })).toBeVisible()
 })
 
 test('task processing opens handling sheet from row click and retries selected task', async ({ page }) => {
   const api = await mockTaskApi(page)
 
   await page.goto('/tasks/processing', { waitUntil: 'domcontentloaded' })
-  await page.getByText('合同审批流程 - 合同评审').click()
+  await page.getByText('Contract approval flow - contract review').click()
 
   await expect(page).toHaveURL(/taskId=task_failed_contract/)
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByRole('heading', { name: '处理面板' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Handling Panel' })).toBeVisible()
   await expect(page.getByText('contract_id is empty')).toBeVisible()
   await expect(page.getByText('task.failed')).toBeVisible()
 
-  await page.getByRole('button', { name: '重试' }).click()
+  await page.getByRole('button', { name: 'Retry' }).click()
   await expect.poll(api.retryCalls).toBe(1)
 })
 
@@ -220,5 +220,5 @@ test('task processing opens handling sheet from taskId query', async ({ page }) 
   await page.goto('/tasks/processing?taskId=task_failed_contract', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('dialog').getByText('合同审批流程 - 合同评审').first()).toBeVisible()
+  await expect(page.getByRole('dialog').getByText('Contract approval flow - contract review').first()).toBeVisible()
 })
