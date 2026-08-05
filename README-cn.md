@@ -171,6 +171,15 @@ npm run dev
 docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
+**使用发布镜像部署**（免本地构建，镜像含 SBOM 与 Sigstore 溯源，见 [Releases](https://github.com/soit-ai/soit/releases)）：
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml pull
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+```
+
+用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.0.0`）。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
+
 启动后默认行为：
 - 自动执行数据库迁移（alembic upgrade head）。
 - 自动初始化默认管理员/租户（可通过环境变量覆盖）。

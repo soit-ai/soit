@@ -1,0 +1,32 @@
+# Overlay that runs the quickstart topology from released images instead of
+# building locally. Usage from the repository root:
+#
+#   docker compose --env-file .env \
+#     -f docker/docker-compose.yml -f docker/docker-compose.images.yml pull
+#   docker compose --env-file .env \
+#     -f docker/docker-compose.yml -f docker/docker-compose.images.yml \
+#     up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+#
+# Pin a release with SOIT_IMAGE_TAG (defaults to v1.0.0). The released web
+# image is built with the default API base URL http://localhost:9200/api/v1;
+# to serve the web UI against non-default host ports, build the web image
+# from source with VITE_BASE_URL instead.
+
+services:
+  migrate:
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.0.0}
+
+  bootstrap:
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.0.0}
+
+  api:
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.0.0}
+
+  outbox-dispatcher:
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.0.0}
+
+  knowledge-ingest-worker:
+    image: ghcr.io/soit-ai/soit/knowledge-worker:${SOIT_IMAGE_TAG:-v1.0.0}
+
+  web:
+    image: ghcr.io/soit-ai/soit/web:${SOIT_IMAGE_TAG:-v1.0.0}

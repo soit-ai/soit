@@ -129,6 +129,22 @@ What you get on first launch:
 - Database migrations applied automatically
 - An empty Community workspace where Agents, Workflows, and Knowledge bases can be created through the UI without demo seed data
 
+### Deploy from released images
+
+Instead of building locally, run the same topology from the signed release
+images on GHCR (see [Releases](https://github.com/soit-ai/soit/releases) for
+digests and attestations):
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml pull
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+```
+
+Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.0.0`). Images can be
+verified with `gh attestation verify`. The released `web` image serves the
+API at the default `http://localhost:9200/api/v1`; if you override the API
+host port, build the web image from source with `VITE_BASE_URL` instead.
+
 For a local development setup with hot reload (Python and Node), see [docs/development.md](./docs/development.md).
 
 For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [docs/quickstart.md](./docs/quickstart.md).
