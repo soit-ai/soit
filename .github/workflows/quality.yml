@@ -50,8 +50,8 @@ jobs:
 
       - name: Validate fresh-install and N-1 migration paths
         run: |
-          test "$(find alembic/versions -maxdepth 1 -name '*.py' | wc -l)" -eq 2
-          test "$(uv run alembic heads)" = "20260723160000 (head)"
+          test "$(find alembic/versions -maxdepth 1 -name '*.py' | wc -l)" -eq 13
+          test "$(uv run alembic heads)" = "20260803090000 (head)"
           uv run pytest tests/unit/test_fresh_install_migration.py tests/unit/test_n1_migration_fixture.py tests/unit/test_scoped_secret_migration.py -q
 
       - name: Apply migrations
@@ -196,6 +196,21 @@ jobs:
       - name: Build backend image
         run: docker build --tag soit-api:ci ./server
 
+      - name: Start object storage
+        run: >-
+          docker run --detach --name soit-minio-ci --network host
+          -e MINIO_ROOT_USER=cistorage
+          -e MINIO_ROOT_PASSWORD=cistorage-secret-1
+          minio/minio:RELEASE.2024-05-28T17-19-04Z server /data
+
+      - name: Create storage bucket
+        run: >-
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c
+          "for i in $(seq 1 15); do
+          mc alias set ci http://127.0.0.1:9000 cistorage cistorage-secret-1 && break || sleep 2;
+          done &&
+          mc mb --ignore-existing ci/soit-artifacts"
+
       - name: Apply migrations from image
         run: >-
           docker run --rm --network host
@@ -214,6 +229,9 @@ jobs:
           -e REDIS_URL=redis://127.0.0.1:6379/0
           -e EVENT_BUS_BACKEND=redis
           -e EVENT_BUS_REDIS_URL=redis://127.0.0.1:6379/0
+          -e STORAGE_URL=s3://soit-artifacts
+          -e 'STORAGE_OPTIONS_JSON={"endpoint_url":"http://127.0.0.1:9000","key":"cistorage","secret":"cistorage-secret-1"}'
+          -e STORAGE_AUTO_MKDIR=true
           soit-api:ci
 
       - name: Verify backend readiness
@@ -276,6 +294,7 @@ jobs:
           docker rm --force soit-knowledge-ci || true
           docker rm --force soit-outbox-ci || true
           docker rm --force soit-api-ci || true
+          docker rm --force soit-minio-ci || true
 
   frontend-p0:
     name: frontend-p0
