@@ -1,0 +1,14 @@
+# Gitleaks configuration for SOIT.
+# Extends the default ruleset; allowlists documentation placeholders used in
+# API examples and embed snippets.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation and example placeholders"
+regexes = [
+  '''YOUR_API_KEY''',
+  '''YOUR_API_TOKEN''',
+  '''YOUR_EMBED_TOKEN''',
+]
