@@ -92,9 +92,10 @@
     "vite": "8.0.16"
   },
   "overrides": {
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "vite": "8.0.16"
+    "@assistant-ui/core": "0.2.20",
+    "@assistant-ui/store": "0.2.19",
+    "assistant-stream": "0.3.25",
+    "assistant-cloud": "0.1.34"
   },
   "resolutions": {
     "react": "19.2.7",
