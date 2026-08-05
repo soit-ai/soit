@@ -12,7 +12,12 @@ record for operators.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The web container image moved from Node 20 to the Node 24 LTS line.
+- Python runtime dependencies refreshed across the lockfile (42 packages,
+  minor/patch), verified by the full backend suite, pip-audit, ruff, and
+  pyright.
 
 ## [1.0.0] - 2026-08-05
 
