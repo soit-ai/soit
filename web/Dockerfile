@@ -19,4 +19,5 @@ RUN npm ci --omit=dev
 COPY scripts/serve-client.mjs ./scripts/serve-client.mjs
 COPY --from=build /app/build ./build
 EXPOSE 5000
+USER node
 CMD ["npm", "run", "start"]
