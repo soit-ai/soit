@@ -8,7 +8,7 @@
   </p>
 
   <p>
-    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-SOIT%20Open%20Source%20License-blue.svg" alt="License: SOIT Open Source License (modified Apache-2.0)" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
     <a href="https://github.com/soit-ai/soit/actions/workflows/quality.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/quality.yml/badge.svg" alt="Quality gate" /></a>
     <a href="https://github.com/soit-ai/soit/actions/workflows/security.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/security.yml/badge.svg" alt="Security checks" /></a>
     <a href="https://github.com/soit-ai/soit/releases"><img src="https://img.shields.io/github/v/release/soit-ai/soit?include_prereleases&label=release" alt="Latest release" /></a>
@@ -258,12 +258,34 @@ Use the [contributing guide](./CONTRIBUTING.md) for local setup, quality checks,
 
 ## License
 
-SOIT is released under the [SOIT Open Source License](./LICENSE), a modified
-version of the Apache License 2.0. In short: free commercial use and
-self-hosting, with two additional conditions — operating a multi-tenant
-service requires a commercial license, and the LOGO and copyright notice in
-the frontend may not be removed or modified. See [LICENSE](./LICENSE) for the
-exact terms.
+SOIT is released under the [Apache License 2.0](./LICENSE), with the
+following additional conditions:
+
+1. SOIT may be used commercially, including as a backend service for other
+   applications or as an application development platform for enterprises.
+   Should the conditions below be met, a commercial license must be obtained
+   from SOIT LLC:
+
+   a. **Multi-tenant service**: Unless explicitly authorized by SOIT LLC in
+      writing, you may not use the SOIT source code to operate a multi-tenant
+      service. Within the context of SOIT, one tenant corresponds to one
+      tenant account — the top-level isolation boundary that provides a
+      separated area for one organization's workspaces, data, and
+      configurations.
+
+   b. **LOGO and copyright information**: In the process of using SOIT's
+      frontend, you may not remove or modify the LOGO or copyright
+      information in the SOIT console or applications. This restriction does
+      not apply to uses of SOIT that do not involve its frontend. The
+      "frontend" includes all components located in the `web/` directory when
+      running SOIT from source, or the `web` image when running SOIT with
+      Docker.
+
+2. As a contributor, you agree that your contributed code may be used
+   commercially by SOIT LLC, including but not limited to its cloud business
+   operations, and that SOIT LLC may adjust these terms as deemed necessary.
+
+For commercial licensing inquiries, contact **info@soit.ai**.
 
 The core platform is and will remain open source. Some advanced enterprise features — SSO, advanced audit reports, SLA monitoring, multi-region deployment — are available in SOIT Enterprise.
 

@@ -1,7 +1,7 @@
 # SOIT
 
 <p>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-SOIT%20Open%20Source%20License-blue.svg" alt="License: SOIT Open Source License (modified Apache-2.0)" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
   <a href="https://github.com/soit-ai/soit/actions/workflows/quality.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/quality.yml/badge.svg" alt="Quality gate" /></a>
   <a href="https://github.com/soit-ai/soit/releases"><img src="https://img.shields.io/github/v/release/soit-ai/soit?include_prereleases&label=release" alt="Latest release" /></a>
 </p>
@@ -204,4 +204,14 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis
 
 ## 许可证
 
-SOIT 采用 [SOIT Open Source License](LICENSE)（基于 Apache License 2.0 的修改版）发布。简述：允许免费商用与自托管，附加两项条件——运营多租户服务需要商业授权；不得移除或修改前端中的 LOGO 与版权信息。准确条款以 [LICENSE](LICENSE) 为准。
+SOIT 采用 [Apache License 2.0](LICENSE) 发布，并附加以下使用条件：
+
+1. SOIT 可用于商业用途，包括作为其他应用的后端服务或企业的应用开发平台。满足以下条件时，须向 SOIT LLC 获取商业授权：
+
+   a. **多租户服务**：未经 SOIT LLC 书面明确授权，不得使用 SOIT 源代码运营多租户服务。在 SOIT 语境中，一个租户对应一个 tenant 账户——即为一个组织的工作区、数据和配置提供隔离区域的顶层隔离边界。
+
+   b. **LOGO 与版权信息**：在使用 SOIT 前端的过程中，不得移除或修改 SOIT 控制台或应用中的 LOGO 与版权信息。此限制不适用于不涉及前端的 SOIT 使用场景。"前端"指从源码运行时 `web/` 目录下的全部组件，或以 Docker 运行时的 `web` 镜像。
+
+2. 作为贡献者，你同意贡献的代码可被 SOIT LLC 用于商业用途（包括但不限于其云业务运营），且 SOIT LLC 可在必要时调整上述条款。
+
+商业授权咨询请联系 **info@soit.ai**。

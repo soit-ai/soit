@@ -81,11 +81,11 @@ npx --package @commitlint/cli --package @commitlint/config-conventional commitli
 
 ## License of Contributions
 
-SOIT is released under the [SOIT Open Source License](LICENSE), a modified
-Apache License 2.0. By contributing you agree to the contributor conditions in
-that license: the producer may adjust the open-source agreement as deemed
-necessary, and contributed code may be used commercially, including in cloud
-business operations.
+SOIT is released under the [Apache License 2.0](LICENSE) with additional
+usage conditions stated in the [README](README.md#license). By contributing
+you agree that your contributed code may be used commercially by SOIT LLC,
+including in its cloud business operations, and that SOIT LLC may adjust the
+project's licensing terms as deemed necessary.
 
 ## Developer Certificate of Origin
 
