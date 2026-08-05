@@ -132,6 +132,14 @@ date, and a fresh `[Unreleased]` section is started.
 
 ### Fixed
 
+- Every published host port in the quickstart Docker topology is now
+  overridable through `*_PUBLISHED_PORT` variables, and the documented
+  quickstart command passes `--env-file .env` so those overrides actually
+  reach compose interpolation; previously redis, milvus, vault, api, and web
+  ports were hardcoded and collided with existing local services.
+- The web lockfile is regenerated with cross-platform optional dependencies,
+  fixing the Docker web image build (`npm ci`) from a lockfile produced on
+  Windows.
 - Milvus connections are established lazily and mocked cleanly in tests;
   dashboard aggregation tolerates NULL cost amounts.
 - Workflow builder exposes only supported nodes and serializes canonical
