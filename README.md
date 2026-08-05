@@ -117,7 +117,7 @@ The fastest way to try SOIT locally:
 git clone https://github.com/soit-ai/soit.git
 cd soit
 cp .env.example .env
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 Then open `http://localhost:5000` and sign in with the bootstrap admin credentials from your `.env` file.
@@ -138,12 +138,12 @@ For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [d
 From the repository root, start the full local demo stack:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
 Then open `http://localhost:5000` and sign in with `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults: `admin@example.com` / `changeme123`). The API is available at `http://localhost:9200/api/v1`.
 
-If a local service already owns one of the default host ports, override only the host binding, for example `MINIO_HOST_PORT=19000 API_HOST_PORT=19200 WEB_HOST_PORT=15000`.
+If a local service already owns one of the default host ports, override only the host binding through the `*_PUBLISHED_PORT` variables in `.env`, for example `MINIO_API_PUBLISHED_PORT=19000 API_PUBLISHED_PORT=19200 WEB_PUBLISHED_PORT=15000`. Every published port is overridable: `DATABASE_PUBLISHED_PORT`, `REDIS_PUBLISHED_PORT`, `MINIO_API_PUBLISHED_PORT`, `MINIO_CONSOLE_PUBLISHED_PORT`, `ETCD_PUBLISHED_PORT`, `MILVUS_PUBLISHED_PORT`, `MILVUS_METRICS_PUBLISHED_PORT`, `VAULT_PUBLISHED_PORT`, `API_PUBLISHED_PORT`, and `WEB_PUBLISHED_PORT`.
 
 For the backend smoke path:
 
