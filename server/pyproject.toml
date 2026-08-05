@@ -76,7 +76,7 @@ local-embedding = [
     "sentence-transformers>=4.1.0",
     "langchain-huggingface>=0.0.6",
     "transformers>=4.52.3",
-    "huggingface-hub>=0.32.2",
+    "huggingface-hub>=0.36.2",
     "torchvision==0.21.0",
     "torchaudio==2.6.0",
     "torch==2.6.0",
