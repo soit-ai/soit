@@ -23,7 +23,7 @@ jobs:
       version: ${{ steps.identity.outputs.version }}
     steps:
       - name: Checkout exact tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -89,7 +89,7 @@ jobs:
             target: runtime
     steps:
       - name: Checkout exact tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -202,7 +202,7 @@ jobs:
       artifact-metadata: write
     steps:
       - name: Checkout exact tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
