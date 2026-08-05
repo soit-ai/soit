@@ -73,19 +73,19 @@ dependencies = [
 
 [project.optional-dependencies]
 local-embedding = [
-    "sentence-transformers>=4.1.0",
-    "langchain-huggingface>=0.0.6",
-    "transformers>=4.52.3",
-    "huggingface-hub>=0.32.2",
-    "torchvision==0.21.0",
-    "torchaudio==2.6.0",
-    "torch==2.6.0",
+    "sentence-transformers>=5.6.1",
+    "langchain-huggingface>=1.2.2",
+    "transformers>=5.14.1",
+    "huggingface-hub>=1.26.0",
+    "torchvision==0.28.0",
+    "torchaudio==2.11.0",
+    "torch==2.13.0",
 ]
 operations = [
     "flower>=2.0.1",
 ]
 knowledge-worker = [
-    "docling[rapidocr]==2.113.0",
+    "docling[rapidocr]==2.117.0",
 ]
 
 [build-system]
@@ -94,14 +94,14 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3,<10.0.0",
-    "pytest-asyncio>=1.3.0,<2.0.0",
-    "ruff>=0.11.13,<0.12.0",
-    "import-linter>=2.0,<3.0",
-    "pre-commit<4.0.0,>=3.6.2",
-    "types-passlib<2.0.0.0,>=1.7.7.20240106",
-    "coverage<8.0.0,>=7.4.3",
-    "pip-audit>=2.8.0,<3.0.0",
+    "pytest>=9.1.1,<10.0.0",
+    "pytest-asyncio>=1.4.0,<2.0.0",
+    "ruff>=0.16.1,<0.17.0",
+    "import-linter>=2.13,<3.0",
+    "pre-commit>=4.6.1,<5.0.0",
+    "types-passlib>=1.7.7.20260211,<2.0.0.0",
+    "coverage>=7.15.2,<8.0.0",
+    "pip-audit>=2.10.1,<3.0.0",
     "pyright[nodejs]>=1.1.411,<2.0.0",
 ]
 
