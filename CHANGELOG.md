@@ -149,6 +149,9 @@ date, and a fresh `[Unreleased]` section is started.
 - Grant revocation is cache-safe; empty capability bindings fail closed.
 - Internal exception detail no longer leaks into error responses.
 - `/metrics` gated; user name length bounded; self-signup can be disabled.
+- React Router upgraded to 8.3.0, clearing GHSA-qwww-vcr4-c8h2 (RSC-mode
+  CSRF bypass; SOIT does not use the affected RSC APIs) from the dependency
+  audit, and `cryptography` upgraded to 50.0.0, clearing PYSEC-2026-3552.
 - Production startup refuses the object storage credentials shipped in
   `.env.example` and MinIO's own stock defaults, closing the gap where the
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
