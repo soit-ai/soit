@@ -113,6 +113,10 @@ date, and a fresh `[Unreleased]` section is started.
 
 ### Changed
 
+- The license changed from plain Apache-2.0 to the SOIT Open Source License:
+  Apache-2.0 with additional conditions requiring a commercial license for
+  operating a multi-tenant service and forbidding removal of the frontend
+  LOGO and copyright notice.
 - Backend restructured into the kernel / modules / adapters / api layering
   with import-linter enforcement.
 - Agent streaming, response interactions, and knowledge ingest converged onto

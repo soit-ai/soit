@@ -79,6 +79,14 @@ To check locally before pushing:
 npx --package @commitlint/cli --package @commitlint/config-conventional commitlint --from origin/main --verbose
 ```
 
+## License of Contributions
+
+SOIT is released under the [SOIT Open Source License](LICENSE), a modified
+Apache License 2.0. By contributing you agree to the contributor conditions in
+that license: the producer may adjust the open-source agreement as deemed
+necessary, and contributed code may be used commercially, including in cloud
+business operations.
+
 ## Developer Certificate of Origin
 
 Every commit must be signed off to certify that you have the right to submit

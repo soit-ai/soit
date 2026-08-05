@@ -1,7 +1,7 @@
 # SOIT
 
 <p>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-SOIT%20Open%20Source%20License-blue.svg" alt="License: SOIT Open Source License (modified Apache-2.0)" /></a>
   <a href="https://github.com/soit-ai/soit/actions/workflows/quality.yml"><img src="https://github.com/soit-ai/soit/actions/workflows/quality.yml/badge.svg" alt="Quality gate" /></a>
   <a href="https://github.com/soit-ai/soit/releases"><img src="https://img.shields.io/github/v/release/soit-ai/soit?include_prereleases&label=release" alt="Latest release" /></a>
 </p>
@@ -204,4 +204,4 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis
 
 ## 许可证
 
-SOIT 采用 [Apache License 2.0](LICENSE) 发布。
+SOIT 采用 [SOIT Open Source License](LICENSE)（基于 Apache License 2.0 的修改版）发布。简述：允许免费商用与自托管，附加两项条件——运营多租户服务需要商业授权；不得移除或修改前端中的 LOGO 与版权信息。准确条款以 [LICENSE](LICENSE) 为准。

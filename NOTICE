@@ -4,5 +4,6 @@ Copyright 2026 SOIT contributors
 This product includes software developed as part of the SOIT project
 (https://soit.ai).
 
-Licensed under the Apache License, Version 2.0. See the LICENSE file for
-details.
+Licensed under the SOIT Open Source License, a modified version of the
+Apache License, Version 2.0 with additional conditions on multi-tenant
+operation and frontend branding. See the LICENSE file for details.
