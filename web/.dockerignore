@@ -4,3 +4,5 @@ node_modules
 README.md
 *.log
 .DS_Store
+.env
+.env.*
