@@ -29,8 +29,16 @@ updates:
     directory: /server
     schedule:
       interval: weekly
+    ignore:
+      # Base-image majors track the LTS cadence manually.
+      - dependency-name: python
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Node majors are adopted manually on LTS lines only.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
