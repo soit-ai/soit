@@ -180,7 +180,7 @@ jobs:
             }' > "artifacts/image-${COMPONENT}.json"
 
       - name: Upload image identity
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-metadata-${{ matrix.component }}
           path: artifacts/image-${{ matrix.component }}.json
