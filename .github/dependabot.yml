@@ -4,21 +4,33 @@ updates:
     directory: /server
     schedule:
       interval: weekly
+    ignore:
+      # Majors are adopted in deliberate, test-gated manual passes.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       backend-runtime:
         dependency-type: production
+        update-types: ["minor", "patch"]
       backend-development:
         dependency-type: development
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Majors are adopted in deliberate, test-gated manual passes.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-runtime:
         dependency-type: production
+        update-types: ["minor", "patch"]
       frontend-development:
         dependency-type: development
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
