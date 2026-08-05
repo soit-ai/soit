@@ -267,11 +267,13 @@ following additional conditions:
    from SOIT LLC:
 
    a. **Multi-tenant service**: Unless explicitly authorized by SOIT LLC in
-      writing, you may not use the SOIT source code to operate a multi-tenant
-      service. Within the context of SOIT, one tenant corresponds to one
-      tenant account — the top-level isolation boundary that provides a
-      separated area for one organization's workspaces, data, and
-      configurations.
+      writing, you may not use the SOIT source code to operate a service
+      that serves multiple organizations, regardless of whether the
+      separation between those organizations is implemented with SOIT
+      tenants, SOIT workspaces, or any other mechanism. Deploying SOIT
+      within a single organization — including multiple tenants or
+      workspaces for its own teams, departments, subsidiaries, or
+      environments — does not require a commercial license.
 
    b. **LOGO and copyright information**: In the process of using SOIT's
       frontend, you may not remove or modify the LOGO or copyright
