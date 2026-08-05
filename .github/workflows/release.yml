@@ -115,6 +115,9 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
+      - name: Prepare artifacts directory
+        run: mkdir -p artifacts
+
       - name: Generate image SBOM
         uses: anchore/sbom-action@v0
         with:
