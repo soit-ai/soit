@@ -12,9 +12,12 @@ record for operators.
 
 ## [Unreleased]
 
-Everything below is targeted at the `v1.0.0` Community release. When the release
-tag is created, this section moves under a `## [1.0.0]` heading with the release
-date, and a fresh `[Unreleased]` section is started.
+Nothing yet.
+
+## [1.0.0] - 2026-08-05
+
+The first public release of SOIT Community. Release notes with database
+compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v1.0.0.md).
 
 ### Added
 
@@ -172,4 +175,5 @@ date, and a fresh `[Unreleased]` section is started.
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/commits/main
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/soit-ai/soit/releases/tag/v1.0.0
