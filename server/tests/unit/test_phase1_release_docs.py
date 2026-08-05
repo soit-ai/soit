@@ -101,7 +101,7 @@ def test_bilingual_quickstart_documents_cover_demo_path() -> None:
     assert (ROOT / "docs" / "assets" / "hero.png").is_file()
 
     required_terms = [
-        "docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher",
+        "docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher",
         "bootstrap_enterprise_mvp.py",
         "tests/integration/test_enterprise_agent_mvp.py",
         "scripts/evaluate_support_ticket_regression.py",
