@@ -121,15 +121,38 @@ jobs:
       - name: Generate image SBOM
         uses: anchore/sbom-action@v0
         env:
-          # Package-level SBOM only: per-file entries push the server image
-          # SPDX beyond the 16 MiB actions/attest subject limit.
           SYFT_FILE_METADATA_SELECTION: none
         with:
           image: ghcr.io/${{ needs.validate-release.outputs.image_namespace }}/${{ matrix.component }}@${{ steps.image.outputs.digest }}
           format: spdx-json
-          artifact-name: image-sbom-${{ matrix.component }}
           output-file: artifacts/${{ matrix.component }}.spdx.json
+          upload-artifact: false
           upload-release-assets: false
+
+      - name: Trim image SBOM to package level
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="artifacts/${{ matrix.component }}.spdx.json"
+          # Per-file SPDX entries push ML-heavy image SBOMs beyond the
+          # 16 MiB actions/attest subject limit; keep the package inventory
+          # and package-to-package relationships only.
+          jq 'del(.files)
+              | .packages |= map(del(.hasFiles))
+              | .relationships |= map(select(
+                  ((.spdxElementId // "") | startswith("SPDXRef-File") | not)
+                  and ((.relatedSpdxElement // "") | startswith("SPDXRef-File") | not)))' \
+            "$f" > "$f.tmp"
+          mv "$f.tmp" "$f"
+          size="$(stat -c%s "$f")"
+          test "$size" -le 16000000
+          echo "trimmed SBOM size: $size bytes"
+
+      - name: Upload package-level image SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-sbom-${{ matrix.component }}
+          path: artifacts/${{ matrix.component }}.spdx.json
 
       - name: Attest image build provenance
         id: provenance
