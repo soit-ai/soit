@@ -34,7 +34,7 @@ them, which is intended: a silent fallback here is a production incident later.
 | `REDIS_URL`, `EVENT_BUS_REDIS_URL` | Cache and event bus |
 | `SECRET_KEY` | At least 32 characters, not a placeholder |
 | `VAULT_URL`, `VAULT_TOKEN` | A real Vault, not a dev-mode server |
-| `STORAGE_OPTIONS_JSON` | Object storage endpoint and credentials |
+| `STORAGE_OPTIONS_JSON` | Object storage endpoint and credentials, not the dev defaults |
 | `MILVUS_HOST` | Vector store |
 | `PLUGIN_SIGNATURE_PUBLIC_KEYS` | Keys trusted to sign plugin packages |
 | `SOIT_PUBLIC_HOSTNAME` | Hostname the gateway obtains a certificate for |
@@ -51,6 +51,12 @@ bus, OpenTelemetry with an OTLP endpoint, Vault, a non-placeholder secret key,
 at least one model provider key, plugin signature verification with at least one
 trusted key, and plugin digest verification. It refuses inline chat execution,
 an in-process outbox dispatcher, and content safety enabled without an endpoint.
+
+It also refuses the object storage credentials shipped in `.env.example` and
+MinIO's own stock defaults. `docker-compose.yml` uses those defaults for local
+development, so copying a dev `STORAGE_OPTIONS_JSON` into production is the
+mistake this check exists to stop. Omitting the credentials entirely is still
+allowed: that means the backend supplies its own identity, such as an IAM role.
 
 `test_the_api_service_satisfies_production_validation` derives settings from the
 compose file and runs that same validation, so the shipped profile cannot drift

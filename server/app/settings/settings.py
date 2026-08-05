@@ -3,6 +3,7 @@
 Settings model and environment parsing.
 """
 
+import json
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,11 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+PLACEHOLDER_STORAGE_CREDENTIALS = frozenset(
+    {"soitminio", "minioadmin", "minio", "change-me", "changeme"}
+)
+"""Object storage credentials shipped in .env.example and MinIO's own defaults."""
 
 
 class Settings(BaseSettings):
@@ -419,6 +425,19 @@ class Settings(BaseSettings):
             "your-secret-key-change-in-production",
         }:
             raise ValueError("Production requires a non-placeholder SECRET_KEY of at least 32 characters")
+        try:
+            storage_options = json.loads(self.storage_options_json or "{}")
+        except json.JSONDecodeError as exc:
+            # Skipping the credential check on unparseable options would report a
+            # verified store while the deployment still runs the shipped defaults.
+            raise ValueError("Production requires STORAGE_OPTIONS_JSON to be a JSON object") from exc
+        if not isinstance(storage_options, dict):
+            raise ValueError("Production requires STORAGE_OPTIONS_JSON to be a JSON object")
+        for field in ("key", "secret"):
+            # Absent credentials are left alone: they mean the backend supplies its
+            # own identity, not that a placeholder was shipped.
+            if str(storage_options.get(field) or "").strip().lower() in PLACEHOLDER_STORAGE_CREDENTIALS:
+                raise ValueError("Production requires non-placeholder object storage credentials")
 
 
 # Global settings instance

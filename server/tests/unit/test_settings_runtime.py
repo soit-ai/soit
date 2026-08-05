@@ -100,6 +100,60 @@ def test_production_settings_reject_placeholder_secret_key() -> None:
         config.validate_runtime_requirements()
 
 
+def test_production_settings_reject_placeholder_storage_credentials() -> None:
+    config = _production_settings(
+        storage_options_json='{"endpoint_url":"http://minio:9000","key":"soitminio","secret":"soitminio"}'
+    )
+
+    with pytest.raises(ValueError, match="object storage credentials"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_reject_stock_minio_credentials() -> None:
+    config = _production_settings(storage_options_json='{"key":"minioadmin","secret":"minioadmin"}')
+
+    with pytest.raises(ValueError, match="object storage credentials"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_reject_a_placeholder_storage_secret_alone() -> None:
+    # A real access key paired with the shipped secret is still the shipped secret.
+    config = _production_settings(storage_options_json='{"key":"AKIAREAL","secret":"soitminio"}')
+
+    with pytest.raises(ValueError, match="object storage credentials"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_accept_real_storage_credentials() -> None:
+    config = _production_settings(
+        storage_options_json='{"endpoint_url":"https://s3.example.com","key":"AKIAREAL","secret":"rotated-secret"}'
+    )
+
+    config.validate_runtime_requirements()
+
+
+def test_production_settings_allow_storage_credentials_supplied_by_the_backend() -> None:
+    # An empty object means the backend supplies its own identity (IAM role,
+    # instance profile), which is not a shipped placeholder.
+    _production_settings(storage_options_json="{}").validate_runtime_requirements()
+
+
+def test_production_settings_reject_unparseable_storage_options() -> None:
+    # Failing open here would report a verified store while the deployment still
+    # runs whatever the unparsed value hides.
+    config = _production_settings(storage_options_json="{not json")
+
+    with pytest.raises(ValueError, match="STORAGE_OPTIONS_JSON"):
+        config.validate_runtime_requirements()
+
+
+def test_production_settings_reject_non_object_storage_options() -> None:
+    config = _production_settings(storage_options_json='["key","secret"]')
+
+    with pytest.raises(ValueError, match="STORAGE_OPTIONS_JSON"):
+        config.validate_runtime_requirements()
+
+
 def test_production_settings_require_plugin_signature_verification() -> None:
     config = _production_settings(plugin_signature_required=False)
 

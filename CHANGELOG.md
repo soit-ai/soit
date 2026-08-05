@@ -149,5 +149,9 @@ date, and a fresh `[Unreleased]` section is started.
 - Grant revocation is cache-safe; empty capability bindings fail closed.
 - Internal exception detail no longer leaks into error responses.
 - `/metrics` gated; user name length bounded; self-signup can be disabled.
+- Production startup refuses the object storage credentials shipped in
+  `.env.example` and MinIO's own stock defaults, closing the gap where the
+  production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
+  differ from the development value.
 
 [Unreleased]: https://github.com/soit-ai/soit/commits/main
