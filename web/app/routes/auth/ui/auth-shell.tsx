@@ -157,7 +157,7 @@ export function AuthShell({ children }: AuthShellProps) {
           </div>
 
           <div className="flex items-center justify-between border-t border-slate-200/70 pt-5 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400">
-            <span>SOIT Pro</span>
+            <span>SOIT</span>
             <span>Agent OS / Knowledge / Workflow / Runtime</span>
           </div>
         </div>
