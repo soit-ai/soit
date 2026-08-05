@@ -449,7 +449,7 @@ jobs:
 
       - name: Upload real full-stack diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fullstack-real-diagnostics
           if-no-files-found: ignore
