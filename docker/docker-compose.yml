@@ -19,7 +19,9 @@ services:
       start_period: 10s
 
   redis:
-    image: redis:7
+    # Pinned to the 7.2 line: it is the last BSD-3-Clause release series;
+    # 7.4+ moved to the RSALv2/SSPL dual license.
+    image: redis:7.2
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "${REDIS_PUBLISHED_PORT:-6379}:6379"
