@@ -90,6 +90,7 @@ from app.modules.evaluation.application.service import (
     RegressionEvaluationService,
     RegressionRunResult,
 )
+from app.modules.identity.application.display import resolve_user_display_names
 from app.modules.memory.application.service import MemoryService
 from app.modules.versioning.application.service import VersionControlService
 
@@ -881,6 +882,10 @@ class AgentApplicationService:
             )
             for agent in agents
         ]
+        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        for row in rows:
+            if row.owner:
+                row.owner = owner_names.get(row.owner, row.owner)
         return rows, runs_by_agent
 
     def _filter_workbench_rows(

@@ -22,6 +22,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.identity.application.display import resolve_user_display_names
 from app.modules.knowledge.application.ports import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
@@ -197,6 +198,10 @@ class KnowledgeService:
             )
             for knowledge in knowledge_items
         ]
+        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        for row in rows:
+            if row.owner:
+                row.owner = owner_names.get(row.owner, row.owner)
         return rows, runs_by_knowledge
 
     def _filter_workbench_rows(

@@ -24,6 +24,7 @@ from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.specs.validator import validate_runtime_spec
+from app.modules.identity.application.display import resolve_user_display_names
 from app.modules.versioning.application.service import VersionControlService
 from app.modules.workflow.application.capabilities import (
     BUILDER_NODE_TYPES,
@@ -352,6 +353,10 @@ class WorkflowService:
             self._build_workbench_row(workflow, runs_by_workflow.get(workflow.id, []))
             for workflow in workflows
         ]
+        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        for row in rows:
+            if row.owner:
+                row.owner = owner_names.get(row.owner, row.owner)
         return rows, runs_by_workflow
 
     def _filter_workbench_rows(
