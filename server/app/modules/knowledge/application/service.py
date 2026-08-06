@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC
+from datetime import UTC, timedelta
 
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
@@ -70,6 +70,10 @@ class KnowledgeService:
     knowledge storage pipeline, but callers only depend on
     the knowledge boundary.
     """
+
+    # Allowed skew between the ingest-finished and index-finished timestamps
+    # of a single pipeline run before the gap counts as pending indexing.
+    _INDEX_LAG_TOLERANCE = timedelta(seconds=5)
 
     def __init__(
         self,
@@ -389,7 +393,14 @@ class KnowledgeService:
             return "error"
         if any(index.status == "building" for index in indexes) or any(task.status in {"queued", "running"} for task in tasks):
             return "indexing"
-        if knowledge.last_ingested_at and (not knowledge.last_indexed_at or knowledge.last_ingested_at > knowledge.last_indexed_at):
+        # Within one pipeline run the ingest-finished and index-finished
+        # timestamps land milliseconds apart in either order, so only a gap
+        # beyond this tolerance means an ingest actually awaits indexing.
+        if knowledge.last_ingested_at and (
+            not knowledge.last_indexed_at
+            or knowledge.last_ingested_at
+            > knowledge.last_indexed_at + self._INDEX_LAG_TOLERANCE
+        ):
             return "indexing"
         if knowledge.doc_count <= 0 or knowledge.chunk_count <= 0:
             return "unconfigured"
