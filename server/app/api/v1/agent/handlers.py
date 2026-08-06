@@ -260,7 +260,13 @@ class AgentAppHandlers:
         version_id: str | None,
     ) -> list[AgentBindingResponse]:
         bindings = await self.service.list_bindings(agent_id, version_id)
-        return [AgentBindingResponse.model_validate(binding) for binding in bindings]
+        labels = await self.service.capability_labels() if bindings else {}
+        responses: list[AgentBindingResponse] = []
+        for binding in bindings:
+            response = AgentBindingResponse.model_validate(binding)
+            response.target_label = labels.get(binding.target_key or "")
+            responses.append(response)
+        return responses
 
     async def execute_agent(self, ctx: RequestContext, agent_id: str, data: AgentRunRequest) -> AgentRunResponse:
         payload = data.model_dump(exclude_none=True, exclude_unset=True)

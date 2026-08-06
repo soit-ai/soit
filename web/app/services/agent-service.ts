@@ -89,6 +89,7 @@ export interface AgentBinding {
   binding_type: string
   target_id?: string | null
   target_key?: string | null
+  target_label?: string | null
   config_json: Record<string, unknown>
   sort_order: number
   created_at: string

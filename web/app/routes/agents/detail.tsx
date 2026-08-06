@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import { ArrowRight, Bot, Clock3, RefreshCw, Rocket, ScrollText, Settings2, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
@@ -227,6 +227,13 @@ function AgentDetailPage() {
   const capabilityByRef = useMemo(
     () => new Map(capabilityCatalog.map((item: AgentCapabilityItem) => [item.ref, item])),
     [capabilityCatalog],
+  )
+  const capabilityRefLabel = useCallback(
+    (ref?: string | null) => {
+      if (!ref) return ''
+      return capabilityByRef.get(ref)?.name || ref
+    },
+    [capabilityByRef],
   )
 
   const parseVersionSpecBindings = (spec: Record<string, unknown>) => {
@@ -814,12 +821,16 @@ function AgentDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{versionBindings.modelRef || t('agent.detail.versions.noModel')}</Badge>
-                        {versionBindings.knowledgeRefs.map((knowledgeId) => {
-                          const knowledge = knowledgeOptions.find((item) => item.id === knowledgeId)
+                        <Badge variant="outline" title={versionBindings.modelRef || undefined}>
+                          {capabilityRefLabel(versionBindings.modelRef) || t('agent.detail.versions.noModel')}
+                        </Badge>
+                        {versionBindings.knowledgeRefs.map((knowledgeRef) => {
+                          const knowledge = knowledgeOptions.find(
+                            (item) => item.id === knowledgeRef || `knowledge:${item.id}` === knowledgeRef,
+                          )
                           return (
-                            <Badge key={knowledgeId} variant="secondary">
-                              {knowledge?.name || knowledgeId}
+                            <Badge key={knowledgeRef} variant="secondary" title={knowledgeRef}>
+                              {knowledge?.name || capabilityRefLabel(knowledgeRef)}
                             </Badge>
                           )
                         })}
@@ -827,14 +838,18 @@ function AgentDetailPage() {
                           const capability = capabilityByRef.get(ref)
                           const pluginSourceLabel = capability ? getCapabilityPluginSourceLabel(capability) : null
                           return (
-                            <Badge key={ref} variant="outline" className="max-w-full gap-1 whitespace-normal break-all text-left">
-                              <span>{ref}</span>
+                            <Badge key={ref} variant="outline" title={ref} className="max-w-full gap-1 whitespace-normal break-all text-left">
+                              <span>{capability?.name || ref}</span>
                               {pluginSourceLabel && <span className="text-muted-foreground">Plugin {pluginSourceLabel}</span>}
                             </Badge>
                           )
                         })}
-                        {versionBindings.workflowRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
-                        {versionBindings.skillRefs.map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                        {versionBindings.workflowRefs.map((ref) => (
+                          <Badge key={ref} variant="outline" title={ref}>{capabilityRefLabel(ref)}</Badge>
+                        ))}
+                        {versionBindings.skillRefs.map((ref) => (
+                          <Badge key={ref} variant="outline" title={ref}>{capabilityRefLabel(ref)}</Badge>
+                        ))}
                       </div>
                       {typeof spec.system_prompt === 'string' && spec.system_prompt && (
                         <div className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
@@ -924,7 +939,12 @@ function AgentDetailPage() {
                       groupBindings.map((binding) => (
                         <div key={binding.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
                           <Badge variant="outline">{binding.binding_type}</Badge>
-                          <span className="max-w-[220px] truncate text-right">{binding.target_key || binding.target_id || '-'}</span>
+                          <span
+                            className="max-w-[220px] truncate text-right"
+                            title={binding.target_key || binding.target_id || undefined}
+                          >
+                            {binding.target_label || capabilityRefLabel(binding.target_key) || binding.target_id || '-'}
+                          </span>
                         </div>
                       ))
                     )}

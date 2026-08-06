@@ -820,6 +820,28 @@ class AgentApplicationService:
         return sorted(filtered, key=lambda entry: (entry["kind"], entry["source_kind"], entry["ref"]))
 
     @workspace_guard("read")
+    async def capability_labels(self) -> dict[str, str]:
+        """Public map of capability refs to display names."""
+        return self._capability_name_map()
+
+    def _capability_name_map(self) -> dict[str, str]:
+        """Map capability refs to display names for binding labels."""
+        items = [
+            *self._model_capabilities(),
+            *self._knowledge_capabilities(),
+            *self._workflow_capabilities(),
+            *self._tool_capabilities(),
+            *self._plugin_artifact_capabilities(),
+        ]
+        mapping: dict[str, str] = {}
+        for item in items:
+            ref = item.get("ref")
+            name = item.get("name")
+            if ref and name:
+                mapping.setdefault(str(ref), str(name))
+        return mapping
+
+    @workspace_guard("read")
     async def get_workbench(self, limit: int = 20, offset: int = 0) -> AgentWorkbenchResponse:
         rows, runs_by_agent = self._build_workbench_rows()
         all_today_runs = [
@@ -874,11 +896,13 @@ class AgentApplicationService:
         bindings_by_version = self._workbench_bindings_by_version(
             [agent.published_version_id for agent in agents if agent.published_version_id]
         )
+        capability_names = self._capability_name_map()
         rows = [
             self._build_workbench_row(
                 agent,
                 runs_by_agent.get(agent.id, []),
                 bindings_by_version.get(agent.published_version_id or "", []),
+                capability_names,
             )
             for agent in agents
         ]
@@ -996,6 +1020,7 @@ class AgentApplicationService:
         agent: Agent,
         runs: list[Run],
         bindings: list[AgentBinding],
+        capability_names: dict[str, str] | None = None,
     ) -> AgentWorkbenchRow:
         today_runs = [run for run in runs if self._is_today(run.started_at)]
         metric_runs = today_runs if today_runs else runs
@@ -1018,7 +1043,10 @@ class AgentApplicationService:
                     type=binding.binding_type,
                     target_id=binding.target_id,
                     target_key=binding.target_key,
-                    label=binding.target_key or binding.target_id or binding.binding_type,
+                    label=(capability_names or {}).get(binding.target_key or "")
+                    or binding.target_key
+                    or binding.target_id
+                    or binding.binding_type,
                 )
                 for binding in sorted_bindings
             ],

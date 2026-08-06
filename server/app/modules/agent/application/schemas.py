@@ -227,6 +227,8 @@ class AgentBindingResponse(BaseModel):
     binding_type: str
     target_id: str | None
     target_key: str | None
+    target_label: str | None = None
+    """Display name of the bound capability, resolved from the catalog."""
     config_json: dict[str, Any]
     sort_order: int
     created_at: datetime
