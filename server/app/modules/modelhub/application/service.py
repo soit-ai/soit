@@ -906,8 +906,17 @@ class ModelHubService:
         value = str(capabilities.get("model_type") or "").strip().lower()
         if value in {"embedding", "multimodal", "rerank"}:
             return value
-        if "embedding" in [str(item).lower() for item in capabilities.get("capabilities", []) if item]:
+        capability_list = [str(item).lower() for item in capabilities.get("capabilities", []) if item]
+        # Runtime capability configs use boolean flags ({"embeddings": true}),
+        # so honor those alongside the list form.
+        if (
+            "embedding" in capability_list
+            or capabilities.get("embeddings")
+            or capabilities.get("embedding")
+        ):
             return "embedding"
+        if "rerank" in capability_list or capabilities.get("rerank"):
+            return "rerank"
         return "llm"
 
     @staticmethod
