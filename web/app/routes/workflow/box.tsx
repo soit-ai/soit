@@ -139,16 +139,21 @@ function WorkflowNameCell({ row }: { row: WorkflowWorkbenchRow }) {
           ? 'bg-blue-500'
           : 'bg-emerald-500'
 
+  const navigate = useNavigate()
   return (
-    <div className="flex min-w-[230px] items-center gap-3">
+    <button
+      type="button"
+      className="flex min-w-[230px] cursor-pointer items-center gap-3 text-left"
+      onClick={() => navigate(`/workflow/${row.id}/build`)}
+    >
       <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white', iconClassName)}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <div className="truncate font-semibold text-foreground">{row.name}</div>
+        <div className="truncate font-semibold text-foreground hover:underline">{row.name}</div>
         <div className="mt-0.5 max-w-[280px] truncate text-xs text-muted-foreground">{row.summary || row.description || '-'}</div>
       </div>
-    </div>
+    </button>
   )
 }
 
