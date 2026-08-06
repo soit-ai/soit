@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
+from app.kernel.commons.errors import public_error_message
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.runtime.db.models.responses import Response
 from app.kernel.runtime.db.models.threads import generate_thread_message_id
@@ -343,10 +344,13 @@ class PersistentAgUiAgentEmitter:
             await self.cancel()
             return
         await self._emit_failure(
-            code=getattr(error, "code", None) or "agent_execution_failed"
+            code=getattr(error, "code", None) or "agent_execution_failed",
+            message=public_error_message(error, "Agent execution failed"),
         )
 
-    async def _emit_failure(self, *, code: str) -> None:
+    async def _emit_failure(
+        self, *, code: str, message: str = "Agent execution failed"
+    ) -> None:
         if self.response is None or self.terminal_emitted:
             return
         self.response_service.update_interaction_status(self.interaction_id, "failed")
@@ -359,7 +363,7 @@ class PersistentAgUiAgentEmitter:
             await self._persist(
                 self.protocol.text_content(
                     message_id=self.assistant_message_id,
-                    delta="Agent execution failed",
+                    delta=message,
                 )
             )
             self.text_has_content = True
@@ -371,7 +375,7 @@ class PersistentAgUiAgentEmitter:
         await self._persist(
             self.protocol.run_error(
                 code=code,
-                message="Agent execution failed",
+                message=message,
             )
         )
         self.terminal_emitted = True

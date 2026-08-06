@@ -76,3 +76,26 @@ class CreditExhaustedError(KernelError):
         details: dict[str, Any] | None = None,
     ):
         super().__init__("CREDIT_EXHAUSTED", message, details)
+
+
+# Codes whose messages describe workspace configuration the caller can fix
+# (model routing, credit) rather than runtime internals. Only these messages
+# may be shown to end users verbatim; everything else stays masked.
+_PUBLIC_SAFE_ERROR_CODE_PREFIXES = ("MODEL_",)
+_PUBLIC_SAFE_ERROR_CODES = frozenset({"CREDIT_EXHAUSTED"})
+
+
+def public_error_message(error: BaseException, default: str) -> str:
+    """Return a user-facing message for an execution failure.
+
+    Configuration-class ``KernelError`` messages are appended to ``default`` so
+    users can self-serve (e.g. switch to a model that supports chat); any other
+    error keeps the masked ``default`` message.
+    """
+    if isinstance(error, KernelError):
+        code = error.code or ""
+        if code in _PUBLIC_SAFE_ERROR_CODES or code.startswith(
+            _PUBLIC_SAFE_ERROR_CODE_PREFIXES
+        ):
+            return f"{default}: {error.message}"
+    return default

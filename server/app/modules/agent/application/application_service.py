@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
+from app.kernel.commons.errors import (
+    KernelError,
+    NotFoundError,
+    ValidationError,
+    public_error_message,
+)
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
@@ -1337,7 +1342,7 @@ class AgentApplicationService:
                 extra={"agent_id": agent.id, "run_id": run.id, "task_id": task.id},
             )
             _finalize_snapshot("failed")
-            error_message = _PUBLIC_AGENT_EXECUTION_ERROR
+            error_message = public_error_message(exc, _PUBLIC_AGENT_EXECUTION_ERROR)
             if linked_response:
                 linked_response = self.response_service.fail_response(
                     response=linked_response,
@@ -1757,7 +1762,7 @@ class AgentApplicationService:
                 "Agent streaming execution failed",
                 extra={"agent_id": agent.id, "run_id": run.id, "task_id": task.id},
             )
-            error_message = _PUBLIC_AGENT_EXECUTION_ERROR
+            error_message = public_error_message(exc, _PUBLIC_AGENT_EXECUTION_ERROR)
             if linked_response:
                 linked_response = self.response_service.fail_response(
                     response=linked_response,
