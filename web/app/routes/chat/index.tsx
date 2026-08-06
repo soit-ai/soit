@@ -164,12 +164,21 @@ function IndexPage() {
     }
   }, [selectedProvider])
 
+  // Model/provider reconciliation is intentionally one-directional: this
+  // effect makes the provider follow a valid model (or repairs an invalid
+  // model selection together with its provider), while provider→model swaps
+  // only happen in handleProviderChange. Keeping a reactive effect for each
+  // direction lets them ping-pong forever when the selected model belongs to
+  // a different provider (infinite setState loop, crashes the page).
   useEffect(() => {
     if (!chatModels.length) {
       return
     }
-    const hasSelected = chatModels.some((model) => model.value === selectedModel)
-    if (hasSelected) {
+    const selected = chatModels.find((model) => model.value === selectedModel)
+    if (selected) {
+      if (selected.provider && selected.provider !== selectedProvider) {
+        setSelectedProvider(selected.provider)
+      }
       return
     }
 
@@ -184,11 +193,14 @@ function IndexPage() {
       chatModels[0]
     if (preferredModel) {
       setSelectedModel(preferredModel.value)
+      if (preferredModel.provider) {
+        setSelectedProvider(preferredModel.provider)
+      }
     }
   }, [chatModels, selectedModel, selectedProvider])
 
   useEffect(() => {
-    if (!providers.length) {
+    if (!providers.length || chatModels.length) {
       return
     }
     const hasProvider = providers.some((provider) => provider.id === selectedProvider)
@@ -198,28 +210,21 @@ function IndexPage() {
         providers[0].id
       setSelectedProvider(preferredProvider)
     }
-  }, [providers, selectedProvider])
+  }, [providers, chatModels, selectedProvider])
 
-  useEffect(() => {
-    const selected = chatModels.find((model) => model.value === selectedModel)
-    if (selected?.provider && selected.provider !== selectedProvider) {
-      setSelectedProvider(selected.provider)
-    }
-  }, [chatModels, selectedModel, selectedProvider])
-
-  useEffect(() => {
-    if (!selectedProvider) {
-      return
-    }
-    const providerModels = chatModels.filter((model) => model.provider === selectedProvider)
-    if (!providerModels.length) {
-      return
-    }
-    const hasModel = providerModels.some((model) => model.value === selectedModel)
-    if (!hasModel) {
-      setSelectedModel(providerModels[0].value)
-    }
-  }, [chatModels, selectedProvider, selectedModel])
+  const handleProviderChange = useCallback(
+    (providerId: string) => {
+      setSelectedProvider(providerId)
+      const providerModels = chatModels.filter((model) => model.provider === providerId)
+      if (
+        providerModels.length &&
+        !providerModels.some((model) => model.value === selectedModel)
+      ) {
+        setSelectedModel(providerModels[0].value)
+      }
+    },
+    [chatModels, selectedModel],
+  )
 
   useSubcribe('chat_thread_created', (payload: any) => {
     if (!payload || payload.agentId !== agentId) {
@@ -390,7 +395,7 @@ function IndexPage() {
           setTitle={handleTitleChange}
           providers={providers}
           selectedProvider={selectedProvider}
-          onProviderChange={setSelectedProvider}
+          onProviderChange={handleProviderChange}
           modelProviderMap={modelProviderMap}
           onNewChat={handleNewChat}
         ></BoxSidebar>
