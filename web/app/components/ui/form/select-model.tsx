@@ -21,6 +21,8 @@ export interface ModelProps {
   value: string
   type: ModelType
   provider?: string
+  /** Human-readable provider name shown as the group heading; `provider` stays the routing slug. */
+  providerName?: string
   tags?: string[]
   capabilities?: string[]
   contextSize?: number
@@ -263,7 +265,7 @@ function SelectModel({
             <CommandList className="h-full flex flex-col" style={{ scrollbarWidth: 'none' }}>
               <CommandEmpty>{emptyText}</CommandEmpty>
               {Object.entries(groupedModels).map(([provider, providerModels]) => (
-                <CommandGroup key={provider} heading={provider}>
+                <CommandGroup key={provider} heading={providerModels[0]?.providerName || provider}>
                   {providerModels.map((model) => (
                     <CommandItem
                       key={model.value}

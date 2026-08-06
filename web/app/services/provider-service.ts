@@ -341,6 +341,7 @@ export type ModelLibraryItem = {
   modelName: string
   modelType: string
   provider: string
+  providerName?: string
   description?: string
   contextLength?: number
   capabilities?: string[]
@@ -563,6 +564,7 @@ export async function listModels(params?: { provider?: string }) {
     modelName: `model:${model.provider_slug}:${model.model_id}`,
     modelType: model.model_type,
     provider: model.provider_slug,
+    providerName: model.provider_name || model.provider_slug,
     description: model.description || undefined,
     contextLength: model.context_window || undefined,
     capabilities: [],

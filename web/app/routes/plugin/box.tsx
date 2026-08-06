@@ -169,6 +169,12 @@ function readMetadataString(metadata: Record<string, unknown> | null | undefined
   return null
 }
 
+// Tools, workflow nodes, and mixed capabilities all ship inside plugins, so
+// the Plugins tab covers every type that is not a standalone skill or MCP.
+function isPluginTabType(type: PluginWorkbenchType) {
+  return type !== 'skill' && type !== 'mcp'
+}
+
 function resolveType(plugin?: Plugin, capability?: PluginCapability): PluginWorkbenchType {
   const raw = capability?.artifact_kind || capability?.kind || plugin?.plugin_type || 'plugin'
   if (raw === 'mcp_server' || raw === 'mcp') return 'mcp'
@@ -264,7 +270,9 @@ function buildRows(
         name: plugin?.name || capability.name,
         ref: capability.ref,
         type,
-        version: capability.source_version || plugin?.version,
+        // source_version holds an internal version id (vplgv_*); the plugin's
+        // semantic version is what users should see.
+        version: plugin?.version || capability.source_version,
         publisher: plugin?.publisher,
         status: resolveStatus(plugin),
         source: resolveSource(plugin),
@@ -774,7 +782,7 @@ export default function PluginBoxPage() {
 
   const tabs = useMemo<BoxToolbarTab[]>(() => [
     { id: 'all', label: t('plugin.workspaceDashboard.tabs.all'), count: rows.length },
-    { id: 'plugin', label: t('plugin.workspaceDashboard.tabs.plugins'), count: rows.filter((row) => row.type === 'plugin').length },
+    { id: 'plugin', label: t('plugin.workspaceDashboard.tabs.plugins'), count: rows.filter((row) => isPluginTabType(row.type)).length },
     { id: 'skill', label: t('plugin.workspaceDashboard.tabs.skill'), count: rows.filter((row) => row.type === 'skill').length },
     { id: 'mcp', label: t('plugin.workspaceDashboard.tabs.mcp'), count: rows.filter((row) => row.type === 'mcp').length },
   ], [rows, t])
@@ -789,7 +797,9 @@ export default function PluginBoxPage() {
   const filteredRows = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     return rows.filter((row) => {
-      const matchesType = activeType === 'all' || row.type === activeType
+      const matchesType =
+        activeType === 'all' ||
+        (activeType === 'plugin' ? isPluginTabType(row.type) : row.type === activeType)
       const matchesSource = activeSource === 'all' || row.source === activeSource
       const matchesSearch = !keyword || [
         row.name,

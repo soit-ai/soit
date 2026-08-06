@@ -140,7 +140,7 @@ export interface WorkflowQueueDatum extends DashboardChartRunFields {
   avg_wait_ms: number
   failure_rate: number
   affected_agents: string[]
-  owner: string
+  owner: string | null
 }
 
 export interface KnowledgeSourceDatum extends DashboardChartRunFields {
@@ -153,7 +153,7 @@ export interface KnowledgeSourceDatum extends DashboardChartRunFields {
   expired_chunks: number
   last_updated: string | null
   status: HealthStatus | string
-  owner: string
+  owner: string | null
 }
 
 export interface DashboardChartsByTab {

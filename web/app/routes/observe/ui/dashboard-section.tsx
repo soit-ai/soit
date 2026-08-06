@@ -29,6 +29,7 @@ type DashboardSectionProps = {
   bucket: ObserveBucket
   q: string
   pageSize: number
+  pageToken?: string
   tabs: DashboardTab[]
   section: DashboardSectionModel
   onUpdateParams: (patch: Record<string, string | undefined>) => void
@@ -43,6 +44,7 @@ export function DashboardSection({
   bucket,
   q,
   pageSize,
+  pageToken,
   tabs,
   section,
   onUpdateParams,
@@ -90,14 +92,9 @@ export function DashboardSection({
                   <option value="20">{t('observe.pagination.pageSize', { size: 20 })}</option>
                   <option value="50">{t('observe.pagination.pageSize', { size: 50 })}</option>
                 </select>
-                <Button variant="ghost" size="icon-sm" disabled>‹</Button>
-                <Button variant="outline" size="sm" className="h-8 min-w-8 rounded-lg px-2">1</Button>
-                <Button variant="ghost" size="sm" className="h-8 min-w-8 px-2">2</Button>
-                <Button variant="ghost" size="sm" className="h-8 min-w-8 px-2">3</Button>
+                {/* The API paginates by token, so only first/next moves exist. */}
+                <Button variant="ghost" size="icon-sm" disabled={!pageToken} onClick={() => onUpdateParams({ page_token: undefined })}>‹</Button>
                 <Button variant="ghost" size="icon-sm" disabled={!section.page.next_page_token} onClick={() => onUpdateParams({ page_token: section.page.next_page_token || undefined })}>›</Button>
-                <span className="ml-3">{t('observe.pagination.goTo')}</span>
-                <Input className="h-8 w-12 rounded-lg bg-panel px-2 text-center" value="1" readOnly />
-                <span>{t('observe.pagination.page')}</span>
               </div>
             </div>
           </TabsContent>

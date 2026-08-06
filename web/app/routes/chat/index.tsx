@@ -111,7 +111,7 @@ function IndexPage() {
       if (!map.has(model.provider)) {
         map.set(model.provider, {
           id: model.provider,
-          name: model.provider,
+          name: model.providerName || model.provider,
         })
       }
     }
@@ -135,6 +135,7 @@ function IndexPage() {
         value: model.modelName,
         type: 'chat' as ModelType,
         provider: model.provider,
+        providerName: model.providerName,
         contextSize: model.contextLength,
       }))
   }, [modelConfigs])

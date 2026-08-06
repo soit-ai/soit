@@ -121,6 +121,7 @@ function ObservePage() {
               bucket={bucket}
               q={q}
               pageSize={pageSize}
+              pageToken={pageToken}
               tabs={dashboard.tabs}
               section={dashboard.section}
               onUpdateParams={updateParams}
