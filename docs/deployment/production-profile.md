@@ -43,6 +43,10 @@ A dev-mode Vault keeps its data in memory and unseals itself with a fixed root
 token, so it loses every secret on restart. The profile cannot detect that for
 you; point `VAULT_URL` at a real server.
 
+`ACCESS_TOKEN_EXPIRE_MINUTES` (default 480) is the hard session length: there
+is no token refresh flow yet, so users are logged out when it expires. Tighten
+it if your threat model calls for shorter exposure windows.
+
 ## What the runtime refuses in production
 
 `Settings.validate_runtime_requirements()` runs at startup and fails closed. In

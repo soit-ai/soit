@@ -20,6 +20,10 @@ x-server-environment: &server_environment
   DATABASE_URL: ${DATABASE_URL:?production requires an external database URL}
   REDIS_URL: ${REDIS_URL:?production requires an external Redis URL}
   SECRET_KEY: ${SECRET_KEY:?production requires a non-placeholder secret key}
+  # There is no token refresh flow yet, so this is the hard session length.
+  # 480 (one workday) trades shorter exposure windows for not logging users
+  # out mid-session; tighten it if your threat model calls for it.
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
 
   # Vault must not be a dev-mode server: a dev server keeps its data in memory
   # and unseals itself with a fixed root token.
