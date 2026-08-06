@@ -810,14 +810,33 @@ class KnowledgeRuntimeService:
         if not self.pipeline:
             raise KernelError("PIPELINE_NOT_AVAILABLE", "Document pipeline is not configured")
 
+        # A task whose knowledge or document no longer exists can never
+        # succeed. Fail it terminally here; raising without a status write
+        # would leave it claimed until the lease expires and the queue would
+        # retry it forever.
+        def _orphaned(message: str) -> KernelError:
+            if self.trace_writer and task.run_id:
+                self.trace_writer.update_run_status(
+                    task.run_id, "failed", output_summary=message
+                )
+            self.ingest_task_repo.update_status(
+                task,
+                "failed",
+                error_code="NOT_FOUND",
+                error_message=message,
+                run_id=task.run_id,
+                expected_lease_owner=lease_owner,
+            )
+            return KernelError("NOT_FOUND", message)
+
         knowledge = self.knowledge_repo.get_by_id(task.knowledge_id)
         if not knowledge:
-            raise KernelError("NOT_FOUND", f"Knowledge {task.knowledge_id} not found")
+            raise _orphaned(f"Knowledge {task.knowledge_id} not found")
         if not task.document_id:
-            raise KernelError("NOT_FOUND", "Ingest task missing document_id")
+            raise _orphaned("Ingest task missing document_id")
         document = self.document_repo.get_by_id(task.document_id)
         if not document:
-            raise KernelError("NOT_FOUND", f"Document {task.document_id} not found")
+            raise _orphaned(f"Document {task.document_id} not found")
 
         run_id = task.run_id
         if self.trace_writer:

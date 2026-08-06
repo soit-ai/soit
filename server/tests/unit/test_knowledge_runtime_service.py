@@ -598,6 +598,116 @@ async def test_knowledge_async_ingest_task_worker(db):
 
 
 @pytest.mark.asyncio
+async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
+    """A task whose document is gone fails once instead of retrying forever."""
+    import app.kernel.runtime.db.models  # noqa: F401
+    from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
+
+    SQLModel.metadata.create_all(db.get_bind())
+
+    ctx = RequestContext(
+        tenant_id="test_tenant",
+        workspace_id="test_workspace",
+        user_id="test_user",
+        tenant_role="Owner",
+        workspace_role="Owner",
+    )
+
+    knowledge_repo = KnowledgeRepository(db, ctx)
+    document_repo = DocumentRepository(db, ctx)
+    chunk_repo = ChunkRepository(db, ctx)
+    index_repo = IndexRepository(db, ctx)
+    ingest_task_repo = IngestTaskRepository(db, ctx)
+
+    storage_port = StubStoragePort()
+    vector_port = StubVectorPort()
+    llm_port = StubLLMPort()
+    embedding_service = EmbeddingService(llm_port)
+    trace_writer = TraceWriter(db, ctx)
+
+    index_builder = IndexBuilder(
+        db=db,
+        ctx=ctx,
+        vector_port=vector_port,
+        embedding_service=embedding_service,
+        storage_port=storage_port,
+    )
+
+    pipeline = DocumentPipeline(
+        db=db,
+        ctx=ctx,
+        storage_port=storage_port,
+        trace_writer=trace_writer,
+        embedding_service=embedding_service,
+        index_builder=index_builder,
+    )
+
+    retrieval = RetrievalService(
+        db=db,
+        ctx=ctx,
+        vector_port=vector_port,
+        llm_port=llm_port,
+        embedding_service=embedding_service,
+        storage_port=storage_port,
+    )
+
+    service = KnowledgeRuntimeService(
+        db,
+        ctx,
+        knowledge_repo,
+        document_repo,
+        chunk_repo,
+        index_repo,
+        ingest_task_repo,
+        pipeline,
+        retrieval,
+        index_builder=index_builder,
+        storage_port=storage_port,
+        vector_port=vector_port,
+        trace_writer=trace_writer,
+    )
+
+    knowledge = await service.create_knowledge(
+        KnowledgeCreate(
+            name="kb_orphan",
+            type="document",
+            description="Orphaned ingest task",
+            default_embedding_model_ref="model:test:embedding",
+        )
+    )
+
+    document = await service.upload_document(
+        knowledge.id,
+        DocumentUpload(doc_key="doc_orphan", source_kind="upload"),
+        file_content=b"Orphan me",
+        async_ingest=True,
+        max_retries=3,
+    )
+
+    pending_tasks = ingest_task_repo.list_pending()
+    assert pending_tasks
+    task = pending_tasks[0]
+
+    doc_row = document_repo.get_by_id(document.id)
+    assert doc_row is not None
+    db.delete(doc_row)
+    db.commit()
+
+    worker = KnowledgeIngestWorker(service)
+    await worker.run_once()
+
+    refreshed_task = ingest_task_repo.get_by_id(task.id)
+    assert refreshed_task is not None
+    assert refreshed_task.status == "failed"
+    assert refreshed_task.error_code == "NOT_FOUND"
+    assert refreshed_task.error_message is not None
+    assert document.id in refreshed_task.error_message
+    assert refreshed_task.lease_owner is None
+    # Terminal failure must leave nothing behind for the queue to reclaim.
+    assert ingest_task_repo.list_pending() == []
+
+
+@pytest.mark.asyncio
 async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(db):
     """Failed async ingest keeps observable run/step/task state and can be retried."""
     import app.kernel.runtime.db.models  # noqa: F401
