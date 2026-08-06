@@ -168,7 +168,7 @@ class WorkflowQueuePointResponse(DashboardChartRunFieldsResponse):
     avg_wait_ms: int
     failure_rate: float
     affected_agents: list[str] = Field(default_factory=list[str])
-    owner: str
+    owner: str | None = None
 
 
 class KnowledgeSourcePointResponse(DashboardChartRunFieldsResponse):
@@ -181,7 +181,7 @@ class KnowledgeSourcePointResponse(DashboardChartRunFieldsResponse):
     expired_chunks: int
     last_updated: str | None = None
     status: str
-    owner: str
+    owner: str | None = None
 
 
 class LatencyPercentilesResponse(DashboardChartModel):

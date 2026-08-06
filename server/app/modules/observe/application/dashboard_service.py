@@ -22,6 +22,9 @@ from app.kernel.runtime.db.models.runs import (
 )
 from app.kernel.runtime.runs.service import RunService
 from app.kernel.runtime.status import ApprovalStatus
+from app.modules.agent.domain.models import Agent
+from app.modules.identity.application.display import resolve_user_display_names
+from app.modules.knowledge.domain.models import Knowledge
 from app.modules.observe.application.dashboard_schemas import (
     AgentSummaryResponse,
     ApprovalsSummaryResponse,
@@ -362,6 +365,20 @@ class ObserveDashboardService:
             next_page_token=next_token,
             total_count=len(rows),
         )
+
+    def _subject_records(self, model: type, subject_ids: list[str]) -> dict[str, Any]:
+        """Load workspace-scoped subject rows (agents, knowledge) keyed by id."""
+        ids = [subject_id for subject_id in subject_ids if subject_id]
+        if not ids:
+            return {}
+        query = select(model).where(
+            and_(
+                model.tenant_id == self.ctx.tenant_id,
+                model.workspace_id == self.ctx.workspace_id,
+                model.id.in_(ids),
+            )
+        )
+        return {record.id: record for record in self.db.execute(query).scalars()}
 
     def _filter_rows(self, rows: list[dict[str, Any]], q: str | None) -> list[dict[str, Any]]:
         if not q:
@@ -746,10 +763,32 @@ class ObserveDashboardService:
                 detail_url=f"/observe/runs/{latest_failed_run.id}" if latest_failed_run else "/observe/runs",
             )
 
+        agent_records = self._subject_records(Agent, [agent.agent_id for agent in agent_summaries])
+        knowledge_records = self._subject_records(Knowledge, [item.knowledge_id for item in knowledge_quality])
+        owner_names = resolve_user_display_names(
+            self.db,
+            (
+                record.updated_by or record.created_by
+                for record in [*agent_records.values(), *knowledge_records.values()]
+            ),
+        )
+
+        def subject_owner(record: Agent | Knowledge | None) -> str | None:
+            if record is None:
+                return None
+            owner_id = record.updated_by or record.created_by
+            if not owner_id:
+                return None
+            return owner_names.get(owner_id, owner_id)
+
         agent_rows = [
             {
                 "id": agent.agent_id,
-                "name": agent.agent_id,
+                "name": (
+                    agent_records[agent.agent_id].name
+                    if agent.agent_id in agent_records
+                    else agent.agent_id
+                ),
                 "description": "Agent runtime activity",
                 "status": self._status_from_failure_rate(agent.run_count, agent.failed_run_count),
                 "run_count": agent.run_count,
@@ -761,7 +800,7 @@ class ObserveDashboardService:
                     else 0
                 ),
                 "last_error": agent_summary_map[agent.agent_id]["last_error"],
-                "owner": "Jude",
+                "owner": subject_owner(agent_records.get(agent.agent_id)),
                 "last_run_at": agent.last_run_at,
                 **self._latest_row_fields(latest_agent_run.get(agent.agent_id), cost_by_run),
             }
@@ -777,7 +816,7 @@ class ObserveDashboardService:
                 "avg_wait_ms": self._percentile(workflow_map[item.node_id]["latencies"], 0.5),
                 "failure_rate": self._rate(item.failed_step_count, item.step_count),
                 "affected_agents": sorted(workflow_map[item.node_id]["affected_agents"]),
-                "owner": "Jude",
+                "owner": None,
                 **self._latest_row_fields(latest_node_run.get(item.node_id), cost_by_run),
             }
             for item in workflow_bottlenecks
@@ -793,7 +832,7 @@ class ObserveDashboardService:
                 "avg_latency_ms": self._percentile(tool_health_map[item.tool_ref]["latencies"], 0.5),
                 "failure_reason": dict(tool_health_map[item.tool_ref]["error_codes"]),
                 "related_agents": sorted(tool_health_map[item.tool_ref]["agents"]),
-                "owner": "Jude",
+                "owner": None,
                 "status": item.health_status,
                 **self._latest_row_fields(latest_tool_run.get(item.tool_ref), cost_by_run),
             }
@@ -802,7 +841,11 @@ class ObserveDashboardService:
         knowledge_rows = [
             {
                 "id": item.knowledge_id,
-                "name": item.knowledge_id,
+                "name": (
+                    knowledge_records[item.knowledge_id].name
+                    if item.knowledge_id in knowledge_records
+                    else item.knowledge_id
+                ),
                 "description": "Knowledge retrieval quality",
                 "related_agents": sorted(knowledge_map[item.knowledge_id]["agents"]),
                 "hit_rate": round(1 - item.failure_rate, 4),
@@ -810,7 +853,7 @@ class ObserveDashboardService:
                 "expired_chunks": 0,
                 "last_updated": None,
                 "status": item.quality_status,
-                "owner": "Jude",
+                "owner": subject_owner(knowledge_records.get(item.knowledge_id)),
                 **self._latest_row_fields(latest_knowledge_run.get(item.knowledge_id), cost_by_run),
             }
             for item in knowledge_quality
