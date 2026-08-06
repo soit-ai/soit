@@ -151,6 +151,61 @@ const system = {
     },
   },
   settings: {
+    overview: {
+      badge: '工作区设置',
+      fallbackTitle: '工作区总览',
+      fallbackDescription: '查看工作区身份、访问、凭据与 1.0 核心链路的运行时限制。',
+      stats: {
+        workspaceRole: '工作区角色',
+        members: '成员',
+        activeApiKeys: '生效 API 密钥',
+        secrets: '密钥凭据',
+      },
+      controlSurface: {
+        title: '1.0 控制面',
+        description: '这些设置支撑模型、知识、Agent 与工作流核心链路。',
+        open: '打开',
+        team: {
+          title: '团队',
+          description: '工作区身份、成员与角色。',
+        },
+        api: {
+          title: 'API 与限额',
+          description: 'API 密钥、工作区配额与运行时护栏。',
+        },
+        secrets: {
+          title: '密钥凭据',
+          description: '模型、工具与集成使用的凭据引用。',
+        },
+        security: {
+          title: '安全',
+          description: '密码、会话与通知保护。',
+        },
+      },
+      identity: {
+        title: '工作区身份',
+        description: '应用当前使用的租户与工作区上下文。',
+        workspaceId: '工作区 ID',
+        tenantId: '租户 ID',
+        tenantRole: '租户角色',
+        created: '创建时间',
+      },
+      limits: {
+        title: '运行时限制',
+        description: '约束 1.0 运行时面的工作区默认值。',
+        llmPerMinute: 'LLM 每分钟请求',
+        toolPerMinute: '工具每分钟请求',
+        llmDailyQuota: 'LLM 每日配额',
+        toolDailyQuota: '工具每日配额',
+      },
+      secretsHealth: {
+        title: '凭据健康',
+        description: '供应商与工具最近使用的凭据清单。',
+        total: '凭据总数',
+        latestRotated: '最近轮换',
+        manage: '管理凭据',
+      },
+    },
     sidebar: {
       title: '设置',
       searchPlaceholder: '搜索设置...',

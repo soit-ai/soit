@@ -3,6 +3,7 @@ import { ArrowRight, Building2, KeyRound, LockKeyhole, ShieldCheck, Users } from
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/i18n'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useQuery } from '@/hooks/use-query'
 import { listApiKeys } from '@/services/api-key-service'
@@ -19,6 +20,7 @@ const formatTimestamp = (value?: string | null) => {
 }
 
 function SettingsOverviewPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
 
   const { data: currentUser } = useQuery({
@@ -84,26 +86,26 @@ function SettingsOverviewPage() {
 
   const quickActions = [
     {
-      title: 'Team',
-      description: 'Workspace identity, members, and roles.',
+      title: t('system.settings.overview.controlSurface.team.title'),
+      description: t('system.settings.overview.controlSurface.team.description'),
       href: '/settings/team',
       icon: Users,
     },
     {
-      title: 'API and Limits',
-      description: 'API keys, workspace quotas, and runtime guardrails.',
+      title: t('system.settings.overview.controlSurface.api.title'),
+      description: t('system.settings.overview.controlSurface.api.description'),
       href: '/settings/api',
       icon: KeyRound,
     },
     {
-      title: 'Secrets',
-      description: 'Credential refs used by models, tools, and integrations.',
+      title: t('system.settings.overview.controlSurface.secrets.title'),
+      description: t('system.settings.overview.controlSurface.secrets.description'),
       href: '/settings/secrets',
       icon: LockKeyhole,
     },
     {
-      title: 'Security',
-      description: 'Password, sessions, and notification protections.',
+      title: t('system.settings.overview.controlSurface.security.title'),
+      description: t('system.settings.overview.controlSurface.security.description'),
       href: '/settings/security',
       icon: ShieldCheck,
     },
@@ -114,14 +116,14 @@ function SettingsOverviewPage() {
       <Card className="border-none bg-gradient-to-br from-zinc-950 via-slate-900 to-sky-900 text-white shadow-xl">
         <CardHeader className="gap-4">
           <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
-            Workspace Settings
+            {t('system.settings.overview.badge')}
           </Badge>
           <div className="space-y-2">
             <CardTitle className="text-3xl font-semibold tracking-tight">
-              {workspace?.name || 'Workspace Overview'}
+              {workspace?.name || t('system.settings.overview.fallbackTitle')}
             </CardTitle>
             <CardDescription className="max-w-2xl text-slate-300">
-              {workspace?.description || 'Review workspace identity, access, credentials, and runtime limits for the 1.0 core chain.'}
+              {workspace?.description || t('system.settings.overview.fallbackDescription')}
             </CardDescription>
           </div>
         </CardHeader>
@@ -134,7 +136,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <Building2 className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">Workspace Role</div>
+            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.workspaceRole')}</div>
             <div className="mt-1 text-lg font-medium">{currentUser?.workspace_role || '-'}</div>
           </button>
           <button
@@ -145,7 +147,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <Users className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">Members</div>
+            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.members')}</div>
             <div className="mt-1 text-lg font-medium">{members.length}</div>
           </button>
           <button
@@ -156,7 +158,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <KeyRound className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">Active API Keys</div>
+            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.activeApiKeys')}</div>
             <div className="mt-1 text-lg font-medium">{activeApiKeys.length}</div>
           </button>
           <button
@@ -167,7 +169,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <LockKeyhole className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">Secrets</div>
+            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.secrets')}</div>
             <div className="mt-1 text-lg font-medium">{secrets.length}</div>
           </button>
         </CardContent>
@@ -176,8 +178,8 @@ function SettingsOverviewPage() {
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardHeader>
-            <CardTitle>1.0 Control Surface</CardTitle>
-            <CardDescription>These settings feed the core model, knowledge, agent, and workflow paths.</CardDescription>
+            <CardTitle>{t('system.settings.overview.controlSurface.title')}</CardTitle>
+            <CardDescription>{t('system.settings.overview.controlSurface.description')}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
             {quickActions.map((action) => (
@@ -193,7 +195,7 @@ function SettingsOverviewPage() {
                 <div className="text-sm font-medium">{action.title}</div>
                 <div className="mt-1 text-sm text-muted-foreground">{action.description}</div>
                 <div className="mt-4 inline-flex items-center text-sm font-medium text-primary">
-                  Open
+                  {t('system.settings.overview.controlSurface.open')}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </div>
               </button>
@@ -204,24 +206,24 @@ function SettingsOverviewPage() {
         <div className="grid gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Workspace Identity</CardTitle>
-              <CardDescription>Current tenant and workspace context used by the app.</CardDescription>
+              <CardTitle>{t('system.settings.overview.identity.title')}</CardTitle>
+              <CardDescription>{t('system.settings.overview.identity.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Workspace ID</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.identity.workspaceId')}</span>
                 <span className="font-medium">{workspace?.id || workspaceId || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Tenant ID</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.identity.tenantId')}</span>
                 <span className="font-medium">{currentUser?.tenant_id || workspace?.tenant_id || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Tenant Role</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.identity.tenantRole')}</span>
                 <span className="font-medium">{currentUser?.tenant_role || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Created</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.identity.created')}</span>
                 <span className="font-medium">{formatTimestamp(workspace?.created_at)}</span>
               </div>
             </CardContent>
@@ -229,24 +231,24 @@ function SettingsOverviewPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Runtime Limits</CardTitle>
-              <CardDescription>Workspace defaults that constrain the 1.0 runtime surfaces.</CardDescription>
+              <CardTitle>{t('system.settings.overview.limits.title')}</CardTitle>
+              <CardDescription>{t('system.settings.overview.limits.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">LLM req/min</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.limits.llmPerMinute')}</span>
                 <span className="font-medium">{usagePolicy?.llm_rate_limit_per_minute ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Tool req/min</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.limits.toolPerMinute')}</span>
                 <span className="font-medium">{usagePolicy?.tool_rate_limit_per_minute ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">LLM daily quota</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.limits.llmDailyQuota')}</span>
                 <span className="font-medium">{usagePolicy?.llm_daily_quota ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Tool daily quota</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.limits.toolDailyQuota')}</span>
                 <span className="font-medium">{usagePolicy?.tool_daily_quota ?? '-'}</span>
               </div>
             </CardContent>
@@ -254,20 +256,20 @@ function SettingsOverviewPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Secrets Health</CardTitle>
-              <CardDescription>Recent secret inventory used by providers and tools.</CardDescription>
+              <CardTitle>{t('system.settings.overview.secretsHealth.title')}</CardTitle>
+              <CardDescription>{t('system.settings.overview.secretsHealth.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Total secrets</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.secretsHealth.total')}</span>
                 <span className="font-medium">{secrets.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Latest rotated</span>
+                <span className="text-muted-foreground">{t('system.settings.overview.secretsHealth.latestRotated')}</span>
                 <span className="font-medium">{formatTimestamp(latestSecret?.last_rotated_at || latestSecret?.updated_at)}</span>
               </div>
               <Button variant="outline" className="w-full" onClick={() => navigate('/settings/secrets')}>
-                Manage Secrets
+                {t('system.settings.overview.secretsHealth.manage')}
               </Button>
             </CardContent>
           </Card>

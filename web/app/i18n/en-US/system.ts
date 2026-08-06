@@ -151,6 +151,61 @@ const system = {
     },
   },
   settings: {
+    overview: {
+      badge: 'Workspace Settings',
+      fallbackTitle: 'Workspace Overview',
+      fallbackDescription: 'Review workspace identity, access, credentials, and runtime limits for the 1.0 core chain.',
+      stats: {
+        workspaceRole: 'Workspace Role',
+        members: 'Members',
+        activeApiKeys: 'Active API Keys',
+        secrets: 'Secrets',
+      },
+      controlSurface: {
+        title: '1.0 Control Surface',
+        description: 'These settings feed the core model, knowledge, agent, and workflow paths.',
+        open: 'Open',
+        team: {
+          title: 'Team',
+          description: 'Workspace identity, members, and roles.',
+        },
+        api: {
+          title: 'API and Limits',
+          description: 'API keys, workspace quotas, and runtime guardrails.',
+        },
+        secrets: {
+          title: 'Secrets',
+          description: 'Credential refs used by models, tools, and integrations.',
+        },
+        security: {
+          title: 'Security',
+          description: 'Password, sessions, and notification protections.',
+        },
+      },
+      identity: {
+        title: 'Workspace Identity',
+        description: 'Current tenant and workspace context used by the app.',
+        workspaceId: 'Workspace ID',
+        tenantId: 'Tenant ID',
+        tenantRole: 'Tenant Role',
+        created: 'Created',
+      },
+      limits: {
+        title: 'Runtime Limits',
+        description: 'Workspace defaults that constrain the 1.0 runtime surfaces.',
+        llmPerMinute: 'LLM req/min',
+        toolPerMinute: 'Tool req/min',
+        llmDailyQuota: 'LLM daily quota',
+        toolDailyQuota: 'Tool daily quota',
+      },
+      secretsHealth: {
+        title: 'Secrets Health',
+        description: 'Recent secret inventory used by providers and tools.',
+        total: 'Total secrets',
+        latestRotated: 'Latest rotated',
+        manage: 'Manage Secrets',
+      },
+    },
     sidebar: {
       title: 'Settings',
       searchPlaceholder: 'Search settings...',
