@@ -213,14 +213,6 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 
 ## 许可证
 
-SOIT 采用 [Apache License 2.0](LICENSE) 发布，并附加以下使用条件：
+SOIT Community 采用标准 [Apache License 2.0](LICENSE) 发布——无附加条件、无 source-available 限制。商业使用、自托管、修改、在其上构建产品，均在标准 Apache 2.0 条款下完全自由。
 
-1. SOIT 可用于商业用途，包括作为其他应用的后端服务或企业的应用开发平台。满足以下条件时，须向 SOIT LLC 获取商业授权：
-
-   a. **多租户服务**：未经 SOIT LLC 书面明确授权，不得使用 SOIT 源代码运营面向多个组织提供服务的托管服务——无论组织之间的隔离是通过 SOIT 的 tenant、workspace 还是其他机制实现。单一组织内部署 SOIT（包括为其自身团队、部门、子公司或环境开设多个 tenant 或 workspace）无需商业授权。
-
-   b. **LOGO 与版权信息**：在使用 SOIT 前端的过程中，不得移除或修改 SOIT 控制台或应用中的 LOGO 与版权信息。此限制不适用于不涉及前端的 SOIT 使用场景。"前端"指从源码运行时 `web/` 目录下的全部组件，或以 Docker 运行时的 `web` 镜像。
-
-2. 作为贡献者，你同意贡献的代码可被 SOIT LLC 用于商业用途（包括但不限于其云业务运营），且 SOIT LLC 可在必要时调整上述条款。
-
-商业授权咨询请联系 **info@soit.ai**。
+核心平台现在和将来都保持开源。SSO、高级审计报告、SLA 监控、多区域部署等企业级能力属于 SOIT Enterprise 与 SOIT Cloud——基于同一运行时的独立商业产品。商业合作请联系 **info@soit.ai**。

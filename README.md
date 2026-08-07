@@ -274,38 +274,12 @@ Use the [contributing guide](./CONTRIBUTING.md) for local setup, quality checks,
 
 ## License
 
-SOIT is released under the [Apache License 2.0](./LICENSE), with the
-following additional conditions:
+SOIT Community is released under the [Apache License 2.0](./LICENSE) — no
+additional conditions, no source-available carve-outs. Commercial use,
+self-hosting, modification, and building products on top are all free under
+the standard Apache 2.0 terms.
 
-1. SOIT may be used commercially, including as a backend service for other
-   applications or as an application development platform for enterprises.
-   Should the conditions below be met, a commercial license must be obtained
-   from SOIT LLC:
-
-   a. **Multi-tenant service**: Unless explicitly authorized by SOIT LLC in
-      writing, you may not use the SOIT source code to operate a service
-      that serves multiple organizations, regardless of whether the
-      separation between those organizations is implemented with SOIT
-      tenants, SOIT workspaces, or any other mechanism. Deploying SOIT
-      within a single organization — including multiple tenants or
-      workspaces for its own teams, departments, subsidiaries, or
-      environments — does not require a commercial license.
-
-   b. **LOGO and copyright information**: In the process of using SOIT's
-      frontend, you may not remove or modify the LOGO or copyright
-      information in the SOIT console or applications. This restriction does
-      not apply to uses of SOIT that do not involve its frontend. The
-      "frontend" includes all components located in the `web/` directory when
-      running SOIT from source, or the `web` image when running SOIT with
-      Docker.
-
-2. As a contributor, you agree that your contributed code may be used
-   commercially by SOIT LLC, including but not limited to its cloud business
-   operations, and that SOIT LLC may adjust these terms as deemed necessary.
-
-For commercial licensing inquiries, contact **info@soit.ai**.
-
-The core platform is and will remain open source. Some advanced enterprise features — SSO, advanced audit reports, SLA monitoring, multi-region deployment — are available in SOIT Enterprise.
+The core platform is and will remain open source. Some advanced enterprise features — SSO, advanced audit reports, SLA monitoring, multi-region deployment — are available in SOIT Enterprise and SOIT Cloud, separate commercial offerings built on the same runtime. For commercial inquiries, contact **info@soit.ai**.
 
 ---
 
