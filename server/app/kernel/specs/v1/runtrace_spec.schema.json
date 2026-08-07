@@ -68,6 +68,7 @@
             "memory",
             "evaluation",
             "image",
+            "embedding",
             null
           ]
         },
