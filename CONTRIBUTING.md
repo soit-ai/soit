@@ -5,6 +5,19 @@ Community core: the agent runtime, workflow runtime, knowledge pipeline,
 plugin/MCP basics, run/task ledger, model management, and local deployment
 assets.
 
+## Before your first pull request
+
+The two checks that trip up most first-time contributors:
+
+1. **Sign off every commit** with `git commit -s` (adds the `Signed-off-by:`
+   line the [DCO check](#developer-certificate-of-origin) requires). Already
+   committed without it? Fix a single commit with
+   `git commit --amend -s --no-edit && git push --force-with-lease`, or a
+   branch with `git rebase --signoff origin/main`.
+2. **Use a Conventional Commit title** for commits and the PR, for example
+   `docs: fix quickstart port table` — see
+   [Commit Messages](#commit-messages).
+
 ## Development Setup
 
 Install backend dependencies from `server/`:
@@ -81,11 +94,9 @@ npx --package @commitlint/cli --package @commitlint/config-conventional commitli
 
 ## License of Contributions
 
-SOIT is released under the [Apache License 2.0](LICENSE) with additional
-usage conditions stated in the [README](README.md#license). By contributing
-you agree that your contributed code may be used commercially by SOIT LLC,
-including in its cloud business operations, and that SOIT LLC may adjust the
-project's licensing terms as deemed necessary.
+SOIT Community is released under the [Apache License 2.0](LICENSE). By
+contributing, you agree that your contributions are licensed under the same
+Apache License 2.0 that covers the project.
 
 ## Developer Certificate of Origin
 

@@ -20,6 +20,7 @@ Closes #
 
 ## Checklist
 
+- [ ] Every commit is signed off with `git commit -s` ([DCO](../CONTRIBUTING.md#developer-certificate-of-origin)). Forgot? `git commit --amend -s --no-edit && git push --force-with-lease` for one commit, `git rebase --signoff origin/main` for several.
 - [ ] The PR title and commits follow [Conventional Commits](../CONTRIBUTING.md#commit-messages).
 - [ ] The change is scoped to one feature, fix, or documentation update.
 - [ ] Tests or verification output are included for behavior changes.
