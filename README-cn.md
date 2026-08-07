@@ -213,6 +213,6 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 
 ## 许可证
 
-SOIT Community 采用标准 [Apache License 2.0](LICENSE) 发布——无附加条件、无 source-available 限制。商业使用、自托管、修改、在其上构建产品，均在标准 Apache 2.0 条款下完全自由。
+SOIT Community 采用 [Apache License 2.0](LICENSE) 发布。
 
 核心平台现在和将来都保持开源。SSO、高级审计报告、SLA 监控、多区域部署等企业级能力属于 SOIT Enterprise 与 SOIT Cloud——基于同一运行时的独立商业产品。商业合作请联系 **info@soit.ai**。

@@ -14,11 +14,9 @@ record for operators.
 
 ### Changed
 
-- **License clarified: SOIT Community is plain Apache 2.0.** The additional
-  usage conditions previously stated in the README (multi-tenant hosting
-  restriction, frontend branding retention) were never part of the LICENSE
-  file and have been removed from the README, NOTICE, and release notes.
-  There are no usage conditions beyond the standard Apache 2.0 terms.
+- License documentation clarified: the usage-condition wording previously
+  stated in the README (multi-tenant hosting, frontend branding) was
+  removed; SOIT Community is licensed under the Apache License 2.0.
 - The web container image moved from Node 20 to the Node 24 LTS line.
 - Python runtime dependencies refreshed across the lockfile (42 packages,
   minor/patch), verified by the full backend suite, pip-audit, ruff, and

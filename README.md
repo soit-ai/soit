@@ -274,10 +274,7 @@ Use the [contributing guide](./CONTRIBUTING.md) for local setup, quality checks,
 
 ## License
 
-SOIT Community is released under the [Apache License 2.0](./LICENSE) — no
-additional conditions, no source-available carve-outs. Commercial use,
-self-hosting, modification, and building products on top are all free under
-the standard Apache 2.0 terms.
+SOIT Community is released under the [Apache License 2.0](./LICENSE).
 
 The core platform is and will remain open source. Some advanced enterprise features — SSO, advanced audit reports, SLA monitoring, multi-region deployment — are available in SOIT Enterprise and SOIT Cloud, separate commercial offerings built on the same runtime. For commercial inquiries, contact **info@soit.ai**.
 
