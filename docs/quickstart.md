@@ -20,6 +20,27 @@ Open:
 
 Sign in with `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`.
 
+
+## Published port overrides
+
+Every quickstart host port can be remapped with a `*_PUBLISHED_PORT` variable in `.env` (see `.env.example`). Defaults match the container ports.
+
+| Variable | Service | Default host port | Container port |
+| --- | --- | ---: | ---: |
+| `DATABASE_PUBLISHED_PORT` | postgres | 5432 | 5432 |
+| `REDIS_PUBLISHED_PORT` | redis | 6379 | 6379 |
+| `MINIO_API_PUBLISHED_PORT` | minio (API) | 9000 | 9000 |
+| `MINIO_CONSOLE_PUBLISHED_PORT` | minio (console) | 9001 | 9001 |
+| `ETCD_PUBLISHED_PORT` | etcd | 2379 | 2379 |
+| `MILVUS_PUBLISHED_PORT` | milvus | 19530 | 19530 |
+| `MILVUS_METRICS_PUBLISHED_PORT` | milvus metrics | 9091 | 9091 |
+| `VAULT_PUBLISHED_PORT` | vault | 8200 | 8200 |
+| `API_PUBLISHED_PORT` | api | 9200 | 9200 |
+| `WEB_PUBLISHED_PORT` | web | 5000 | 5000 |
+
+Example: `MINIO_API_PUBLISHED_PORT=19000 API_PUBLISHED_PORT=19200 WEB_PUBLISHED_PORT=15000`.
+
+
 ## Seed the Demo Workspace
 
 After migrations are available, seed the deterministic Phase 1 demo data:
