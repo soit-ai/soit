@@ -5,6 +5,28 @@ Community core: the agent runtime, workflow runtime, knowledge pipeline,
 plugin/MCP basics, run/task ledger, model management, and local deployment
 assets.
 
+## Docs-only changes
+
+You can contribute documentation without a full local stack.
+
+**You can skip:** `uv sync`, `npm install`, and Docker services.
+
+**Still required:**
+
+- [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages / PR titles
+- DCO sign-off on every commit (`git commit -s`)
+- When you change a documented command, path, or release template, keep the doc-contract tests green — especially `server/tests/unit/test_phase1_release_docs.py` for quickstart/README command text
+
+**Preview Markdown locally:** open the file in your editor or any Markdown previewer (no build step). For site-specific rendering, use whatever docs tooling the tree already documents in `docs/`.
+
+To open a docs PR:
+
+1. Edit files under `docs/`, `README.md`, or other Markdown you are fixing.
+2. Commit with a `docs:` type message.
+3. Open the PR. All CI jobs (quality / security / commit-style) still run and must pass — docs-only means you do not need a local dev stack to author the change, not that failing checks are OK.
+
+---
+
 ## Development Setup
 
 Install backend dependencies from `server/`:
