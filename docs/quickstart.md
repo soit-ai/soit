@@ -4,6 +4,8 @@ This quickstart is the Phase 1 local path for a new self-hosted SOIT environment
 
 ![SOIT workspace screenshot](assets/hero.png)
 
+If containers fail to start, see [troubleshooting.md](./troubleshooting.md) for common causes (env-file, ports, Milvus, migrate/bootstrap logs).
+
 ## Start the Local Stack
 
 From the repository root:
