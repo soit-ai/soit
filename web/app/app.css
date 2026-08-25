@@ -46,8 +46,6 @@ body {
   --color-primary-subtle-foreground: var(--primary-subtle-foreground);
   --color-contrast: var(--contrast);
   --color-contrast-foreground: var(--contrast-foreground);
-  --color-contrast-subtle: var(--contrast-subtle);
-  --color-contrast-subtle-foreground: var(--contrast-subtle-foreground);
   --color-brand-teal-50: var(--brand-teal-50);
   --color-brand-teal-300: var(--brand-teal-300);
   --color-brand-teal-400: var(--brand-teal-400);
@@ -146,6 +144,8 @@ body {
    * Do not introduce brand hues outside these two ramps. Green, amber and red
    * stay reserved for status semantics and must not be used decoratively.
    */
+  /* Teal is no longer an interface colour. It remains the logo's second
+     slab and the source of --cat-teal. */
   --brand-teal-50: #ecfdf7;
   --brand-teal-300: #7fe7d5;
   --brand-teal-400: #2dd4bf;
@@ -178,10 +178,8 @@ body {
   --primary-foreground: oklch(0.99 0.002 247);
   --primary-subtle: var(--brand-blue-50);
   --primary-subtle-foreground: var(--brand-blue-900);
-  --contrast: var(--brand-teal-700);
+  --contrast: var(--brand-blue-900);
   --contrast-foreground: oklch(0.99 0.002 247);
-  --contrast-subtle: var(--brand-teal-50);
-  --contrast-subtle-foreground: var(--brand-teal-700);
   --secondary: oklch(0.956 0.008 247);
   --secondary-foreground: oklch(0.31 0.02 255);
   --muted: oklch(0.952 0.006 247);
@@ -262,10 +260,8 @@ body {
   --primary-foreground: var(--brand-graphite);
   --primary-subtle: var(--brand-blue-950);
   --primary-subtle-foreground: var(--brand-blue-300);
-  --contrast: var(--brand-teal-400);
-  --contrast-foreground: var(--brand-teal-950);
-  --contrast-subtle: var(--brand-teal-900);
-  --contrast-subtle-foreground: var(--brand-teal-300);
+  --contrast: var(--brand-blue-300);
+  --contrast-foreground: var(--brand-graphite);
   --secondary: oklch(0.274 0.02 257);
   --secondary-foreground: oklch(0.952 0.004 247);
   --muted: oklch(0.262 0.02 257);

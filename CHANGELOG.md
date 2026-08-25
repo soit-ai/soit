@@ -33,6 +33,9 @@ record for operators.
   every screen.
 - Workflow node types, model providers, knowledge types, and metric tiles use a
   dedicated categorical palette instead of borrowing status hues.
+- The auxiliary accent moved from teal onto the quiet end of the blue ramp,
+  because teal sat close enough to success green to be confusable on span lines
+  and status dots.
 
 ### Fixed
 
