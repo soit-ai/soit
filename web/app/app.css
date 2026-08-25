@@ -42,6 +42,28 @@ body {
   --color-popover-foreground: var(--panel-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-contrast: var(--contrast);
+  --color-contrast-foreground: var(--contrast-foreground);
+  --color-contrast-subtle: var(--contrast-subtle);
+  --color-contrast-subtle-foreground: var(--contrast-subtle-foreground);
+  --color-brand-teal-50: var(--brand-teal-50);
+  --color-brand-teal-300: var(--brand-teal-300);
+  --color-brand-teal-400: var(--brand-teal-400);
+  --color-brand-teal-500: var(--brand-teal-500);
+  --color-brand-teal-700: var(--brand-teal-700);
+  --color-brand-teal-900: var(--brand-teal-900);
+  --color-brand-teal-950: var(--brand-teal-950);
+  --color-brand-blue-50: var(--brand-blue-50);
+  --color-brand-blue-300: var(--brand-blue-300);
+  --color-brand-blue-400: var(--brand-blue-400);
+  --color-brand-blue-500: var(--brand-blue-500);
+  --color-brand-blue-600: var(--brand-blue-600);
+  --color-brand-blue-700: var(--brand-blue-700);
+  --color-brand-blue-900: var(--brand-blue-900);
+  --color-brand-blue-950: var(--brand-blue-950);
+  --color-brand-graphite: var(--brand-graphite);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -101,6 +123,28 @@ body {
 }
 
 :root {
+  /*
+   * SOIT brand ramp: Signal Blue is primary, Governance Teal is contrast.
+   * Do not introduce brand hues outside these two ramps. Green, amber and red
+   * stay reserved for status semantics and must not be used decoratively.
+   */
+  --brand-teal-50: #ecfdf7;
+  --brand-teal-300: #7fe7d5;
+  --brand-teal-400: #2dd4bf;
+  --brand-teal-500: #18a7a1;
+  --brand-teal-700: #0f766e;
+  --brand-teal-900: #08302b;
+  --brand-teal-950: #042f2c;
+  --brand-blue-50: #e6f2fd;
+  --brand-blue-300: #8fc6ff;
+  --brand-blue-400: #3b9eff;
+  --brand-blue-500: #2b93ea;
+  --brand-blue-600: #0073d5;
+  --brand-blue-700: #0b5ba8;
+  --brand-blue-900: #0b4c87;
+  --brand-blue-950: #0e2a45;
+  --brand-graphite: #0b1220;
+
   --radius: 0.5rem;
 
   --background: oklch(0.978 0.005 247);
@@ -112,8 +156,14 @@ body {
   --panel-foreground: oklch(0.24 0.02 255);
   --elevated: oklch(1 0 0 / 0.98);
 
-  --primary: oklch(0.585 0.154 244);
+  --primary: var(--brand-blue-600);
   --primary-foreground: oklch(0.99 0.002 247);
+  --primary-subtle: var(--brand-blue-50);
+  --primary-subtle-foreground: var(--brand-blue-900);
+  --contrast: var(--brand-teal-700);
+  --contrast-foreground: oklch(0.99 0.002 247);
+  --contrast-subtle: var(--brand-teal-50);
+  --contrast-subtle-foreground: var(--brand-teal-700);
   --secondary: oklch(0.956 0.008 247);
   --secondary-foreground: oklch(0.31 0.02 255);
   --muted: oklch(0.952 0.006 247);
@@ -125,29 +175,30 @@ body {
   --success-foreground: oklch(0.2 0.03 165);
   --warning: oklch(0.79 0.15 82);
   --warning-foreground: oklch(0.34 0.04 73);
-  --info: oklch(0.7 0.12 235);
-  --info-foreground: oklch(0.25 0.03 246);
+  --info: #475569;
+  --info-foreground: #334155;
   --danger: oklch(0.64 0.19 26);
   --danger-foreground: oklch(0.99 0.002 247);
 
   --border: oklch(0.9 0.012 247);
   --input: oklch(0.925 0.01 247 / 0.96);
-  --ring: oklch(0.585 0.154 244 / 0.34);
+  --ring: color-mix(in oklab, var(--brand-blue-600) 34%, transparent);
 
   --sidebar: oklch(0.93 0.009 247 / 0.92);
   --sidebar-foreground: oklch(0.245 0.02 255);
-  --sidebar-primary: oklch(0.585 0.154 244);
+  --sidebar-primary: var(--brand-blue-600);
   --sidebar-primary-foreground: oklch(0.99 0.002 247);
   --sidebar-accent: oklch(0.975 0.012 243 / 0.94);
   --sidebar-accent-foreground: oklch(0.255 0.02 255);
   --sidebar-border: oklch(0.88 0.012 247 / 0.85);
-  --sidebar-ring: oklch(0.585 0.154 244 / 0.3);
+  --sidebar-ring: color-mix(in oklab, var(--brand-blue-600) 30%, transparent);
 
-  --chart-1: oklch(0.62 0.15 244);
-  --chart-2: oklch(0.72 0.13 205);
-  --chart-3: oklch(0.69 0.16 156);
-  --chart-4: oklch(0.73 0.17 79);
-  --chart-5: oklch(0.67 0.16 26);
+  /* Series colours deliberately avoid green/amber/red so charts never read as status. */
+  --chart-1: var(--brand-blue-600);
+  --chart-2: var(--brand-teal-500);
+  --chart-3: #8b5cf6;
+  --chart-4: #c026d3;
+  --chart-5: #64748b;
 }
 
 .dark {
@@ -160,8 +211,14 @@ body {
   --panel-foreground: oklch(0.96 0.004 247);
   --elevated: oklch(0.285 0.024 257 );
 
-  --primary: oklch(0.67 0.13 233);
-  --primary-foreground: oklch(0.18 0.018 257);
+  --primary: var(--brand-blue-400);
+  --primary-foreground: var(--brand-graphite);
+  --primary-subtle: var(--brand-blue-950);
+  --primary-subtle-foreground: var(--brand-blue-300);
+  --contrast: var(--brand-teal-400);
+  --contrast-foreground: var(--brand-teal-950);
+  --contrast-subtle: var(--brand-teal-900);
+  --contrast-subtle-foreground: var(--brand-teal-300);
   --secondary: oklch(0.274 0.02 257);
   --secondary-foreground: oklch(0.952 0.004 247);
   --muted: oklch(0.262 0.02 257);
@@ -170,32 +227,32 @@ body {
   --accent-foreground: oklch(0.965 0.004 247);
   --destructive: oklch(0.69 0.17 21);
   --success: oklch(0.73 0.12 158);
-  --success-foreground: oklch(0.16 0.02 165);
+  --success-foreground: oklch(0.86 0.09 158);
   --warning: oklch(0.82 0.13 83);
-  --warning-foreground: oklch(0.25 0.03 73);
-  --info: oklch(0.76 0.11 235);
-  --info-foreground: oklch(0.17 0.02 246);
+  --warning-foreground: oklch(0.89 0.09 83);
+  --info: #94a3b8;
+  --info-foreground: #cbd5e1;
   --danger: oklch(0.71 0.16 26);
   --danger-foreground: oklch(0.16 0.02 257);
 
   --border: oklch(1 0 0 / 0.095);
   --input: oklch(1 0 0 / 0.11);
-  --ring: oklch(0.67 0.13 233 / 0.32);
+  --ring: color-mix(in oklab, var(--brand-blue-400) 32%, transparent);
 
   --sidebar: oklch(0.205 0.018 257 / 0.96);
   --sidebar-foreground: oklch(0.956 0.004 247);
-  --sidebar-primary: oklch(0.67 0.13 233);
-  --sidebar-primary-foreground: oklch(0.18 0.018 257);
+  --sidebar-primary: var(--brand-blue-400);
+  --sidebar-primary-foreground: var(--brand-graphite);
   --sidebar-accent: oklch(0.276 0.021 257 / 0.96);
   --sidebar-accent-foreground: oklch(0.956 0.004 247);
   --sidebar-border: oklch(1 0 0 / 0.09);
-  --sidebar-ring: oklch(0.67 0.13 233 / 0.28);
+  --sidebar-ring: color-mix(in oklab, var(--brand-blue-400) 28%, transparent);
 
-  --chart-1: oklch(0.72 0.12 233);
-  --chart-2: oklch(0.72 0.13 197);
-  --chart-3: oklch(0.76 0.12 156);
-  --chart-4: oklch(0.79 0.13 82);
-  --chart-5: oklch(0.73 0.15 24);
+  --chart-1: var(--brand-blue-400);
+  --chart-2: var(--brand-teal-400);
+  --chart-3: #a78bfa;
+  --chart-4: #e879f9;
+  --chart-5: #94a3b8;
 }
 
 @layer base {
@@ -211,14 +268,14 @@ body {
   body {
     @apply bg-background text-foreground;
     background-image:
-      radial-gradient(circle at top, rgba(14, 165, 233, 0.09), transparent 24%),
+      radial-gradient(circle at top, color-mix(in oklab, var(--brand-blue-600) 9%, transparent), transparent 24%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(243, 247, 251, 0.94));
     transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
   }
 
   .dark body {
     background-image:
-      radial-gradient(circle at top, rgba(34, 211, 238, 0.12), transparent 24%),
+      radial-gradient(circle at top, color-mix(in oklab, var(--brand-blue-400) 12%, transparent), transparent 24%),
       linear-gradient(180deg, rgba(8, 13, 24, 0.94), rgba(12, 21, 35, 0.98));
   }
 

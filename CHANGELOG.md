@@ -21,6 +21,18 @@ record for operators.
 - Python runtime dependencies refreshed across the lockfile (42 packages,
   minor/patch), verified by the full backend suite, pip-audit, ruff, and
   pyright.
+- Console theme reworked onto the SOIT brand palette: the primary colour is
+  now Signal Blue with Governance Teal as the contrast accent, in both light
+  and dark mode.
+- Chart series colours no longer reuse green, amber, or red, so a chart is
+  never mistaken for a status readout.
+- Informational badges moved to a neutral slate so they stay distinguishable
+  from the blue brand affordances.
+
+### Fixed
+
+- Dark-mode success, warning, and info badges rendered near-black text on a
+  dark tint of their own hue, leaving the label unreadable.
 
 ## [1.0.0] - 2026-08-05
 
