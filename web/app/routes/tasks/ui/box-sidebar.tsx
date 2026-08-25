@@ -171,7 +171,7 @@ export function TaskSidebar({
                   <span className="text-muted-foreground">{t('task.sidebar.stats.pressure')}</span>
                   <span>{attention}</span>
                 </div>
-                <Progress value={attentionRate} className="h-1.5 bg-orange-100 dark:bg-orange-400/10" />
+                <Progress value={attentionRate} className="h-1.5 bg-warning/12" />
               </div>
 
               <div className="text-xs text-muted-foreground">

@@ -13,7 +13,7 @@ export const InputNodeInfo = {
   label: 'Input',
   category: 'input',
   description: 'Validated workflow invocation input',
-  color: 'emerald-500',
+  color: 'cat-green',
   icon: 'LogIn',
 }
 
@@ -27,9 +27,9 @@ const InputNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   const { sourcePosition } = useNodeHandles()
 
   return (
-    <div className={`min-w-[180px] rounded-md border bg-card p-3 shadow-sm ${selected ? 'border-emerald-500' : 'border-border'}`}>
+    <div className={`min-w-[180px] rounded-md border bg-card p-3 shadow-sm ${selected ? 'border-cat-green' : 'border-border'}`}>
       <div className="mb-2 flex items-center gap-2">
-        <LogIn className="h-4 w-4 text-emerald-500" />
+        <LogIn className="h-4 w-4 text-cat-green" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.input.label')}</div>
       </div>
       <div className="mb-2 text-xs text-muted-foreground">
@@ -40,7 +40,7 @@ const InputNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="h-3 w-3 border-2 border-background bg-emerald-500"
+        className="h-3 w-3 border-2 border-background bg-cat-green"
       />
     </div>
   )

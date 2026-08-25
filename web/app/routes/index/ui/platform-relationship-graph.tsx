@@ -47,14 +47,14 @@ function GraphNode({ node, onOpen }: { node: PositionedModule; onOpen: (href: st
     <button
       type="button"
       onClick={() => onOpen(node.href)}
-      className={`group absolute w-[220px] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-border/70 bg-elevated/92 p-4 text-left transition-colors hover:border-border dark:bg-slate-950/86 bg-gradient-to-br ${node.tone}`}
+      className={`group absolute w-[220px] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-border/70 bg-elevated/92 p-4 text-left transition-colors hover:border-border dark:bg-panel bg-gradient-to-br ${node.tone}`}
       style={{ left: `${node.x}%`, top: `${node.y}%` }}
     >
       <div className="flex items-center justify-between">
-        <div className="rounded-2xl bg-panel/86 p-2 dark:bg-slate-900">
-          <Icon className="h-4 w-4 text-foreground dark:text-slate-200" />
+        <div className="rounded-2xl bg-panel/86 p-2 dark:bg-panel">
+          <Icon className="h-4 w-4 text-foreground dark:text-foreground" />
         </div>
-        <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+        <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       </div>
       <div className="mt-5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{node.value}</div>
       <div className="mt-2 text-base font-semibold">{node.title}</div>
@@ -102,9 +102,9 @@ export function PlatformRelationshipGraph({
 
       <div className="hidden rounded-[28px] border border-border/70 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.1),transparent_26%),radial-gradient(circle_at_center,rgba(15,23,42,0.04),transparent_62%)] p-5 lg:block">
         <div className="relative h-[560px] overflow-hidden rounded-[24px] border border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.76)_0%,rgba(248,250,252,0.84)_100%)] dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.56)_0%,rgba(15,23,42,0.76)_100%)]">
-          <div className="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/20" />
-          <div className="absolute left-1/2 top-1/2 h-[280px] w-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/20" />
-          <div className="absolute left-1/2 top-1/2 h-[150px] w-[150px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/25" />
+          <div className="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-contrast/20" />
+          <div className="absolute left-1/2 top-1/2 h-[280px] w-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-contrast/20" />
+          <div className="absolute left-1/2 top-1/2 h-[150px] w-[150px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-contrast/25" />
 
           <svg
             className="pointer-events-none absolute inset-0 h-full w-full"
@@ -134,7 +134,7 @@ export function PlatformRelationshipGraph({
           <button
             type="button"
             onClick={() => onOpen('/agents')}
-            className="absolute left-1/2 top-1/2 flex w-[320px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-[28px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(15,23,42,0.98)_0%,rgba(12,74,110,0.96)_100%)] p-6 text-left text-white"
+            className="absolute left-1/2 top-1/2 flex w-[320px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-[28px] border border-border bg-[linear-gradient(180deg,rgba(15,23,42,0.98)_0%,rgba(12,74,110,0.96)_100%)] p-6 text-left text-white"
           >
             <div className="flex items-center justify-between">
               <div className="rounded-2xl bg-white/10 p-3">
@@ -142,9 +142,9 @@ export function PlatformRelationshipGraph({
               </div>
               <ArrowRight className="h-4 w-4 text-white/70" />
             </div>
-            <div className="mt-6 text-xs uppercase tracking-[0.22em] text-cyan-100/70">{coreLabel}</div>
+            <div className="mt-6 text-xs uppercase tracking-[0.22em] text-muted-foreground">{coreLabel}</div>
             <div className="mt-3 text-3xl font-semibold">{coreTitle}</div>
-            <p className="mt-3 text-sm leading-6 text-slate-200">{coreDescription}</p>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{coreDescription}</p>
             <div className="mt-6 grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
                 <div className="text-white/70">{publishedLabel}</div>
@@ -163,7 +163,7 @@ export function PlatformRelationshipGraph({
         <button
           type="button"
           onClick={() => onOpen('/agents')}
-          className="rounded-[28px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(15,23,42,0.98)_0%,rgba(12,74,110,0.96)_100%)] p-5 text-left text-white"
+          className="rounded-[28px] border border-border bg-[linear-gradient(180deg,rgba(15,23,42,0.98)_0%,rgba(12,74,110,0.96)_100%)] p-5 text-left text-white"
         >
           <div className="flex items-center justify-between">
             <div className="rounded-2xl bg-white/10 p-3">
@@ -171,9 +171,9 @@ export function PlatformRelationshipGraph({
             </div>
             <ArrowRight className="h-4 w-4 text-white/70" />
           </div>
-          <div className="mt-5 text-xs uppercase tracking-[0.2em] text-cyan-100/70">{coreLabel}</div>
+          <div className="mt-5 text-xs uppercase tracking-[0.2em] text-muted-foreground">{coreLabel}</div>
           <div className="mt-2 text-2xl font-semibold">{coreTitle}</div>
-          <p className="mt-2 text-sm leading-6 text-slate-200">{coreDescription}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{coreDescription}</p>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
               <div className="text-white/70">{publishedLabel}</div>
@@ -195,13 +195,13 @@ export function PlatformRelationshipGraph({
                 key={module.key}
                 type="button"
                 onClick={() => onOpen(module.href)}
-                className={`rounded-[24px] border border-slate-200/70 bg-white/90 p-4 text-left dark:border-slate-800 dark:bg-slate-950/80 bg-gradient-to-br ${module.tone}`}
+                className={`rounded-[24px] border border-border bg-white/90 p-4 text-left dark:bg-panel bg-gradient-to-br ${module.tone}`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="rounded-2xl bg-slate-100 p-2 dark:bg-slate-900">
-                    <Icon className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                  <div className="rounded-2xl bg-muted p-2 dark:bg-panel">
+                    <Icon className="h-4 w-4 text-muted-foreground dark:text-foreground" />
                   </div>
-                  <ArrowRight className="h-4 w-4 text-slate-400" />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="mt-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{module.value}</div>
                 <div className="mt-2 text-base font-semibold">{module.title}</div>

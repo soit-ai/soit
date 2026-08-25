@@ -331,7 +331,7 @@ export function ModelForm({ model, onSave, onCancel, onChange, title }: ModelFor
                 <CardDescription>{t('model.form.sections.capabilityMatrix.description')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                <div className="rounded-md border border-primary/20 bg-primary/12 px-3 py-2 text-sm text-primary">
                   {t('model.form.capabilitySourceNotice')}
                 </div>
                 <div className="space-y-2">

@@ -12,7 +12,7 @@ export const LoopNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.flow',
   description: 'Loop through operations',
   descriptionKey: 'workflow.blocksAbout.iteration',
-  color: 'violet-500',
+  color: 'cat-purple',
   icon: 'Repeat',
 }
 
@@ -27,9 +27,9 @@ const LoopNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-violet-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-purple' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Repeat className="h-4 w-4 text-violet-500" />
+        <Repeat className="h-4 w-4 text-cat-purple" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.blocks.iteration')}</div>
       </div>
       
@@ -44,7 +44,7 @@ const LoopNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-violet-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-purple border-2 border-background"
       />
       
       <Handle
@@ -52,7 +52,7 @@ const LoopNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={Position.Bottom}
         id="loop-body"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-violet-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-purple border-2 border-background"
       />
       
       <Handle
@@ -60,7 +60,7 @@ const LoopNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-violet-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-purple border-2 border-background"
       />
     </div>
   )

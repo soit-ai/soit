@@ -80,10 +80,10 @@ const getToolTypeKey = (toolType?: string | null) => {
 const governanceStatusOrder: RunGovernanceEvidenceStatus[] = ['pass', 'warning', 'fail', 'not_applicable']
 
 const getGovernanceStatusTone = (status: RunGovernanceEvidenceStatus) => {
-  if (status === 'pass') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200'
-  if (status === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200'
-  if (status === 'fail') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-200'
-  return 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300'
+  if (status === 'pass') return 'border-success/20 bg-success/12 text-success-foreground dark:border-success/30'
+  if (status === 'warning') return 'border-warning/20 bg-warning/12 text-warning-foreground dark:border-warning/30'
+  if (status === 'fail') return 'border-danger/20 bg-danger/12 text-danger-foreground dark:border-danger/30'
+  return 'border-border bg-muted text-muted-foreground'
 }
 
 const GovernanceStatusIcon = ({ status }: { status: RunGovernanceEvidenceStatus }) => {

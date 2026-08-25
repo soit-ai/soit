@@ -16,7 +16,7 @@ export const OutputNodeInfo = {
   label: 'Output',
   category: 'output',
   description: 'Workflow output result',
-  color: 'green-500',
+  color: 'cat-green',
   icon: 'BotMessageSquare',
 }
 
@@ -35,7 +35,7 @@ const OutputNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   return (
     <div className={`p-3 rounded-md border ${selected ? 'border-primary' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <BotMessageSquare className="h-4 w-4 text-green-500" />
+        <BotMessageSquare className="h-4 w-4 text-cat-green" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.output.label')}</div>
       </div>
 
@@ -49,7 +49,7 @@ const OutputNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-green-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-green border-2 border-background"
       />
     </div>
   )

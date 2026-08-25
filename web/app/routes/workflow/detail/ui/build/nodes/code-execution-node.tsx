@@ -12,7 +12,7 @@ export const CodeExecutionNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.tool',
   description: 'Execute custom code',
   descriptionKey: 'workflow.blocksAbout.code',
-  color: 'slate-600',
+  color: 'cat-slate',
   icon: 'Code',
 }
 
@@ -27,9 +27,9 @@ const CodeExecutionNodeComponent = ({ data, isConnectable, selected }: NodeProps
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-slate-600' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-slate' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Code className="h-4 w-4 text-slate-600" />
+        <Code className="h-4 w-4 text-cat-slate" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.blocks.code')}</div>
       </div>
       
@@ -44,7 +44,7 @@ const CodeExecutionNodeComponent = ({ data, isConnectable, selected }: NodeProps
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-slate-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-slate border-2 border-background"
       />
       
       <Handle
@@ -52,7 +52,7 @@ const CodeExecutionNodeComponent = ({ data, isConnectable, selected }: NodeProps
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-slate-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-slate border-2 border-background"
       />
     </div>
   )

@@ -14,7 +14,7 @@ export const VariableAssignmentNodeInfo = {
   label: 'Variable Assignment',
   category: 'data',
   description: 'Assign values to variables',
-  color: 'sky-500',
+  color: 'cat-blue',
   icon: 'Variable',
 }
 
@@ -29,9 +29,9 @@ const VariableAssignmentNodeComponent = ({ data, isConnectable, selected }: Node
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles()
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-sky-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-blue' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Variable className="h-4 w-4 text-sky-500" />
+        <Variable className="h-4 w-4 text-cat-blue" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.variableAssignment.label')}</div>
       </div>
 
@@ -47,7 +47,7 @@ const VariableAssignmentNodeComponent = ({ data, isConnectable, selected }: Node
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-sky-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-blue border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -56,7 +56,7 @@ const VariableAssignmentNodeComponent = ({ data, isConnectable, selected }: Node
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-sky-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-blue border-2 border-background"
       />
     </div>
   )

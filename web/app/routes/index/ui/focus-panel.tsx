@@ -45,10 +45,10 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
 
   const statusClassName =
     statusKey === 'critical'
-      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200'
+      ? 'border-danger/20 bg-danger/12 text-danger-foreground'
       : statusKey === 'watch'
-        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
+        ? 'border-warning/20 bg-warning/12 text-warning-foreground'
+        : 'border-success/20 bg-success/12 text-success-foreground'
 
   const taskItems = isLoading
     ? [
@@ -64,10 +64,10 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
           badge: task.status,
           badgeClassName:
             task.status === 'failed'
-              ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200'
+              ? 'border-danger/20 bg-danger/12 text-danger-foreground'
               : task.status === 'waiting_input' || task.status === 'waiting_approval'
-                ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200'
-                : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+                ? 'border-primary/20 bg-primary/12 text-primary'
+                : 'border-border bg-muted text-muted-foreground dark:bg-panel dark:text-foreground',
         }))
       : [
           {
@@ -83,8 +83,8 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
           secondary: agent.description || t('agent.home.focus.noDescription'),
           badge: agent.published_version_id ? t('agent.home.focus.publishedShort') : t('agent.home.focus.draftShort'),
           badgeClassName: agent.published_version_id
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'
-            : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+            ? 'border-success/20 bg-success/12 text-success-foreground'
+            : 'border-border bg-muted text-muted-foreground dark:bg-panel dark:text-foreground',
         }))
       : [
           {
@@ -99,7 +99,7 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
           primary: base.name,
           secondary: `${t('agent.home.focus.docs', { count: formatNumber(base.doc_count) })} · ${t('agent.home.focus.chunks', { count: formatNumber(base.chunk_count) })} · ${formatTimestamp(base.last_ingested_at)}`,
           badge: base.status,
-          badgeClassName: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200',
+          badgeClassName: 'border-warning/20 bg-warning/12 text-warning-foreground',
         }))
       : [
           {
@@ -118,33 +118,33 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
         <CardDescription>{t('agent.home.focus.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <section className="rounded-[var(--radius-xl)] border border-slate-800/80 bg-[linear-gradient(135deg,rgba(16,24,38,0.96)_0%,rgba(15,44,68,0.92)_100%)] p-4 text-white">
+        <section className="rounded-[var(--radius-xl)] border border-inverse-border bg-[linear-gradient(135deg,rgba(16,24,38,0.96)_0%,rgba(15,44,68,0.92)_100%)] p-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-cyan-100/70">
+              <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-inverse-muted-foreground">
                 {t('agent.home.focus.postureEyebrow')}
               </div>
               <div className="mt-2 text-lg font-semibold">{t('agent.home.focus.postureTitle')}</div>
-              <div className="mt-1 text-sm text-slate-200/90">{t('agent.home.focus.postureDescription')}</div>
+              <div className="mt-1 text-sm text-inverse-muted-foreground">{t('agent.home.focus.postureDescription')}</div>
             </div>
             <Badge className={statusClassName}>{t(`agent.home.focus.status.${statusKey}` as const)}</Badge>
           </div>
 
           <div className="mt-4 grid gap-px overflow-hidden rounded-[24px] border border-white/10 bg-white/10 sm:grid-cols-3">
-            <div className="bg-slate-950/18 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+            <div className="bg-inverse/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-inverse-muted-foreground">
                 {t('agent.home.focus.summaryAttention')}
               </div>
               <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.attentionTaskCount)}</div>
             </div>
-            <div className="bg-slate-950/18 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+            <div className="bg-inverse/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-inverse-muted-foreground">
                 {t('agent.home.focus.posturePublish')}
               </div>
               <div className="mt-2 text-2xl font-semibold">{formatNumber(publishRate)}%</div>
             </div>
-            <div className="bg-slate-950/18 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-300">
+            <div className="bg-inverse/18 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-inverse-muted-foreground">
                 {t('agent.home.focus.postureKnowledge')}
               </div>
               <div className="mt-2 text-2xl font-semibold">{formatNumber(docsPerKnowledge)}</div>
@@ -158,7 +158,7 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
             metric={formatNumber(summary.attentionTaskCount)}
             actionLabel={t('agent.home.focus.openTasks')}
             icon={ShieldAlert}
-            iconClassName="text-rose-500"
+            iconClassName="text-danger-foreground"
             items={taskItems}
             onAction={() => navigate('/tasks')}
           />
@@ -168,7 +168,7 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
             metric={`${formatNumber(summary.draftAgents)} / ${formatNumber(summary.agentCount)}`}
             actionLabel={t('agent.home.focus.openAgents')}
             icon={Bot}
-            iconClassName="text-sky-500"
+            iconClassName="text-primary"
             items={agentItems}
             onAction={() => navigate('/agents')}
           />
@@ -178,7 +178,7 @@ export function FocusPanel({ summary, agents, tasks, knowledgeBases, isLoading }
             metric={formatNumber(summary.knowledgeCount)}
             actionLabel={t('agent.home.focus.openKnowledge')}
             icon={Database}
-            iconClassName="text-amber-500"
+            iconClassName="text-warning-foreground"
             items={knowledgeItems}
             onAction={() => navigate('/knowledge')}
           />

@@ -77,7 +77,7 @@ export function ModelTest({ providerId, modelId, modelName }: ModelTestProps) {
         {testResult && (
           <div className="space-y-2">
             <Label>{t('model.test.resultLabel')}</Label>
-            <div className={`p-4 rounded-md ${testResult.success ? 'bg-green-50' : 'bg-red-50'}`}>
+            <div className={`p-4 rounded-md ${testResult.success ? 'bg-success/12' : 'bg-danger/12'}`}>
               <div className="font-medium">
                 {testResult.success ? t('model.test.success') : t('model.test.failure')}
               </div>

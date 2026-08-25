@@ -113,7 +113,7 @@ function SettingsOverviewPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
-      <Card className="border-none bg-gradient-to-br from-zinc-950 via-slate-900 to-sky-900 text-white shadow-xl">
+      <Card className="border-none bg-gradient-to-br from-inverse via-inverse-2 to-inverse-3 text-white shadow-xl">
         <CardHeader className="gap-4">
           <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
             {t('system.settings.overview.badge')}
@@ -122,7 +122,7 @@ function SettingsOverviewPage() {
             <CardTitle className="text-3xl font-semibold tracking-tight">
               {workspace?.name || t('system.settings.overview.fallbackTitle')}
             </CardTitle>
-            <CardDescription className="max-w-2xl text-slate-300">
+            <CardDescription className="max-w-2xl text-inverse-muted-foreground">
               {workspace?.description || t('system.settings.overview.fallbackDescription')}
             </CardDescription>
           </div>
@@ -136,7 +136,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <Building2 className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.workspaceRole')}</div>
+            <div className="text-sm text-inverse-muted-foreground">{t('system.settings.overview.stats.workspaceRole')}</div>
             <div className="mt-1 text-lg font-medium">{currentUser?.workspace_role || '-'}</div>
           </button>
           <button
@@ -147,7 +147,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <Users className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.members')}</div>
+            <div className="text-sm text-inverse-muted-foreground">{t('system.settings.overview.stats.members')}</div>
             <div className="mt-1 text-lg font-medium">{members.length}</div>
           </button>
           <button
@@ -158,7 +158,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <KeyRound className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.activeApiKeys')}</div>
+            <div className="text-sm text-inverse-muted-foreground">{t('system.settings.overview.stats.activeApiKeys')}</div>
             <div className="mt-1 text-lg font-medium">{activeApiKeys.length}</div>
           </button>
           <button
@@ -169,7 +169,7 @@ function SettingsOverviewPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
               <LockKeyhole className="h-5 w-5" />
             </div>
-            <div className="text-sm text-slate-300">{t('system.settings.overview.stats.secrets')}</div>
+            <div className="text-sm text-inverse-muted-foreground">{t('system.settings.overview.stats.secrets')}</div>
             <div className="mt-1 text-lg font-medium">{secrets.length}</div>
           </button>
         </CardContent>

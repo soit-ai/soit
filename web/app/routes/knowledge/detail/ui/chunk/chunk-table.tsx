@@ -64,7 +64,7 @@ export function ChunkTable({
               </TableCell>
               <TableCell>
                 <div
-                  className="max-w-[400px] line-clamp-2 cursor-pointer text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                  className="max-w-[400px] line-clamp-2 cursor-pointer text-primary hover:text-primary hover:underline transition-colors"
                   onClick={() => onChunkEdit(chunk)}
                 >
                   {chunk.content}
@@ -75,7 +75,7 @@ export function ChunkTable({
               </TableCell>
               <TableCell>
                 {chunk.vectorized ? (
-                  <Badge variant="default" className="bg-green-500">
+                  <Badge variant="default" className="bg-success">
                     <CheckCircle2 className="mr-1 h-3 w-3" />
                     Completed
                   </Badge>
@@ -88,7 +88,7 @@ export function ChunkTable({
               </TableCell>
               <TableCell>
                 {chunk.indexed ? (
-                  <Badge variant="default" className="bg-green-500">
+                  <Badge variant="default" className="bg-success">
                     <CheckCircle2 className="mr-1 h-3 w-3" />
                     Completed
                   </Badge>

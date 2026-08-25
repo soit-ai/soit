@@ -50,28 +50,28 @@ export function HomeHero({ summary, isRefreshing, partialFailure, isInitialError
       value: formatNumber(summary.publishedAgents),
       meta: `${formatNumber(summary.agentCount)} ${t('agent.home.hero.agentsUnit')} / ${formatNumber(summary.workflowCount)} ${t('agent.home.hero.workflowsUnit')}`,
       icon: Bot,
-      tone: 'text-sky-600 dark:text-sky-300',
+      tone: 'text-primary',
     },
     {
       label: t('agent.home.hero.signalKnowledge'),
       value: formatCompact(summary.totalDocuments),
       meta: `${formatCompact(summary.totalChunks)} ${t('agent.home.hero.chunksUnit')}`,
       icon: Database,
-      tone: 'text-amber-600 dark:text-amber-300',
+      tone: 'text-warning-foreground',
     },
     {
       label: t('agent.home.hero.signalRuntime'),
       value: formatNumber(summary.activeTaskCount),
       meta: `${formatNumber(summary.failedRunCount)} ${t('agent.home.hero.failedRuns')}`,
       icon: Waypoints,
-      tone: 'text-emerald-600 dark:text-emerald-300',
+      tone: 'text-success-foreground',
     },
     {
       label: t('agent.home.hero.totalTokens'),
       value: formatCompact(totalTokens),
       meta: t('agent.home.hero.runtimeMs', { count: formatCompact(summary.runtimeMs) }),
       icon: Activity,
-      tone: 'text-indigo-600 dark:text-indigo-300',
+      tone: 'text-primary',
     },
   ]
 
@@ -217,10 +217,10 @@ export function HomeHero({ summary, isRefreshing, partialFailure, isInitialError
             </div>
           </div>
 
-          <div className="rounded-[var(--radius-2xl)] border border-slate-800/80 bg-[linear-gradient(180deg,rgba(16,24,38,0.96)_0%,rgba(14,30,46,0.92)_100%)] p-5 text-white shadow-[0_22px_48px_rgba(2,6,23,0.28)] dark:border-slate-700/80">
+          <div className="rounded-[var(--radius-2xl)] border border-inverse-border bg-[linear-gradient(180deg,rgba(16,24,38,0.96)_0%,rgba(14,30,46,0.92)_100%)] p-5 text-white shadow-[0_22px_48px_rgba(2,6,23,0.28)] ">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">
+                <div className="text-xs uppercase tracking-[0.24em] text-inverse-muted-foreground">
                   {t('agent.home.hero.controlDeck')}
                 </div>
                 <div className="mt-1 text-lg font-medium">{t('agent.home.hero.controlDeckTitle')}</div>
@@ -228,7 +228,7 @@ export function HomeHero({ summary, isRefreshing, partialFailure, isInitialError
               <Button
                 variant="ghost"
                 size="icon"
-                className="border-transparent text-white hover:bg-white/10"
+                className="border-transparent text-white hover:bg-inverse-panel"
                 disabled={isRefreshing}
                 onClick={onRefresh}
               >
@@ -237,48 +237,48 @@ export function HomeHero({ summary, isRefreshing, partialFailure, isInitialError
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-inverse-border bg-inverse-panel p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.publishing')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-inverse-muted-foreground">{t('agent.home.hero.publishing')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.publishedAgents)}</div>
                   </div>
-                  <Bot className="h-5 w-5 text-cyan-200" />
+                  <Bot className="h-5 w-5 text-brand-blue-300" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.publishingShort')}</div>
+                <div className="mt-2 text-sm text-inverse-muted-foreground">{t('agent.home.hero.publishingShort')}</div>
               </div>
 
-              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-inverse-border bg-inverse-panel p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.retrieval')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-inverse-muted-foreground">{t('agent.home.hero.retrieval')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.knowledgeCount)}</div>
                   </div>
-                  <Database className="h-5 w-5 text-amber-200" />
+                  <Database className="h-5 w-5 text-warning-foreground" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.retrievalShort')}</div>
+                <div className="mt-2 text-sm text-inverse-muted-foreground">{t('agent.home.hero.retrievalShort')}</div>
               </div>
 
-              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-inverse-border bg-inverse-panel p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.execution')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-inverse-muted-foreground">{t('agent.home.hero.execution')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.runCount)}</div>
                   </div>
-                  <Waypoints className="h-5 w-5 text-emerald-200" />
+                  <Waypoints className="h-5 w-5 text-brand-teal-300" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.executionShort')}</div>
+                <div className="mt-2 text-sm text-inverse-muted-foreground">{t('agent.home.hero.executionShort')}</div>
               </div>
 
-              <div className="rounded-[var(--radius-lg)] border border-white/10 bg-white/[0.07] p-4">
+              <div className="rounded-[var(--radius-lg)] border border-inverse-border bg-inverse-panel p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-300">{t('agent.home.hero.totalTokens')}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-inverse-muted-foreground">{t('agent.home.hero.totalTokens')}</div>
                     <div className="mt-2 text-2xl font-semibold">{formatCompact(totalTokens)}</div>
                   </div>
-                  <Activity className="h-5 w-5 text-indigo-200" />
+                  <Activity className="h-5 w-5 text-primary" />
                 </div>
-                <div className="mt-2 text-sm text-slate-300">{t('agent.home.hero.tokenShort')}</div>
+                <div className="mt-2 text-sm text-inverse-muted-foreground">{t('agent.home.hero.tokenShort')}</div>
               </div>
             </div>
           </div>

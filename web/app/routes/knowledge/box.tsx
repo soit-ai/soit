@@ -56,15 +56,15 @@ type MetricDefinition = Omit<React.ComponentProps<typeof MetricStrip>['items'][n
 const statusConfig = {
   ready: {
     labelKey: 'knowledge.workspaceDashboard.status.ready',
-    className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+    className: 'border-success/20 bg-success/12 text-success-foreground',
   },
   indexing: {
     labelKey: 'knowledge.workspaceDashboard.status.indexing',
-    className: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200',
+    className: 'border-warning/20 bg-warning/12 text-warning-foreground',
   },
   error: {
     labelKey: 'knowledge.workspaceDashboard.status.error',
-    className: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+    className: 'border-danger/20 bg-danger/12 text-danger-foreground',
   },
   unconfigured: {
     labelKey: 'knowledge.workspaceDashboard.status.unconfigured',
@@ -98,10 +98,10 @@ function formatTimestamp(value?: string | null) {
 }
 
 function getMarkerClassName(row: KnowledgeWorkbenchRow) {
-  if (row.status === 'error') return 'bg-red-500'
-  if (row.status === 'indexing') return 'bg-amber-500'
-  if (row.status === 'unconfigured') return 'bg-slate-500'
-  return row.knowledge_type === 'qa' ? 'bg-emerald-500' : row.knowledge_type === 'code' ? 'bg-violet-500' : 'bg-blue-600'
+  if (row.status === 'error') return 'bg-danger'
+  if (row.status === 'indexing') return 'bg-warning'
+  if (row.status === 'unconfigured') return 'bg-muted'
+  return row.knowledge_type === 'qa' ? 'bg-cat-green' : row.knowledge_type === 'code' ? 'bg-cat-purple' : 'bg-cat-blue'
 }
 
 function buildMetricItems(workbench?: Awaited<ReturnType<typeof getKnowledgeWorkbench>>): MetricDefinition[] {
@@ -178,10 +178,10 @@ function HitRate({ row }: { row: KnowledgeWorkbenchRow }) {
   if (typeof row.hit_rate !== 'number') return <span className="text-muted-foreground">-</span>
   const value = row.hit_rate
   const className = value < 90
-    ? 'text-red-600 dark:text-red-300'
+    ? 'text-danger-foreground'
     : value < 95
-      ? 'text-orange-600 dark:text-orange-300'
-      : 'text-emerald-600 dark:text-emerald-300'
+      ? 'text-warning-foreground'
+      : 'text-success-foreground'
 
   return <span className={cn('font-semibold', className)}>{formatRate(row.hit_rate)}</span>
 }
@@ -410,7 +410,7 @@ function KnowledgeBoxPage() {
         description={t('knowledge.workspaceDashboard.header.description')}
         action={(
           <Button
-            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+            className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90 dark:hover:bg-primary"
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="h-4 w-4" />

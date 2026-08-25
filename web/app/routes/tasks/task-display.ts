@@ -69,15 +69,15 @@ export const statusVariant = (status: string) => {
 
 export const sceneForType = (t: TFunction, taskType: string) => {
   if (taskType === 'agent.execute' || taskType === 'agent.stream') {
-    return { label: t('task.scene.agentExecute'), icon: Bot, tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' }
+    return { label: t('task.scene.agentExecute'), icon: Bot, tone: 'text-success-foreground bg-success/12 border-success/20' }
   }
   if (taskType === 'wf_step') {
-    return { label: t('task.scene.workflowNode'), icon: Workflow, tone: 'text-blue-600 bg-blue-50 border-blue-100' }
+    return { label: t('task.scene.workflowNode'), icon: Workflow, tone: 'text-primary bg-primary/12 border-primary/20' }
   }
   if (taskType === 'approval_gate') {
-    return { label: t('task.scene.approval'), icon: ShieldAlert, tone: 'text-orange-600 bg-orange-50 border-orange-100' }
+    return { label: t('task.scene.approval'), icon: ShieldAlert, tone: 'text-warning-foreground bg-warning/12 border-warning/20' }
   }
-  return { label: t('task.scene.other'), icon: FileQuestion, tone: 'text-slate-600 bg-slate-50 border-slate-100' }
+  return { label: t('task.scene.other'), icon: FileQuestion, tone: 'text-muted-foreground bg-muted border-border' }
 }
 
 export const metricIconForTab = (tab: TaskTab) => {

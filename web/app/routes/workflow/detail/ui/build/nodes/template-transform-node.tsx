@@ -12,7 +12,7 @@ export const TemplateTransformNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.tool',
   description: 'Transform data with a template',
   descriptionKey: 'workflow.blocksAbout.template-transform',
-  color: 'pink-500',
+  color: 'cat-pink',
   icon: 'FileCode',
 }
 
@@ -27,9 +27,9 @@ const TemplateTransformNodeComponent = ({ data, isConnectable, selected }: NodeP
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-pink-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-pink' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <FileCode className="h-4 w-4 text-pink-500" />
+        <FileCode className="h-4 w-4 text-cat-pink" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.blocks.template-transform')}</div>
       </div>
       
@@ -42,7 +42,7 @@ const TemplateTransformNodeComponent = ({ data, isConnectable, selected }: NodeP
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-pink-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-pink border-2 border-background"
       />
       
       <Handle
@@ -50,7 +50,7 @@ const TemplateTransformNodeComponent = ({ data, isConnectable, selected }: NodeP
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-pink-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-pink border-2 border-background"
       />
     </div>
   )

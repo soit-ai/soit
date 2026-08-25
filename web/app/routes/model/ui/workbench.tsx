@@ -62,13 +62,13 @@ export type QuotaReminderRow = {
 }
 
 const statusClassName = {
-  available: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
-  online: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
-  normal: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+  available: 'border-success/20 bg-success/12 text-success-foreground',
+  online: 'border-success/20 bg-success/12 text-success-foreground',
+  normal: 'border-success/20 bg-success/12 text-success-foreground',
   disabled: 'border-border bg-muted text-muted-foreground',
-  abnormal: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
-  error: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
-  warning: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200',
+  abnormal: 'border-danger/20 bg-danger/12 text-danger-foreground',
+  error: 'border-danger/20 bg-danger/12 text-danger-foreground',
+  warning: 'border-warning/20 bg-warning/12 text-warning-foreground',
 } satisfies Record<string, string>
 
 export function WorkbenchPanel({ title, action, children, className }: { title: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -130,7 +130,7 @@ export function TypeBadges({ values }: { values: string[] }) {
 }
 
 export function QuotaProgress({ label, value }: { label: string; value: number }) {
-  const tone = value >= 80 ? 'bg-orange-500' : 'bg-blue-600'
+  const tone = value >= 80 ? 'bg-warning' : 'bg-primary'
 
   return (
     <div className="min-w-[150px] space-y-1">

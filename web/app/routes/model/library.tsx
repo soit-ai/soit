@@ -251,7 +251,7 @@ function ModelLibraryPage() {
     { id: 'context', header: t('model.library.columns.context'), cellClassName: 'font-medium text-foreground', render: (row) => row.context },
     { id: 'price', header: t('model.library.columns.price'), render: (row) => row.price },
     { id: 'todayCalls', header: t('model.library.columns.todayCalls'), render: (row) => row.todayCalls },
-    { id: 'latency', header: t('model.library.columns.avgLatency'), render: (row) => <span className={cn(row.avgLatency === '--' ? 'text-muted-foreground' : 'text-emerald-600')}>{row.avgLatency}</span> },
+    { id: 'latency', header: t('model.library.columns.avgLatency'), render: (row) => <span className={cn(row.avgLatency === '--' ? 'text-muted-foreground' : 'text-success-foreground')}>{row.avgLatency}</span> },
     { id: 'updatedAt', header: t('model.library.columns.updatedAt'), render: (row) => row.updatedAt },
     { id: 'owner', header: t('model.library.columns.owner'), render: (row) => row.owner },
     {
@@ -276,7 +276,7 @@ function ModelLibraryPage() {
         action={(
           <Button
             type="button"
-            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700"
+            className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90"
             onClick={() => openModelManagement()}
           >
             <Plus className="h-4 w-4" />

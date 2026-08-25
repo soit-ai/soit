@@ -139,16 +139,16 @@ const statusLabelKeys = {
 } satisfies Record<PluginStatus, TranslationKey>
 
 const statusClassName = {
-  running: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
-  enabled: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
+  running: 'border-success/20 bg-success/12 text-success-foreground',
+  enabled: 'border-primary/20 bg-primary/12 text-primary',
   available: 'border-border bg-muted text-muted-foreground',
-  disabled: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200',
+  disabled: 'border-warning/20 bg-warning/12 text-warning-foreground',
 } satisfies Record<PluginStatus, string>
 
 const riskClassName = {
-  low: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
-  medium: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200',
-  high: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+  low: 'border-success/20 bg-success/12 text-success-foreground',
+  medium: 'border-warning/20 bg-warning/12 text-warning-foreground',
+  high: 'border-danger/20 bg-danger/12 text-danger-foreground',
   none: 'border-border bg-muted text-muted-foreground',
 } satisfies Record<PluginRisk, string>
 
@@ -397,12 +397,12 @@ function PluginNameCell({ row, typeLabel }: { row: PluginWorkbenchRow; typeLabel
   const Icon = row.type === 'mcp' ? Plug : row.type === 'skill' ? FileCog : PackageCheck
   const colorClassName =
     row.risk === 'high'
-      ? 'bg-slate-950 dark:bg-slate-700'
+      ? 'bg-muted'
       : row.type === 'skill'
-        ? 'bg-violet-600'
+        ? 'bg-cat-purple'
         : row.type === 'mcp'
-          ? 'bg-slate-900'
-          : 'bg-blue-600'
+          ? 'bg-muted'
+          : 'bg-primary'
 
   return (
     <div className="flex min-w-[250px] items-center gap-3">
@@ -426,7 +426,7 @@ function AgentAvatars({ names }: { names: string[] }) {
     <AvatarGroup>
       {names.slice(0, 5).map((name, index) => (
         <Avatar key={`${name}-${index}`} size="sm" className="border border-background bg-muted">
-          <AvatarFallback className={cn('text-[10px] font-semibold text-white', index % 2 === 0 ? 'bg-slate-700 dark:bg-slate-500' : 'bg-blue-600 dark:bg-blue-500')}>
+          <AvatarFallback className={cn('text-[10px] font-semibold text-white', index % 2 === 0 ? 'bg-muted' : 'bg-primary')}>
             {name.slice(0, 2).toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -553,7 +553,7 @@ function DetailList({ title, values, empty }: { title: string; values: string[];
         <ul className="space-y-2 text-sm text-muted-foreground">
           {values.map((value) => (
             <li key={value} className="flex items-start gap-2">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-foreground" />
               <span>{value}</span>
             </li>
           ))}
@@ -621,7 +621,7 @@ function PluginDetailPanel({
     <div className="p-5 pt-0">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white dark:bg-slate-700">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-white">
             <Plug className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -1076,7 +1076,7 @@ export default function PluginBoxPage() {
                 <Upload className="h-4 w-4" />
                 {t('plugin.workspaceDashboard.header.upload')}
               </Button>
-              <Button className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700" disabled>
+              <Button className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90" disabled>
                 <PackagePlus className="h-4 w-4" />
                 {t('plugin.workspaceDashboard.header.connect')}
               </Button>

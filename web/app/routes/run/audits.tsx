@@ -74,7 +74,7 @@ function AuditExplorerPage() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-blue-600" />
+              <ShieldCheck className="h-5 w-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Audit Explorer</h1>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">

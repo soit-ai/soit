@@ -228,7 +228,7 @@ export function BoxSidebar({
                   <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.capabilities')}</span>
                   <span>{capabilities.length}</span>
                 </div>
-                <Progress value={Math.min(capabilities.length, 100)} className="bg-blue-200" />
+                <Progress value={Math.min(capabilities.length, 100)} className="bg-primary/12" />
               </div>
 
               <div className="space-y-1">
@@ -236,7 +236,7 @@ export function BoxSidebar({
                   <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.risks')}</span>
                   <span>{highRiskCount}</span>
                 </div>
-                <Progress value={Math.min(highRiskCount * 10, 100)} className={highRiskCount > 0 ? 'bg-amber-200' : 'bg-muted'} />
+                <Progress value={Math.min(highRiskCount * 10, 100)} className={highRiskCount > 0 ? 'bg-warning/12' : 'bg-muted'} />
               </div>
 
               <div className="space-y-1">
@@ -244,7 +244,7 @@ export function BoxSidebar({
                   <span className="text-muted-foreground">{t('plugin.workspaceDashboard.sidebar.stats.health')}</span>
                   <span>{healthRate}%</span>
                 </div>
-                <Progress value={healthRate} className="bg-emerald-200" />
+                <Progress value={healthRate} className="bg-success/12" />
               </div>
 
               <div className="text-xs text-muted-foreground">

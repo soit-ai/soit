@@ -265,7 +265,7 @@ export function AgentBoxSidebar({
                     <div className="text-xs text-muted-foreground">{t('agent.sidebar.stats.todayCalls')}</div>
                     <div className="text-sm font-semibold text-foreground">{(summary?.today_calls ?? 0).toLocaleString()}</div>
                   </div>
-                  <MiniSparkline values={[5, 7, 6, 8, 11, 9, 13, 7, 10, 9]} className="text-blue-500 dark:text-blue-300" />
+                  <MiniSparkline values={[5, 7, 6, 8, 11, 9, 13, 7, 10, 9]} className="text-primary" />
                 </div>
               </div>
 
@@ -275,9 +275,9 @@ export function AgentBoxSidebar({
                     <div className="text-xs text-muted-foreground">{t('agent.sidebar.stats.successRate')}</div>
                     <div className="text-sm font-semibold text-foreground">{successRate.toFixed(successRate % 1 === 0 ? 0 : 1)}%</div>
                   </div>
-                  <MiniSparkline values={[8, 9, 8, 11, 10, 13, 9, 12, 11, 14]} className="text-emerald-500 dark:text-emerald-300" />
+                  <MiniSparkline values={[8, 9, 8, 11, 10, 13, 9, 12, 11, 14]} className="text-success-foreground" />
                 </div>
-                <Progress value={successRate} className="mt-2 h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
+                <Progress value={successRate} className="mt-2 h-1.5 bg-success/12" />
               </div>
 
               <div className="border-t border-border pt-3 text-xs text-muted-foreground">

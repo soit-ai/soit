@@ -60,7 +60,7 @@ export const KnowledgeSearchNodeInfo = {
   label: 'Knowledge Search',
   category: 'knowledge',
   description: 'Search relevant information from knowledge bases',
-  color: 'indigo-500',
+  color: 'cat-indigo',
   icon: 'Search',
 }
 
@@ -78,9 +78,9 @@ const KnowledgeSearchNodeComponent = ({ data, isConnectable, selected }: NodePro
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles()
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-indigo-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-indigo' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Search className="h-4 w-4 text-indigo-500" />
+        <Search className="h-4 w-4 text-cat-indigo" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.knowledgeSearch.label')}</div>
       </div>
 
@@ -96,7 +96,7 @@ const KnowledgeSearchNodeComponent = ({ data, isConnectable, selected }: NodePro
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-indigo-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-indigo border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -105,7 +105,7 @@ const KnowledgeSearchNodeComponent = ({ data, isConnectable, selected }: NodePro
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-indigo-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-indigo border-2 border-background"
       />
     </div>
   )

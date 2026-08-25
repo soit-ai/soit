@@ -307,21 +307,21 @@ function ModelIcon({ type }: { type: ModelType }) {
     switch (type) {
       case 'llm':
       case 'chat':
-        return 'text-blue-500 bg-blue-100 dark:bg-blue-950'
+        return 'text-cat-blue bg-cat-blue/12'
       case 'vision':
-        return 'text-purple-500 bg-purple-100 dark:bg-purple-950'
+        return 'text-cat-purple bg-cat-purple/12'
       case 'text-embedding':
-        return 'text-green-500 bg-green-100 dark:bg-green-950'
+        return 'text-cat-green bg-cat-green/12'
       case 'rerank':
-        return 'text-yellow-500 bg-yellow-100 dark:bg-yellow-950'
+        return 'text-cat-amber bg-cat-amber/12'
       case 'speech2text':
-        return 'text-orange-500 bg-orange-100 dark:bg-orange-950'
+        return 'text-cat-amber bg-cat-amber/12'
       case 'tts':
-        return 'text-pink-500 bg-pink-100 dark:bg-pink-950'
+        return 'text-cat-pink bg-cat-pink/12'
       case 'moderation':
-        return 'text-red-500 bg-red-100 dark:bg-red-950'
+        return 'text-cat-red bg-cat-red/12'
       default:
-        return 'text-gray-500 bg-gray-100 dark:bg-gray-800'
+        return 'text-cat-slate bg-cat-slate/12'
     }
   }
 

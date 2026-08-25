@@ -61,31 +61,31 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
   return (
     <form onSubmit={handleSubmit(onSubmit)} className={cn('flex flex-col gap-5', className)} {...props}>
       <div className="space-y-3">
-        <div className="inline-flex items-center gap-2 rounded-[0.5rem] border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-100">
+        <div className="inline-flex items-center gap-2 rounded-[0.5rem] border border-success/80 bg-success/12 px-3 py-2 text-xs font-medium text-success-foreground dark:border-success/20">
           <ShieldCheck className="h-4 w-4" />
           Secure SOIT workspace
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-slate-950 dark:text-white">Sign in to SOIT</h2>
-          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+          <h2 className="text-2xl font-semibold text-foreground dark:text-white">Sign in to SOIT</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
             Access agents, knowledge, workflows, and runtime telemetry from one workspace.
           </p>
         </div>
       </div>
       <div className="grid gap-4">
         <div className="grid gap-2">
-          <Label htmlFor="email" className="text-sm text-slate-700 dark:text-slate-200">
+          <Label htmlFor="email" className="text-sm text-muted-foreground dark:text-foreground">
             Email
           </Label>
           <div className="relative">
-            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="email"
               type="email"
               placeholder="name@company.com"
               autoComplete="email"
               aria-invalid={Boolean(errors.email)}
-              className="h-12 rounded-[0.5rem] border-slate-200/90 bg-slate-50/80 pl-10 text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] placeholder:text-slate-400 dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
+              className="h-12 rounded-[0.5rem] border-border bg-muted pl-10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] placeholder:text-muted-foreground dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
               {...register('email', {
                 required: 'Email is required',
                 pattern: {
@@ -96,23 +96,23 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
             />
           </div>
           {errors.email && (
-            <p role="alert" className="text-sm text-red-500">
+            <p role="alert" className="text-sm text-danger-foreground">
               {errors.email.message}
             </p>
           )}
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="password" className="text-sm text-slate-700 dark:text-slate-200">
+          <Label htmlFor="password" className="text-sm text-muted-foreground dark:text-foreground">
             Password
           </Label>
           <div className="relative">
-            <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="password"
               type="password"
               autoComplete="current-password"
               aria-invalid={Boolean(errors.password)}
-              className="h-12 rounded-[0.5rem] border-slate-200/90 bg-slate-50/80 pl-10 text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
+              className="h-12 rounded-[0.5rem] border-border bg-muted pl-10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
               {...register('password', {
                 required: 'Password is required',
                 minLength: {
@@ -123,14 +123,14 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
             />
           </div>
           {errors.password && (
-            <p role="alert" className="text-sm text-red-500">
+            <p role="alert" className="text-sm text-danger-foreground">
               {errors.password.message}
             </p>
           )}
         </div>
         <Button
           type="submit"
-          className="h-11 w-full rounded-[0.5rem] bg-slate-950 text-white shadow-[0_18px_42px_rgba(15,23,42,0.18)] hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+          className="h-11 w-full rounded-[0.5rem] bg-inverse text-inverse-foreground shadow-[0_18px_42px_rgba(15,23,42,0.18)] hover:bg-inverse-3 dark:bg-inverse-foreground dark:text-inverse dark:hover:bg-inverse-muted-foreground"
           disabled={loginMutation.isPending}
         >
           {loginMutation.isPending ? (
@@ -145,14 +145,14 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
             </>
           )}
         </Button>
-        <div className="text-center text-sm text-slate-600 dark:text-slate-300">
+        <div className="text-center text-sm text-muted-foreground">
           New to SOIT?{' '}
-          <Link to="/sign-up" className="font-medium text-slate-950 underline underline-offset-4 dark:text-white">
+          <Link to="/sign-up" className="font-medium text-foreground underline underline-offset-4 dark:text-white">
             Create an account
           </Link>
         </div>
       </div>
-      <p className="text-balance text-center text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-balance text-center text-xs text-muted-foreground">
         Community authentication supports email and password only.
       </p>
     </form>

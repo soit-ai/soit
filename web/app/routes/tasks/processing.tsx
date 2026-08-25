@@ -191,7 +191,7 @@ function HandlingContent({
       </section>
 
       {data.summary.error_message ? (
-        <section className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+        <section className="rounded-lg border border-danger/20 bg-danger/12 p-4 text-danger-foreground">
           <div className="text-sm font-semibold">{t('task.handling.errorSummary')}</div>
           <div className="mt-2 text-sm">{data.summary.error_message}</div>
         </section>

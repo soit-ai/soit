@@ -29,7 +29,7 @@ function EmptyState({ section }: { section: DashboardSection }) {
       <Database className="h-8 w-8 text-muted-foreground" />
       <div className="mt-3 text-base font-semibold">{section.empty_state.title}</div>
       <div className="mt-1 max-w-md text-sm text-muted-foreground">{section.empty_state.description}</div>
-      <Link to="/observe/runs?include_observe_summary=true" className="mt-4 text-sm font-medium text-blue-600 hover:underline dark:text-blue-300">
+      <Link to="/observe/runs?include_observe_summary=true" className="mt-4 text-sm font-medium text-primary hover:underline">
         {t('observe.header.openRunExplorer')}
       </Link>
     </div>

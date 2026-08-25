@@ -206,7 +206,7 @@ function ModelOverviewPage() {
         title={t('model.overview.title')}
         description={t('model.overview.description')}
         action={(
-          <Button className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700">
+          <Button className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90">
             <Clock3 className="h-4 w-4" />
             {t('model.overview.actions.month')}
           </Button>

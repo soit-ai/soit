@@ -12,7 +12,7 @@ export const ParameterExtractorNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.data',
   description: 'Extract parameters from inputs',
   descriptionKey: 'workflow.blocksAbout.parameter-extractor',
-  color: 'teal-500',
+  color: 'cat-teal',
   icon: 'SlidersHorizontal',
 }
 
@@ -26,9 +26,9 @@ const ParameterExtractorNodeComponent = ({ data, isConnectable, selected }: Node
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-teal-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-teal' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <SlidersHorizontal className="h-4 w-4 text-teal-500" />
+        <SlidersHorizontal className="h-4 w-4 text-cat-teal" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.blocks.parameter-extractor')}</div>
       </div>
       
@@ -41,7 +41,7 @@ const ParameterExtractorNodeComponent = ({ data, isConnectable, selected }: Node
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-teal-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-teal border-2 border-background"
       />
       
       <Handle
@@ -49,7 +49,7 @@ const ParameterExtractorNodeComponent = ({ data, isConnectable, selected }: Node
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-teal-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-teal border-2 border-background"
       />
     </div>
   )

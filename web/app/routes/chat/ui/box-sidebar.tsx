@@ -418,7 +418,7 @@ export function BoxSidebar({
           <ScrollArea className="h-full">
             {isLoading && !pageToken ? (
               <div className="flex items-center justify-center p-2">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 dark:border-gray-200 border-gray-900"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-border"></div>
               </div>
             ) : searchedConversations.length > 0 ? (
               <>

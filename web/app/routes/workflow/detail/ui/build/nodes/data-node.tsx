@@ -16,7 +16,7 @@ export const DataNodeInfo = {
   label: 'Data Source',
   category: 'data',
   description: 'Connect external data sources',
-  color: 'cyan-500',
+  color: 'cat-cyan',
   icon: 'Database',
 }
 
@@ -34,7 +34,7 @@ const DataNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   return (
     <div className={`p-3 rounded-md border ${selected ? 'border-primary' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Database className="h-4 w-4 text-cyan-500" />
+        <Database className="h-4 w-4 text-cat-cyan" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.data.label')}</div>
       </div>
 
@@ -54,7 +54,7 @@ const DataNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-cyan-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-cyan border-2 border-background"
       />
     </div>
   )

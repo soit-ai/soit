@@ -57,7 +57,7 @@ export const ToolNodeInfo = {
   label: 'Tool Call',
   category: 'tool',
   description: 'Invoke external tools or APIs',
-  color: 'amber-500',
+  color: 'cat-amber',
   icon: 'Wrench',
 }
 
@@ -75,7 +75,7 @@ const ToolNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   return (
     <div className={`p-3 rounded-md border ${selected ? 'border-primary' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Wrench className="h-4 w-4 text-amber-500" />
+        <Wrench className="h-4 w-4 text-cat-amber" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.tool.label')}</div>
       </div>
 
@@ -93,7 +93,7 @@ const ToolNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-amber-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -102,7 +102,7 @@ const ToolNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-amber-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
     </div>
   )

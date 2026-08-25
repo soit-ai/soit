@@ -11,7 +11,7 @@ export const DocumentExtractorNodeInfo = {
   label: 'Document Extractor',
   category: 'data',
   description: 'Extract information from documents',
-  color: 'lime-600',
+  color: 'cat-green',
   icon: 'FileText',
 }
 
@@ -28,9 +28,9 @@ const DocumentExtractorNodeComponent = ({ data, isConnectable, selected }: NodeP
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles()
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-lime-600' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-green' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <FileText className="h-4 w-4 text-lime-600" />
+        <FileText className="h-4 w-4 text-cat-green" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.documentExtractor.label')}</div>
       </div>
 
@@ -46,7 +46,7 @@ const DocumentExtractorNodeComponent = ({ data, isConnectable, selected }: NodeP
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-lime-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-green border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -55,7 +55,7 @@ const DocumentExtractorNodeComponent = ({ data, isConnectable, selected }: NodeP
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-lime-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-green border-2 border-background"
       />
     </div>
   )

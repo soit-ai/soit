@@ -29,10 +29,10 @@ export function FocusDecisionLane({
   onAction,
 }: FocusDecisionLaneProps) {
   return (
-    <section className="rounded-[24px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.92)_0%,rgba(241,245,249,0.84)_100%)] p-4 dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.7)_0%,rgba(15,23,42,0.48)_100%)]">
+    <section className="rounded-[24px] border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.92)_0%,rgba(241,245,249,0.84)_100%)] p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.7)_0%,rgba(15,23,42,0.48)_100%)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="rounded-[20px] border border-slate-200/70 bg-white/80 p-2.5 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="rounded-[20px] border border-border bg-white/80 p-2.5 dark:bg-panel">
             <Icon className={`h-4 w-4 ${iconClassName}`} />
           </div>
           <div>
@@ -49,7 +49,7 @@ export function FocusDecisionLane({
         {items.map((item, index) => (
           <div
             key={`${item.primary}-${index}`}
-            className="flex items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-white/82 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/62"
+            className="flex items-start justify-between gap-3 rounded-[20px] border border-border bg-white/82 px-3 py-2.5 dark:bg-panel"
           >
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{item.primary}</div>
@@ -57,7 +57,7 @@ export function FocusDecisionLane({
             </div>
             {item.badge && (
               <span
-                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${item.badgeClassName || 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${item.badgeClassName || 'border-border text-muted-foreground dark:border-border dark:text-muted-foreground'}`}
               >
                 {item.badge}
               </span>
@@ -69,7 +69,7 @@ export function FocusDecisionLane({
       <button
         type="button"
         onClick={onAction}
-        className="mt-4 flex w-full items-center justify-between rounded-[20px] border border-dashed border-slate-300/90 px-3 py-2.5 text-sm text-slate-600 transition-colors hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"
+        className="mt-4 flex w-full items-center justify-between rounded-[20px] border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:border-border hover:text-foreground dark:hover:text-white"
       >
         <span>{actionLabel}</span>
         <ArrowRight className="h-4 w-4" />

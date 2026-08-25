@@ -213,12 +213,12 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <div className="h-2 w-2 rounded-full absolute top-1 right-1">
         <span className={cn(
           "absolute top-0 right-0 h-2 w-2 rounded-full",
-          status === 'warning' ? "bg-amber-500" : "bg-red-500",
+          status === 'warning' ? "bg-warning" : "bg-danger",
           "animate-ping opacity-75"
         )}></span>
         <span className={cn(
           "absolute top-0 right-0 h-2 w-2 rounded-full",
-          status === 'warning' ? "bg-amber-500" : "bg-red-500"
+          status === 'warning' ? "bg-warning" : "bg-danger"
         )}></span>
       </div>
     )

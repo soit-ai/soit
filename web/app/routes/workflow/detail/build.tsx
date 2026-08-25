@@ -892,7 +892,7 @@ const BuildPage: React.FC<BuildPageProps> = () => {
   return (
     <div className="flex flex-1 flex-col h-full w-full">
       {(hasCompatibilityNodes || hasUnsupportedEdges) && (
-        <div role="alert" className="mx-2 mb-1 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
+        <div role="alert" className="mx-2 mb-1 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm">
           {hasCompatibilityNodes
             ? t('workflow.detail.build.compatibilityMessage')
             : t('workflow.detail.build.unsupportedEdgeMessage')}

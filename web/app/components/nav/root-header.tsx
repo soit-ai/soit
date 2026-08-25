@@ -46,10 +46,10 @@ const NotificationItem = ({
   onOpen: (notification: Notification) => void
 }) => {
   const icons = {
-    info: <Info className="h-4 w-4 text-blue-500" />,
-    warning: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
-    error: <AlertTriangle className="h-4 w-4 text-red-500" />,
-    success: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+    info: <Info className="h-4 w-4 text-primary" />,
+    warning: <AlertTriangle className="h-4 w-4 text-warning-foreground" />,
+    error: <AlertTriangle className="h-4 w-4 text-danger-foreground" />,
+    success: <CheckCircle2 className="h-4 w-4 text-success-foreground" />,
   }
   const icon = icons[notification.severity as keyof typeof icons] ?? icons.info
   const timeLabel = notification.created_at

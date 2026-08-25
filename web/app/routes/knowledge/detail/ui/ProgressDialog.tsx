@@ -97,14 +97,14 @@ export default function ProgressDialog({ open, onOpenChange, processingInfo, doc
                 <div key={key} className="flex items-start gap-4">
                   <div className="flex flex-col items-center">
                     {isCompleted ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      <CheckCircle2 className="h-5 w-5 text-success-foreground" />
                     ) : isCurrent ? (
-                      <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+                      <RefreshCw className="h-5 w-5 text-primary animate-spin" />
                     ) : (
-                      <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
+                      <div className="h-5 w-5 rounded-full border-2 border-border" />
                     )}
                     {index < stages.length - 1 && (
-                      <div className={`w-0.5 h-8 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+                      <div className={`w-0.5 h-8 ${isCompleted ? 'bg-success' : 'bg-muted'}`} />
                     )}
                   </div>
                   <div className="flex-1">

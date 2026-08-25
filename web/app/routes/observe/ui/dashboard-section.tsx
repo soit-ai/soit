@@ -60,7 +60,7 @@ export function DashboardSection({
         <Tabs value={tab} onValueChange={(value) => onUpdateParams({ tab: value, page_token: undefined, q: undefined })}>
           <div className="flex flex-col gap-3 border-b px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
             <TabsList variant="line" className="max-w-full flex-wrap justify-start">
-              {tabs.map((item) => <TabsTrigger key={item.id} value={item.id} className="h-9 px-4 data-[state=active]:text-blue-600 dark:data-[state=active]:text-blue-300">{item.label}</TabsTrigger>)}
+              {tabs.map((item) => <TabsTrigger key={item.id} value={item.id} className="h-9 px-4 data-[state=active]:text-primary">{item.label}</TabsTrigger>)}
             </TabsList>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <div className="relative min-w-[240px] sm:w-[300px]">

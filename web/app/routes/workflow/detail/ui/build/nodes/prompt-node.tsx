@@ -15,7 +15,7 @@ export const PromptNodeInfo = {
   label: 'Prompt',
   category: 'input',
   description: 'Preset prompt template',
-  color: 'blue-500',
+  color: 'cat-blue',
   icon: 'MessageSquare',
 }
 
@@ -32,7 +32,7 @@ const PromptNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   return (
     <div className={`p-3 rounded-md border ${selected ? 'border-primary' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <MessageSquare className="h-4 w-4 text-blue-500" />
+        <MessageSquare className="h-4 w-4 text-cat-blue" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.prompt.label')}</div>
       </div>
 
@@ -52,7 +52,7 @@ const PromptNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-blue-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-blue border-2 border-background"
       />
     </div>
   )

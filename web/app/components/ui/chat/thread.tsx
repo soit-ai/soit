@@ -265,25 +265,25 @@ const ThreadWelcomeSuggestions: FC = () => {
       icon: <CodeIcon className="h-4 w-4" />,
       title: t('chat.thread.assistant.suggestions.items.reactComponent.title'),
       prompt: t('chat.thread.assistant.suggestions.items.reactComponent.prompt'),
-      color: 'from-blue-500/20 to-cyan-500/20',
+      color: 'from-cat-blue/20 to-cat-cyan/20',
     },
     {
       icon: <ImageIcon className="h-4 w-4" />,
       title: t('chat.thread.assistant.suggestions.items.imageDescription.title'),
       prompt: t('chat.thread.assistant.suggestions.items.imageDescription.prompt'),
-      color: 'from-purple-500/20 to-pink-500/20',
+      color: 'from-cat-purple/20 to-cat-pink/20',
     },
     {
       icon: <SearchIcon className="h-4 w-4" />,
       title: t('chat.thread.assistant.suggestions.items.aiResearch.title'),
       prompt: t('chat.thread.assistant.suggestions.items.aiResearch.prompt'),
-      color: 'from-amber-500/20 to-orange-500/20',
+      color: 'from-cat-amber/20 to-cat-amber/20',
     },
     {
       icon: <Sparkles className="h-4 w-4" />,
       title: t('chat.thread.assistant.suggestions.items.creativeWriting.title'),
       prompt: t('chat.thread.assistant.suggestions.items.creativeWriting.prompt'),
-      color: 'from-green-500/20 to-emerald-500/20',
+      color: 'from-cat-green/20 to-cat-green/20',
     },
   ]
 
@@ -612,7 +612,7 @@ const EditComposer: FC = () => {
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
-      <ErrorPrimitive.Root className="aui-message-error-root mt-2 rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm dark:bg-destructive/5 dark:text-red-200">
+      <ErrorPrimitive.Root className="aui-message-error-root mt-2 rounded-md border border-destructive bg-destructive/10 p-3 text-destructive text-sm dark:bg-destructive/5 dark:text-danger-foreground">
         <ErrorPrimitive.Message className="aui-message-error-message line-clamp-2" />
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>

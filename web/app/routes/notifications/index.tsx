@@ -38,13 +38,13 @@ const severityOptions = [
 const getSeverityIcon = (severity?: string | null) => {
   switch (severity) {
     case 'warning':
-      return <AlertTriangle className="h-4 w-4 text-yellow-500" />
+      return <AlertTriangle className="h-4 w-4 text-warning-foreground" />
     case 'error':
-      return <AlertTriangle className="h-4 w-4 text-red-500" />
+      return <AlertTriangle className="h-4 w-4 text-danger-foreground" />
     case 'success':
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+      return <CheckCircle2 className="h-4 w-4 text-success-foreground" />
     default:
-      return <Info className="h-4 w-4 text-blue-500" />
+      return <Info className="h-4 w-4 text-primary" />
   }
 }
 
@@ -150,7 +150,7 @@ export default function NotificationsPage() {
     switch (status) {
       case 'unread':
         return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+          <Badge variant="outline" className="bg-primary/12 text-primary border-primary/20">
             {t('notification.item.status.unread')}
           </Badge>
         )
@@ -162,7 +162,7 @@ export default function NotificationsPage() {
         )
       case 'archived':
         return (
-          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+          <Badge variant="outline" className="bg-warning/12 text-warning-foreground border-warning/20">
             {t('notification.item.status.archived')}
           </Badge>
         )

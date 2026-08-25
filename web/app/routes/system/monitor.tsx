@@ -147,7 +147,7 @@ export default function DiagnosticsPage() {
           <Card>
             <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
-                <span className={`size-3 rounded-full ${snapshot.overall_status === 'healthy' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                <span className={`size-3 rounded-full ${snapshot.overall_status === 'healthy' ? 'bg-success' : 'bg-warning'}`} />
                 <div>
                   <p className="font-semibold">{t('system.diagnostics.liveSnapshot')}</p>
                   <p className="text-xs text-muted-foreground">

@@ -211,7 +211,7 @@ export function BoxSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   <span className="text-muted-foreground">{t('knowledge.workspaceSidebar.stats.recallRate')}</span>
                   <span>{recallRate ? `${recallRate.toFixed(recallRate % 1 === 0 ? 0 : 1)}%` : '-'}</span>
                 </div>
-                <Progress value={recallRate} className="h-1.5 bg-emerald-100 dark:bg-emerald-400/10" />
+                <Progress value={recallRate} className="h-1.5 bg-success/12" />
               </div>
 
               <div className="text-xs text-muted-foreground">

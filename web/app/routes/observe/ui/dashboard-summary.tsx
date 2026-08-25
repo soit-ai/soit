@@ -75,7 +75,7 @@ export function MetricTile({ item, onOpenRun }: { item: MetricCard; onOpenRun?: 
       className={cn(
         'min-w-0 overflow-hidden',
         cardChrome,
-        detailUrl ? 'cursor-pointer transition hover:border-blue-300 hover:shadow-[0_10px_26px_rgba(37,99,235,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
+        detailUrl ? 'cursor-pointer transition hover:border-primary/20 hover:shadow-[0_10px_26px_rgba(37,99,235,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
       )}
       role={detailUrl ? 'button' : undefined}
       tabIndex={detailUrl ? 0 : undefined}
@@ -146,7 +146,7 @@ export function DashboardSummary({
       <section className="grid overflow-hidden rounded-lg border border-border/80 bg-panel/95 shadow-[0_8px_22px_rgba(15,23,42,0.04)] lg:grid-cols-2 xl:grid-cols-4">
         <OverviewItem
           icon={ShieldCheck}
-          iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-400/12 dark:text-emerald-300"
+          iconClassName="bg-success/12 text-success-foreground"
           label={t('observe.overview.workspaceHealth')}
           value={`${dashboard.overview.workspace_health_score}%`}
           meta={dashboard.overview.workspace_health_status === 'healthy'
@@ -157,7 +157,7 @@ export function DashboardSummary({
         />
         <OverviewItem
           icon={AlertTriangle}
-          iconClassName="bg-red-50 text-red-600 dark:bg-red-400/12 dark:text-red-300"
+          iconClassName="bg-danger/12 text-danger-foreground"
           label={t('observe.overview.activeAlerts')}
           value={String(dashboard.overview.active_alert_count)}
           meta={dashboard.overview.active_alert_count > 0
@@ -188,7 +188,7 @@ export function DashboardSummary({
         <section className="overflow-hidden rounded-lg border border-border/80 bg-panel/95 px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="text-[15px] font-semibold">{t('observe.recentRuns.title')}</div>
-            <Link to="/observe/runs?include_observe_summary=true" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-300">{t('observe.recentRuns.viewAll')}</Link>
+            <Link to="/observe/runs?include_observe_summary=true" className="text-xs font-medium text-primary hover:underline">{t('observe.recentRuns.viewAll')}</Link>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {dashboard.recent_runs.slice(0, 6).map((run) => (
@@ -216,7 +216,7 @@ export function DashboardSummary({
                       <span>{t('observe.recentRuns.audits', { value: run.observe_summary.audit_count })}</span>
                     </div>
                   ) : null}
-                  {run.failure_reason ? <div className="mt-1 truncate text-xs text-red-600 dark:text-red-300">{run.failure_reason}</div> : null}
+                  {run.failure_reason ? <div className="mt-1 truncate text-xs text-danger-foreground">{run.failure_reason}</div> : null}
                 </div>
               </Button>
             ))}
@@ -225,7 +225,7 @@ export function DashboardSummary({
       ) : (
         <section className="rounded-lg border border-dashed bg-panel px-4 py-5 text-sm text-muted-foreground">
           {t('observe.recentRuns.empty')}
-          <Link to="/observe/runs?include_observe_summary=true" className="ml-2 font-medium text-blue-600 hover:underline dark:text-blue-300">{t('observe.header.openRunExplorer')}</Link>
+          <Link to="/observe/runs?include_observe_summary=true" className="ml-2 font-medium text-primary hover:underline">{t('observe.header.openRunExplorer')}</Link>
         </section>
       )}
 
@@ -241,7 +241,7 @@ export function DashboardSummary({
           <Button
             variant="ghost"
             size="sm"
-            className="text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100"
+            className="text-danger-foreground hover:text-danger-foreground"
             onClick={() => onOpenAlert(dashboard.priority_alert?.detail_url)}
           >
             {t('observe.priorityAlert.handle')}

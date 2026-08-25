@@ -50,7 +50,7 @@ export const LLMNodeInfo = {
   label: 'LLM',
   category: 'model',
   description: 'Large language model',
-  color: 'purple-500',
+  color: 'cat-purple',
   icon: 'Cpu',
 }
 
@@ -70,7 +70,7 @@ const LLMNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   return (
     <div className={`p-3 rounded-md border ${selected ? 'border-primary' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Cpu className="h-4 w-4 text-purple-500" />
+        <Cpu className="h-4 w-4 text-cat-purple" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.llm.label')}</div>
       </div>
 
@@ -88,7 +88,7 @@ const LLMNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-purple-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-purple border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -97,7 +97,7 @@ const LLMNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-purple-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-purple border-2 border-background"
       />
     </div>
   )

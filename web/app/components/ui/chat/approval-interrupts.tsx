@@ -59,10 +59,10 @@ export const ApprovalInterrupts = () => {
     <section
       aria-live="polite"
       aria-label={t('chat.thread.approval.title')}
-      className="mx-auto mb-3 w-[calc(100%-1rem)] max-w-[var(--thread-max-width)] rounded-xl border border-amber-500/35 bg-amber-500/5 p-3 shadow-sm"
+      className="mx-auto mb-3 w-[calc(100%-1rem)] max-w-[var(--thread-max-width)] rounded-xl border border-warning/35 bg-warning/5 p-3 shadow-sm"
     >
       <div className="mb-3 flex items-start gap-3">
-        <span className="rounded-lg bg-amber-500/15 p-2 text-amber-700 dark:text-amber-300">
+        <span className="rounded-lg bg-warning/15 p-2 text-warning-foreground">
           <ShieldAlert className="size-4" aria-hidden="true" />
         </span>
         <div className="min-w-0">
@@ -91,7 +91,7 @@ export const ApprovalInterrupts = () => {
                   type="button"
                   size="sm"
                   variant={selected === 'approved' ? 'default' : 'outline'}
-                  className={cn(selected === 'approved' && 'bg-emerald-600 hover:bg-emerald-700')}
+                  className={cn(selected === 'approved' && 'bg-success hover:bg-success/90')}
                   onClick={() => setDecisions((current) => ({ ...current, [interrupt.id]: 'approved' }))}
                   disabled={submitting}
                 >

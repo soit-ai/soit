@@ -17,7 +17,7 @@ export const QuestionClassifierNodeInfo = {
   label: 'Question Classifier',
   category: 'tool',
   description: 'Classify and route questions',
-  color: 'orange-500',
+  color: 'cat-amber',
   icon: 'FilterX',
 }
 
@@ -36,9 +36,9 @@ const QuestionClassifierNodeComponent = ({ data, isConnectable, selected }: Node
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles()
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-orange-500' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-amber' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <FilterX className="h-4 w-4 text-orange-500" />
+        <FilterX className="h-4 w-4 text-cat-amber" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.questionClassifier.label')}</div>
       </div>
 
@@ -52,7 +52,7 @@ const QuestionClassifierNodeComponent = ({ data, isConnectable, selected }: Node
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-orange-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -61,7 +61,7 @@ const QuestionClassifierNodeComponent = ({ data, isConnectable, selected }: Node
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-orange-500 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
     </div>
   )

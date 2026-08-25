@@ -12,7 +12,7 @@ export const LogicNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.tool',
   description: 'Perform logical operations and evaluation',
   descriptionKey: 'workflow.customNodes.logic.description',
-  color: 'blue-400',
+  color: 'cat-blue',
   icon: 'GitMerge',
 }
 
@@ -26,9 +26,9 @@ const LogicNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-blue-400' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-blue' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <GitMerge className="h-4 w-4 text-blue-400" />
+        <GitMerge className="h-4 w-4 text-cat-blue" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.customNodes.logic.label')}</div>
       </div>
       
@@ -43,7 +43,7 @@ const LogicNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-blue-400 border-2 border-background"
+        className="w-3 h-3 bg-cat-blue border-2 border-background"
       />
       
       <Handle
@@ -51,7 +51,7 @@ const LogicNodeComponent = ({ data, isConnectable, selected }: NodeProps) => {
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-blue-400 border-2 border-background"
+        className="w-3 h-3 bg-cat-blue border-2 border-background"
       />
     </div>
   )

@@ -14,7 +14,7 @@ export function AppIcon(props: AppIconProps) {
   const { icon, type = 'icon', size = 24, color = '', bgColor = '', className = '', iconHover } = props
 
   return (
-    <div className={cn('group/appicon flex aspect-square size-12 items-center justify-center rounded-lg  p-1 bg-gray-300 dark:bg-gray-800 ' + (iconHover ? 'cursor-pointer' : ''), className)}>
+    <div className={cn('group/appicon flex aspect-square size-12 items-center justify-center rounded-lg  p-1 bg-muted ' + (iconHover ? 'cursor-pointer' : ''), className)}>
       <div className={cn('flex items-center justify-center ' + (iconHover ? 'group-hover/appicon:hidden' : ''))}>
         {type === 'icon' ? icon : null}
         {type === 'image' ? <img src={icon as string} className={`h-${size} w-${size}`} /> : null}

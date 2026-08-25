@@ -92,10 +92,10 @@ export function OperationsDashboard({
 
   const riskTone =
     summary.failedRunCount > 0 || summary.attentionTaskCount > 2
-      ? 'text-rose-600'
+      ? 'text-danger-foreground'
       : summary.activeTaskCount > 0
-        ? 'text-amber-600'
-        : 'text-emerald-600'
+        ? 'text-warning-foreground'
+        : 'text-success-foreground'
 
   const trendCards = useMemo(() => {
     const buildSeries = buildActivitySeries([
@@ -179,7 +179,7 @@ export function OperationsDashboard({
             {trendCards.map((card) => (
               <div
                 key={card.key}
-                className="rounded-[26px] border border-slate-200/70 bg-white/82 p-4 dark:border-slate-800 dark:bg-slate-950/64"
+                className="rounded-[26px] border border-border bg-white/82 p-4 dark:bg-panel"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -201,9 +201,9 @@ export function OperationsDashboard({
         </section>
 
         <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr_1fr]">
-          <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
+          <section className="rounded-[28px] border border-border bg-muted p-4 dark:bg-panel">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
-              <Layers3 className="h-4 w-4 text-sky-600" />
+              <Layers3 className="h-4 w-4 text-primary" />
               {t('agent.home.dashboard.buildTitle')}
             </div>
 
@@ -213,7 +213,7 @@ export function OperationsDashboard({
                   <span className="text-muted-foreground">{t('agent.home.dashboard.publishRate')}</span>
                   <span className="font-medium">{isLoading ? '...' : `${formatNumber(publishRate)}%`}</span>
                 </div>
-                <Progress value={publishRate} className="h-2 bg-slate-200 dark:bg-slate-800" />
+                <Progress value={publishRate} className="h-2 bg-muted" />
                 <div className="text-xs text-muted-foreground">
                   {t('agent.home.dashboard.publishDetail', {
                     published: formatNumber(summary.publishedAgents),
@@ -227,7 +227,7 @@ export function OperationsDashboard({
                   <span className="text-muted-foreground">{t('agent.home.dashboard.workflowCoverage')}</span>
                   <span className="font-medium">{isLoading ? '...' : `${formatNumber(workflowVersionRate)}%`}</span>
                 </div>
-                <Progress value={workflowVersionRate} className="h-2 bg-slate-200 dark:bg-slate-800" />
+                <Progress value={workflowVersionRate} className="h-2 bg-muted" />
                 <div className="text-xs text-muted-foreground">
                   {t('agent.home.dashboard.workflowDetail', {
                     versioned: formatNumber(summary.versionedWorkflows),
@@ -236,12 +236,12 @@ export function OperationsDashboard({
                 </div>
               </div>
 
-              <div className="grid gap-px overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-200/70 dark:border-slate-800 dark:bg-slate-800 sm:grid-cols-2">
-                <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
+              <div className="grid gap-px overflow-hidden rounded-[24px] border border-border bg-muted sm:grid-cols-2">
+                <div className="bg-white/84 px-4 py-3 dark:bg-panel">
                   <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.docsPerKnowledge')}</div>
                   <div className="mt-2 text-2xl font-semibold">{formatNumber(Math.round(docsPerKnowledge || 0))}</div>
                 </div>
-                <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
+                <div className="bg-white/84 px-4 py-3 dark:bg-panel">
                   <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.chunksPerDoc')}</div>
                   <div className="mt-2 text-2xl font-semibold">{formatNumber(Math.round(chunksPerDoc || 0))}</div>
                 </div>
@@ -249,7 +249,7 @@ export function OperationsDashboard({
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
+          <section className="rounded-[28px] border border-border bg-muted p-4 dark:bg-panel">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className={`h-4 w-4 ${riskTone}`} />
               {t('agent.home.dashboard.riskTitle')}
@@ -280,14 +280,14 @@ export function OperationsDashboard({
               ].map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-[22px] border border-slate-200/70 bg-white/82 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/64"
+                  className="rounded-[22px] border border-border bg-white/82 px-3 py-3 dark:bg-panel"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm text-muted-foreground">{item.label}</div>
                     <div className="text-xl font-semibold">{formatNumber(item.value)}</div>
                   </div>
                   <div className="mt-2">
-                    <Progress value={scaleToPercent(item.value, riskMax)} className="h-1.5 bg-slate-200 dark:bg-slate-800" />
+                    <Progress value={scaleToPercent(item.value, riskMax)} className="h-1.5 bg-muted" />
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground">{item.hint}</div>
                 </div>
@@ -295,21 +295,21 @@ export function OperationsDashboard({
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/55">
+          <section className="rounded-[28px] border border-border bg-muted p-4 dark:bg-panel">
             <div className="mb-4 flex items-center gap-2 text-sm font-medium">
-              <Wallet className="h-4 w-4 text-emerald-600" />
+              <Wallet className="h-4 w-4 text-success-foreground" />
               {t('agent.home.dashboard.ledgerTitle')}
             </div>
 
-            <div className="rounded-[24px] border border-slate-200/70 bg-white/82 p-4 dark:border-slate-800 dark:bg-slate-950/64">
+            <div className="rounded-[24px] border border-border bg-white/82 p-4 dark:bg-panel">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">{t('agent.home.dashboard.tokenSplit')}</div>
-                <Orbit className="h-4 w-4 text-emerald-600" />
+                <Orbit className="h-4 w-4 text-success-foreground" />
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
                 <div className="flex h-full">
-                  <div className="h-full bg-emerald-500" style={{ width: `${promptPercent}%` }} />
-                  <div className="h-full bg-cyan-500" style={{ width: `${completionPercent}%` }} />
+                  <div className="h-full bg-cat-green" style={{ width: `${promptPercent}%` }} />
+                  <div className="h-full bg-cat-cyan" style={{ width: `${completionPercent}%` }} />
                 </div>
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -324,18 +324,18 @@ export function OperationsDashboard({
               </div>
             </div>
 
-            <div className="mt-3 grid gap-px overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-200/70 dark:border-slate-800 dark:bg-slate-800 sm:grid-cols-2">
-              <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
+            <div className="mt-3 grid gap-px overflow-hidden rounded-[24px] border border-border bg-muted sm:grid-cols-2">
+              <div className="bg-white/84 px-4 py-3 dark:bg-panel">
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.runtimeMs')}</div>
-                  <Gauge className="h-4 w-4 text-violet-600" />
+                  <Gauge className="h-4 w-4 text-cat-purple" />
                 </div>
                 <div className="mt-2 text-2xl font-semibold">{formatCompact(summary.runtimeMs)}</div>
               </div>
-              <div className="bg-white/84 px-4 py-3 dark:bg-slate-950/64">
+              <div className="bg-white/84 px-4 py-3 dark:bg-panel">
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-muted-foreground">{t('agent.home.dashboard.recentRuns')}</div>
-                  <Gauge className="h-4 w-4 text-sky-600" />
+                  <Gauge className="h-4 w-4 text-primary" />
                 </div>
                 <div className="mt-2 text-2xl font-semibold">{formatNumber(summary.runCount)}</div>
               </div>

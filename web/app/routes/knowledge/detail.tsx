@@ -64,7 +64,7 @@ function KnowledgeDetailPage() {
         {knowledge && <Badge variant="outline">{knowledge.status}</Badge>}
       </div>
 
-      <Card className="border-none bg-gradient-to-br from-amber-100 via-orange-50 to-white shadow-sm">
+      <Card className="border-none bg-gradient-to-br from-warning/12 via-warning/12 to-white shadow-sm">
         <CardHeader>
           <Badge variant="secondary" className="w-fit">
             Knowledge Base

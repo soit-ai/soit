@@ -177,7 +177,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
                 <Progress
                   value={Math.min(summary?.today_runs ?? 0, 100)}
                   className={cn(
-                    healthStatus === 'warning' ? "bg-amber-200" : "bg-blue-200"
+                    healthStatus === 'warning' ? "bg-warning/12" : "bg-primary/12"
                   )}
                 />
               </div>
@@ -190,7 +190,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
                 <Progress
                   value={Math.min(runningRuns * 10, 100)}
                   className={cn(
-                    runningRuns > 0 ? "bg-blue-200" : "bg-muted"
+                    runningRuns > 0 ? "bg-primary/12" : "bg-muted"
                   )}
                 />
               </div>
@@ -202,7 +202,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
                 </div>
                 <Progress
                   value={Math.min((summary?.recent_exceptions ?? 0) * 10, 100)}
-                  className={(summary?.recent_exceptions ?? 0) > 0 ? "bg-amber-200" : "bg-muted"}
+                  className={(summary?.recent_exceptions ?? 0) > 0 ? "bg-warning/12" : "bg-muted"}
                 />
               </div>
 

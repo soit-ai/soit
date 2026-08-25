@@ -28,11 +28,20 @@ record for operators.
   never mistaken for a status readout.
 - Informational badges moved to a neutral slate so they stay distinguishable
   from the blue brand affordances.
+- Console feature views moved off the default Tailwind palette onto design
+  tokens, so status, identity, and brand colours are now consistent across
+  every screen.
+- Workflow node types, model providers, knowledge types, and metric tiles use a
+  dedicated categorical palette instead of borrowing status hues.
 
 ### Fixed
 
 - Dark-mode success, warning, and info badges rendered near-black text on a
   dark tint of their own hue, leaving the label unreadable.
+- The prompt-versus-completion token bar drew a breakdown in success green,
+  which read as a pass rather than a share of a total.
+- A relationship-graph label was drawn in a near-white cyan on a light panel,
+  leaving it effectively invisible.
 
 ## [1.0.0] - 2026-08-05
 

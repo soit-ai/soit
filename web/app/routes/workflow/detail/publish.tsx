@@ -273,7 +273,7 @@ function Page() {
   }
 
   const statusBadge = currentVersionId ? (
-    <Badge className="bg-emerald-500">{t('workflow.common.published')}</Badge>
+    <Badge className="bg-success">{t('workflow.common.published')}</Badge>
   ) : (
     <Badge variant="outline">{t('workflow.common.unpublished')}</Badge>
   )
@@ -407,7 +407,7 @@ function Page() {
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="text-sm font-medium">{version.id}</div>
                       {isCurrent ? (
-                        <Badge className="bg-emerald-500">{t('workflow.detail.publish.versions.status.current')}</Badge>
+                        <Badge className="bg-success">{t('workflow.detail.publish.versions.status.current')}</Badge>
                       ) : (
                         <Badge variant="outline">{t('workflow.detail.publish.versions.status.draft')}</Badge>
                       )}

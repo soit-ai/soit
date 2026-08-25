@@ -33,7 +33,7 @@ export function ActivitySparkline({
   const areaPath = `M 0 88 L ${points.replace(/ /g, ' L ')} L 100 88 Z`
 
   return (
-    <div className={cn('relative h-24 overflow-hidden rounded-[20px] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82)_0%,rgba(248,250,252,0.72)_100%)] dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.72)_0%,rgba(15,23,42,0.52)_100%)]', className)}>
+    <div className={cn('relative h-24 overflow-hidden rounded-[20px] border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.82)_0%,rgba(248,250,252,0.72)_100%)] dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.72)_0%,rgba(15,23,42,0.52)_100%)]', className)}>
       <div className="absolute inset-x-0 bottom-0 grid h-full grid-cols-7 items-end gap-1 px-2 pb-2">
         {normalizedValues.map((value, index) => {
           const ratio = clamp(value / max, 0, 1)

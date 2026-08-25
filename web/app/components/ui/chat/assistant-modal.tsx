@@ -155,7 +155,7 @@ const AssistantModalButton = ({ 'data-state': state, ...rest }: AssistantModalBu
       tooltip={tooltip} 
       side="left" 
       {...rest} 
-      className="assistant-button size-full rounded-full shadow-lg transition-all duration-300 hover:scale-110 active:scale-90 bg-gradient-to-br from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 border-2 border-white/20"
+      className="assistant-button size-full rounded-full shadow-lg transition-all duration-300 hover:scale-110 active:scale-90 bg-gradient-to-br from-primary to-brand-blue-900 hover:from-primary hover:to-brand-blue-950 border-2 border-white/20"
     >
       <div className="absolute inset-0 rounded-full bg-white/10 backdrop-blur-sm"></div>
       <div className="relative z-10 flex items-center justify-center">

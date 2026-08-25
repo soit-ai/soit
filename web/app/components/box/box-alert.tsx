@@ -19,21 +19,21 @@ interface BoxAlertProps {
 const severityMap = {
   info: {
     icon: Info,
-    container: 'border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-100',
-    iconClassName: 'text-blue-600 dark:text-blue-300',
-    badge: 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
+    container: 'border-primary/20 bg-primary/12 text-primary',
+    iconClassName: 'text-primary',
+    badge: 'border-primary/20 bg-primary/12 text-primary',
   },
   warning: {
     icon: AlertTriangle,
-    container: 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100',
-    iconClassName: 'text-amber-600 dark:text-amber-300',
-    badge: 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200',
+    container: 'border-warning/20 bg-warning/12 text-warning-foreground',
+    iconClassName: 'text-warning-foreground',
+    badge: 'border-warning/20 bg-warning/12 text-warning-foreground',
   },
   critical: {
     icon: ShieldAlert,
-    container: 'border-red-200 bg-red-50 text-red-950 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-100',
-    iconClassName: 'text-red-600 dark:text-red-300',
-    badge: 'border-red-200 bg-red-100 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+    container: 'border-danger/20 bg-danger/12 text-danger-foreground',
+    iconClassName: 'text-danger-foreground',
+    badge: 'border-danger/20 bg-danger/12 text-danger-foreground',
   },
 } satisfies Record<BoxAlertSeverity, {
   icon: typeof Info

@@ -22,29 +22,29 @@ interface MetricStripProps {
 
 const toneClassNameMap = {
   blue: {
-    icon: 'bg-blue-50 text-blue-600 dark:bg-blue-400/12 dark:text-blue-300',
+    icon: 'bg-primary/12 text-primary',
     line: '#2563eb',
-    delta: 'text-emerald-600 dark:text-emerald-300',
+    delta: 'text-success-foreground',
   },
   green: {
-    icon: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-400/12 dark:text-emerald-300',
+    icon: 'bg-success/12 text-success-foreground',
     line: '#10b981',
-    delta: 'text-emerald-600 dark:text-emerald-300',
+    delta: 'text-success-foreground',
   },
   amber: {
-    icon: 'bg-amber-50 text-amber-600 dark:bg-amber-400/12 dark:text-amber-300',
+    icon: 'bg-warning/12 text-warning-foreground',
     line: '#f97316',
-    delta: 'text-emerald-600 dark:text-emerald-300',
+    delta: 'text-success-foreground',
   },
   red: {
-    icon: 'bg-red-50 text-red-600 dark:bg-red-400/12 dark:text-red-300',
+    icon: 'bg-danger/12 text-danger-foreground',
     line: '#ef4444',
-    delta: 'text-emerald-600 dark:text-emerald-300',
+    delta: 'text-success-foreground',
   },
   cyan: {
-    icon: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-400/12 dark:text-cyan-300',
-    line: '#06b6d4',
-    delta: 'text-emerald-600 dark:text-emerald-300',
+    icon: 'bg-cat-cyan/12 text-cat-cyan',
+    line: 'var(--cat-cyan)',
+    delta: 'text-success-foreground',
   },
 } satisfies Record<MetricTone, { icon: string; line: string; delta: string }>
 

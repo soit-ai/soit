@@ -11,7 +11,7 @@ export const DeliveryNodeInfo = {
   label: 'Delivery',
   category: 'flow',
   description: 'Pass data to the next node',
-  color: 'green-400',
+  color: 'cat-green',
   icon: 'Send',
 }
 
@@ -26,9 +26,9 @@ const DeliveryNodeComponent = ({ data, isConnectable, selected }: NodeProps) => 
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles()
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-green-400' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-green' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <Send className="h-4 w-4 text-green-400" />
+        <Send className="h-4 w-4 text-cat-green" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.detail.nodes.delivery.label')}</div>
       </div>
 
@@ -42,7 +42,7 @@ const DeliveryNodeComponent = ({ data, isConnectable, selected }: NodeProps) => 
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-green-400 border-2 border-background"
+        className="w-3 h-3 bg-cat-green border-2 border-background"
       />
 
       {/* Output handle. */}
@@ -51,7 +51,7 @@ const DeliveryNodeComponent = ({ data, isConnectable, selected }: NodeProps) => 
         position={sourcePosition}
         id="output"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-green-400 border-2 border-background"
+        className="w-3 h-3 bg-cat-green border-2 border-background"
       />
     </div>
   )

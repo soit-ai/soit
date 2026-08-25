@@ -453,18 +453,18 @@ function AgentDetailPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
-      <Card className="border-none bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
+      <Card className="border-none bg-gradient-to-br from-inverse via-inverse-2 to-inverse-3 text-white shadow-xl">
         <CardHeader className="gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/10">
               {t('agent.detail.hero.badge')}
             </Badge>
             {agent?.published_version_id ? (
-              <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/20">
+              <Badge variant="secondary" className="bg-cat-green/20 text-cat-green hover:bg-cat-green/20">
                 {t('agent.detail.hero.published')}
               </Badge>
             ) : (
-              <Badge variant="secondary" className="bg-amber-500/20 text-amber-100 hover:bg-amber-500/20">
+              <Badge variant="secondary" className="bg-cat-amber/20 text-cat-amber hover:bg-cat-amber/20">
                 {t('agent.detail.hero.draftOnly')}
               </Badge>
             )}
@@ -473,12 +473,12 @@ function AgentDetailPage() {
             <CardTitle className="text-3xl font-semibold tracking-tight">
               {agentLoading ? t('agent.detail.hero.loadingAgent') : agent?.name || agentId}
             </CardTitle>
-            <CardDescription className="max-w-2xl text-slate-300">
+            <CardDescription className="max-w-2xl text-inverse-muted-foreground">
               {agent?.description || t('agent.detail.hero.description')}
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => navigate(`/chat/${agentId}`)} className="bg-white text-slate-950 hover:bg-slate-100">
+            <Button onClick={() => navigate(`/chat/${agentId}`)} className="bg-white text-foreground hover:bg-muted">
               <Bot className="mr-2 h-4 w-4" />
               {t('agent.detail.hero.openChat')}
             </Button>

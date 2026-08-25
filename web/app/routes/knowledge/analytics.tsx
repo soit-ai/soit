@@ -87,7 +87,7 @@ function KnowledgeAnalyticsPage() {
         {knowledge && <Badge variant="outline">{knowledge.status}</Badge>}
       </div>
 
-      <Card className="border-none bg-gradient-to-br from-amber-100 via-orange-50 to-white shadow-sm">
+      <Card className="border-none bg-gradient-to-br from-warning/12 via-warning/12 to-white shadow-sm">
         <CardHeader>
           <Badge variant="secondary" className="w-fit">
             Analytics
@@ -104,7 +104,7 @@ function KnowledgeAnalyticsPage() {
           <CardHeader className="pb-2">
             <CardDescription>Prompt Tokens</CardDescription>
             <CardTitle className="flex items-center gap-2 text-2xl">
-              <Coins className="h-5 w-5 text-amber-500" />
+              <Coins className="h-5 w-5 text-warning-foreground" />
               {costSummary?.tokens_prompt ?? 0}
             </CardTitle>
           </CardHeader>
@@ -113,7 +113,7 @@ function KnowledgeAnalyticsPage() {
           <CardHeader className="pb-2">
             <CardDescription>Completion Tokens</CardDescription>
             <CardTitle className="flex items-center gap-2 text-2xl">
-              <Coins className="h-5 w-5 text-emerald-500" />
+              <Coins className="h-5 w-5 text-success-foreground" />
               {costSummary?.tokens_completion ?? 0}
             </CardTitle>
           </CardHeader>
@@ -122,7 +122,7 @@ function KnowledgeAnalyticsPage() {
           <CardHeader className="pb-2">
             <CardDescription>Total Runtime ms</CardDescription>
             <CardTitle className="flex items-center gap-2 text-2xl">
-              <BarChart3 className="h-5 w-5 text-sky-500" />
+              <BarChart3 className="h-5 w-5 text-primary" />
               {costSummary?.ms_total ?? 0}
             </CardTitle>
           </CardHeader>

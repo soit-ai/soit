@@ -74,15 +74,15 @@ type MetricDefinition = Omit<MetricStripItem, 'label' | 'value'> & {
 const statusConfig = {
   running: {
     labelKey: 'agent.dashboard.status.running',
-    className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+    className: 'border-success/20 bg-success/12 text-success-foreground',
   },
   configuring: {
     labelKey: 'agent.dashboard.status.configuring',
-    className: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200',
+    className: 'border-warning/20 bg-warning/12 text-warning-foreground',
   },
   abnormal: {
     labelKey: 'agent.dashboard.status.abnormal',
-    className: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+    className: 'border-danger/20 bg-danger/12 text-danger-foreground',
   },
   unconfigured: {
     labelKey: 'agent.dashboard.status.unconfigured',
@@ -91,11 +91,11 @@ const statusConfig = {
 } satisfies Record<AgentStatus, { labelKey: TranslationKey; className: string }>
 
 const abilityToneClassNameMap = {
-  blue: 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
-  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
-  orange: 'border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200',
-  red: 'border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
-  violet: 'border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-400/20 dark:bg-violet-400/10 dark:text-violet-200',
+  blue: 'border-primary/20 bg-primary/12 text-primary',
+  emerald: 'border-success/20 bg-success/12 text-success-foreground',
+  orange: 'border-warning/20 bg-warning/12 text-warning-foreground',
+  red: 'border-danger/20 bg-danger/12 text-danger-foreground',
+  violet: 'border-cat-purple/20 bg-cat-purple/12 text-cat-purple',
 } satisfies Record<AbilityTone, string>
 
 const capabilityIconMap: Record<string, typeof FileText> = {
@@ -197,7 +197,7 @@ function AgentNameCell({ row }: { row: AgentWorkbenchRow }) {
       className="flex min-w-[245px] cursor-pointer items-center gap-3 text-left"
       onClick={() => navigate(`/agents/${row.id}`)}
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-white">
         <Bot className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -242,8 +242,8 @@ function RecentException({ value }: { value: number }) {
 
   const variantClassName =
     value >= 3
-      ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200'
-      : 'border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-400/20 dark:bg-orange-400/10 dark:text-orange-200'
+      ? 'border-danger/20 bg-danger/12 text-danger-foreground'
+      : 'border-warning/20 bg-warning/12 text-warning-foreground'
 
   return (
     <Badge className={cn('rounded-md border px-2 py-1', variantClassName)}>
@@ -440,11 +440,11 @@ function AgentBoxPage() {
       render: (row) => (
         <span className={cn(
           row.status === 'abnormal'
-            ? 'text-red-600 dark:text-red-300'
+            ? 'text-danger-foreground'
             : row.avg_latency_ms && row.avg_latency_ms >= 300
-              ? 'text-orange-600 dark:text-orange-300'
+              ? 'text-warning-foreground'
               : row.avg_latency_ms
-                ? 'text-emerald-600 dark:text-emerald-300'
+                ? 'text-success-foreground'
                 : 'text-muted-foreground',
         )}
         >
@@ -459,11 +459,11 @@ function AgentBoxPage() {
       render: (row) => (
         <span className={cn(
           row.status === 'abnormal'
-            ? 'text-red-600 dark:text-red-300'
+            ? 'text-danger-foreground'
             : row.success_rate !== null && row.success_rate !== undefined && row.success_rate < 98
-              ? 'text-orange-600 dark:text-orange-300'
+              ? 'text-warning-foreground'
               : row.success_rate !== null && row.success_rate !== undefined
-                ? 'text-emerald-600 dark:text-emerald-300'
+                ? 'text-success-foreground'
                 : 'text-muted-foreground',
         )}
         >
@@ -515,7 +515,7 @@ function AgentBoxPage() {
         action={(
           <Button
             type="button"
-            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700"
+            className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90"
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="h-4 w-4" />

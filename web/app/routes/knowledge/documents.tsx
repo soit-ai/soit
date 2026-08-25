@@ -64,13 +64,13 @@ function KnowledgeDocumentsPage() {
         {knowledge && <Badge variant="outline">{knowledge.status}</Badge>}
       </div>
 
-      <Card className="border-none bg-gradient-to-br from-stone-950 via-stone-900 to-stone-800 text-white shadow-xl">
+      <Card className="border-none bg-gradient-to-br from-inverse via-inverse-2 to-inverse-3 text-white shadow-xl">
         <CardHeader>
           <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
             Documents
           </Badge>
           <CardTitle className="text-3xl font-semibold tracking-tight">{knowledge?.name || 'Knowledge documents'}</CardTitle>
-          <CardDescription className="text-stone-300">
+          <CardDescription className="text-inverse-muted-foreground">
             Review the current ingestion ledger for this knowledge base.
           </CardDescription>
         </CardHeader>

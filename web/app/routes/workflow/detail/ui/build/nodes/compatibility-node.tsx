@@ -12,7 +12,7 @@ const CompatibilityNodeComponent = ({ data }: NodeProps<Node<CompatibilityNodeDa
   const { t } = useTranslation()
 
   return (
-    <div className="min-w-56 rounded-md border border-amber-500/60 bg-amber-500/10 p-3">
+    <div className="min-w-56 rounded-md border border-cat-amber/20 bg-cat-amber/10 p-3">
       <div className="text-sm font-medium">{t('workflow.detail.nodes.compatibility.title')}</div>
       <div className="mt-1 font-mono text-xs">{String(data.originalRuntimeType)}</div>
       <div className="mt-2 text-xs text-muted-foreground">{t('workflow.detail.nodes.compatibility.description')}</div>

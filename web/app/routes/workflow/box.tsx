@@ -48,15 +48,15 @@ type MetricDefinition = Omit<React.ComponentProps<typeof MetricStrip>['items'][n
 const statusConfig = {
   running: {
     labelKey: 'workflow.workspaceDashboard.status.running',
-    className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200',
+    className: 'border-success/20 bg-success/12 text-success-foreground',
   },
   publishing: {
     labelKey: 'workflow.workspaceDashboard.status.publishing',
-    className: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200',
+    className: 'border-primary/20 bg-primary/12 text-primary',
   },
   abnormal: {
     labelKey: 'workflow.workspaceDashboard.status.incident',
-    className: 'border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200',
+    className: 'border-danger/20 bg-danger/12 text-danger-foreground',
   },
   draft: {
     labelKey: 'workflow.workspaceDashboard.status.draft',
@@ -132,12 +132,12 @@ function WorkflowNameCell({ row }: { row: WorkflowWorkbenchRow }) {
   const Icon = row.status === 'draft' ? FileText : row.status === 'abnormal' ? AlertTriangle : Workflow
   const iconClassName =
     row.status === 'abnormal'
-      ? 'bg-red-500'
+      ? 'bg-danger'
       : row.status === 'draft'
-        ? 'bg-slate-500'
+        ? 'bg-muted'
         : row.status === 'publishing'
-          ? 'bg-blue-500'
-          : 'bg-emerald-500'
+          ? 'bg-primary'
+          : 'bg-success'
 
   const navigate = useNavigate()
   return (
@@ -169,7 +169,7 @@ function AgentAvatars({ agents, total }: { agents: string[]; total: number }) {
     <AvatarGroup>
       {agents.slice(0, 3).map((agent, index) => (
         <Avatar key={`${agent}-${index}`} size="sm" className="border border-background bg-muted">
-          <AvatarFallback className={cn('text-[10px] font-semibold text-white', index % 2 === 0 ? 'bg-slate-700 dark:bg-slate-500' : 'bg-blue-600 dark:bg-blue-500')}>
+          <AvatarFallback className={cn('text-[10px] font-semibold text-white', index % 2 === 0 ? 'bg-muted' : 'bg-primary')}>
             {agent}
           </AvatarFallback>
         </Avatar>
@@ -354,7 +354,7 @@ function WorkflowBoxPage() {
       header: t('workflow.workspaceDashboard.columns.avgLatency'),
       cellClassName: 'font-semibold',
       render: (row) => (
-        <span className={cn(row.status === 'abnormal' ? 'text-red-600 dark:text-red-300' : row.avg_latency_ms && row.avg_latency_ms >= 2000 ? 'text-orange-600 dark:text-orange-300' : row.avg_latency_ms ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground')}>
+        <span className={cn(row.status === 'abnormal' ? 'text-danger-foreground' : row.avg_latency_ms && row.avg_latency_ms >= 2000 ? 'text-warning-foreground' : row.avg_latency_ms ? 'text-success-foreground' : 'text-muted-foreground')}>
           {formatLatency(row.avg_latency_ms)}
         </span>
       ),
@@ -364,7 +364,7 @@ function WorkflowBoxPage() {
       header: t('workflow.workspaceDashboard.columns.successRate'),
       cellClassName: 'font-semibold',
       render: (row) => (
-        <span className={cn(row.status === 'abnormal' ? 'text-orange-600 dark:text-orange-300' : row.success_rate !== null && row.success_rate !== undefined ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground')}>
+        <span className={cn(row.status === 'abnormal' ? 'text-warning-foreground' : row.success_rate !== null && row.success_rate !== undefined ? 'text-success-foreground' : 'text-muted-foreground')}>
           {formatRate(row.success_rate)}
         </span>
       ),
@@ -373,7 +373,7 @@ function WorkflowBoxPage() {
       id: 'recentException',
       header: t('workflow.workspaceDashboard.columns.recentIncident'),
       render: (row) => row.recent_exception_count ? (
-        <Badge className="rounded-md border-red-200 bg-red-50 text-red-600 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
+        <Badge className="rounded-md border-danger/20 bg-danger/12 text-danger-foreground">
           {row.recent_exception_count} incidents
         </Badge>
       ) : <span className="text-muted-foreground">-</span>,
@@ -402,7 +402,7 @@ function WorkflowBoxPage() {
         description={t('workflow.workspaceDashboard.header.description')}
         action={(
           <Button
-            className="h-11 gap-2 rounded-lg bg-blue-600 px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-blue-700"
+            className="h-11 gap-2 rounded-lg bg-primary px-5 text-white shadow-[0_12px_28px_rgba(37,99,235,0.25)] hover:bg-primary/90"
             disabled={createMutation.isPending}
             onClick={() => createMutation.mutate(undefined)}
           >

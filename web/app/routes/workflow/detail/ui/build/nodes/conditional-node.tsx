@@ -14,7 +14,7 @@ export const ConditionalNodeInfo = {
   categoryKey: 'workflow.nodeLibrary.categories.flow',
   description: 'Branch based on conditions',
   descriptionKey: 'workflow.blocksAbout.if-else',
-  color: 'amber-600',
+  color: 'cat-amber',
   icon: 'GitBranch',
 }
 
@@ -27,9 +27,9 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
   const { t } = useTranslation()
   const { sourcePosition, targetPosition } = useNodeHandles();
   return (
-    <div className={`p-3 rounded-md border ${selected ? 'border-amber-600' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
+    <div className={`p-3 rounded-md border ${selected ? 'border-cat-amber' : 'border-border'} bg-card shadow-sm min-w-[180px]`}>
       <div className="flex items-center gap-2 mb-2">
-        <GitBranch className="h-4 w-4 text-amber-600" />
+        <GitBranch className="h-4 w-4 text-cat-amber" />
         <div className="text-sm font-medium">{data.label as string || t('workflow.blocks.if-else')}</div>
       </div>
       
@@ -42,7 +42,7 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
         position={targetPosition}
         id="input"
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-amber-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
       
       <Handle
@@ -51,7 +51,7 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
         id="true"
         style={{ top: '30%' }}
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-amber-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
       
       <Handle
@@ -60,7 +60,7 @@ const ConditionalNodeComponent = ({ data, isConnectable, selected }: NodeProps) 
         id="false"
         style={{ top: '70%' }}
         isConnectable={isConnectable}
-        className="w-3 h-3 bg-amber-600 border-2 border-background"
+        className="w-3 h-3 bg-cat-amber border-2 border-background"
       />
     </div>
   )

@@ -71,6 +71,24 @@ body {
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--danger-foreground);
+  --color-cat-blue: var(--cat-blue);
+  --color-cat-cyan: var(--cat-cyan);
+  --color-cat-teal: var(--cat-teal);
+  --color-cat-green: var(--cat-green);
+  --color-cat-amber: var(--cat-amber);
+  --color-cat-red: var(--cat-red);
+  --color-cat-purple: var(--cat-purple);
+  --color-cat-indigo: var(--cat-indigo);
+  --color-cat-pink: var(--cat-pink);
+  --color-cat-slate: var(--cat-slate);
+  --color-inverse: var(--inverse);
+  --color-inverse-2: var(--inverse-2);
+  --color-inverse-3: var(--inverse-3);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-inverse-muted-foreground: var(--inverse-muted-foreground);
+  --color-inverse-border: var(--inverse-border);
+  --color-inverse-panel: var(--inverse-panel);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -170,15 +188,44 @@ body {
   --muted-foreground: oklch(0.51 0.024 255);
   --accent: oklch(0.965 0.012 243);
   --accent-foreground: oklch(0.28 0.02 255);
-  --destructive: oklch(0.628 0.206 23);
   --success: oklch(0.66 0.14 160);
-  --success-foreground: oklch(0.2 0.03 165);
+  --success-foreground: oklch(0.508 0.105 165.6);
   --warning: oklch(0.79 0.15 82);
-  --warning-foreground: oklch(0.34 0.04 73);
+  --warning-foreground: oklch(0.555 0.146 49);
+  --danger: oklch(0.64 0.19 26);
+  --danger-foreground: oklch(0.505 0.19 27.5);
   --info: #475569;
   --info-foreground: #334155;
-  --danger: oklch(0.64 0.19 26);
-  --danger-foreground: oklch(0.99 0.002 247);
+  /* Shadcn primitives target --destructive; it is an alias so red cannot drift. */
+  --destructive: var(--danger);
+
+  /*
+   * Categorical identity palette. For things that differ in kind rather than in
+   * state: workflow node types, model providers, knowledge types. Never use it
+   * to encode status, and never use a status token for identity.
+   */
+  --cat-blue: var(--brand-blue-600);
+  --cat-cyan: #0891b2;
+  --cat-teal: var(--brand-teal-700);
+  --cat-green: #059669;
+  --cat-amber: #d97706;
+  --cat-red: #dc2626;
+  --cat-purple: #7c3aed;
+  --cat-indigo: #4f46e5;
+  --cat-pink: #db2777;
+  --cat-slate: #475569;
+
+  /*
+   * Inverse surfaces. Section heroes and the sign-in button stay dark in both
+   * themes, so these deliberately do not change between light and dark.
+   */
+  --inverse: var(--brand-graphite);
+  --inverse-2: #131c2e;
+  --inverse-3: #1c2740;
+  --inverse-foreground: #ffffff;
+  --inverse-muted-foreground: #cbd5e1;
+  --inverse-border: oklch(1 0 0 / 0.12);
+  --inverse-panel: oklch(1 0 0 / 0.07);
 
   --border: oklch(0.9 0.012 247);
   --input: oklch(0.925 0.01 247 / 0.96);
@@ -225,15 +272,26 @@ body {
   --muted-foreground: oklch(0.76 0.018 247);
   --accent: oklch(0.298 0.026 251);
   --accent-foreground: oklch(0.965 0.004 247);
-  --destructive: oklch(0.69 0.17 21);
   --success: oklch(0.73 0.12 158);
-  --success-foreground: oklch(0.86 0.09 158);
+  --success-foreground: oklch(0.845 0.13 165);
   --warning: oklch(0.82 0.13 83);
-  --warning-foreground: oklch(0.89 0.09 83);
+  --warning-foreground: oklch(0.879 0.153 91.6);
+  --danger: oklch(0.71 0.16 26);
+  --danger-foreground: oklch(0.808 0.103 19.6);
   --info: #94a3b8;
   --info-foreground: #cbd5e1;
-  --danger: oklch(0.71 0.16 26);
-  --danger-foreground: oklch(0.16 0.02 257);
+  --destructive: var(--danger);
+
+  --cat-blue: var(--brand-blue-400);
+  --cat-cyan: #22d3ee;
+  --cat-teal: var(--brand-teal-400);
+  --cat-green: #34d399;
+  --cat-amber: #fbbf24;
+  --cat-red: #f87171;
+  --cat-purple: #a78bfa;
+  --cat-indigo: #818cf8;
+  --cat-pink: #f472b6;
+  --cat-slate: #94a3b8;
 
   --border: oklch(1 0 0 / 0.095);
   --input: oklch(1 0 0 / 0.11);

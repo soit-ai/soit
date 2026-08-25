@@ -63,21 +63,21 @@ export function RegisterForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className={cn('flex flex-col gap-6', className)} {...props}>
       <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">Create an account</h2>
-        <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground dark:text-white">Create an account</h2>
+        <p className="text-sm leading-6 text-muted-foreground">
           Enter your email below to create your account
         </p>
       </div>
       <div className="grid gap-6">
         <div className="grid gap-2">
-          <Label htmlFor="email" className="text-slate-700 dark:text-slate-200">
+          <Label htmlFor="email" className="text-muted-foreground dark:text-foreground">
             Email
           </Label>
           <Input
             id="email"
             type="email"
             placeholder="m@example.com"
-            className="h-11 rounded-lg border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950"
+            className="h-11 rounded-lg border-border bg-muted px-4 dark:bg-panel"
             {...register('email', {
               required: 'Email is required',
               pattern: {
@@ -86,44 +86,44 @@ export function RegisterForm({
               },
             })}
           />
-          {errors.email && <p className="text-sm text-red-500">{errors.email.message}</p>}
+          {errors.email && <p className="text-sm text-danger-foreground">{errors.email.message}</p>}
         </div>
         <div className="grid gap-6 md:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="name" className="text-slate-700 dark:text-slate-200">
+            <Label htmlFor="name" className="text-muted-foreground dark:text-foreground">
               Name
             </Label>
             <Input
               id="name"
               type="text"
               placeholder="Your name"
-              className="h-11 rounded-lg border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950"
+              className="h-11 rounded-lg border-border bg-muted px-4 dark:bg-panel"
               {...register('name', {
                 required: 'Name is required',
               })}
             />
-            {errors.name && <p className="text-sm text-red-500">{errors.name.message}</p>}
+            {errors.name && <p className="text-sm text-danger-foreground">{errors.name.message}</p>}
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="tenant-name" className="text-slate-700 dark:text-slate-200">
+            <Label htmlFor="tenant-name" className="text-muted-foreground dark:text-foreground">
               Tenant Name (optional)
             </Label>
             <Input
               id="tenant-name"
               type="text"
               placeholder="tenant name"
-              className="h-11 rounded-lg border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950"
+              className="h-11 rounded-lg border-border bg-muted px-4 dark:bg-panel"
               {...register('tenant_name')}
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="password" className="text-slate-700 dark:text-slate-200">
+            <Label htmlFor="password" className="text-muted-foreground dark:text-foreground">
               Password
             </Label>
             <Input
               id="password"
               type="password"
-              className="h-11 rounded-lg border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950"
+              className="h-11 rounded-lg border-border bg-muted px-4 dark:bg-panel"
               {...register('password', {
                 required: 'Password is required',
                 minLength: {
@@ -132,16 +132,16 @@ export function RegisterForm({
                 },
               })}
             />
-            {errors.password && <p className="text-sm text-red-500">{errors.password.message}</p>}
+            {errors.password && <p className="text-sm text-danger-foreground">{errors.password.message}</p>}
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="confirm-password" className="text-slate-700 dark:text-slate-200">
+            <Label htmlFor="confirm-password" className="text-muted-foreground dark:text-foreground">
               Confirm Password
             </Label>
             <Input
               id="confirm-password"
               type="password"
-              className="h-11 rounded-lg border-slate-200 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-950"
+              className="h-11 rounded-lg border-border bg-muted px-4 dark:bg-panel"
               {...register('confirmPassword', {
                 required: 'Please confirm your password',
                 validate: (val: string) => {
@@ -151,20 +151,20 @@ export function RegisterForm({
                 },
               })}
             />
-            {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>}
+            {errors.confirmPassword && <p className="text-sm text-danger-foreground">{errors.confirmPassword.message}</p>}
           </div>
         </div>
         <Button type="submit" className="h-11 w-full rounded-lg" disabled={registerMutation.isPending}>
           {registerMutation.isPending ? 'Creating account...' : 'Sign up'}
         </Button>
-        <div className="text-center text-sm text-slate-600 dark:text-slate-300">
+        <div className="text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link to="/sign-in" className="font-medium text-slate-950 underline underline-offset-4 dark:text-white">
+          <Link to="/sign-in" className="font-medium text-foreground underline underline-offset-4 dark:text-white">
             Sign in
           </Link>
         </div>
       </div>
-      <p className="text-balance text-center text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-balance text-center text-xs text-muted-foreground">
         Community registration supports email and password only.
       </p>
     </form>

@@ -68,13 +68,13 @@ function TaskDetailPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
-      <Card className="border-none bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
+      <Card className="border-none bg-gradient-to-br from-inverse via-inverse-2 to-inverse-3 text-white shadow-xl">
         <CardHeader className="gap-3">
           <Badge variant="secondary" className="w-fit bg-white/10 text-white hover:bg-white/10">
             Task Detail
           </Badge>
           <CardTitle className="text-3xl font-semibold tracking-tight">{isLoading ? 'Loading task...' : taskId}</CardTitle>
-          <CardDescription className="text-slate-300">
+          <CardDescription className="text-inverse-muted-foreground">
             Inspect runtime status, checkpoints, and task events emitted by the new execution core.
           </CardDescription>
         </CardHeader>

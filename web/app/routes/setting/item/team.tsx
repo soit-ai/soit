@@ -341,7 +341,7 @@ function Page() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${member.status === 'active' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                          <div className={`h-2 w-2 rounded-full ${member.status === 'active' ? 'bg-success' : 'bg-muted'}`} />
                           <span>{statusLabels[member.status as keyof typeof statusLabels]}</span>
                         </div>
                       </TableCell>
@@ -369,7 +369,7 @@ function Page() {
                             <Separator className="my-2" />
                             <DropdownMenuItem 
                               onClick={() => handleRemoveMember(member.id)}
-                              className="text-red-600 focus:text-red-600"
+                              className="text-danger-foreground focus:text-danger-foreground"
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               {t('system.settings.team.members.actions.remove')}

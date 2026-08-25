@@ -125,7 +125,7 @@ const NodeLibraryPanel: React.FC<NodeLibraryPanelProps> = ({
         <TabsContent value="nodes" className="mt-2">
           <ScrollArea className="h-full">
             {messageKey ? (
-              <div role="status" className="m-1 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+              <div role="status" className="m-1 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
                 {t(messageKey as TranslationKey)}
               </div>
             ) : (
