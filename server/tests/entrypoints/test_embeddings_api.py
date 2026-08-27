@@ -98,7 +98,7 @@ def test_embeddings_rejects_oversized_and_blank_input(client):
     assert _embed(client, input=["x"] * 257).status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_embeddings_failure_fails_the_run(client, db):
+def test_embeddings_failure_fails_the_run(client):
     container = get_container()
     original_port = container.get("llm_port")
     failing_port = _FailingLLMPort()

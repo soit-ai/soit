@@ -341,9 +341,9 @@ from app.api.v1.agent.thread_router import router as thread_router  # noqa: E402
 from app.api.v1.attachments.router import router as attachments_router  # noqa: E402
 from app.api.v1.billing.router import router as billing_router  # noqa: E402
 from app.api.v1.diagnostics.router import router as diagnostics_router  # noqa: E402
+from app.api.v1.embeddings.router import router as embeddings_router  # noqa: E402
 from app.api.v1.evaluation.router import router as evaluation_router  # noqa: E402
 from app.api.v1.feedback.router import router as feedback_router  # noqa: E402
-from app.api.v1.embeddings.router import router as embeddings_router  # noqa: E402
 from app.api.v1.health.router import router as health_router  # noqa: E402
 from app.api.v1.identity.router import router as identity_router  # noqa: E402
 from app.api.v1.images.router import router as images_router  # noqa: E402
