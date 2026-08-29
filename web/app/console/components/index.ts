@@ -1,6 +1,7 @@
 export { Backlink } from './backlink'
 export { CodeBlock } from './code-block'
 export { ConsoleButton } from './button'
+export { DataStateNote, DataStateRow, useDataStateLabel, type DataStateProps } from './data-state'
 export { EmptyState } from './empty-state'
 export { FilterChip, FilterSearch, Seg } from './filters'
 export { Hist } from './hist'

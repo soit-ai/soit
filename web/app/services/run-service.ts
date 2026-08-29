@@ -352,6 +352,32 @@ export const getRunDetail = (
   return get<RunDetailResponse>(`/runs/${runId}`, params)
 }
 
+/** Every run that shares a trace id — the console's trace-detail root query. */
+export const listRunsByTrace = (
+  traceId: string,
+  params?: { page_token?: string; page_size?: number },
+): Promise<PaginatedResponse<RunResponse>> => {
+  return get<PaginatedResponse<RunResponse>>(`/runs/trace/${traceId}`, params)
+}
+
+export interface RunStepMetric {
+  step_type: string
+  status: string
+  count: number
+  avg_latency_ms?: number | null
+  min_latency_ms?: number | null
+  max_latency_ms?: number | null
+}
+
+export const getRunStepMetrics = (params?: {
+  run_id?: string
+  step_type?: string
+  started_after?: string
+  started_before?: string
+}): Promise<RunStepMetric[]> => {
+  return get<RunStepMetric[]>('/runs/steps/metrics', params)
+}
+
 export const listRunSteps = (params?: {
   run_id?: string
   trace_id?: string

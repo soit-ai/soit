@@ -14,21 +14,48 @@ import {
   WorkbenchPanel,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { mockRunDetail } from '../../mocks/observe'
+import { toRunDetailView, formatDurationMs } from '../../adapters/run-detail'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { getRunDetail } from '@/services/run-service'
 
 type RunTab = 'ledger' | 'policy' | 'events' | 'artifacts' | 'raw'
 
-// BACKEND-PENDING: swap mockRunDetail for getRunDetail(run_id) once the P2
-// wiring lands; the layout below renders the same 13-check evidence matrix
-// the server computes.
 export default function ConsoleRunDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<RunTab>('ledger')
-  const run = { ...mockRunDetail, id: id || mockRunDetail.id }
+
+  const detailQuery = useQuery({
+    queryKey: ['console', 'run-detail', id],
+    queryFn: () =>
+      getRunDetail(id as string, {
+        include_steps: true,
+        include_artifacts: true,
+        include_cost: true,
+      }),
+    options: { enabled: Boolean(id), retry: false, refetchOnWindowFocus: false },
+  })
+
+  if (!detailQuery.data) {
+    return (
+      <>
+        <Backlink to="/v2/observe/runs">{t('console.runDetail.back')}</Backlink>
+        <div className="rd-head">
+          <h1>{id}</h1>
+        </div>
+        <div className="panel">
+          <div className="empty-note">
+            {detailQuery.isError ? t('console.common.loadError') : t('console.common.loading')}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const run = toRunDetailView(detailQuery.data)
 
   const copyId = () => {
     void navigator.clipboard?.writeText(run.id).catch(() => undefined)
@@ -96,7 +123,9 @@ export default function ConsoleRunDetail() {
           {tab === 'ledger' && (
             <WorkbenchPanel
               title={t('console.runDetail.stepLedger')}
-              hint={t('console.runDetail.timelineHint', { duration: '8.9s' })}
+              hint={t('console.runDetail.timelineHint', {
+                duration: formatDurationMs(detailQuery.data.run.duration_ms),
+              })}
             >
               <ul className="ledger">
                 {run.ledger.map((step) => (
@@ -127,7 +156,7 @@ export default function ConsoleRunDetail() {
           {tab === 'policy' && (
             <WorkbenchPanel
               title={t('console.runDetail.policyEval')}
-              hint={t('console.runDetail.bundleHint', { bundle: 'v2026.08.27-2' })}
+              hint={t('console.runDetail.evidenceCount', { count: run.evidence.length })}
             >
               {run.gates.map((gate) => (
                 <div className="gate" key={gate.name}>
@@ -237,7 +266,7 @@ export default function ConsoleRunDetail() {
               <h3>{t('console.runDetail.verdictTitle')}</h3>
               <span className="big">
                 <i />
-                PASS
+                {detailQuery.data.run.status.toUpperCase()}
               </span>
             </div>
             <p className="dim" style={{ marginTop: 8, fontSize: 12 }}>

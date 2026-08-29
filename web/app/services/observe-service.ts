@@ -1,5 +1,8 @@
-import { get, post } from '@/utils/request'
+import { get, post, type RequestConfigWithToast } from '@/utils/request'
+import type { PaginatedResponse } from '@/types/api'
 import type { RunObserveSummary } from '@/services/run-service'
+
+export type { PaginatedResponse } from '@/types/api'
 
 export type ObserveTabId =
   | 'agent_health'
@@ -217,4 +220,108 @@ export const getObserveDashboard = (
 
 export const createRunFeedback = (data: RunFeedbackCreate) => {
   return post('/observe/feedback', data)
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'canceled'
+
+export interface ApprovalResponse {
+  id: string
+  run_id?: string | null
+  task_id?: string | null
+  thread_id?: string | null
+  agent_id?: string | null
+  title?: string | null
+  policy_ref?: string | null
+  status: ApprovalStatus
+  details_json?: Record<string, unknown> | null
+  requested_by?: string | null
+  resolved_by?: string | null
+  resolution_note?: string | null
+  resolved_at?: string | null
+  created_at: string
+  updated_at?: string | null
+}
+
+export const listApprovals = (params?: {
+  status?: ApprovalStatus
+  run_id?: string
+  task_id?: string
+  page_token?: string
+  page_size?: number
+}): Promise<PaginatedResponse<ApprovalResponse>> => {
+  return get<PaginatedResponse<ApprovalResponse>>('/observe/approvals', params)
+}
+
+export const getApproval = (approvalId: string): Promise<ApprovalResponse> => {
+  return get<ApprovalResponse>(`/observe/approvals/${approvalId}`)
+}
+
+export const resolveApproval = (
+  approvalId: string,
+  data: { status: 'approved' | 'rejected' | 'canceled'; resolution_note?: string },
+  config?: RequestConfigWithToast,
+): Promise<ApprovalResponse> => {
+  return post<ApprovalResponse>(`/observe/approvals/${approvalId}/resolve`, data, config)
+}
+
+/** Terminal failures across the runtime; each kind has its own redrive path. */
+export type DeadLetterKind =
+  | 'response_interaction'
+  | 'workflow_run'
+  | 'task'
+  | 'knowledge_ingest'
+  | 'outbox_event'
+
+export interface DeadLetterResponse {
+  kind: DeadLetterKind
+  id: string
+  failed_at?: string | null
+  error_code?: string | null
+  error_message?: string | null
+  attempt_count?: number | null
+  run_id?: string | null
+  subject?: string | null
+  redrivable: boolean
+  details?: Record<string, unknown> | null
+}
+
+export interface DeadLetterRedriveResponse {
+  outcome: string
+  detail?: string | null
+  redriven_as?: string | null
+}
+
+/** Offset-paged and returns a bare list, unlike the cursor-paged resources. */
+export const listDeadLetters = (params?: {
+  kind?: DeadLetterKind
+  limit?: number
+  offset?: number
+}): Promise<DeadLetterResponse[]> => {
+  return get<DeadLetterResponse[]>('/observe/dead-letters', params)
+}
+
+export const redriveDeadLetter = (
+  kind: DeadLetterKind,
+  id: string,
+  config?: RequestConfigWithToast,
+): Promise<DeadLetterRedriveResponse> => {
+  return post<DeadLetterRedriveResponse>(
+    `/observe/dead-letters/${kind}/${id}/redrive`,
+    undefined,
+    config,
+  )
+}
+
+export interface RunReplayResponse {
+  run: unknown
+  steps: unknown[]
+  artifacts: unknown[]
+  costs: unknown[]
+  approvals: unknown[]
+  feedback: unknown[]
+  trace_spec?: Record<string, unknown> | null
+}
+
+export const getRunReplay = (runId: string): Promise<RunReplayResponse> => {
+  return get<RunReplayResponse>(`/observe/runs/${runId}/replay`)
 }
