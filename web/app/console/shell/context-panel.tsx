@@ -5,7 +5,14 @@ import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 import { pillarForPathname } from './panel-config'
-import { useConsoleCounts } from './use-console-counts'
+import { useConsolePanelData, type PanelAttention } from './use-console-counts'
+
+/** Attention dots reuse the status ramp rather than inventing new hues. */
+const TONE_VAR: Record<PanelAttention['tone'], string> = {
+  primary: 'primary',
+  warn: 'warning',
+  bad: 'destructive',
+}
 
 interface ContextPanelProps {
   onCollapse: () => void
@@ -21,7 +28,7 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const config = pillarForPathname(location.pathname)
-  const counts = useConsoleCounts(config.pillar)
+  const { counts, recents, attention } = useConsolePanelData(config.pillar)
 
   // Preserve the embed flag on declarative links (use-navigate does this for
   // imperative navigation; NavLink needs it appended explicitly).
@@ -68,6 +75,33 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
               })}
             </div>
           ))}
+
+          {attention.length > 0 && (
+            <div>
+              <div className="sub-cap">{t('console.shell.queue')}</div>
+              {attention.map((row) => (
+                <NavLink key={row.id} to={withNosider(row.to)} className="sub-note">
+                  <i style={{ background: `var(--${TONE_VAR[row.tone]})` }} aria-hidden />
+                  {row.label}
+                  <span className="ct">{row.count}</span>
+                </NavLink>
+              ))}
+            </div>
+          )}
+
+          {recents.length > 0 && (
+            <div>
+              <div className="sub-cap">{t('console.shell.recentlyEdited')}</div>
+              {recents.map((row) => (
+                <NavLink key={row.id} to={withNosider(row.to)} className="sub-mini">
+                  <b>
+                    {row.label} <span className="mono">{row.kind}</span>
+                  </b>
+                  <small>{row.note}</small>
+                </NavLink>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

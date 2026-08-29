@@ -77,6 +77,8 @@ const translation = {
     collapsePanel: 'Hide side panel',
     expandPanel: 'Show side panel',
     workspace: 'Workspace',
+    queue: 'Queue',
+    recentlyEdited: 'Recently edited',
   },
   settings: {
     title: 'Settings',

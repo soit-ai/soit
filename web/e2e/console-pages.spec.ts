@@ -397,6 +397,46 @@ test('side panel shows live counts for the pillar on screen', async ({ page }) =
   expect(await counted('Models')).toBe('6')
 })
 
+test('side panel lists recently edited build objects', async ({ page }) => {
+  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+
+  const recents = page.locator('.subnav .sub-mini')
+  await expect(recents).toHaveCount(3)
+  // Newest first across agents, workflows and knowledge together.
+  await expect(recents.first()).toContainText('agent')
+})
+
+test('side panel surfaces the execute queue from the task summary', async ({ page }) => {
+  await json(page, '**/api/v1/tasks/workbench**', {
+    summary: {
+      total_tasks: 14,
+      waiting_approval: 2,
+      failed: 1,
+      waiting_input: 0,
+      long_running: 0,
+      running: 3,
+      today_created: 9,
+      today_completed: 6,
+      updated_at: NOW,
+    },
+    tabs: { all: 14, running: 3, waiting_approval: 2, failed: 1 },
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+  })
+
+  await page.goto('/v2/execute/tasks', { waitUntil: 'domcontentloaded' })
+
+  const queue = page.locator('.subnav .sub-note')
+  await expect(queue.filter({ hasText: 'Processing' }).locator('.ct')).toHaveText('3')
+  await expect(queue.filter({ hasText: 'Awaiting approval' }).locator('.ct')).toHaveText('2')
+  await expect(queue.filter({ hasText: 'Failed' }).locator('.ct')).toHaveText('1')
+
+  // Awaiting approval routes to the approvals queue, not back to tasks.
+  await queue.filter({ hasText: 'Awaiting approval' }).click()
+  await expect(page).toHaveURL(/\/v2\/govern\/approvals/)
+})
+
 test('side panel omits a count it could not load rather than guessing', async ({ page }) => {
   await page.route('**/api/v1/agents/workbench**', (route) => route.abort())
   await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
