@@ -178,3 +178,64 @@ test('chat threads can be created and renamed', async ({ page }) => {
   await expect.poll(() => created).not.toBeNull()
   expect(created).toMatchObject({ title: 'incident review' })
 })
+
+test('workflow run controls act on the run the status permits', async ({ page }) => {
+  const calls: string[] = []
+  const runs = (status: string) => ({
+    items: [
+      {
+        id: 'run_wf_1',
+        trace_id: 't1',
+        attempt_no: 1,
+        mode: 'workflow',
+        subject_kind: 'workflow',
+        subject_id: 'docs-nightly-sync',
+        status,
+        started_at: NOW,
+        ended_at: NOW,
+        duration_ms: 4200,
+        created_at: NOW,
+        updated_at: NOW,
+        observe_summary: { step_count: 5, tool_call_count: 1, child_run_count: 0, response_event_count: 6, citation_count: 0, audit_count: 2, cost_entry_count: 1 },
+      },
+    ],
+    next_page_token: null,
+    page_size: 20,
+  })
+
+  await json(page, '**/api/v1/workflows/docs-nightly-sync', {
+    id: 'docs-nightly-sync', name: 'docs-nightly-sync', status: 'running', visibility: 'workspace',
+    current_version_id: 'wfv_9', published_version_id: 'wfv_9', metadata_json: {}, created_at: NOW, updated_at: NOW,
+  })
+  await json(page, '**/api/v1/workflows/docs-nightly-sync/version/current', { id: 'wfv_9', workflow_id: 'docs-nightly-sync', graph_json: { graph: { nodes: [], edges: [] } }, created_at: NOW })
+  await json(page, '**/api/v1/workflows/docs-nightly-sync/versions**', { items: [], next_page_token: null, page_size: 20 })
+  await json(page, '**/api/v1/workflows/capabilities', { node_types: [], compatibility_node_types: [] })
+  await json(page, '**/api/v1/runs?**', runs('running'))
+
+  for (const verb of ['pause', 'resume', 'cancel', 'retry', 'replay']) {
+    await page.route(`**/api/v1/workflows/docs-nightly-sync/runs/run_wf_1/${verb}`, (route) => {
+      calls.push(verb)
+      return route.fulfill({ status: 200, contentType: 'application/json', body: ok({ status: 'ok' }) })
+    })
+  }
+
+  await page.goto('/build/workflows/docs-nightly-sync', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: /Monitor/ }).click()
+
+  // A running run offers pause and cancel — not retry or replay.
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Replay' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Pause' }).click()
+  await expect.poll(() => calls).toContain('pause')
+
+  // Cancel is destructive, so it confirms first.
+  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Cancel run' })).toBeVisible()
+  expect(calls).not.toContain('cancel')
+  // The modal has both a dismiss "Cancel" and the confirm "Cancel run" action;
+  // the confirm is the primary one.
+  await page.locator('.console-modal .btn.primary').click()
+  await expect.poll(() => calls).toContain('cancel')
+})

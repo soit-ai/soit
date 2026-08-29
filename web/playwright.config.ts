@@ -21,7 +21,11 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && npm run start',
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Never reuse: the command builds, so a reused server keeps serving the
+    // previous build and the suite silently tests stale code. That has produced
+    // false passes — including tests that asserted UI which had already been
+    // deleted — so the rebuild is worth the wait.
+    reuseExistingServer: false,
     timeout: 240 * 1000,
   },
   projects: [

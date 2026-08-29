@@ -51,6 +51,11 @@ export default [
       route('secrets', './console/routes/govern/secrets.tsx'),
     ]),
     route('settings/:section?', './console/routes/settings.tsx'),
+    // Product feedback predates the rebuild and the prototype has no page for
+    // it, so it keeps its own translations and lives outside app/console —
+    // which is prototype-derived by definition — while still rendering inside
+    // the shell, because the rail links here.
+    route('feedback', './system/feedback.tsx'),
     route('_kitchen', './console/routes/kitchen.tsx'),
   ]),
 
