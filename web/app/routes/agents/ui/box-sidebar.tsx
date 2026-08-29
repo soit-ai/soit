@@ -105,8 +105,7 @@ function SidebarMenuButton({
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
+      <TooltipTrigger render={<Button
           type="button"
           variant={active ? 'secondary' : 'ghost'}
           className={cn(
@@ -118,8 +117,7 @@ function SidebarMenuButton({
           {active ? <span className="absolute left-0 top-2 h-6 w-1 rounded-r-full bg-primary" /> : null}
           <Icon className="h-4 w-4" />
           <span className="truncate">{t(item.labelKey)}</span>
-        </Button>
-      </TooltipTrigger>
+        </Button>} />
       <TooltipContent side="right">
         <p>{t(item.labelKey)}</p>
       </TooltipContent>

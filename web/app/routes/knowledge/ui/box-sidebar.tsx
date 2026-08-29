@@ -121,16 +121,14 @@ export function BoxSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
     return (
       <Tooltip key={item.id}>
-        <TooltipTrigger asChild>
-          <Button
+        <TooltipTrigger render={<Button
             variant={isActive ? 'secondary' : 'ghost'}
             className="relative w-full justify-start gap-2"
             onClick={() => navigateTo(item.url)}
           >
             <Icon className="h-4 w-4" />
             <span>{label}</span>
-          </Button>
-        </TooltipTrigger>
+          </Button>} />
         <TooltipContent side="right">
           <p>{label}</p>
         </TooltipContent>

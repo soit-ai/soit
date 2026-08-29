@@ -238,8 +238,7 @@ export const RootHeader = () => {
 
         {/* Notifications */}
         <Popover open={notificationsOpen} onOpenChange={setNotificationsOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.notifications.label')}>
+          <PopoverTrigger render={<Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.notifications.label')}>
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
                 <Badge
@@ -249,8 +248,7 @@ export const RootHeader = () => {
                   {unreadCount}
                 </Badge>
               )}
-            </Button>
-          </PopoverTrigger>
+            </Button>} />
           <PopoverContent align="end" className="w-80 rounded-[var(--radius-xl)] border-border/70 bg-elevated p-0 backdrop-blur-xl">
             <div className="border-b border-border/70 p-3">
               <div className="flex justify-between items-center">

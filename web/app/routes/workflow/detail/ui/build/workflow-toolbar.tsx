@@ -68,10 +68,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
   return (
     <div className="mx-auto flex w-max justify-center">
       <div className="flex w-max gap-2 rounded-full border bg-background/80 p-2 shadow-md backdrop-blur-md">
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -80,18 +79,16 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 disabled={mutationDisabled || !undoable}
               >
                 <Undo className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.common.undo')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -100,8 +97,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 disabled={mutationDisabled || !redoable}
               >
                 <Redo className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.common.redo')}</p>
             </TooltipContent>
@@ -110,10 +106,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
 
         <div className="h-8 w-px bg-border mx-1"></div>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -121,18 +116,16 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onZoomIn}
               >
                 <ZoomIn className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.operator.zoomIn')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -140,18 +133,16 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onZoomOut}
               >
                 <ZoomOut className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.operator.zoomOut')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -159,8 +150,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onResetView}
               >
                 <RotateCcw className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.operator.resetView')}</p>
             </TooltipContent>
@@ -169,10 +159,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
 
         <div className="h-8 w-px bg-border mx-1"></div>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -181,18 +170,16 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onSave}
               >
                 <Save className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.operator.saveWorkflow')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -202,8 +189,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onExport}
               >
                 <Download className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{exportDisabled
                 ? t('workflow.detail.build.export.invalidDraft')
@@ -217,10 +203,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
           </span>
         )}
 
-        <TooltipProvider>
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            <TooltipTrigger render={<Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
@@ -229,8 +214,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                 onClick={onImport}
               >
                 <Upload className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
+              </Button>} />
             <TooltipContent side="top">
               <p>{t('workflow.operator.importWorkflow')}</p>
             </TooltipContent>
@@ -240,10 +224,9 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
         <>
           <div className="h-8 w-px bg-border mx-1"></div>
 
-          <TooltipProvider>
-            <Tooltip delayDuration={300}>
-              <TooltipTrigger asChild>
-                <Button
+          <TooltipProvider delay={300}>
+            <Tooltip>
+              <TooltipTrigger render={<Button
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
@@ -264,8 +247,7 @@ const WorkflowToolbar: React.FC<WorkflowToolbarProps> = ({
                   ) : (
                     <LayoutGrid className="h-4 w-4" />
                   )}
-                </Button>
-              </TooltipTrigger>
+                </Button>} />
               <TooltipContent side="top">
                 <p>
                   {layoutLabel}

@@ -110,8 +110,7 @@ export function NavSidebar({ knowledgeId = '', ...props }: NavSidebarProps) {
     return (
       <div key={item.title} className="mb-1">
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+          <TooltipTrigger render={<Button
               variant={isActive ? "secondary" : "ghost"}
               className={cn(
                 "w-full justify-start",
@@ -131,8 +130,7 @@ export function NavSidebar({ knowledgeId = '', ...props }: NavSidebarProps) {
                   {item.badge}
                 </Badge>
               ) : null}
-            </Button>
-          </TooltipTrigger>
+            </Button>} />
           <TooltipContent side="right">
             <p>{item.description}</p>
           </TooltipContent>

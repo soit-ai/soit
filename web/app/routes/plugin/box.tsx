@@ -439,13 +439,11 @@ function AgentAvatars({ names }: { names: string[] }) {
 function DisabledAction({ label, tooltip }: { label: string; tooltip: string }) {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <span>
+      <TooltipTrigger render={<span>
           <Button variant="outline" size="sm" disabled>
             {label}
           </Button>
-        </span>
-      </TooltipTrigger>
+        </span>} />
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
   )

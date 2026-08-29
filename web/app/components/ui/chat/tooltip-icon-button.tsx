@@ -22,8 +22,7 @@ export const TooltipIconButton = forwardRef<
 >(({ children, tooltip, side = "bottom", className, ...rest }, ref) => {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
+      <TooltipTrigger render={<Button
           variant="ghost"
           size="icon"
           {...rest}
@@ -32,8 +31,7 @@ export const TooltipIconButton = forwardRef<
         >
           <Slottable>{children}</Slottable>
           <span className="aui-sr-only sr-only">{tooltip}</span>
-        </Button>
-      </TooltipTrigger>
+        </Button>} />
       <TooltipContent side={side}>{tooltip}</TooltipContent>
     </Tooltip>
   );

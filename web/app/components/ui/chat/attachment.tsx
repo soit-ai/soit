@@ -1,6 +1,6 @@
 "use client";
 
-import { type PropsWithChildren, useEffect, useState, type FC } from "react";
+import { type PropsWithChildren, type ReactElement, useEffect, useState, type FC } from "react";
 import { cn } from "@/lib/utils";
 import { CircleXIcon, FileIcon, PaperclipIcon } from "lucide-react";
 import {
@@ -24,7 +24,8 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/ui/chat/tooltip-icon-button";
 import { fetchGovernedContent } from "@/services/attachment-service";
-import { Tooltip as TooltipPrimitive, Dialog as DialogPrimitive } from "radix-ui";
+import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 
 const useFileSrc = (file: File | undefined) => {
   const [src, setSrc] = useState<string | undefined>(undefined);
@@ -127,9 +128,10 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <Dialog>
-      <DialogTrigger className="hover:bg-accent/50 cursor-pointer transition-colors" asChild>
-        {children}
-      </DialogTrigger>
+      <DialogTrigger
+        className="hover:bg-accent/50 cursor-pointer transition-colors"
+        render={children as ReactElement}
+      />
       <AttachmentDialogContent>
         <DialogTitle className="aui-sr-only">
           Image Attachment Preview
@@ -175,8 +177,7 @@ const AttachmentUI: FC = () => {
       <Tooltip>
         <AttachmentPrimitive.Root className="relative mt-3">
           <AttachmentPreviewDialog>
-            <TooltipTrigger asChild>
-              <div className="flex h-12 w-40 items-center justify-center gap-2 rounded-lg border p-1">
+            <TooltipTrigger render={<div className="flex h-12 w-40 items-center justify-center gap-2 rounded-lg border p-1">
                 <AttachmentThumb />
                 <div className="flex-grow basis-0">
                   <p className="text-muted-foreground line-clamp-1 text-ellipsis break-all text-xs font-bold">
@@ -184,8 +185,7 @@ const AttachmentUI: FC = () => {
                   </p>
                   <p className="text-muted-foreground text-xs">{typeLabel}</p>
                 </div>
-              </div>
-            </TooltipTrigger>
+              </div>} />
           </AttachmentPreviewDialog>
           {canRemove && <AttachmentRemove />}
         </AttachmentPrimitive.Root>
@@ -255,8 +255,8 @@ export const ComposerAddAttachment: FC = () => {
 const AttachmentDialogContent: FC<PropsWithChildren> = ({ children }) => (
   <DialogPortal>
     <DialogOverlay />
-    <DialogPrimitive.Content className="aui-dialog-content">
+    <DialogPrimitive.Popup className="aui-dialog-content">
       {children}
-    </DialogPrimitive.Content>
+    </DialogPrimitive.Popup>
   </DialogPortal>
 );

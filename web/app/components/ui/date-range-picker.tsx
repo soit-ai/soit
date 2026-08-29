@@ -27,8 +27,7 @@ export function DateRangePicker({
   return (
     <div className={cn('grid gap-2', className)}>
       <Popover>
-        <PopoverTrigger asChild>
-          <Button
+        <PopoverTrigger render={<Button
             id="date"
             variant={'outline'}
             className={cn(
@@ -49,8 +48,7 @@ export function DateRangePicker({
             ) : (
               <span>{placeholder ?? 'Select Date Range'}</span>
             )}
-          </Button>
-        </PopoverTrigger>
+          </Button>} />
         <PopoverContent className="w-auto p-0" align="start">
           <Calendar
             mode="range"

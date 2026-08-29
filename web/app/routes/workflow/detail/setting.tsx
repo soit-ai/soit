@@ -654,14 +654,12 @@ function Page() {
               }
             }}
           >
-            <AlertDialogTrigger asChild>
-              <Button
+            <AlertDialogTrigger render={<Button
                 variant="destructive"
                 disabled={deleting || loading || !settingsHydrated}
               >
                 {deleting ? t('workflow.detail.setting.danger.deleting') : t('workflow.detail.setting.danger.delete')}
-              </Button>
-            </AlertDialogTrigger>
+              </Button>} />
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{t('workflow.detail.setting.danger.confirmTitle')}</AlertDialogTitle>

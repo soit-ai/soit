@@ -107,11 +107,9 @@ export function ChunkTable({
               <TableCell>
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={() => onViewDetail(chunk)}>
+                    <TooltipTrigger render={<Button variant="ghost" size="sm" onClick={() => onViewDetail(chunk)}>
                         <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
+                      </Button>} />
                     <TooltipContent>
                       <p>Rechunk</p>
                     </TooltipContent>

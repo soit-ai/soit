@@ -214,8 +214,7 @@ function SelectModel({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <div className={cn('flex flex-1 w-full flex-row justify-between items-center gap-2', className)}>
-        <PopoverTrigger asChild>
-          <Button
+        <PopoverTrigger render={<Button
             variant="outline"
             role="combobox"
             aria-expanded={open}
@@ -223,9 +222,8 @@ function SelectModel({
             className={cn('flex-1 justify-between', selectedModel && 'text-left', triggerClassName)}
           >
             {selectedModel ? (
-              <HoverCard openDelay={0} closeDelay={0}>
-                <HoverCardTrigger asChild>
-                  <div className="flex items-center gap-2 truncate cursor-pointer">
+              <HoverCard>
+                <HoverCardTrigger delay={0} closeDelay={0} render={<div className="flex items-center gap-2 truncate cursor-pointer">
                     <ModelIcon type={selectedModel.type} />
                     <span className="truncate">{selectedModel.label}</span>
                     {selectedModel.tags?.includes('new') && (
@@ -233,8 +231,7 @@ function SelectModel({
                         {newTagLabel}
                       </Badge>
                     )}
-                  </div>
-                </HoverCardTrigger>
+                  </div>} />
                 <HoverCardContent className="w-80 p-4" side="right" align="start" sideOffset={10}>
                   <ModelInfoCard model={selectedModel} />
                 </HoverCardContent>
@@ -244,8 +241,7 @@ function SelectModel({
             )}
 
             <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+          </Button>} />
         <ModelOption modelId={selectedModel?.value} className={cn('', triggerClassName)} />
       </div>
       <PopoverContent
@@ -273,9 +269,8 @@ function SelectModel({
                       onSelect={() => handleSelect(model)}
                       className="flex items-center justify-between py-2"
                     >
-                      <HoverCard openDelay={0} closeDelay={0}>
-                        <HoverCardTrigger asChild>
-                          <div className="flex items-center gap-2 cursor-pointer">
+                      <HoverCard>
+                        <HoverCardTrigger delay={0} closeDelay={0} render={<div className="flex items-center gap-2 cursor-pointer">
                             <ModelIcon type={model.type} />
                             <span>{model.label}</span>
                             {model.tags?.includes('new') && (
@@ -283,8 +278,7 @@ function SelectModel({
                                 {newTagLabel}
                               </Badge>
                             )}
-                          </div>
-                        </HoverCardTrigger>
+                          </div>} />
                         <HoverCardContent className="w-80 p-4" side="right" align="start" sideOffset={10}>
                           <ModelInfoCard model={model} />
                         </HoverCardContent>

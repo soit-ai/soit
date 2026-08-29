@@ -391,8 +391,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
             <div className="flex gap-2 items-center">
               <TooltipProvider>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Toggle
+                  <TooltipTrigger render={<Toggle
                       pressed={deepThinkingEnabled}
                       onPressedChange={setDeepThinkingEnabled}
                       size="sm"
@@ -406,8 +405,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
                     >
                       <Atom className="h-3.5 w-3.5" />
                       <span className="text-xs font-medium">{t('chat.thread.composer.deepThinking')}</span>
-                    </Toggle>
-                  </TooltipTrigger>
+                    </Toggle>} />
                   <TooltipContent side="top" className="text-xs">
                     {t('chat.thread.composer.tooltips.deepThinking')}
                   </TooltipContent>
@@ -416,8 +414,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
 
               <TooltipProvider>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Toggle
+                  <TooltipTrigger render={<Toggle
                       pressed={webSearchEnabled}
                       onPressedChange={handleWebSearchChange}
                       size="sm"
@@ -426,8 +423,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
                     >
                       <SearchIcon className="h-3.5 w-3.5" />
                       <span className="text-xs font-medium">{t('chat.thread.composer.webSearch')}</span>
-                    </Toggle>
-                  </TooltipTrigger>
+                    </Toggle>} />
                   <TooltipContent side="top" className="text-xs">
                     {t('chat.thread.composer.tooltips.webSearch')}
                   </TooltipContent>
@@ -436,8 +432,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
 
               <TooltipProvider>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Toggle
+                  <TooltipTrigger render={<Toggle
                       pressed={codeInterpreterEnabled}
                       onPressedChange={handleCodeInterpreterChange}
                       size="sm"
@@ -446,8 +441,7 @@ const Composer: FC<ComposerPrimitive.Root.Props> = (props) => {
                     >
                       <CodeIcon className="h-3.5 w-3.5" />
                       <span className="text-xs font-medium">{t('chat.thread.composer.codeMode')}</span>
-                    </Toggle>
-                  </TooltipTrigger>
+                    </Toggle>} />
                   <TooltipContent side="top" className="text-xs">
                     {t('chat.thread.composer.tooltips.codeMode')}
                   </TooltipContent>

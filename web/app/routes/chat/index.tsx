@@ -336,11 +336,9 @@ function IndexPage() {
           {/* Share button */}
           <TooltipProvider>
             <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={handleShareChat}>
+              <TooltipTrigger render={<Button variant="ghost" size="icon" onClick={handleShareChat}>
                   <Share2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
+                </Button>} />
               <TooltipContent>
                 <p>{t('chat.header.share')}</p>
               </TooltipContent>

@@ -68,8 +68,7 @@ export function TaskSidebar({
 
     return (
       <Tooltip key={item.id}>
-        <TooltipTrigger asChild>
-          {item.disabled ? (
+        <TooltipTrigger render={item.disabled ? (
             <Button
               variant={isActive ? 'secondary' : 'ghost'}
               className="relative w-full justify-start gap-2 opacity-50"
@@ -91,8 +90,7 @@ export function TaskSidebar({
               <Icon className="h-4 w-4" />
               <span>{item.label}</span>
             </Link>
-          )}
-        </TooltipTrigger>
+          )} />
         <TooltipContent side="right">
           <p>{item.label}</p>
         </TooltipContent>

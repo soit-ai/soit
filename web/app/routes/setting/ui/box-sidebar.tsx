@@ -233,8 +233,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     return (
       <div key={item.id} className="space-y-1">
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+          <TooltipTrigger render={<Button
               variant={isActive ? "secondary" : "ghost"}
               className="w-full justify-start gap-2 relative"
               onClick={() => handleMenuItemClick(item.id, item.url)}
@@ -256,8 +255,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <div className="ml-auto">
                 </div>
               )}
-            </Button>
-          </TooltipTrigger>
+            </Button>} />
           <TooltipContent side="right">
             <p>{item.description}</p>
           </TooltipContent>
@@ -271,8 +269,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               
               return (
                 <Tooltip key={subItem.id}>
-                  <TooltipTrigger asChild>
-                    <Button
+                  <TooltipTrigger render={<Button
                       size="sm"
                       variant={isSubActive ? "secondary" : "ghost"}
                       className="w-full justify-start gap-2 text-sm"
@@ -287,8 +284,7 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           {subItem.badge}
                         </Badge>
                       ) : null}
-                    </Button>
-                  </TooltipTrigger>
+                    </Button>} />
                   <TooltipContent side="right">
                     <p>{subItem.description}</p>
                   </TooltipContent>

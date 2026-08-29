@@ -95,8 +95,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
     return (
       <div key={item.id} className="space-y-1">
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+          <TooltipTrigger render={<Button
               variant={isActive ? "secondary" : "ghost"}
               className="w-full justify-start gap-2 relative"
               onClick={() => handleMenuItemClick(item.id)}
@@ -105,8 +104,7 @@ export function BoxSidebar({ activeTab = 'overview', onTabChange, ...props }: { 
                 <item.icon size={16} />
               </div>
               <span>{t(item.labelKey)}</span>
-            </Button>
-          </TooltipTrigger>
+            </Button>} />
           <TooltipContent side="right">
             <p>{t(item.labelKey)}</p>
           </TooltipContent>

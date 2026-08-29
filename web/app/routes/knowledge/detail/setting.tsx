@@ -379,11 +379,9 @@ function Page() {
             </CardHeader>
             <CardContent>
               <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" disabled={deleting || loading}>
+                <AlertDialogTrigger render={<Button variant="destructive" disabled={deleting || loading}>
                     {deleting ? t('knowledge.setting.danger.deleting') : t('knowledge.setting.danger.delete')}
-                  </Button>
-                </AlertDialogTrigger>
+                  </Button>} />
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>{t('knowledge.setting.danger.confirmTitle')}</AlertDialogTitle>

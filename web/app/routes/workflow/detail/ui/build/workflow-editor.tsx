@@ -210,10 +210,9 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
 
             <Panel position="top-center" className="flex gap-2 p-2">
               <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm p-1 rounded-full shadow-sm">
-                <TooltipProvider>
-                  <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <Button
+                <TooltipProvider delay={300}>
+                  <Tooltip>
+                    <TooltipTrigger render={<Button
                         size="icon"
                         variant="default"
                         className="h-8 w-8 rounded-full"
@@ -222,18 +221,16 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                         onClick={runWorkflow}
                       >
                         <Play className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
+                      </Button>} />
                     <TooltipContent side="bottom">
                       <p>{t('workflow.build.actions.testRun')}</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
 
-                <TooltipProvider>
-                  <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <Button
+                <TooltipProvider delay={300}>
+                  <Tooltip>
+                    <TooltipTrigger render={<Button
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 rounded-full"
@@ -241,8 +238,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                         onClick={handleShowCallConfig}
                       >
                         <Share2 className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
+                      </Button>} />
                     <TooltipContent side="bottom">
                       <p>{t('workflow.build.actions.callConfig')}</p>
                     </TooltipContent>
@@ -250,10 +246,9 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                 </TooltipProvider>
 
                 {selectedNode && (
-                  <TooltipProvider>
-                    <Tooltip delayDuration={300}>
-                      <TooltipTrigger asChild>
-                        <Button
+                  <TooltipProvider delay={300}>
+                    <Tooltip>
+                      <TooltipTrigger render={<Button
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -262,8 +257,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
                           onClick={deleteSelectedNode}
                         >
                           <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
+                      </Button>} />
                     <TooltipContent side="bottom">
                       <p>{t('workflow.build.actions.deleteSelected')}</p>
                     </TooltipContent>

@@ -157,16 +157,14 @@ export function BoxSidebar({
 
     return (
       <Tooltip key={item.id}>
-        <TooltipTrigger asChild>
-          <Button
+        <TooltipTrigger render={<Button
             variant={isActive ? 'secondary' : 'ghost'}
             className="w-full justify-start gap-2"
             onClick={() => handleMenuItemClick(item)}
           >
             <item.icon size={16} />
             <span>{t(item.labelKey)}</span>
-          </Button>
-        </TooltipTrigger>
+          </Button>} />
         <TooltipContent side="right">
           <p>{t(item.labelKey)}</p>
         </TooltipContent>

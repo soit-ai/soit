@@ -172,8 +172,7 @@ export function NavSidebar({ workflowId = '', ...props }: NavSidebarProps) {
     return (
       <div key={item.id} className="mb-1">
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+          <TooltipTrigger render={<Button
               variant={item.isActive ? 'secondary' : 'ghost'}
               className={cn(
                 'w-full justify-start transition-all duration-200',
@@ -197,8 +196,7 @@ export function NavSidebar({ workflowId = '', ...props }: NavSidebarProps) {
                   {item.badge}
                 </Badge>
               ) : null}
-            </Button>
-          </TooltipTrigger>
+            </Button>} />
           <TooltipContent side="right" className="max-w-[220px]">
             <p>{handleNavItemHover(item)}</p>
           </TooltipContent>

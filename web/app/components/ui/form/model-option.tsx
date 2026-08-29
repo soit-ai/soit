@@ -61,16 +61,14 @@ export function ModelOption({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
+      <PopoverTrigger render={<Button
           variant="outline"
           size="icon"
           className={cn("h-9 w-9", className)}
         >
           <Settings2 className="h-4 w-4" />
           <span className="sr-only">{t("common.model.option.srLabel")}</span>
-        </Button>
-      </PopoverTrigger>
+        </Button>} />
       <PopoverContent className="w-[400px] p-0" align="end" sideOffset={5}>
         <Card className="border-none shadow-none">
           <CardHeader className="pb-3">
@@ -87,9 +85,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.temperatureTip")}</p>
                           </TooltipContent>
@@ -138,9 +134,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.top_pTip")}</p>
                           </TooltipContent>
@@ -189,9 +183,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.presence_penaltyTip")}</p>
                           </TooltipContent>
@@ -240,9 +232,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.frequency_penaltyTip")}</p>
                           </TooltipContent>
@@ -291,9 +281,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.max_tokensTip")}</p>
                           </TooltipContent>
@@ -342,9 +330,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.response_formatTip")}</p>
                           </TooltipContent>
@@ -387,9 +373,7 @@ export function ModelOption({
                       </Label>
                       <TooltipProvider>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="right" className="max-w-80">
                             <p>{t("common.model.params.seedTip")}</p>
                           </TooltipContent>
