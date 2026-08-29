@@ -79,6 +79,9 @@ const translation = {
     workspace: 'Workspace',
     queue: 'Queue',
     recentlyEdited: 'Recently edited',
+    account: 'Account',
+    accountSettings: 'Account settings',
+    logOut: 'Log out',
   },
   settings: {
     title: 'Settings',

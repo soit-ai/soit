@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 
 import {
   IconBuild,
@@ -14,9 +15,17 @@ import {
   IconSettings,
   IconSun,
 } from '@/console/components/icons'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/console/components/ui'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useUserStore } from '@/stores/user'
+import { clearAuthSessionStorage } from '@/utils/auth-session'
 
 import { useConsoleTheme } from './console-theme'
 import { PANEL_CONFIG, pillarForPathname, type ConsolePillar } from './panel-config'
@@ -64,6 +73,17 @@ export function IconRail() {
   const navigate = useConsoleNavigate()
   const { theme, toggleTheme } = useConsoleTheme()
   const currentUser = useUserStore((state) => state.currentUser)
+  const clearUser = useUserStore((state) => state.clearUser)
+  const queryClient = useQueryClient()
+
+  // Same teardown the pre-rebuild account menu did: drop cached queries, the
+  // persisted user and the stored credentials, then land on sign-in.
+  const handleLogout = () => {
+    queryClient.clear()
+    clearUser()
+    clearAuthSessionStorage()
+    navigate('/sign-in')
+  }
 
   const initials = (currentUser?.name || currentUser?.email || 'S')
     .split(/[\s@._-]+/)
@@ -118,9 +138,31 @@ export function IconRail() {
         {theme === 'dark' ? <IconSun /> : <IconMoon />}
       </button>
 
-      <span className="avatar mt-1" title={currentUser?.name || undefined}>
-        {initials || 'S'}
-      </span>
+      {/* The rail's avatar is the only account surface in the console shell, so
+          it carries sign-out: without it there is no way to leave a session. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              className="avatar mt-1"
+              title={currentUser?.name || t('console.shell.account')}
+              aria-label={t('console.shell.account')}
+            >
+              {initials || 'S'}
+            </button>
+          }
+        />
+        <DropdownMenuContent side="right" align="end" className="min-w-44">
+          <DropdownMenuItem onClick={() => navigate('/settings/account')}>
+            {t('console.shell.accountSettings')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleLogout}>
+            {t('console.shell.logOut')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </nav>
   )
 }

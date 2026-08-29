@@ -6,10 +6,10 @@ import { mockShellApi } from './helpers'
 const appRoot = path.resolve(process.cwd(), 'app')
 
 test('community sign-in route uses the auth extension boundary', () => {
-  const source = fs.readFileSync(path.join(appRoot, 'routes/auth/sign-in.tsx'), 'utf-8')
+  const source = fs.readFileSync(path.join(appRoot, 'auth/sign-in.tsx'), 'utf-8')
 
   expect(source).toContain("@/extensions/auth")
-  expect(source).not.toContain("@/routes/auth/ui/login-form")
+  expect(source).not.toContain("@/auth/ui/login-form")
   expect(source).not.toContain("better-auth")
   expect(source).not.toContain("soit-enterprise")
 })
@@ -44,9 +44,9 @@ test('community sign-in does not advertise unavailable identity or legal flows',
 
 test('protected routes redirect unauthenticated users with a local return target', async ({ page }) => {
   await page.addInitScript(() => localStorage.clear())
-  await page.goto('/knowledge?view=library', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge?view=library', { waitUntil: 'domcontentloaded' })
 
-  await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fknowledge%3Fview%3Dlibrary$/)
+  await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fbuild%2Fknowledge%3Fview%3Dlibrary$/)
 })
 
 test('sign-in resumes a safe local route and ignores an external redirect', async ({ page }) => {
@@ -105,9 +105,8 @@ test('logout clears authentication, scope, and persisted user state', async ({ p
   await mockShellApi(page)
 
   await page.goto('/', { waitUntil: 'domcontentloaded' })
-  const userMenu = page.getByText('Test User', { exact: true }).first()
-  await expect(userMenu).toBeVisible()
-  await userMenu.click()
+  // The console shell's only account surface is the rail avatar.
+  await page.getByRole('button', { name: 'Account' }).click()
   await page.getByRole('menuitem', { name: 'Log out' }).click()
 
   await expect(page).toHaveURL(/\/sign-in$/)
