@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 
 import { useParams } from 'react-router'
 
@@ -13,7 +13,7 @@ import {
   runStatusToConsole,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { catColor, relativeTime } from '../../adapters/palette'
+import { relativeTime } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -27,9 +27,13 @@ import {
 
 type WfTab = 'build' | 'monitor' | 'publish' | 'settings'
 
-/** Prototype canvas geometry: a node box is 160 wide and its ports sit 32 down. */
-const NODE_WIDTH = 160
-const PORT_OFFSET_Y = 32
+/**
+ * The Build tab hosts the real interactive editor (ReactFlow canvas, node
+ * library, properties panel) shared with the legacy `/workflow/:id/build` page.
+ * It is lazy so `@xyflow/react`, dagre and the node registry never reach the
+ * console's initial JavaScript — the other three tabs load without them.
+ */
+const WorkflowBuilderCanvas = lazy(() => import('./workflow-builder-canvas'))
 
 interface GraphNode {
   id: string
@@ -76,15 +80,6 @@ function readGraph(graphJson: Record<string, any> | undefined) {
   return { nodes, edges }
 }
 
-function nodeNote(node: GraphNode): string {
-  for (const key of ['model', 'tool_ref', 'knowledge_ref', 'condition', 'key', 'select', 'value']) {
-    const value = node.params[key]
-    if (typeof value === 'string' && value) return value
-  }
-  const keys = Object.keys(node.params)
-  return keys.length ? keys.join(' · ') : node.type
-}
-
 function paramString(params: Record<string, unknown>, key: string): string {
   const value = params[key]
   if (value == null) return ''
@@ -114,7 +109,6 @@ export default function ConsoleWorkflowDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<WfTab>('build')
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
   const workflowId = id && id !== 'new' && id !== 'new-draft' ? id : undefined
   const enabled = Boolean(workflowId)
@@ -156,11 +150,6 @@ export default function ConsoleWorkflowDetail() {
   const spec = versionQuery.data?.graph_json as Record<string, any> | undefined
   const { nodes, edges } = useMemo(() => readGraph(spec), [spec])
 
-  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || nodes[0] || null
-  const inboundIds = useMemo(() => new Set(edges.map((edge) => edge.to)), [edges])
-  const outboundIds = useMemo(() => new Set(edges.map((edge) => edge.from)), [edges])
-
   const legacyTypes = useMemo(
     () => new Set(capabilitiesQuery.data?.compatibility_node_types || []),
     [capabilitiesQuery.data],
@@ -194,18 +183,6 @@ export default function ConsoleWorkflowDetail() {
     paramString((spec?.policy as Record<string, unknown>) || {}, 'bundle') ||
     paramString((spec?.policy as Record<string, unknown>) || {}, 'version') ||
     '—'
-
-  const edgePath = (edge: GraphEdge) => {
-    const from = nodeById.get(edge.from)
-    const to = nodeById.get(edge.to)
-    if (!from || !to) return null
-    const x1 = from.x + NODE_WIDTH
-    const y1 = from.y + PORT_OFFSET_Y
-    const x2 = to.x
-    const y2 = to.y + PORT_OFFSET_Y
-    const curve = Math.max(16, (x2 - x1) / 2)
-    return { d: `M${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`, x1, y1, x2, y2 }
-  }
 
   return (
     <>
@@ -263,143 +240,21 @@ export default function ConsoleWorkflowDetail() {
               <ConsoleButton>{t('console.wfDetail.migrate')}</ConsoleButton>
             </div>
           )}
-          <div className="wfshell">
-            <div className="panel palette">
-              <div className="pcap">{t('console.wfDetail.nodesCap')}</div>
-              {(capabilitiesQuery.data?.capabilities || []).map((capability) => (
-                <div
-                  key={capability.type}
-                  className="pitem"
-                  style={{ '--c': catColor(capability.type) } as React.CSSProperties}
-                >
-                  <i />
-                  {capability.type}
+          {/* The real builder, shared with the legacy page: ReactFlow canvas,
+              node library and node properties inside the prototype frame. */}
+          <Suspense
+            fallback={
+              <div className="wfshell wfshell-live">
+                <div className="panel palette" />
+                <div className="canvas-wrap wfcanvas">
+                  <DataStateNote isPending />
                 </div>
-              ))}
-              <div className="phint">{t('console.wfDetail.paletteHint')}</div>
-            </div>
-
-            <div className="canvas-wrap">
-              <div className="canvas">
-                <svg className="edges" width="1160" height="520" viewBox="0 0 1160 520">
-                  {edges.map((edge) => {
-                    const path = edgePath(edge)
-                    if (!path) return null
-                    const hot = selectedNode
-                      ? edge.from === selectedNode.id || edge.to === selectedNode.id
-                      : false
-                    return <path key={edge.id} className={hot ? 'hot' : undefined} d={path.d} />
-                  })}
-                  {edges.map((edge) => {
-                    if (!edge.condition) return null
-                    const path = edgePath(edge)
-                    if (!path) return null
-                    return (
-                      <text key={`label-${edge.id}`} x={(path.x1 + path.x2) / 2} y={(path.y1 + path.y2) / 2 - 12}>
-                        {edge.condition}
-                      </text>
-                    )
-                  })}
-                </svg>
-                {nodes.length === 0 ? (
-                  <DataStateNote isPending={versionQuery.isPending} isError={versionQuery.isError} />
-                ) : (
-                  nodes.map((node) => (
-                    <div
-                      key={node.id}
-                      className={cn('node', selectedNode?.id === node.id && 'sel')}
-                      style={{ left: node.x, top: node.y }}
-                      onClick={() => setSelectedNodeId(node.id)}
-                    >
-                      <span className="nk" style={{ '--c': catColor(node.type) } as React.CSSProperties}>
-                        <i />
-                        {node.type}
-                      </span>
-                      <b>{node.name}</b>
-                      <small>{nodeNote(node)}</small>
-                      {inboundIds.has(node.id) && <span className="port in" />}
-                      {outboundIds.has(node.id) && <span className="port out" />}
-                    </div>
-                  ))
-                )}
+                <div className="panel inspector" />
               </div>
-              <div className="canvas-tools">
-                <button type="button" title="Zoom out">−</button>
-                <button type="button" title="Zoom level">100%</button>
-                <button type="button" title="Zoom in">+</button>
-                <button type="button" title="Fit view">fit</button>
-                <button type="button" title="Auto layout">auto</button>
-              </div>
-            </div>
-
-            <div className="panel inspector">
-              <div className="panel-head">
-                <h2>{selectedNode?.name || '—'}</h2>
-                <span className="hint">{selectedNode?.type || '—'}</span>
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.fields.name')}</label>
-                <input key={`name-${selectedNode?.id}`} className="input" defaultValue={selectedNode?.name || ''} />
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.fields.model')}</label>
-                {/* No model-catalogue endpoint yet; the option list stays the
-                    prototype's while the value comes from the node params. */}
-                <select
-                  key={`model-${selectedNode?.id}`}
-                  className="input"
-                  defaultValue={paramString(selectedNode?.params || {}, 'model')}
-                >
-                  <option>claude-sonnet-5</option>
-                  <option>claude-haiku-4.5</option>
-                  <option>qwen3-235b</option>
-                </select>
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.fields.prompt')}</label>
-                <textarea
-                  key={`prompt-${selectedNode?.id}`}
-                  className="input"
-                  defaultValue={
-                    paramString(selectedNode?.params || {}, 'prompt') ||
-                    paramString(selectedNode?.params || {}, 'system')
-                  }
-                />
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.fields.temperature')}</label>
-                <input
-                  key={`temp-${selectedNode?.id}`}
-                  className="input"
-                  defaultValue={paramString(selectedNode?.params || {}, 'temperature')}
-                  style={{ maxWidth: 90 }}
-                />
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.fields.outputSchema')}</label>
-                <div>
-                  {/* The canonical node spec carries no per-node output schema;
-                      only the workflow-level outputs_schema exists. */}
-                  <span className="chip">
-                    {Object.keys((spec?.outputs_schema as Record<string, unknown>) || {}).join(' · ') || '—'}
-                  </span>
-                </div>
-              </div>
-              <div className="frow">
-                <label>{t('console.wfDetail.inspectorGovernance')}</label>
-                <div className="dim" style={{ fontSize: 11.5 }}>
-                  {t('console.wfDetail.inspectorGovNote')} <span className="mono">{policyBundle}</span>.{' '}
-                  {t('console.wfDetail.inspectorGovNote2')}
-                </div>
-              </div>
-              <div className="frow">
-                <label />
-                <ConsoleButton style={{ color: 'var(--danger-foreground)', maxWidth: 120 }}>
-                  {t('console.wfDetail.deleteNode')}
-                </ConsoleButton>
-              </div>
-            </div>
-          </div>
+            }
+          >
+            <WorkflowBuilderCanvas workflowId={workflowId} />
+          </Suspense>
         </>
       )}
 

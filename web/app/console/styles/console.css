@@ -750,6 +750,66 @@
 .console-root .inspector .frow label{padding-top:0}
 .console-root .inspector .input{max-width:none}
 
+/* Live builder: the same palette | canvas | inspector frame, hosting the real
+   ReactFlow editor and its panels instead of the read-only prototype canvas.
+   The three cells share one height so the canvas has a definite box to fill and
+   the side panels scroll inside it rather than stretching the page. */
+.console-root .wfshell.wfshell-live{
+  --wf-shell-height:clamp(460px,calc(100vh - 300px),820px);
+  grid-template-columns:272px 1fr 340px;
+  align-items:stretch;
+}
+.console-root .wfshell-live > .panel{height:var(--wf-shell-height);display:flex;flex-direction:column;overflow:hidden}
+.console-root .wfshell-live .palette .pcap{flex:none}
+.console-root .wfshell-live .palette .phint{flex:none}
+.console-root .wfshell-live .wfpalette-body,
+.console-root .wfshell-live .wfinspector-body{
+  flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;
+  margin:0;padding:0;border:0;
+}
+.console-root .wfshell-live .wfpalette-body{padding:0 6px}
+.console-root .wfshell-live .wfcanvas{
+  height:var(--wf-shell-height);overflow:hidden;
+  /* ReactFlow ships its own palette; remap it onto the console tokens so the
+     embedded canvas follows the console's light/dark theme. */
+  --xy-background-color:var(--shell);
+  --xy-background-color-props:var(--shell);
+  --xy-background-pattern-color:var(--border-strong);
+  --xy-background-pattern-color-props:var(--border-strong);
+  --xy-edge-stroke:var(--border-strong);
+  --xy-edge-stroke-selected:var(--primary);
+  --xy-connectionline-stroke:var(--primary);
+  --xy-handle-background-color:var(--raised);
+  --xy-handle-border-color:var(--faint);
+  --xy-edge-label-background-color:var(--panel);
+  --xy-edge-label-color:var(--foreground);
+  --xy-controls-box-shadow:none;
+  --xy-controls-button-background-color:var(--panel);
+  --xy-controls-button-background-color-props:var(--panel);
+  --xy-controls-button-background-color-hover:var(--raised);
+  --xy-controls-button-background-color-hover-props:var(--raised);
+  --xy-controls-button-color:var(--muted-foreground);
+  --xy-controls-button-color-props:var(--muted-foreground);
+  --xy-controls-button-color-hover:var(--foreground);
+  --xy-controls-button-color-hover-props:var(--foreground);
+  --xy-controls-button-border-color:var(--border);
+  --xy-controls-button-border-color-props:var(--border);
+  --xy-minimap-background-color:var(--panel);
+  --xy-minimap-background-color-props:var(--panel);
+  --xy-minimap-mask-background-color:rgb(0 0 0 / .28);
+  --xy-minimap-mask-background-color-props:rgb(0 0 0 / .28);
+  --xy-minimap-node-background-color:var(--border-strong);
+  --xy-minimap-node-background-color-props:var(--border-strong);
+}
+.console-root .wfshell-live .wfcanvas > *{width:100%;height:100%}
+.console-root .wfshell-live .wfcanvas .react-flow__pane{cursor:grab}
+.console-root .wfshell-live .wfcanvas .react-flow__controls{border:1px solid var(--border);border-radius:7px;overflow:hidden}
+/* The overview map is a navigation aid, not content: keep it small so it does
+   not cover the canvas cell, which is narrower here than on the legacy page. */
+.console-root .wfshell-live .wfcanvas .react-flow__minimap{
+  width:132px;height:88px;border:1px solid var(--border);border-radius:7px;
+}
+
 /* modals */
 .console-root .modal{position:fixed;inset:0;background:rgba(4,8,16,.6);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding-top:8vh;z-index:60}
 .console-root .modal.open{display:flex}
@@ -999,6 +1059,7 @@
   .console-root .chatgrid{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .console-root .chatgrid .threads{max-height:200px}
   .console-root .wfshell{grid-template-columns:1fr}
+  .console-root .wfshell.wfshell-live{grid-template-columns:1fr}
   .console-root .searchbtn{width:150px}
 }
 @media (max-width:760px){
