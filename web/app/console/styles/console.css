@@ -9,7 +9,8 @@
  * v13: buttons are flat - solid fills, hover one stop darker, no shadows.
  */
 
-.console-root {
+.console-root,
+.console-theme {
   /* Type: IBM Plex Sans for UI, JetBrains Mono for data; Chinese falls back
      to the system stack. Woff2 ships via @fontsource imports in the shell. */
   --font-sans:
@@ -84,17 +85,10 @@
   --hl: rgb(255 255 255 / 0.7);
   --thbg: rgb(15 23 42 / 0.025);
   --glow: radial-gradient(1100px 480px at 16% -6%, rgb(0 115 213 / 0.045), transparent 62%);
-
-  font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-  -webkit-font-smoothing: antialiased;
-  background: var(--background);
-  color: var(--foreground);
 }
 
-.console-root.dark {
+.console-root.dark,
+.console-theme.dark {
   /* ---- dark theme (prototype :root) ---- */
   --background: var(--brand-graphite);
   --shell: #0d1526;
@@ -157,6 +151,26 @@
   --hl: rgb(255 255 255 / 0.055);
   --thbg: rgb(255 255 255 / 0.022);
   --glow: radial-gradient(1100px 480px at 16% -6%, rgb(59 158 255 / 0.05), transparent 62%);
+}
+
+/* element styling: the console page root paints the ground; overlay scopes
+   only inherit type (their own surface comes from the component skin). */
+.console-root {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  background: var(--background);
+  color: var(--foreground);
+}
+.console-theme {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  color: var(--foreground);
 }
 
 /* base element behaviour inside the console, per the prototype */
@@ -886,3 +900,72 @@
   .console-root *,.console-root *::before,.console-root *::after{animation:none!important;transition:none!important}
 }
 
+
+/* ============================================================
+   shadcn/Base UI component skin - prototype forms for the shared
+   primitives so console screens reuse them directly. Scoped to the
+   console page (.console-root) and to portalled overlays that carry
+   .console-theme (see app/console/components/ui.tsx). Unlayered rules
+   deliberately outrank the components' Tailwind utility classes.
+   ============================================================ */
+:is(.console-root,.console-theme) [data-slot="button"],.console-theme[data-slot="button"]{min-height:0;height:30px;padding:0 12px;gap:7px;border-radius:7px;font-size:12.5px;font-weight:600;box-shadow:none;background-image:none}
+:is(.console-root,.console-theme) [data-slot="button"]:hover,.console-theme[data-slot="button"]:hover{box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="button"]:active,.console-theme[data-slot="button"]:active{transform:translateY(.5px)}
+:is(.console-root,.console-theme) [data-slot="button"][data-size="sm"],.console-theme[data-slot="button"][data-size="sm"]{height:26px;padding:0 10px;font-size:11.5px}
+:is(.console-root,.console-theme) [data-slot="button"][data-size="xs"],.console-theme[data-slot="button"][data-size="xs"]{height:24px;padding:0 9px;font-size:11px}
+:is(.console-root,.console-theme) [data-slot="button"][data-size="lg"],.console-theme[data-slot="button"][data-size="lg"]{height:34px;padding:0 16px}
+:is(.console-root,.console-theme) [data-slot="button"][data-size^="icon"],.console-theme[data-slot="button"][data-size^="icon"]{width:30px;height:30px;padding:0}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="default"],.console-theme[data-slot="button"][data-variant="default"]{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="default"]:hover,.console-theme[data-slot="button"][data-variant="default"]:hover{background:var(--primary-press)}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="destructive"],.console-theme[data-slot="button"][data-variant="destructive"]{background:var(--danger);color:var(--primary-foreground);border-color:transparent}
+:is(.console-root,.console-theme) [data-slot="button"]:is([data-variant="outline"],[data-variant="secondary"]),.console-theme[data-slot="button"]:is([data-variant="outline"],[data-variant="secondary"]){background:var(--panel);border:1px solid var(--border);color:var(--foreground)}
+:is(.console-root,.console-theme) [data-slot="button"]:is([data-variant="outline"],[data-variant="secondary"]):hover,.console-theme[data-slot="button"]:is([data-variant="outline"],[data-variant="secondary"]):hover{background:var(--raised);border-color:var(--border-strong)}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="ghost"],.console-theme[data-slot="button"][data-variant="ghost"]{background:transparent;border-color:transparent;color:var(--muted-foreground)}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="ghost"]:hover,.console-theme[data-slot="button"][data-variant="ghost"]:hover{background:var(--hover-wash);color:var(--foreground)}
+:is(.console-root,.console-theme) [data-slot="button"][data-variant="link"],.console-theme[data-slot="button"][data-variant="link"]{background:transparent;border-color:transparent;color:var(--primary-subtle-foreground)}
+:is(.console-root,.console-theme) [data-slot="input"],.console-theme[data-slot="input"]{height:30px;padding:0 10px;border-radius:7px;background:var(--shell);border:1px solid var(--border);font-size:12.5px;color:var(--foreground);box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="select-trigger"],.console-theme[data-slot="select-trigger"]{min-height:0;height:30px;padding:0 10px;border-radius:7px;background:var(--shell);border:1px solid var(--border);font-size:12.5px;color:var(--foreground);box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="select-trigger"][data-size="sm"],.console-theme[data-slot="select-trigger"][data-size="sm"]{height:28px}
+:is(.console-root,.console-theme) [data-slot="textarea"],.console-theme[data-slot="textarea"]{min-height:66px;padding:8px 10px;border-radius:7px;background:var(--shell);border:1px solid var(--border);font-family:var(--font-mono);font-size:11.5px;line-height:1.55;color:var(--foreground);box-shadow:none}
+:is(.console-root,.console-theme) :is([data-slot="input"],[data-slot="textarea"],[data-slot="select-trigger"]):focus-visible,.console-theme:is([data-slot="input"],[data-slot="textarea"],[data-slot="select-trigger"]):focus-visible{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+:is(.console-root,.console-theme) [data-slot="label"],.console-theme[data-slot="label"]{font-size:12.5px;font-weight:600}
+:is(.console-root,.console-theme) [data-slot="card"],.console-theme[data-slot="card"]{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-1);color:var(--panel-foreground)}
+:is(.console-root,.console-theme) [data-slot="card-title"],.console-theme[data-slot="card-title"]{font-size:12.5px;font-weight:600}
+:is(.console-root,.console-theme) [data-slot="card-description"],.console-theme[data-slot="card-description"]{font-size:12px;color:var(--muted-foreground)}
+:is(.console-root,.console-theme) [data-slot="badge"],.console-theme[data-slot="badge"]{height:20px;padding:0 8px;border-radius:99px;font-family:var(--font-mono);font-size:10.5px;font-weight:400;letter-spacing:.035em}
+:is(.console-root,.console-theme) [data-slot="switch"],.console-theme[data-slot="switch"]{width:28px;height:16px;border-radius:99px;background:var(--raised);border:1px solid var(--border);box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="switch"][data-checked],.console-theme[data-slot="switch"][data-checked]{background:var(--primary);border-color:transparent}
+:is(.console-root,.console-theme) [data-slot="switch-thumb"],.console-theme[data-slot="switch-thumb"]{width:10px;height:10px;background:var(--faint);transform:translateX(1px)}
+:is(.console-root,.console-theme) [data-slot="switch"][data-checked] [data-slot="switch-thumb"],.console-theme[data-slot="switch"][data-checked] [data-slot="switch-thumb"]{background:var(--primary-foreground);transform:translateX(13px)}
+:is(.console-root,.console-theme) [data-slot="checkbox"],.console-theme[data-slot="checkbox"]{width:13px;height:13px;border-radius:3px;border:1px solid var(--border-strong);background:var(--shell);box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="checkbox"][data-checked],.console-theme[data-slot="checkbox"][data-checked]{background:var(--primary);border-color:transparent;color:var(--primary-foreground)}
+:is(.console-root,.console-theme) [data-slot="tabs-list"],.console-theme[data-slot="tabs-list"]{width:100%;min-height:0;justify-content:flex-start;gap:2px;padding:0;background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="tabs-trigger"],.console-theme[data-slot="tabs-trigger"]{flex:none;width:auto;height:auto;padding:8px 13px;font-size:12.5px;font-weight:600;color:var(--muted-foreground);background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:6px 6px 0 0;box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="tabs-trigger"]:hover,.console-theme[data-slot="tabs-trigger"]:hover{color:var(--foreground);background:var(--hover-wash)}
+:is(.console-root,.console-theme) [data-slot="tabs-trigger"][data-active],.console-theme[data-slot="tabs-trigger"][data-active]{color:var(--foreground);background:transparent;border:0;border-bottom:2px solid var(--primary);box-shadow:none}
+:is(.console-root,.console-theme) [data-slot="tabs-content"],.console-theme[data-slot="tabs-content"]{margin-top:14px}
+:is(.console-root,.console-theme) [data-slot="table"],.console-theme[data-slot="table"]{font-size:12.5px}
+:is(.console-root,.console-theme) [data-slot="table-header"],.console-theme[data-slot="table-header"]{background:var(--thbg)}
+:is(.console-root,.console-theme) [data-slot="table-head"],.console-theme[data-slot="table-head"]{height:auto;padding:8px 14px;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+:is(.console-root,.console-theme) [data-slot="table-row"],.console-theme[data-slot="table-row"]{height:auto;border-color:var(--border)}
+:is(.console-root,.console-theme) [data-slot="table-body"] [data-slot="table-row"]:hover,.console-theme[data-slot="table-body"] [data-slot="table-row"]:hover{background:var(--hover-wash)}
+:is(.console-root,.console-theme) [data-slot="table-cell"],.console-theme[data-slot="table-cell"]{padding:9px 14px;font-size:12.5px;white-space:nowrap;color:var(--foreground)}
+:is(.console-root,.console-theme) [data-slot="table-cell"]:first-child,.console-theme[data-slot="table-cell"]:first-child{font-weight:500}
+:is(.console-root,.console-theme) [data-slot="dialog-overlay"],.console-theme[data-slot="dialog-overlay"]{background:rgb(4 8 16/0.6);backdrop-filter:blur(2px)}
+:is(.console-root,.console-theme) [data-slot="dialog-content"],.console-theme[data-slot="dialog-content"]{background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;box-shadow:var(--shadow-1),var(--shadow-2);padding:16px;gap:12px;backdrop-filter:none}
+:is(.console-root,.console-theme) [data-slot="dialog-title"],.console-theme[data-slot="dialog-title"]{font-size:13.5px;font-weight:600}
+:is(.console-root,.console-theme) [data-slot="dialog-description"],.console-theme[data-slot="dialog-description"]{font-size:12px;color:var(--muted-foreground)}
+:is(.console-root,.console-theme) [data-slot="alert-dialog-overlay"],.console-theme[data-slot="alert-dialog-overlay"]{background:rgb(4 8 16/0.6);backdrop-filter:blur(2px)}
+:is(.console-root,.console-theme) [data-slot="alert-dialog-content"],.console-theme[data-slot="alert-dialog-content"]{background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;box-shadow:var(--shadow-1),var(--shadow-2)}
+:is(.console-root,.console-theme) [data-slot="sheet-content"],.console-theme[data-slot="sheet-content"]{background:var(--panel);border-color:var(--border-strong)}
+:is(.console-root,.console-theme) [data-slot="drawer-popup"],.console-theme[data-slot="drawer-popup"]{background:var(--panel)}
+:is(.console-root,.console-theme) :is([data-slot="dropdown-menu-content"],[data-slot="dropdown-menu-sub-content"],[data-slot="select-content"],[data-slot="context-menu-content"],[data-slot="menubar-content"],[data-slot="popover-content"],[data-slot="hover-card-content"]),.console-theme:is([data-slot="dropdown-menu-content"],[data-slot="dropdown-menu-sub-content"],[data-slot="select-content"],[data-slot="context-menu-content"],[data-slot="menubar-content"],[data-slot="popover-content"],[data-slot="hover-card-content"]){background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-1),var(--shadow-2);color:var(--foreground)}
+:is(.console-root,.console-theme) :is([data-slot="dropdown-menu-item"],[data-slot="dropdown-menu-checkbox-item"],[data-slot="dropdown-menu-radio-item"],[data-slot="select-item"],[data-slot="context-menu-item"],[data-slot="menubar-item"]),.console-theme:is([data-slot="dropdown-menu-item"],[data-slot="dropdown-menu-checkbox-item"],[data-slot="dropdown-menu-radio-item"],[data-slot="select-item"],[data-slot="context-menu-item"],[data-slot="menubar-item"]){border-radius:7px;font-size:12.5px}
+:is(.console-root,.console-theme) :is([data-slot="dropdown-menu-item"],[data-slot="dropdown-menu-checkbox-item"],[data-slot="dropdown-menu-radio-item"],[data-slot="select-item"],[data-slot="context-menu-item"],[data-slot="menubar-item"])[data-highlighted],.console-theme:is([data-slot="dropdown-menu-item"],[data-slot="dropdown-menu-checkbox-item"],[data-slot="dropdown-menu-radio-item"],[data-slot="select-item"],[data-slot="context-menu-item"],[data-slot="menubar-item"])[data-highlighted]{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+:is(.console-root,.console-theme) :is([data-slot="dropdown-menu-label"],[data-slot="select-label"]),.console-theme:is([data-slot="dropdown-menu-label"],[data-slot="select-label"]){font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);padding:8px 8px 4px}
+:is(.console-root,.console-theme) :is([data-slot="dropdown-menu-separator"],[data-slot="select-separator"],[data-slot="context-menu-separator"],[data-slot="menubar-separator"]),.console-theme:is([data-slot="dropdown-menu-separator"],[data-slot="select-separator"],[data-slot="context-menu-separator"],[data-slot="menubar-separator"]){background:var(--border)}
+:is(.console-root,.console-theme) [data-slot="dropdown-menu-shortcut"],.console-theme[data-slot="dropdown-menu-shortcut"]{font-family:var(--font-mono);font-size:10px;color:var(--faint);letter-spacing:normal}
+:is(.console-root,.console-theme) [data-slot="separator"],.console-theme[data-slot="separator"]{background:var(--border)}
+:is(.console-root,.console-theme) [data-slot="skeleton"],.console-theme[data-slot="skeleton"]{background:var(--raised)}
+:is(.console-root,.console-theme) [data-slot="progress"],.console-theme[data-slot="progress"]{height:5px;border-radius:3px;background:var(--raised)}
+:is(.console-root,.console-theme) [data-slot="progress-indicator"],.console-theme[data-slot="progress-indicator"]{background:var(--primary)}

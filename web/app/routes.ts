@@ -37,6 +37,7 @@ export default [
         route('secrets', './console/routes/govern/secrets.tsx'),
       ]),
       route('settings/:section?', './console/routes/settings.tsx'),
+      route('_kitchen', './console/routes/kitchen.tsx'),
     ]),
   ]),
 

@@ -196,6 +196,38 @@ describe('console v2 design system', () => {
     }
   })
 
+  it('skins the shared shadcn primitives to prototype forms for reuse', () => {
+    const css = read('app/console/styles/console.css').replace(/\r\n/g, '\n')
+
+    // The skin layer restyles by data-slot inside both scopes.
+    expect(css).toContain(':is(.console-root,.console-theme) [data-slot="button"]')
+    expect(css).toContain('[data-slot="tabs-trigger"][data-active]')
+    expect(css).toContain('[data-slot="table-head"]')
+    expect(css).toContain('[data-slot="dialog-content"]')
+
+    // Tokens serve both the page scope and portalled overlays.
+    expect(css).toContain('.console-root,\n.console-theme {')
+    expect(css).toContain('.console-root.dark,\n.console-theme.dark {')
+
+    // The facade wraps every portalled *Content with the overlay scope class.
+    const facade = read('app/console/components/ui.tsx')
+    expect(facade).toContain("'console-theme'")
+    for (const name of [
+      'DialogContent',
+      'AlertDialogContent',
+      'SheetContent',
+      'DrawerContent',
+      'SelectContent',
+      'DropdownMenuContent',
+      'PopoverContent',
+      'TooltipContent',
+    ]) {
+      expect(facade, `${name} must re-enter the console scope`).toContain(
+        `withConsoleTheme(Shared${name}`
+      )
+    }
+  })
+
   it('builds the workbench template on the shared Box suite', () => {
     const index = read('app/console/components/index.ts')
 
