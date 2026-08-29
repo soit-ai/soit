@@ -15,11 +15,31 @@ export type ConsolePillar =
   | 'govern'
   | 'settings'
 
+/**
+ * Names the live figure a panel link shows beside its label, matching the
+ * prototype's `.ct` counts. `use-console-counts` resolves these, fetching only
+ * what the pillar on screen actually needs.
+ */
+export type ConsoleCountKey =
+  | 'agents'
+  | 'workflows'
+  | 'knowledge'
+  | 'plugins'
+  | 'models'
+  | 'tasks'
+  | 'schedules'
+  | 'events'
+  | 'approvals'
+  | 'secrets'
+  | 'threads'
+
 export interface PanelLink {
   labelKey: TranslationKey
   to: string
   /** Matches child routes too (section landing pages). */
   end?: boolean
+  /** Renders the prototype's `.ct` badge once the figure resolves. */
+  count?: ConsoleCountKey
 }
 
 export interface PanelSection {
@@ -62,7 +82,7 @@ export const PANEL_CONFIG: PillarConfig[] = [
         captionKey: 'console.nav.chat',
         links: [
           { labelKey: 'console.nav.newThread', to: '/v2/chat', end: true },
-          { labelKey: 'console.nav.allThreads', to: '/v2/chat' },
+          { labelKey: 'console.nav.allThreads', to: '/v2/chat', count: 'threads' },
         ],
       },
     ],
@@ -77,11 +97,11 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.build',
         links: [
-          { labelKey: 'console.nav.agents', to: '/v2/build/agents' },
-          { labelKey: 'console.nav.workflows', to: '/v2/build/workflows' },
-          { labelKey: 'console.nav.knowledge', to: '/v2/build/knowledge' },
-          { labelKey: 'console.nav.plugins', to: '/v2/build/plugins' },
-          { labelKey: 'console.nav.models', to: '/v2/build/models' },
+          { labelKey: 'console.nav.agents', to: '/v2/build/agents', count: 'agents' },
+          { labelKey: 'console.nav.workflows', to: '/v2/build/workflows', count: 'workflows' },
+          { labelKey: 'console.nav.knowledge', to: '/v2/build/knowledge', count: 'knowledge' },
+          { labelKey: 'console.nav.plugins', to: '/v2/build/plugins', count: 'plugins' },
+          { labelKey: 'console.nav.models', to: '/v2/build/models', count: 'models' },
         ],
       },
     ],
@@ -96,9 +116,9 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.execute',
         links: [
-          { labelKey: 'console.nav.tasks', to: '/v2/execute/tasks' },
-          { labelKey: 'console.nav.schedules', to: '/v2/execute/schedules' },
-          { labelKey: 'console.nav.events', to: '/v2/execute/events' },
+          { labelKey: 'console.nav.tasks', to: '/v2/execute/tasks', count: 'tasks' },
+          { labelKey: 'console.nav.schedules', to: '/v2/execute/schedules', count: 'schedules' },
+          { labelKey: 'console.nav.events', to: '/v2/execute/events', count: 'events' },
         ],
       },
     ],
@@ -129,10 +149,10 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.govern',
         links: [
-          { labelKey: 'console.nav.approvals', to: '/v2/govern/approvals' },
+          { labelKey: 'console.nav.approvals', to: '/v2/govern/approvals', count: 'approvals' },
           { labelKey: 'console.nav.policies', to: '/v2/govern/policies' },
           { labelKey: 'console.nav.audit', to: '/v2/govern/audit' },
-          { labelKey: 'console.nav.secrets', to: '/v2/govern/secrets' },
+          { labelKey: 'console.nav.secrets', to: '/v2/govern/secrets', count: 'secrets' },
         ],
       },
     ],

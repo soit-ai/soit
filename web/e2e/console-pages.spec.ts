@@ -382,6 +382,29 @@ test('settings redirects to account and navigates sections via the subnav', asyn
   await expect(page.getByText('github.com/soit-ai/soit')).toBeVisible()
 })
 
+test('side panel shows live counts for the pillar on screen', async ({ page }) => {
+  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+
+  const counted = async (label: string) =>
+    page.locator('.subnav .sl', { hasText: label }).locator('.ct').textContent()
+
+  await expect(page.locator('.subnav .sl', { hasText: 'Agents' }).locator('.ct')).toBeVisible()
+  expect(await counted('Agents')).toBe('2')
+  expect(await counted('Workflows')).toBe('3')
+  expect(await counted('Knowledge')).toBe('3')
+  // Only installed plugins are counted, matching what the page lists.
+  expect(await counted('Plugins')).toBe('4')
+  expect(await counted('Models')).toBe('6')
+})
+
+test('side panel omits a count it could not load rather than guessing', async ({ page }) => {
+  await page.route('**/api/v1/agents/workbench**', (route) => route.abort())
+  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('.subnav .sl', { hasText: 'Workflows' }).locator('.ct')).toBeVisible()
+  await expect(page.locator('.subnav .sl', { hasText: 'Agents' }).locator('.ct')).toHaveCount(0)
+})
+
 test('workflow list renders workbench rows and opens the builder', async ({ page }) => {
   await page.goto('/v2/build/workflows', { waitUntil: 'domcontentloaded' })
 

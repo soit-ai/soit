@@ -5,6 +5,7 @@ import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 import { pillarForPathname } from './panel-config'
+import { useConsoleCounts } from './use-console-counts'
 
 interface ContextPanelProps {
   onCollapse: () => void
@@ -20,6 +21,7 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const config = pillarForPathname(location.pathname)
+  const counts = useConsoleCounts(config.pillar)
 
   // Preserve the embed flag on declarative links (use-navigate does this for
   // imperative navigation; NavLink needs it appended explicitly).
@@ -50,16 +52,20 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
           {config.sections.map((section) => (
             <div key={section.captionKey}>
               <div className="sub-cap">{t(section.captionKey)}</div>
-              {section.links.map((link) => (
-                <NavLink
-                  key={link.to + link.labelKey}
-                  to={withNosider(link.to)}
-                  end={link.end}
-                  className={({ isActive }) => cn('sl', isActive && 'active')}
-                >
-                  {t(link.labelKey)}
-                </NavLink>
-              ))}
+              {section.links.map((link) => {
+                const count = link.count ? counts[link.count] : undefined
+                return (
+                  <NavLink
+                    key={link.to + link.labelKey}
+                    to={withNosider(link.to)}
+                    end={link.end}
+                    className={({ isActive }) => cn('sl', isActive && 'active')}
+                  >
+                    {t(link.labelKey)}
+                    {count != null && <span className="ct">{count}</span>}
+                  </NavLink>
+                )
+              })}
             </div>
           ))}
         </div>
