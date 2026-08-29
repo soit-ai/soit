@@ -38,11 +38,14 @@ export const updateCurrentUser = (data: {
   return patch<CurrentUser>('/me', data)
 }
 
-export const changePassword = (data: {
-  current_password: string
-  new_password: string
-}): Promise<void> => {
-  return post('/me/password', data)
+export const changePassword = (
+  data: {
+    current_password: string
+    new_password: string
+  },
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return post('/me/password', data, config)
 }
 
 export interface WorkspaceInfo {
@@ -81,20 +84,26 @@ export const listWorkspaceMembers = (workspaceId: string): Promise<WorkspaceMemb
 export const updateWorkspaceMemberRole = (
   workspaceId: string,
   userId: string,
-  role: string
+  role: string,
+  config?: RequestConfigWithToast,
 ): Promise<void> => {
-  return patch(`/workspaces/${workspaceId}/members/${userId}`, { role })
+  return patch(`/workspaces/${workspaceId}/members/${userId}`, { role }, config)
 }
 
-export const removeWorkspaceMember = (workspaceId: string, userId: string): Promise<void> => {
-  return del(`/workspaces/${workspaceId}/members/${userId}`)
+export const removeWorkspaceMember = (
+  workspaceId: string,
+  userId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/workspaces/${workspaceId}/members/${userId}`, undefined, config)
 }
 
 export const addWorkspaceMember = (
   workspaceId: string,
-  data: { user_id: string; role: string }
+  data: { user_id: string; role: string },
+  config?: RequestConfigWithToast,
 ): Promise<void> => {
-  return post(`/workspaces/${workspaceId}/members`, data)
+  return post(`/workspaces/${workspaceId}/members`, data, config)
 }
 
 export const listResourceGrants = (

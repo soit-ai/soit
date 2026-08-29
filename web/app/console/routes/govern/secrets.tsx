@@ -87,34 +87,41 @@ export default function ConsoleSecrets() {
   const createMutation = useMutation({
     mutationKey: ['console', 'secrets', 'create'],
     mutationFn: () =>
-      createSecret({
-        name: form.name.trim(),
-        description: form.description.trim() || undefined,
-        value: form.value,
-      }),
+      createSecret(
+        {
+          name: form.name.trim(),
+          description: form.description.trim() || undefined,
+          value: form.value,
+        },
+        { suppressErrorToast: true },
+      ),
     onSuccess: afterWrite,
     onError: onWriteError('Failed to create the secret'),
   })
   const rotateMutation = useMutation({
     mutationKey: ['console', 'secrets', 'rotate'],
     mutationFn: () =>
-      updateSecret(rotating!.id, {
-        description: form.description.trim() || undefined,
-        // An empty box means "description only" — do not blank the value.
-        ...(form.value ? { value: form.value } : {}),
-      }),
+      updateSecret(
+        rotating!.id,
+        {
+          description: form.description.trim() || undefined,
+          // An empty box means "description only" — do not blank the value.
+          ...(form.value ? { value: form.value } : {}),
+        },
+        { suppressErrorToast: true },
+      ),
     onSuccess: afterWrite,
     onError: onWriteError('Failed to rotate the secret'),
   })
   const deleteMutation = useMutation({
     mutationKey: ['console', 'secrets', 'delete'],
-    mutationFn: () => deleteSecret(deleting!.id),
+    mutationFn: () => deleteSecret(deleting!.id, { suppressErrorToast: true }),
     onSuccess: afterWrite,
     onError: onWriteError('Failed to delete the secret'),
   })
   const testMutation = useMutation({
     mutationKey: ['console', 'secrets', 'test'],
-    mutationFn: (secretId: string) => testSecret(secretId),
+    mutationFn: (secretId: string) => testSecret(secretId, { suppressErrorToast: true }),
     onSuccess: (result) => {
       if (result.ok) toast.success(result.message || t('console.secrets.testOk'))
       else toast.error(result.message || 'Credential rejected')

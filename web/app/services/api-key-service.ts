@@ -1,4 +1,4 @@
-import { get, post } from '@/utils/request'
+import { get, post, type RequestConfigWithToast } from '@/utils/request'
 import type { PaginatedResponse } from '@/types/api'
 
 export type { PaginatedResponse } from '@/types/api'
@@ -39,18 +39,27 @@ export const listApiKeys = (params?: {
   return get<PaginatedResponse<ApiKeyItem>>('/api-keys', params)
 }
 
-export const createApiKey = (data: {
-  name: string
-  scopes: ApiKeyScope[]
-  expires_in_days: number
-}): Promise<ApiKeyCreateResponse> => {
-  return post<ApiKeyCreateResponse>('/api-keys', data)
+export const createApiKey = (
+  data: {
+    name: string
+    scopes: ApiKeyScope[]
+    expires_in_days: number
+  },
+  config?: RequestConfigWithToast,
+): Promise<ApiKeyCreateResponse> => {
+  return post<ApiKeyCreateResponse>('/api-keys', data, config)
 }
 
-export const revokeApiKey = (keyId: string): Promise<ApiKeyItem> => {
-  return post<ApiKeyItem>(`/api-keys/${keyId}/revoke`, {})
+export const revokeApiKey = (
+  keyId: string,
+  config?: RequestConfigWithToast,
+): Promise<ApiKeyItem> => {
+  return post<ApiKeyItem>(`/api-keys/${keyId}/revoke`, {}, config)
 }
 
-export const rotateApiKey = (keyId: string): Promise<ApiKeyRotateResponse> => {
-  return post<ApiKeyRotateResponse>(`/api-keys/${keyId}/rotate`, {})
+export const rotateApiKey = (
+  keyId: string,
+  config?: RequestConfigWithToast,
+): Promise<ApiKeyRotateResponse> => {
+  return post<ApiKeyRotateResponse>(`/api-keys/${keyId}/rotate`, {}, config)
 }

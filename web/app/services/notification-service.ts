@@ -134,8 +134,11 @@ export const getNotificationPreferences = async (): Promise<NotificationPreferen
 
 export const updateNotificationPreferences = async (
   payload: NotificationPreferenceUpdate,
+  config?: RequestConfigWithToast,
 ): Promise<NotificationPreference> => {
-  return unwrapResponse<NotificationPreference>(await put('/notifications/preferences', payload))
+  return unwrapResponse<NotificationPreference>(
+    await put('/notifications/preferences', payload, config),
+  )
 }
 
 export const listNotificationEndpoints = async (): Promise<NotificationEndpoint[]> => {
@@ -144,23 +147,37 @@ export const listNotificationEndpoints = async (): Promise<NotificationEndpoint[
 
 export const createNotificationEndpoint = async (
   payload: NotificationEndpointCreate,
+  config?: RequestConfigWithToast,
 ): Promise<NotificationEndpoint> => {
-  return unwrapResponse<NotificationEndpoint>(await post('/notifications/endpoints', payload))
+  return unwrapResponse<NotificationEndpoint>(
+    await post('/notifications/endpoints', payload, config),
+  )
 }
 
 export const updateNotificationEndpoint = async (
   endpointId: string,
   payload: Partial<NotificationEndpointCreate> & { status?: 'active' | 'disabled' },
+  config?: RequestConfigWithToast,
 ): Promise<NotificationEndpoint> => {
-  return unwrapResponse<NotificationEndpoint>(await patch(`/notifications/endpoints/${endpointId}`, payload))
+  return unwrapResponse<NotificationEndpoint>(
+    await patch(`/notifications/endpoints/${endpointId}`, payload, config),
+  )
 }
 
-export const deleteNotificationEndpoint = async (endpointId: string): Promise<void> => {
-  await del(`/notifications/endpoints/${endpointId}`)
+export const deleteNotificationEndpoint = async (
+  endpointId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  await del(`/notifications/endpoints/${endpointId}`, undefined, config)
 }
 
-export const testNotificationEndpoint = async (endpointId: string): Promise<NotificationDelivery> => {
-  return unwrapResponse<NotificationDelivery>(await post(`/notifications/endpoints/${endpointId}/test`))
+export const testNotificationEndpoint = async (
+  endpointId: string,
+  config?: RequestConfigWithToast,
+): Promise<NotificationDelivery> => {
+  return unwrapResponse<NotificationDelivery>(
+    await post(`/notifications/endpoints/${endpointId}/test`, undefined, config),
+  )
 }
 
 export const listNotificationDeliveries = async (notificationId: string): Promise<NotificationDelivery[]> => {

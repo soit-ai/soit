@@ -1,4 +1,4 @@
-import { get, post, patch, del } from '@/utils/request'
+import { get, post, patch, del, type RequestConfigWithToast } from '@/utils/request'
 
 export interface Secret {
   id: string
@@ -19,12 +19,15 @@ export const getSecret = (secretId: string): Promise<Secret> => {
   return get<Secret>(`/secrets/${secretId}`)
 }
 
-export const createSecret = (data: {
-  name: string
-  description?: string
-  value: string
-}): Promise<Secret> => {
-  return post<Secret>('/secrets', data)
+export const createSecret = (
+  data: {
+    name: string
+    description?: string
+    value: string
+  },
+  config?: RequestConfigWithToast,
+): Promise<Secret> => {
+  return post<Secret>('/secrets', data, config)
 }
 
 export const updateSecret = (
@@ -33,15 +36,22 @@ export const updateSecret = (
     name?: string
     description?: string
     value?: string
-  }
+  },
+  config?: RequestConfigWithToast,
 ): Promise<Secret> => {
-  return patch<Secret>(`/secrets/${secretId}`, data)
+  return patch<Secret>(`/secrets/${secretId}`, data, config)
 }
 
-export const deleteSecret = (secretId: string): Promise<void> => {
-  return del(`/secrets/${secretId}`)
+export const deleteSecret = (
+  secretId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/secrets/${secretId}`, undefined, config)
 }
 
-export const testSecret = (secretId: string): Promise<{ ok: boolean; message?: string | null }> => {
-  return post<{ ok: boolean; message?: string | null }>(`/secrets/${secretId}/test`)
+export const testSecret = (
+  secretId: string,
+  config?: RequestConfigWithToast,
+): Promise<{ ok: boolean; message?: string | null }> => {
+  return post<{ ok: boolean; message?: string | null }>(`/secrets/${secretId}/test`, undefined, config)
 }
