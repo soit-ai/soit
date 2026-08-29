@@ -47,7 +47,7 @@ test('secrets can be created from the console', async ({ page }) => {
     })
   })
 
-  await page.goto('/v2/govern/secrets', { waitUntil: 'domcontentloaded' })
+  await page.goto('/govern/secrets', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Add secret' }).click()
 
   await expect(page.getByRole('heading', { name: 'New secret' })).toBeVisible()
@@ -72,7 +72,7 @@ test('rotating a secret without a new value leaves the value alone', async ({ pa
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(secrets[0]) })
   })
 
-  await page.goto('/v2/govern/secrets', { waitUntil: 'domcontentloaded' })
+  await page.goto('/govern/secrets', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Rotate' }).click()
 
   await page.locator('.console-modal input.input').nth(1).fill('rotated description')
@@ -137,7 +137,7 @@ test('policies can be edited and saved from the console', async ({ page }) => {
     })
   })
 
-  await page.goto('/v2/govern/policies', { waitUntil: 'domcontentloaded' })
+  await page.goto('/govern/policies', { waitUntil: 'domcontentloaded' })
   // The rule table is built from the live policy, not a fixture.
   await expect(page.getByText('egress.allow:docs.acme.io')).toBeVisible()
 

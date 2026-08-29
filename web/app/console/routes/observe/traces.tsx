@@ -245,7 +245,7 @@ export default function ConsoleTraces() {
                 <TableRow
                   key={`${row.trace_id}:${row.run_id}`}
                   className="rowlink cursor-pointer"
-                  onClick={() => navigate(`/v2/observe/traces/${row.trace_id}`)}
+                  onClick={() => navigate(`/observe/traces/${row.trace_id}`)}
                 >
                   <TableCell>
                     <span className="runid">{row.trace_id}</span>

@@ -54,7 +54,7 @@ export default function ConsoleKnowledgeNew() {
         { suppressErrorToast: true },
       ),
     onSuccess: (knowledge) => {
-      navigate(`/v2/build/knowledge/${knowledge.id}`)
+      navigate(`/build/knowledge/${knowledge.id}`)
     },
     onError: (error) => {
       toast.error(requestErrorMessage(error, 'Failed to create the knowledge base'))
@@ -63,7 +63,7 @@ export default function ConsoleKnowledgeNew() {
 
   return (
     <>
-      <Backlink to="/v2/build/knowledge">{t('console.knowNew.back')}</Backlink>
+      <Backlink to="/build/knowledge">{t('console.knowNew.back')}</Backlink>
       <div className="page-head">
         <h1>{t('console.knowNew.title')}</h1>
         <StatusChip status="info" label="DRAFT" />
@@ -233,7 +233,7 @@ export default function ConsoleKnowledgeNew() {
 
           <div className="actionbar">
             <span className="note">{t('console.knowNew.note')}</span>
-            <ConsoleButton onClick={() => navigate('/v2/build/knowledge')}>
+            <ConsoleButton onClick={() => navigate('/build/knowledge')}>
               {t('console.knowNew.cancel')}
             </ConsoleButton>
             <ConsoleButton>{t('console.knowNew.saveDraft')}</ConsoleButton>

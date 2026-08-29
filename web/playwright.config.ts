@@ -7,6 +7,10 @@ const workers = Number(process.env.PLAYWRIGHT_WORKERS || '1')
 
 export default defineConfig({
   testDir: './e2e',
+  // e2e/legacy holds the specs for the pre-rebuild pages that app/routes_old
+  // backs up. They drive URLs the console no longer serves, so they are kept
+  // beside that backup rather than run.
+  testIgnore: '**/legacy/**',
   timeout: 60 * 1000,
   workers,
   retries: process.env.CI ? 1 : 0,

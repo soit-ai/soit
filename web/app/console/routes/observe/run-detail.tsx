@@ -59,7 +59,7 @@ export default function ConsoleRunDetail() {
   if (!detailQuery.data) {
     return (
       <>
-        <Backlink to="/v2/observe/runs">{t('console.runDetail.back')}</Backlink>
+        <Backlink to="/observe/runs">{t('console.runDetail.back')}</Backlink>
         <div className="rd-head">
           <h1>{id}</h1>
         </div>
@@ -96,7 +96,7 @@ export default function ConsoleRunDetail() {
 
   return (
     <>
-      <Backlink to="/v2/observe/runs">{t('console.runDetail.back')}</Backlink>
+      <Backlink to="/observe/runs">{t('console.runDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1>{run.id}</h1>

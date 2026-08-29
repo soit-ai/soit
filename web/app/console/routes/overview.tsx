@@ -245,10 +245,10 @@ export default function ConsoleOverview() {
                 <span className="hint">{t('console.overview.outcomesHint')}</span>
                 <a
                   className="more"
-                  href="/v2/observe/runs"
+                  href="/observe/runs"
                   onClick={(event) => {
                     event.preventDefault()
-                    navigate('/v2/observe/runs')
+                    navigate('/observe/runs')
                   }}
                 >
                   {t('console.overview.openRuns')}
@@ -310,10 +310,10 @@ export default function ConsoleOverview() {
                 <h2>{t('console.overview.recentRuns')}</h2>
                 <a
                   className="more"
-                  href="/v2/observe/runs"
+                  href="/observe/runs"
                   onClick={(event) => {
                     event.preventDefault()
-                    navigate('/v2/observe/runs')
+                    navigate('/observe/runs')
                   }}
                 >
                   {t('console.overview.viewAll')}
@@ -338,7 +338,7 @@ export default function ConsoleOverview() {
                       <tr
                         key={run.id}
                         className="rowlink"
-                        onClick={() => navigate(`/v2/observe/runs/${run.id}`)}
+                        onClick={() => navigate(`/observe/runs/${run.id}`)}
                       >
                         <td>
                           <span className="runid">{run.id}</span>
@@ -374,10 +374,10 @@ export default function ConsoleOverview() {
                 <h2>{t('console.overview.governanceTitle')}</h2>
                 <a
                   className="more"
-                  href="/v2/govern/audit"
+                  href="/govern/audit"
                   onClick={(event) => {
                     event.preventDefault()
-                    navigate('/v2/govern/audit')
+                    navigate('/govern/audit')
                   }}
                 >
                   {t('console.overview.auditLog')}
@@ -422,10 +422,10 @@ export default function ConsoleOverview() {
                 <h2>{t('console.overview.activeAgents')}</h2>
                 <a
                   className="more"
-                  href="/v2/build/agents"
+                  href="/build/agents"
                   onClick={(event) => {
                     event.preventDefault()
-                    navigate('/v2/build/agents')
+                    navigate('/build/agents')
                   }}
                 >
                   {t('console.overview.allAgents')}

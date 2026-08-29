@@ -154,7 +154,7 @@ export default function ConsoleTasks() {
         // There is no POST /tasks: a task is created by the runtime when a run
         // needs one, so the honest affordance is to go start a run rather than
         // offer a create dialog with nothing behind it.
-        <ConsoleButton variant="primary" onClick={() => navigate('/v2/chat')}>
+        <ConsoleButton variant="primary" onClick={() => navigate('/chat')}>
           <IconPlus />
           {t('console.tasks.newTask')}
         </ConsoleButton>
@@ -216,7 +216,7 @@ export default function ConsoleTasks() {
                 <TableRow
                   key={task.id}
                   className="rowlink cursor-pointer"
-                  onClick={() => navigate(`/v2/execute/tasks/${task.id}`)}
+                  onClick={() => navigate(`/execute/tasks/${task.id}`)}
                 >
                   <TableCell>
                     <b style={{ fontWeight: 600 }}>{task.display_name}</b>
@@ -240,11 +240,11 @@ export default function ConsoleTasks() {
                     {task.run_id ? (
                       <a
                         className="runid"
-                        href={`/v2/observe/runs/${task.run_id}`}
+                        href={`/observe/runs/${task.run_id}`}
                         onClick={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
-                          navigate(`/v2/observe/runs/${task.run_id}`)
+                          navigate(`/observe/runs/${task.run_id}`)
                         }}
                       >
                         {task.run_id}
@@ -276,7 +276,7 @@ export default function ConsoleTasks() {
           nextLabel={t('console.runs.next')}
         >
           <span className="spacer" />
-          <NavLink className="more" to="/v2/govern/approvals">
+          <NavLink className="more" to="/govern/approvals">
             {t('console.tasks.awaitingLink', { count: tabs?.waiting_approval ?? 0 })}
           </NavLink>
         </Pager>

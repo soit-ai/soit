@@ -44,7 +44,7 @@ import {
   type ModelWorkbenchModelRow,
   type ModelWorkbenchProviderRow,
 } from '@/services/provider-service'
-import type { ProviderConfig } from '@/routes/model/setting/ui/types'
+import type { ProviderConfig } from '@/features/model-config/types'
 import { requestErrorMessage } from '@/utils/request'
 
 type MdTab = 'providers' | 'library' | 'usage'

@@ -260,6 +260,7 @@ const translation = {
     deleteTitle: 'Delete thread',
     deleteAction: 'Delete',
     deleteConfirm: 'Delete this thread? Its messages go with it; the runs they triggered stay in evidence.',
+    noThread: 'Pick a thread, or start a new one.',
   },
   placeholder: {
     description: 'This screen arrives in a later phase of the console rebuild.',

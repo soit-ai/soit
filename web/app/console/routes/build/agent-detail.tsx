@@ -425,7 +425,7 @@ export default function ConsoleAgentDetail() {
     onSuccess: () => {
       setDeleting(false)
       void workbenchQuery.refetch()
-      navigate('/v2/build/agents')
+      navigate('/build/agents')
     },
     onError: onWriteError('Failed to archive the agent'),
   })
@@ -485,7 +485,7 @@ export default function ConsoleAgentDetail() {
 
   return (
     <>
-      <Backlink to="/v2/build/agents">{t('console.agentDetail.back')}</Backlink>
+      <Backlink to="/build/agents">{t('console.agentDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
@@ -810,10 +810,10 @@ export default function ConsoleAgentDetail() {
             actions={
               <a
                 className="more"
-                href="/v2/observe/runs"
+                href="/observe/runs"
                 onClick={(event) => {
                   event.preventDefault()
-                  navigate('/v2/observe/runs')
+                  navigate('/observe/runs')
                 }}
               >
                 {t('console.agentDetail.allRuns')}
@@ -844,7 +844,7 @@ export default function ConsoleAgentDetail() {
                   runs.map((run) => {
                     const observed = run.observe_summary
                     return (
-                      <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
+                      <tr key={run.id} className="rowlink" onClick={() => navigate(`/observe/runs/${run.id}`)}>
                         <td>
                           <span className="runid">{run.id}</span>
                         </td>

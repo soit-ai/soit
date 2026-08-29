@@ -125,8 +125,8 @@ export default function ConsoleApprovals() {
 
   const contextLinks = (row: ApprovalResponse) =>
     [
-      row.run_id ? { label: row.run_id, to: `/v2/observe/runs/${row.run_id}` } : null,
-      row.task_id ? { label: row.task_id, to: `/v2/execute/tasks/${row.task_id}` } : null,
+      row.run_id ? { label: row.run_id, to: `/observe/runs/${row.run_id}` } : null,
+      row.task_id ? { label: row.task_id, to: `/execute/tasks/${row.task_id}` } : null,
     ].filter(Boolean) as Array<{ label: string; to: string }>
 
   return (

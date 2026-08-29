@@ -8,8 +8,8 @@ import {
   serializeWorkflowSpec,
   serializeWorkflowSpecForExport,
   UnsupportedWorkflowEdgeError,
-} from '../app/routes/workflow/detail/ui/build/workflow-spec'
-import { canonicalBuilderTypes } from '../app/routes/workflow/detail/ui/build/canonical-node-registry'
+} from '../app/features/workflow-builder/ui/workflow-spec'
+import { canonicalBuilderTypes } from '../app/features/workflow-builder/ui/canonical-node-registry'
 import historicalAppendixFixtures from './fixtures/workflow-historical-appendix'
 
 const seedLocalStorage = () => {

@@ -406,7 +406,7 @@ export default function ConsoleSettings() {
   }, [egressQuery.data])
 
   if (!section) {
-    return <Navigate to={`/v2/settings/account${location.search}`} replace />
+    return <Navigate to={`/settings/account${location.search}`} replace />
   }
 
   const currentUser = userQuery.data
@@ -803,7 +803,7 @@ export default function ConsoleSettings() {
               <ConsoleButton
                 variant="primary"
                 style={{ marginTop: 12 }}
-                onClick={() => navigate('/v2/govern/secrets')}
+                onClick={() => navigate('/govern/secrets')}
               >
                 {t('console.settings.secretsPane.open')}
               </ConsoleButton>

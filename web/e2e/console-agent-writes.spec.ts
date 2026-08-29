@@ -198,7 +198,7 @@ test('the New agent button creates the agent and opens its detail page', async (
     })
   })
 
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'New agent' }).click()
 
   await expect(page.getByRole('heading', { name: 'New agent' })).toBeVisible()
@@ -219,7 +219,7 @@ test('the New agent button creates the agent and opens its detail page', async (
     description: 'Checks refund eligibility',
     visibility: 'workspace',
   })
-  await expect(page).toHaveURL(/\/v2\/build\/agents\/ag_new/)
+  await expect(page).toHaveURL(/\/build\/agents\/ag_new/)
 })
 
 test('a blank description is omitted from the create payload', async ({ page }) => {
@@ -236,7 +236,7 @@ test('a blank description is omitted from the create payload', async ({ page }) 
     })
   })
 
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'New agent' }).click()
   await page.locator('.console-modal input.input').first().fill('bare-agent')
   await page.getByRole('button', { name: 'Create' }).click()
@@ -269,7 +269,7 @@ test('Save draft writes the agent record and a new version from the edited spec'
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agent) })
   })
 
-  await page.goto('/v2/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
 
   // The Build tab is seeded from the draft version, not from a fixture.
   const definition = page.locator('.rdgrid .stack').first()
@@ -320,7 +320,7 @@ test('the header Publish button publishes the current version after confirming',
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agent) })
   })
 
-  await page.goto('/v2/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Publish v2' }).click()
 
   await expect(page.getByRole('heading', { name: 'Publish agent version' })).toBeVisible()
@@ -338,7 +338,7 @@ test('the Publish tab version rail publishes the version it was clicked on', asy
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agent) })
   })
 
-  await page.goto('/v2/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Publish' }).click()
   await page.locator('.bundle', { hasText: 'v2' }).click()
 
@@ -363,7 +363,7 @@ test('pausing from Settings flips the agent status', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agent) })
   })
 
-  await page.goto('/v2/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Settings' }).click()
   await page.getByRole('button', { name: 'Pause agent' }).click()
 
@@ -381,7 +381,7 @@ test('archiving from Settings deletes the agent and returns to the list', async 
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agent) })
   })
 
-  await page.goto('/v2/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Settings' }).click()
   await page.getByRole('button', { name: 'Archive…' }).click()
 
@@ -389,7 +389,7 @@ test('archiving from Settings deletes the agent and returns to the list', async 
   await page.locator('.console-modal').getByRole('button', { name: 'Archive…' }).click()
 
   await expect.poll(() => deleted).toBe(true)
-  await expect(page).toHaveURL(/\/v2\/build\/agents$/)
+  await expect(page).toHaveURL(/\/build\/agents$/)
 })
 
 test('a failing write surfaces the API message instead of navigating away', async ({ page }) => {
@@ -409,7 +409,7 @@ test('a failing write surfaces the API message instead of navigating away', asyn
     })
   })
 
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'New agent' }).click()
   await page.locator('.console-modal input.input').first().fill('refund-checker')
   await page.getByRole('button', { name: 'Create' }).click()
@@ -417,5 +417,5 @@ test('a failing write surfaces the API message instead of navigating away', asyn
   await expect(
     page.getByText('An agent named refund-checker already exists').first(),
   ).toBeVisible()
-  await expect(page).toHaveURL(/\/v2\/build\/agents$/)
+  await expect(page).toHaveURL(/\/build\/agents$/)
 })

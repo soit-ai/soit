@@ -138,7 +138,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('console runs renders the prototype workbench with live data', async ({ page }) => {
-  await page.goto('/v2/observe/runs', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Runs' })).toBeVisible()
 
@@ -157,7 +157,7 @@ test('console runs renders the prototype workbench with live data', async ({ pag
 })
 
 test('console runs quick status filter narrows the query', async ({ page }) => {
-  await page.goto('/v2/observe/runs', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('run_01J9KD84QF')).toBeVisible()
 
   await page.locator('.fchip', { hasText: 'Failed' }).click()
@@ -168,7 +168,7 @@ test('console runs quick status filter narrows the query', async ({ page }) => {
 })
 
 test('console runs row click opens the run detail route', async ({ page }) => {
-  await page.goto('/v2/observe/runs', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
   await page.getByText('run_01J9KD7Z2M').click()
-  await expect(page).toHaveURL(/\/v2\/observe\/runs\/run_01J9KD7Z2M/)
+  await expect(page).toHaveURL(/\/observe\/runs\/run_01J9KD7Z2M/)
 })

@@ -299,7 +299,7 @@ export function toRunDetailView(detail: RunDetailResponse): RunDetailView {
               key: 'Trace',
               value: run.trace_id,
               link: true,
-              to: `/v2/observe/traces/${run.trace_id}`,
+              to: `/observe/traces/${run.trace_id}`,
             },
           ]
         : []),

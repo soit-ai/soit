@@ -26,5 +26,9 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "exclude": ["node_modules"]
+  // app/routes_old is the pre-rebuild tree, kept for one release so anything the
+  // console has not absorbed is recoverable from the working tree rather than
+  // only from history. It is not registered and not compiled; its pages
+  // reference generated route types that no longer exist.
+  "exclude": ["node_modules", "app/routes_old"]
 }

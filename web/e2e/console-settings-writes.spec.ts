@@ -86,7 +86,7 @@ test('a member is invited with the id and role the dialog collected', async ({ p
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(members) })
   })
 
-  await page.goto('/v2/settings/team', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/team', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('wei@acme.io')).toBeVisible()
 
   await page.getByRole('button', { name: 'Invite member' }).click()
@@ -117,7 +117,7 @@ test('a member role change PATCHes the membership', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok({}) })
   })
 
-  await page.goto('/v2/settings/team', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/team', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Change role' }).click()
 
   // The dialog opens on the member's current role, so Save waits for a change.
@@ -142,7 +142,7 @@ test('removing a member deletes the membership after a confirmation', async ({ p
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(null) })
   })
 
-  await page.goto('/v2/settings/team', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/team', { waitUntil: 'domcontentloaded' })
   // Only other members carry actions — the server refuses self-removal.
   await expect(page.getByRole('button', { name: 'Remove' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Remove' }).click()
@@ -162,7 +162,7 @@ test('the password change posts both passwords and nothing else', async ({ page 
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(null) })
   })
 
-  await page.goto('/v2/settings/account', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Change password…' }).click()
 
   const save = modal(page).getByRole('button', { name: 'Save', exact: true })
@@ -198,7 +198,7 @@ test('creating an API key sends the scope and lifetime, and reveals the secret o
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(apiKeys) })
   })
 
-  await page.goto('/v2/settings/api', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('ci-pipeline')).toBeVisible()
 
   await page.getByRole('button', { name: 'Create key' }).click()
@@ -245,7 +245,7 @@ test('rotating a key posts to the rotate endpoint and reveals the new secret onc
     })
   })
 
-  await page.goto('/v2/settings/api', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Rotate' }).click()
 
   await expect(page.getByText('Rotate ci-pipeline?')).toBeVisible()
@@ -305,7 +305,7 @@ test('notification endpoints can be created, edited, tested and deleted', async 
     })
   })
 
-  await page.goto('/v2/settings/notifications', { waitUntil: 'domcontentloaded' })
+  await page.goto('/settings/notifications', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('ops-webhook')).toBeVisible()
 
   // Create.

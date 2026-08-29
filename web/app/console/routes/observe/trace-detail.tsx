@@ -225,7 +225,7 @@ export default function ConsoleTraceDetail() {
           value: rootRun ? `${rootRun.mode}${subjectId !== '—' ? ` / ${subjectId}` : ''}` : '—',
         },
         ...(rootRun
-          ? [{ key: 'Run', value: rootRun.id, to: `/v2/observe/runs/${rootRun.id}` }]
+          ? [{ key: 'Run', value: rootRun.id, to: `/observe/runs/${rootRun.id}` }]
           : [{ key: 'Run', value: '—' }]),
         { key: 'Spans', value: `${steps.length} · ${runs.length} runs` },
         { key: 'Duration', value: formatDurationMs(windowMs) },
@@ -264,7 +264,7 @@ export default function ConsoleTraceDetail() {
   if (!runsQuery.data || !stepsQuery.data) {
     return (
       <>
-        <Backlink to="/v2/observe/traces">{t('console.traceDetail.back')}</Backlink>
+        <Backlink to="/observe/traces">{t('console.traceDetail.back')}</Backlink>
         <div className="rd-head">
           <h1>{traceId}</h1>
         </div>
@@ -280,7 +280,7 @@ export default function ConsoleTraceDetail() {
 
   return (
     <>
-      <Backlink to="/v2/observe/traces">{t('console.traceDetail.back')}</Backlink>
+      <Backlink to="/observe/traces">{t('console.traceDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1>{trace.id}</h1>
@@ -293,7 +293,7 @@ export default function ConsoleTraceDetail() {
         <button
           type="button"
           className="btn"
-          onClick={() => navigate(`/v2/observe/runs/${trace.run_id}`)}
+          onClick={() => navigate(`/observe/runs/${trace.run_id}`)}
         >
           <IconChevronRight />
           {t('console.traceDetail.openRun')}

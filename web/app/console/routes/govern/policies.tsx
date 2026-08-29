@@ -292,7 +292,7 @@ export default function ConsolePolicies() {
           title={t('console.policies.rulesTitle')}
           hint={t('console.policies.rulesHint')}
           actions={
-            <NavLink className="more" to="/v2/govern/audit">
+            <NavLink className="more" to="/govern/audit">
               {t('console.policies.auditLink')}
             </NavLink>
           }

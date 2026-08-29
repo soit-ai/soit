@@ -74,7 +74,7 @@ export function IconRail() {
 
   return (
     <nav className="navrail">
-      <NavLink to="/v2" className="rail-logo" aria-label="SOIT">
+      <NavLink to="/" className="rail-logo" aria-label="SOIT">
         <IconLogo size={24} />
       </NavLink>
 

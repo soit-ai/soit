@@ -11,10 +11,10 @@ import {
 
 // The interactive builder is reused from the legacy tree, not reimplemented:
 // one canvas, one node library, one properties panel, one set of behaviours.
-import NodeLibraryPanel from '@/routes/workflow/detail/ui/build/node-library-panel'
-import NodePropertiesPanel from '@/routes/workflow/detail/ui/build/node-properties-panel'
-import WorkflowEditor from '@/routes/workflow/detail/ui/build/workflow-editor'
-import WorkflowInfoPanel from '@/routes/workflow/detail/ui/build/workflow-info-panel'
+import NodeLibraryPanel from '@/features/workflow-builder/ui/node-library-panel'
+import NodePropertiesPanel from '@/features/workflow-builder/ui/node-properties-panel'
+import WorkflowEditor from '@/features/workflow-builder/ui/workflow-editor'
+import WorkflowInfoPanel from '@/features/workflow-builder/ui/workflow-info-panel'
 
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 
@@ -38,8 +38,8 @@ export default function WorkflowBuilderCanvas({ workflowId }: WorkflowBuilderCan
   const navigate = useConsoleNavigate()
 
   const navigation = useMemo<WorkflowBuilderNavigation>(() => ({
-    toRun: (runId) => navigate(`/v2/observe/runs/${runId}`),
-    toWorkflowBuild: (id) => navigate(`/v2/build/workflows/${id}`),
+    toRun: (runId) => navigate(`/observe/runs/${runId}`),
+    toWorkflowBuild: (id) => navigate(`/build/workflows/${id}`),
   }), [navigate])
 
   const {

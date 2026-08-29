@@ -163,7 +163,7 @@ export default function ConsoleTaskDetail() {
   if (!detailQuery.data) {
     return (
       <>
-        <Backlink to="/v2/execute/tasks">{t('console.taskDetail.back')}</Backlink>
+        <Backlink to="/execute/tasks">{t('console.taskDetail.back')}</Backlink>
         <div className="rd-head">
           <h1 style={{ fontFamily: 'var(--font-sans)' }}>{id}</h1>
         </div>
@@ -183,13 +183,13 @@ export default function ConsoleTaskDetail() {
     {
       key: 'Agent',
       value: task.agent_id || '—',
-      to: task.agent_id ? `/v2/build/agents/${task.agent_id}` : undefined,
+      to: task.agent_id ? `/build/agents/${task.agent_id}` : undefined,
     },
     { key: 'Thread', value: task.thread_id || '—' },
     {
       key: 'Run',
       value: task.run_id || '—',
-      to: task.run_id ? `/v2/observe/runs/${task.run_id}` : undefined,
+      to: task.run_id ? `/observe/runs/${task.run_id}` : undefined,
     },
     { key: 'Owner', value: task.created_by || '—' },
     { key: 'Started', value: formatStamp(task.started_at) },
@@ -210,7 +210,7 @@ export default function ConsoleTaskDetail() {
 
   return (
     <>
-      <Backlink to="/v2/execute/tasks">{t('console.taskDetail.back')}</Backlink>
+      <Backlink to="/execute/tasks">{t('console.taskDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{taskTitle(task)}</h1>
@@ -289,10 +289,10 @@ export default function ConsoleTaskDetail() {
                           {' '}
                           <a
                             className="runid"
-                            href={`/v2/observe/runs/${runId}`}
+                            href={`/observe/runs/${runId}`}
                             onClick={(clickEvent) => {
                               clickEvent.preventDefault()
-                              navigate(`/v2/observe/runs/${runId}`)
+                              navigate(`/observe/runs/${runId}`)
                             }}
                           >
                             {runId}
@@ -357,7 +357,7 @@ export default function ConsoleTaskDetail() {
           <WorkbenchPanel
             title={t('console.taskDetail.pendingApproval')}
             actions={
-              <NavLink className="more" to="/v2/govern/approvals">
+              <NavLink className="more" to="/govern/approvals">
                 {t('console.taskDetail.allApprovals')}
               </NavLink>
             }
@@ -387,10 +387,10 @@ export default function ConsoleTaskDetail() {
                     <span className="v link">
                       <a
                         className="runid"
-                        href={`/v2/observe/runs/${item.value}`}
+                        href={`/observe/runs/${item.value}`}
                         onClick={(event) => {
                           event.preventDefault()
-                          navigate(`/v2/observe/runs/${item.value}`)
+                          navigate(`/observe/runs/${item.value}`)
                         }}
                       >
                         {item.value}

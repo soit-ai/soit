@@ -73,7 +73,7 @@ test('publishing a workflow promotes its current version', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok({ id: 'docs-nightly-sync' }) })
   })
 
-  await page.goto('/v2/build/workflows', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows', { waitUntil: 'domcontentloaded' })
   await page.getByRole('tab', { name: /Publish/ }).click()
   await page.getByRole('button', { name: 'Publish', exact: true }).click()
 
@@ -96,7 +96,7 @@ test('archiving a workflow asks first and then deletes', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok({}) })
   })
 
-  await page.goto('/v2/build/workflows', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows', { waitUntil: 'domcontentloaded' })
   await page.getByRole('tab', { name: /Publish/ }).click()
   await page.getByRole('button', { name: 'Archive' }).click()
 
@@ -162,7 +162,7 @@ test('chat threads can be created and renamed', async ({ page }) => {
     })
   })
 
-  await page.goto('/v2/chat', { waitUntil: 'domcontentloaded' })
+  await page.goto('/chat', { waitUntil: 'domcontentloaded' })
 
   // Rename first: creating switches the selection to the new thread, whose
   // detail this test does not mock, so the header actions would fall away.

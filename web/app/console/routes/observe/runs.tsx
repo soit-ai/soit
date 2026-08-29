@@ -395,7 +395,7 @@ export default function ConsoleRuns() {
                 <TableRow
                   key={run.id}
                   className={cn('rowlink cursor-pointer')}
-                  onClick={() => navigate(`/v2/observe/runs/${run.id}`)}
+                  onClick={() => navigate(`/observe/runs/${run.id}`)}
                 >
                   <TableCell>
                     <span className="runid">{run.id}</span>

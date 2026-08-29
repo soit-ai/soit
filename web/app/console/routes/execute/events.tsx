@@ -211,10 +211,10 @@ export default function ConsoleEvents() {
                     {row.run_id ? (
                       <a
                         className="runid"
-                        href={`/v2/observe/runs/${row.run_id}`}
+                        href={`/observe/runs/${row.run_id}`}
                         onClick={(event) => {
                           event.preventDefault()
-                          navigate(`/v2/observe/runs/${row.run_id}`)
+                          navigate(`/observe/runs/${row.run_id}`)
                         }}
                       >
                         {row.run_id}

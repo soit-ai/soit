@@ -14,11 +14,11 @@ import {
   updateWorkflow,
 } from '@/services/workflow-service'
 
-import { getDefaultNodeData } from '@/routes/workflow/detail/ui/build/nodes'
+import { getDefaultNodeData } from '@/features/workflow-builder/ui/nodes'
 import {
   isCanonicalBuilderType,
   type CanonicalBuilderType,
-} from '@/routes/workflow/detail/ui/build/canonical-node-registry'
+} from '@/features/workflow-builder/ui/canonical-node-registry'
 import {
   CanonicalNodeValidationError,
   isWorkflowSpecImportStructure,
@@ -28,7 +28,7 @@ import {
   UnsupportedBuilderNodeError,
   UnsupportedWorkflowEdgeError,
   type WorkflowSpecBase,
-} from '@/routes/workflow/detail/ui/build/workflow-spec'
+} from '@/features/workflow-builder/ui/workflow-spec'
 
 type BuilderOperation = {
   generation: number

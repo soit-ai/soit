@@ -87,13 +87,16 @@ describe('console v2 design system', () => {
     expect(layout).toContain("@/console/styles/console.css")
   })
 
-  it('registers the parallel /v2 tree without touching legacy routes', () => {
+  it('serves the console from the application root', () => {
     const routes = read('app/routes.ts')
 
-    expect(routes).toContain("prefix('/v2'")
     expect(routes).toContain("layout('./console/shell/console-layout.tsx'")
-    // The legacy root layout keeps its registration.
-    expect(routes).toContain("layout('./components/layout/root-layout.tsx'")
+    expect(routes).toContain("index('./console/routes/overview.tsx')")
+    // The pre-rebuild tree is backed up, not registered as a second app.
+    expect(routes).not.toContain("layout('./components/layout/root-layout.tsx'")
+    // Renamed paths and the parallel-development prefix keep resolving.
+    expect(routes).toContain("route('/v2/*'")
+    expect(routes).toContain("route('/workflow'")
   })
 
   it('themes the console independently, defaulting to dark at container level', () => {

@@ -194,7 +194,7 @@ export default function ConsoleKnowledge() {
       title={t('console.knowledge.title')}
       description={t('console.knowledge.description')}
       actions={
-        <ConsoleButton variant="primary" onClick={() => navigate('/v2/build/knowledge/new')}>
+        <ConsoleButton variant="primary" onClick={() => navigate('/build/knowledge/new')}>
           <IconPlus />
           {t('console.knowledge.newKb')}
         </ConsoleButton>
@@ -322,7 +322,7 @@ export default function ConsoleKnowledge() {
                   <TableRow
                     key={row.id}
                     className="rowlink cursor-pointer"
-                    onClick={() => navigate(`/v2/build/knowledge/${row.id}`)}
+                    onClick={() => navigate(`/build/knowledge/${row.id}`)}
                   >
                     <TableCell>
                       <span className="idm" style={{ '--c': catColor(row.id) } as React.CSSProperties}>
@@ -395,10 +395,10 @@ export default function ConsoleKnowledge() {
                       {task.run_id ? (
                         <a
                           className="runid"
-                          href={`/v2/observe/runs/${task.run_id}`}
+                          href={`/observe/runs/${task.run_id}`}
                           onClick={(event) => {
                             event.preventDefault()
-                            navigate(`/v2/observe/runs/${task.run_id}`)
+                            navigate(`/observe/runs/${task.run_id}`)
                           }}
                         >
                           {task.run_id}

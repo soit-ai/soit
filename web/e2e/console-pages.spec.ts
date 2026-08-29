@@ -146,6 +146,7 @@ const observeDashboard = {
 const threads = {
   items: [
     { id: 'thread_8f2c', tenant_id: 't1', workspace_id: 'w1', agent_id: 'ops-copilot', title: 'checkout-api 502s', status: 'active', thread_type: 'chat', message_count: 4, last_message_at: NOW, knowledge_config_json: {}, tool_config_json: {}, metadata_json: {}, default_model_ref: 'claude-sonnet-5', created_at: NOW, updated_at: NOW },
+    { id: 'thread_8e01', tenant_id: 't1', workspace_id: 'w1', agent_id: 'ops-copilot', title: 'staging deploy window', status: 'active', thread_type: 'chat', message_count: 2, last_message_at: NOW, knowledge_config_json: {}, tool_config_json: {}, metadata_json: {}, default_model_ref: 'claude-sonnet-5', created_at: NOW, updated_at: NOW },
   ],
   next_page_token: null,
   page_size: 50,
@@ -171,6 +172,7 @@ test.beforeEach(async ({ page }) => {
   await json(page, '**/api/v1/observe/dashboard**', observeDashboard)
   await json(page, '**/api/v1/threads?**', threads)
   await json(page, '**/api/v1/threads/thread_8f2c', threadDetail)
+  await json(page, '**/api/v1/threads/thread_8e01', { thread: { id: 'thread_8e01', agent_id: 'ops-copilot', title: 'staging deploy window', status: 'active', thread_type: 'chat', message_count: 2, created_at: NOW, updated_at: NOW }, messages: [] })
   await json(page, '**/api/v1/workflows/workbench**', workflowWorkbench)
   await json(page, '**/api/v1/knowledge/workbench**', knowledgeWorkbench)
   await json(page, '**/api/v1/plugins?**', plugins)
@@ -180,7 +182,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('overview aggregates runs into the outcome chart and recent list', async ({ page }) => {
-  await page.goto('/v2', { waitUntil: 'domcontentloaded' })
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   // Three runs sampled: two settled succeeded, one failed → 66.7% pass.
@@ -193,19 +195,19 @@ test('overview aggregates runs into the outcome chart and recent list', async ({
 })
 
 test('overview recent-run row opens the run detail route', async ({ page }) => {
-  await page.goto('/v2', { waitUntil: 'domcontentloaded' })
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
   await page.locator('.runid', { hasText: 'run_01J9KD6H0T' }).click()
-  await expect(page).toHaveURL(/\/v2\/observe\/runs\/run_01J9KD6H0T/)
+  await expect(page).toHaveURL(/\/observe\/runs\/run_01J9KD6H0T/)
 })
 
 test('overview surfaces an empty governance feed rather than fixtures', async ({ page }) => {
   await json(page, '**/api/v1/runs/audits**', { items: [], next_page_token: null, page_size: 5 })
-  await page.goto('/v2', { waitUntil: 'domcontentloaded' })
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Quiet so far.', { exact: false })).toBeVisible()
 })
 
 test('knowledge list filters by source kind and opens the library detail', async ({ page }) => {
-  await page.goto('/v2/build/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('product-docs')).toBeVisible()
   await page.locator('.fchip', { hasText: 'Upload' }).click()
@@ -214,7 +216,7 @@ test('knowledge list filters by source kind and opens the library detail', async
 
   await page.locator('.fchip', { hasText: 'All' }).click()
   await page.getByText('product-docs').click()
-  await expect(page).toHaveURL(/\/v2\/build\/knowledge\/product-docs/)
+  await expect(page).toHaveURL(/\/build\/knowledge\/product-docs/)
 })
 
 test('knowledge retrieval testing calls the query endpoint', async ({ page }) => {
@@ -260,7 +262,7 @@ test('knowledge retrieval testing calls the query endpoint', async ({ page }) =>
     })
   })
 
-  await page.goto('/v2/build/knowledge/product-docs', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge/product-docs', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: /Retrieval testing/ }).click()
 
   await page.locator('.fsearch input').fill('how do I rotate a secret?')
@@ -282,7 +284,7 @@ test('plugins installed table filters and persists the enable toggle', async ({ 
     })
   })
 
-  await page.goto('/v2/build/plugins', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/plugins', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('k8s-toolkit', { exact: true })).toBeVisible()
   await page.locator('.fchip', { hasText: 'Skills' }).click()
@@ -301,7 +303,7 @@ test('plugins installed table filters and persists the enable toggle', async ({ 
 })
 
 test('models library filters by capability', async ({ page }) => {
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('Anthropic', { exact: true }).first()).toBeVisible()
   await page.getByRole('tab', { name: /Library/ }).click()
@@ -312,37 +314,29 @@ test('models library filters by capability', async ({ page }) => {
   await expect(page.getByText('claude-sonnet-5')).toHaveCount(0)
 })
 
-test('chat renders the thread ledger and links replies to run evidence', async ({ page }) => {
-  await page.goto('/v2/chat', { waitUntil: 'domcontentloaded' })
+test('chat wraps the assistant-ui thread in the console shell', async ({ page }) => {
+  await page.goto('/chat', { waitUntil: 'domcontentloaded' })
 
+  // The rail and header are the console's own.
   await expect(page.getByRole('heading', { name: 'Chat' })).toBeVisible()
   await expect(page.locator('.thread.on')).toContainText('checkout-api 502s')
-  await expect(page.getByText('restart the checkout-api deployment', { exact: false })).toBeVisible()
+  await expect(page.locator('.chat-head')).toContainText('ops-copilot')
 
-  // The assistant turn's evidence chip carries the real run verdict.
-  const evidence = page.locator('.evd', { hasText: 'run_01J9KD7Z2M' })
-  await expect(evidence).toContainText('7 steps')
-  await evidence.click()
-  await expect(page).toHaveURL(/\/v2\/observe\/runs\/run_01J9KD7Z2M/)
+  // The conversation is the shared assistant-ui thread, mounted rather than
+  // reimplemented: the console must not ship its own message list or composer.
+  await expect(page.locator('.chatpane-thread')).toBeVisible()
+  await expect(page.locator('.msgs')).toHaveCount(0)
+  await expect(page.locator('.composer-box')).toHaveCount(0)
+  // The governance note under the thread stays.
+  await expect(page.locator('.composer-note')).toContainText('governed runs')
 })
 
-test('chat posts a turn to the responses API', async ({ page }) => {
-  let sent: Record<string, unknown> | null = null
-  await page.route('**/api/v1/responses', (route) => {
-    sent = route.request().postDataJSON()
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: ok({ id: 'resp_1', tenant_id: 't1', workspace_id: 'w1', thread_id: 'thread_8f2c', status: 'completed' }),
-    })
-  })
+test('chat selects a thread from the rail', async ({ page }) => {
+  await page.goto('/chat', { waitUntil: 'domcontentloaded' })
 
-  await page.goto('/v2/chat', { waitUntil: 'domcontentloaded' })
-  await page.locator('.composer-box input').fill('tail the error logs')
-  await page.getByRole('button', { name: 'Send' }).click()
-
-  await expect.poll(() => sent).not.toBeNull()
-  expect(sent).toMatchObject({ thread_id: 'thread_8f2c', agent_id: 'ops-copilot' })
+  await expect(page.locator('.thread.on')).toContainText('checkout-api 502s')
+  await page.locator('.thread', { hasText: 'staging deploy window' }).click()
+  await expect(page.locator('.thread.on')).toContainText('staging deploy window')
 })
 
 test('settings redirects to account and navigates sections via the subnav', async ({ page }) => {
@@ -365,12 +359,12 @@ test('settings redirects to account and navigates sections via the subnav', asyn
     page_size: 20,
   })
 
-  await page.goto('/v2/settings', { waitUntil: 'domcontentloaded' })
-  await expect(page).toHaveURL(/\/v2\/settings\/account/)
+  await page.goto('/settings', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/settings\/account/)
   await expect(page.getByText('Display name')).toBeVisible()
 
   await page.locator('.subnav .sl', { hasText: 'Team' }).click()
-  await expect(page).toHaveURL(/\/v2\/settings\/team/)
+  await expect(page).toHaveURL(/\/settings\/team/)
   await expect(page.getByText('wei@acme.io')).toBeVisible()
 
   // Billing reads the credit ledger, the only billing object that exists.
@@ -383,7 +377,7 @@ test('settings redirects to account and navigates sections via the subnav', asyn
 })
 
 test('side panel shows live counts for the pillar on screen', async ({ page }) => {
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   const counted = async (label: string) =>
     page.locator('.subnav .sl', { hasText: label }).locator('.ct').textContent()
@@ -398,7 +392,7 @@ test('side panel shows live counts for the pillar on screen', async ({ page }) =
 })
 
 test('side panel lists recently edited build objects', async ({ page }) => {
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   const recents = page.locator('.subnav .sub-mini')
   await expect(recents).toHaveCount(3)
@@ -425,7 +419,7 @@ test('side panel surfaces the execute queue from the task summary', async ({ pag
     page_size: 1,
   })
 
-  await page.goto('/v2/execute/tasks', { waitUntil: 'domcontentloaded' })
+  await page.goto('/execute/tasks', { waitUntil: 'domcontentloaded' })
 
   const queue = page.locator('.subnav .sub-note')
   await expect(queue.filter({ hasText: 'Processing' }).locator('.ct')).toHaveText('3')
@@ -434,7 +428,7 @@ test('side panel surfaces the execute queue from the task summary', async ({ pag
 
   // Awaiting approval routes to the approvals queue, not back to tasks.
   await queue.filter({ hasText: 'Awaiting approval' }).click()
-  await expect(page).toHaveURL(/\/v2\/govern\/approvals/)
+  await expect(page).toHaveURL(/\/govern\/approvals/)
 })
 
 test('side panel survives a workbench response with no summary', async ({ page }) => {
@@ -443,7 +437,7 @@ test('side panel survives a workbench response with no summary', async ({ page }
   await json(page, '**/api/v1/agents/workbench**', { items: [], page_size: 1 })
   await json(page, '**/api/v1/workflows/workbench**', { items: [], page_size: 1 })
 
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await expect(page.locator('.subnav .sl', { hasText: 'Agents' }).locator('.ct')).toHaveCount(0)
@@ -453,14 +447,14 @@ test('side panel survives a workbench response with no summary', async ({ page }
 
 test('side panel omits a count it could not load rather than guessing', async ({ page }) => {
   await page.route('**/api/v1/agents/workbench**', (route) => route.abort())
-  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   await expect(page.locator('.subnav .sl', { hasText: 'Workflows' }).locator('.ct')).toBeVisible()
   await expect(page.locator('.subnav .sl', { hasText: 'Agents' }).locator('.ct')).toHaveCount(0)
 })
 
 test('workflow list renders workbench rows and opens the builder', async ({ page }) => {
-  await page.goto('/v2/build/workflows', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('ticket-escalation').first()).toBeVisible()
   // Tiles come from the workbench summary, not from row arithmetic.
@@ -468,11 +462,11 @@ test('workflow list renders workbench rows and opens the builder', async ({ page
   await expect(page.getByText('98.4%')).toBeVisible()
 
   await page.getByText('docs-nightly-sync').first().click()
-  await expect(page).toHaveURL(/\/v2\/build\/workflows\/docs-nightly-sync/)
+  await expect(page).toHaveURL(/\/build\/workflows\/docs-nightly-sync/)
 })
 
 test('workflow publish tab lists only versions awaiting publication', async ({ page }) => {
-  await page.goto('/v2/build/workflows', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows', { waitUntil: 'domcontentloaded' })
 
   await page.getByRole('tab', { name: /Publish/ }).click()
   await expect(page.getByText('docs-nightly-sync').first()).toBeVisible()

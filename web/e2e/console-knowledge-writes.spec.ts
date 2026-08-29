@@ -232,7 +232,7 @@ test('adding documents uploads each file as multipart', async ({ page }) => {
     })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Add documents' }).click()
 
   await expect(page.getByRole('heading', { name: 'Add documents' })).toBeVisible()
@@ -266,7 +266,7 @@ test('a document row deletes through a confirm modal', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(null) })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page
     .locator('tr', { hasText: 'getting-started.md' })
     .getByRole('button', { name: 'Delete' })
@@ -291,7 +291,7 @@ test('a failed document reprocesses through retry-ingest', async ({ page }) => {
     })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Reprocess with OCR' }).click()
 
   await expect.poll(() => retried).not.toBeNull()
@@ -308,7 +308,7 @@ test('sync now rebuilds the primary index', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(indexes[0]) })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   const sync = page.getByRole('button', { name: 'Sync now' })
   await expect(sync).toBeEnabled()
   await sync.click()
@@ -326,7 +326,7 @@ test('a chunk edit patches only what changed', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(chunks[0]) })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Chunks' }).click()
   await page.locator('tr', { hasText: 'ck_1#3' }).click()
 
@@ -356,7 +356,7 @@ test('library settings save name, source and threshold', async ({ page }) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(base) })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Settings' }).click()
 
   const fields = page.locator('.frow input.input')
@@ -387,7 +387,7 @@ test('deleting the library confirms and returns to the list', async ({ page }) =
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(null) })
   })
 
-  await page.goto(`/v2/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Settings' }).click()
   await page.locator('.frow').getByRole('button', { name: 'Delete…' }).click()
 
@@ -395,7 +395,7 @@ test('deleting the library confirms and returns to the list', async ({ page }) =
   await page.locator('.console-modal').getByRole('button', { name: 'Delete…' }).click()
 
   await expect.poll(() => deleted).toBe('DELETE')
-  await expect(page).toHaveURL(/\/v2\/build\/knowledge$/)
+  await expect(page).toHaveURL(/\/build\/knowledge$/)
 })
 
 test('an ingest job retries from the queue tab', async ({ page }) => {
@@ -411,7 +411,7 @@ test('an ingest job retries from the queue tab', async ({ page }) => {
     })
   })
 
-  await page.goto('/v2/build/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Ingest queue' }).click()
   await page.getByRole('button', { name: 'Retry' }).click()
 
@@ -432,7 +432,7 @@ test('a running ingest job cancels through a confirm modal', async ({ page }) =>
     })
   })
 
-  await page.goto('/v2/build/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Ingest queue' }).click()
   await page.getByRole('button', { name: 'Cancel job' }).click()
 
@@ -456,7 +456,7 @@ test('the exceptions tab replays a library stopped ingest jobs', async ({ page }
     })
   })
 
-  await page.goto('/v2/build/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
   await page.locator('.tabs button', { hasText: 'Exceptions' }).click()
   await page.getByRole('button', { name: 'Reprocess with OCR' }).click()
 

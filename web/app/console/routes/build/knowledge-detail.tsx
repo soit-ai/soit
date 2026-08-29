@@ -385,7 +385,7 @@ export default function ConsoleKnowledgeDetail() {
     mutationFn: () => deleteKnowledgeBase(knowledgeId),
     onSuccess: () => {
       setDeleteBaseOpen(false)
-      navigate('/v2/build/knowledge')
+      navigate('/build/knowledge')
     },
     onError: onWriteError('Failed to delete the library'),
   })
@@ -401,7 +401,7 @@ export default function ConsoleKnowledgeDetail() {
 
   return (
     <>
-      <Backlink to="/v2/build/knowledge">{t('console.knowDetail.back')}</Backlink>
+      <Backlink to="/build/knowledge">{t('console.knowDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
@@ -456,10 +456,10 @@ export default function ConsoleKnowledgeDetail() {
                 {' · '}
                 <a
                   className="runid"
-                  href={`/v2/observe/runs/${lastSyncRunId}`}
+                  href={`/observe/runs/${lastSyncRunId}`}
                   onClick={(event) => {
                     event.preventDefault()
-                    navigate(`/v2/observe/runs/${lastSyncRunId}`)
+                    navigate(`/observe/runs/${lastSyncRunId}`)
                   }}
                 >
                   {lastSyncRunId}

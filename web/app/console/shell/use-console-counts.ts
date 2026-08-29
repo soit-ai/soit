@@ -141,7 +141,7 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
           label: row.name,
           kind: 'agent',
           note: row.description || row.status,
-          to: `/v2/build/agents/${row.id}`,
+          to: `/build/agents/${row.id}`,
           at: row.updated_at,
         })),
         ...(workflows.data?.items || []).map((row) => ({
@@ -149,7 +149,7 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
           label: row.name,
           kind: 'wf',
           note: row.summary || row.description || row.status,
-          to: `/v2/build/workflows/${row.id}`,
+          to: `/build/workflows/${row.id}`,
           at: row.updated_at,
         })),
         ...(knowledge.data?.items || []).map((row) => ({
@@ -157,7 +157,7 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
           label: row.name,
           kind: 'kb',
           note: row.description || `${row.document_count} documents`,
-          to: `/v2/build/knowledge/${row.id}`,
+          to: `/build/knowledge/${row.id}`,
           at: row.updated_at,
         })),
       ]).slice(0, 3)
@@ -171,21 +171,21 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
           label: 'Processing',
           tone: 'primary' as const,
           count: taskSummary.running,
-          to: '/v2/execute/tasks',
+          to: '/execute/tasks',
         },
         taskSummary?.waiting_approval != null && {
           id: 'awaiting',
           label: 'Awaiting approval',
           tone: 'warn' as const,
           count: taskSummary.waiting_approval,
-          to: '/v2/govern/approvals',
+          to: '/govern/approvals',
         },
         taskSummary?.failed != null && {
           id: 'failed',
           label: 'Failed',
           tone: 'bad' as const,
           count: taskSummary.failed,
-          to: '/v2/execute/tasks',
+          to: '/execute/tasks',
         },
       ].filter(Boolean as unknown as (value: unknown) => value is PanelAttention)
     : []

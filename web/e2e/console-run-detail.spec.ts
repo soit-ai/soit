@@ -200,7 +200,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('run detail renders the step ledger from run-service', async ({ page }) => {
-  await page.goto('/v2/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'run_01J9KD7Z2M' })).toBeVisible()
   await expect(page.getByText('ops-copilot')).toBeVisible()
@@ -214,7 +214,7 @@ test('run detail renders the step ledger from run-service', async ({ page }) => 
 })
 
 test('run detail renders server-computed governance evidence verbatim', async ({ page }) => {
-  await page.goto('/v2/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
 
   await page.getByRole('button', { name: /Policy/ }).click()
 
@@ -230,7 +230,7 @@ test('run detail renders server-computed governance evidence verbatim', async ({
 })
 
 test('run detail events, artifacts and cost come from the payload', async ({ page }) => {
-  await page.goto('/v2/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
 
   await page.getByRole('button', { name: /Events/ }).click()
   await expect(page.locator('.sem li')).toHaveCount(2)
@@ -252,6 +252,6 @@ test('run detail surfaces a load error instead of fixtures', async ({ page }) =>
       body: JSON.stringify({ success: false, code: 'NOT_FOUND', message: 'not found', data: null }),
     }),
   )
-  await page.goto('/v2/observe/runs/run_missing', { waitUntil: 'domcontentloaded' })
+  await page.goto('/observe/runs/run_missing', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('This data could not be loaded.')).toBeVisible()
 })

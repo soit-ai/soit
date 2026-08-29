@@ -262,7 +262,7 @@ test('a registry plugin that is not installed can be installed', async ({ page }
     })
   })
 
-  await page.goto('/v2/build/plugins', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/plugins', { waitUntil: 'domcontentloaded' })
 
   // The Installed tab lists installed rows; the registry remainder is one chip away.
   await expect(page.getByText('s3-tools', { exact: true })).toHaveCount(0)
@@ -287,7 +287,7 @@ test('an installed plugin can be uninstalled after confirmation', async ({ page 
     return route.fulfill({ status: 200, contentType: 'application/json', body: ok(null) })
   })
 
-  await page.goto('/v2/build/plugins', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/plugins', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Uninstall' }).first().click()
 
   const modal = page.locator('.console-modal')
@@ -320,7 +320,7 @@ test('a plugin package is uploaded as multipart with the auto mode', async ({ pa
     })
   })
 
-  await page.goto('/v2/build/plugins', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/plugins', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Upload package' }).click()
 
   // Upload stays disabled until a package is chosen.
@@ -347,7 +347,7 @@ test('a provider is created from the header action', async ({ page }) => {
   await mockModelsPage(page)
   await mockProviderApi(page, capture)
 
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Add provider' }).click()
 
   // Create stays disabled until a name and a kind are both present.
@@ -383,7 +383,7 @@ test('editing a provider keeps the config it does not show', async ({ page }) =>
   await mockModelsPage(page)
   await mockProviderApi(page, capture)
 
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Edit' }).click()
 
   const modal = page.locator('.console-modal')
@@ -409,7 +409,7 @@ test('a provider is deleted after confirmation', async ({ page }) => {
   await mockModelsPage(page)
   await mockProviderApi(page, capture)
 
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Delete…' }).click()
 
   const modal = page.locator('.console-modal')
@@ -426,7 +426,7 @@ test('a model is added to the library under a provider', async ({ page }) => {
   await mockModelsPage(page)
   await mockProviderApi(page, capture)
 
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
   await page.getByRole('tab', { name: /Library/ }).click()
   await page.getByRole('button', { name: 'Add model' }).click()
 
@@ -461,7 +461,7 @@ test('a library row opens its settings, saves, tests and deletes', async ({ page
     })
   })
 
-  await page.goto('/v2/build/models', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
   await page.getByRole('tab', { name: /Library/ }).click()
   await page.getByText('claude-sonnet-5').first().click()
 

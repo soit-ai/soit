@@ -106,10 +106,10 @@ export default function ConsoleAudit() {
     runId ? (
       <a
         className="runid"
-        href={`/v2/observe/runs/${runId}`}
+        href={`/observe/runs/${runId}`}
         onClick={(event) => {
           event.preventDefault()
-          navigate(`/v2/observe/runs/${runId}`)
+          navigate(`/observe/runs/${runId}`)
         }}
       >
         {runId}
@@ -254,7 +254,7 @@ export default function ConsoleAudit() {
                     <TableCell className="num">
                       <ConsoleButton
                         size="sm"
-                        onClick={() => row.run_id && navigate(`/v2/observe/runs/${row.run_id}`)}
+                        onClick={() => row.run_id && navigate(`/observe/runs/${row.run_id}`)}
                       >
                         {t('console.audit.acknowledge')}
                       </ConsoleButton>

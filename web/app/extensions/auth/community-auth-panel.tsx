@@ -1,4 +1,4 @@
-import { LoginForm } from '@/routes/auth/ui/login-form'
+import { LoginForm } from '@/auth/ui/login-form'
 
 export function AuthPanel() {
   return <LoginForm />

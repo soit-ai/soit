@@ -146,7 +146,7 @@ export default function ConsoleWorkflows() {
             <IconExport />
             {t('console.workflows.import')}
           </ConsoleButton>
-          <ConsoleButton variant="primary" onClick={() => navigate('/v2/build/workflows/new')}>
+          <ConsoleButton variant="primary" onClick={() => navigate('/build/workflows/new')}>
             <IconPlus />
             {t('console.workflows.newWorkflow')}
           </ConsoleButton>
@@ -247,7 +247,7 @@ export default function ConsoleWorkflows() {
                   <TableRow
                     key={row.id}
                     className="rowlink cursor-pointer"
-                    onClick={() => navigate(`/v2/build/workflows/${row.id}`)}
+                    onClick={() => navigate(`/build/workflows/${row.id}`)}
                   >
                     <TableCell>
                       <b style={{ fontWeight: 600 }}>{row.name}</b>
@@ -324,7 +324,7 @@ export default function ConsoleWorkflows() {
                     <TableCell className="num dim">{relativeTime(row.updated_at)}</TableCell>
                     <TableCell className="num">
                       <span style={{ display: 'inline-flex', gap: 6 }}>
-                        <ConsoleButton size="sm" onClick={() => navigate(`/v2/build/workflows/${row.id}`)}>
+                        <ConsoleButton size="sm" onClick={() => navigate(`/build/workflows/${row.id}`)}>
                           {t('console.workflows.openBuilder')}
                         </ConsoleButton>
                         <ConsoleButton

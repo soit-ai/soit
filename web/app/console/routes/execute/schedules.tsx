@@ -78,10 +78,10 @@ export default function ConsoleSchedules() {
                   {row.outcome_run ? (
                     <a
                       className="runid"
-                      href={`/v2/observe/runs/${row.outcome_run}`}
+                      href={`/observe/runs/${row.outcome_run}`}
                       onClick={(event) => {
                         event.preventDefault()
-                        navigate(`/v2/observe/runs/${row.outcome_run}`)
+                        navigate(`/observe/runs/${row.outcome_run}`)
                       }}
                     >
                       {row.outcome_run}

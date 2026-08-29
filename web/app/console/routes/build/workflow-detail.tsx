@@ -186,7 +186,7 @@ export default function ConsoleWorkflowDetail() {
 
   return (
     <>
-      <Backlink to="/v2/build/workflows">{t('console.wfDetail.back')}</Backlink>
+      <Backlink to="/build/workflows">{t('console.wfDetail.back')}</Backlink>
 
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
@@ -264,10 +264,10 @@ export default function ConsoleWorkflowDetail() {
           actions={
             <a
               className="more"
-              href="/v2/observe/runs"
+              href="/observe/runs"
               onClick={(event) => {
                 event.preventDefault()
-                navigate('/v2/observe/runs')
+                navigate('/observe/runs')
               }}
             >
               {t('console.wfDetail.allRuns')}
@@ -300,7 +300,7 @@ export default function ConsoleWorkflowDetail() {
                   const audits = run.observe_summary?.audit_count
                   const policy = audits == null ? '—' : `${audits} audits`
                   return (
-                    <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
+                    <tr key={run.id} className="rowlink" onClick={() => navigate(`/observe/runs/${run.id}`)}>
                       <td>
                         <span className="runid">{run.id}</span>
                       </td>

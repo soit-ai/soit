@@ -36,7 +36,7 @@ export default function ConsoleWorkflowNew() {
             { suppressErrorToast: true },
           ),
     onSuccess: (workflow) => {
-      navigate(`/v2/build/workflows/${workflow.id}`)
+      navigate(`/build/workflows/${workflow.id}`)
     },
     onError: (error) => {
       toast.error(requestErrorMessage(error, 'Failed to create the workflow'))
@@ -45,7 +45,7 @@ export default function ConsoleWorkflowNew() {
 
   return (
     <>
-      <Backlink to="/v2/build/workflows">{t('console.wfNew.back')}</Backlink>
+      <Backlink to="/build/workflows">{t('console.wfNew.back')}</Backlink>
       <div className="page-head">
         <h1>{t('console.wfNew.title')}</h1>
       </div>

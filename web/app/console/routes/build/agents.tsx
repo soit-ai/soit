@@ -92,7 +92,7 @@ export default function ConsoleAgents() {
       // The new agent lands on the workbench, so the list behind the modal has
       // to be re-read even though we navigate away from it.
       void workbenchQuery.refetch()
-      navigate(`/v2/build/agents/${agent.id}`)
+      navigate(`/build/agents/${agent.id}`)
     },
     onError: (error: unknown) => {
       toast.error(requestErrorMessage(error, 'Failed to create the agent'))
@@ -244,7 +244,7 @@ export default function ConsoleAgents() {
                   <span>
                     <b
                       className="cursor-pointer"
-                      onClick={() => navigate(`/v2/build/agents/${card.id}`)}
+                      onClick={() => navigate(`/build/agents/${card.id}`)}
                     >
                       {card.name}
                     </b>
@@ -316,7 +316,7 @@ export default function ConsoleAgents() {
                   <TableRow
                     key={row.id}
                     className="rowlink cursor-pointer"
-                    onClick={() => navigate(`/v2/build/agents/${row.id}`)}
+                    onClick={() => navigate(`/build/agents/${row.id}`)}
                   >
                     <TableCell>
                       <span className="idm" style={{ '--c': catColor(row.id) } as React.CSSProperties}>
@@ -456,7 +456,7 @@ export default function ConsoleAgents() {
                     <TableCell className="num">
                       <ConsoleButton
                         size="sm"
-                        onClick={() => navigate(`/v2/build/agents/${row.id}`)}
+                        onClick={() => navigate(`/build/agents/${row.id}`)}
                       >
                         {t('console.agents.openAgent')}
                       </ConsoleButton>

@@ -1,6 +1,6 @@
 import { get, post, patch, del, type RequestConfigWithToast } from '@/utils/request'
-import type { ModelConfig } from '@/routes/model/setting/ui/types'
-import type { ProviderConfig } from '@/routes/model/setting/ui/types'
+import type { ModelConfig } from '@/features/model-config/types'
+import type { ProviderConfig } from '@/features/model-config/types'
 import type { PaginatedResponse } from '@/types/api'
 
 interface ModelResponse {
