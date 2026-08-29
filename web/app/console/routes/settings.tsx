@@ -395,7 +395,7 @@ export default function ConsoleSettings() {
 
         {active === 'billing' && (
           <>
-            <div className="tiles" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+            <div className="tiles cols-3">
               <StatTile
                 label={t('console.settings.billingPane.edition')}
                 value={<span style={{ fontSize: 15 }}>Enterprise</span>}

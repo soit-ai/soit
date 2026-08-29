@@ -35,7 +35,7 @@ export default function ConsoleWorkflowNew() {
         </div>
       </div>
 
-      <div className="cards" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+      <div className="cards cols-4">
         {TEMPLATES.map((template) => (
           <div
             key={template.id}
