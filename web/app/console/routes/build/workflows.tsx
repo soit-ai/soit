@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   DataStateRow,
   FilterChip,
@@ -27,9 +30,16 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
-import { getWorkflowWorkbench, type WorkflowWorkbenchRow } from '@/services/workflow-service'
+import {
+  deleteWorkflow,
+  getWorkflow,
+  getWorkflowWorkbench,
+  publishWorkflowVersion,
+  type WorkflowWorkbenchRow,
+} from '@/services/workflow-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type WfTab = 'all' | 'publish' | 'archived'
 type WfFilter = 'all' | 'published' | 'draft'
@@ -72,6 +82,40 @@ export default function ConsoleWorkflows() {
   const summary = workbenchQuery.data?.summary
   const tabCounts = workbenchQuery.data?.tabs
   const allRows = workbenchQuery.data?.items || []
+
+  const [publishTarget, setPublishTarget] = useState<WorkflowWorkbenchRow | null>(null)
+  const [archiving, setArchiving] = useState<WorkflowWorkbenchRow | null>(null)
+
+  const afterWrite = () => {
+    void workbenchQuery.refetch()
+    setPublishTarget(null)
+    setArchiving(null)
+  }
+
+  const publishMutation = useMutation({
+    mutationKey: ['console', 'workflows', 'publish'],
+    // The workbench row carries no version id, so the workflow record supplies
+    // the draft to promote — publishing whatever is current, as the builder does.
+    mutationFn: async () => {
+      const workflow = await getWorkflow(publishTarget!.id, { suppressErrorToast: true })
+      const versionId = workflow.current_version_id
+      if (!versionId) throw new Error('This workflow has no draft version to publish')
+      return publishWorkflowVersion(publishTarget!.id, versionId)
+    },
+    onSuccess: afterWrite,
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to publish the workflow'))
+    },
+  })
+
+  const archiveMutation = useMutation({
+    mutationKey: ['console', 'workflows', 'archive'],
+    mutationFn: () => deleteWorkflow(archiving!.id, { suppressErrorToast: true }),
+    onSuccess: afterWrite,
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to archive the workflow'))
+    },
+  })
 
   const matchesSearch = (row: WorkflowWorkbenchRow) => {
     const query = search.trim().toLowerCase()
@@ -283,8 +327,20 @@ export default function ConsoleWorkflows() {
                         <ConsoleButton size="sm" onClick={() => navigate(`/v2/build/workflows/${row.id}`)}>
                           {t('console.workflows.openBuilder')}
                         </ConsoleButton>
-                        <ConsoleButton variant="ghost" size="sm">
-                          {t('console.workflows.diffVs')}
+                        <ConsoleButton
+                          variant="primary"
+                          size="sm"
+                          onClick={() => setPublishTarget(row)}
+                        >
+                          {t('console.workflows.publishAction')}
+                        </ConsoleButton>
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: 'var(--danger-foreground)' }}
+                          onClick={() => setArchiving(row)}
+                        >
+                          {t('console.workflows.archiveAction')}
                         </ConsoleButton>
                       </span>
                     </TableCell>
@@ -308,6 +364,34 @@ export default function ConsoleWorkflows() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={publishTarget != null}
+        onOpenChange={(open) => !open && setPublishTarget(null)}
+        title={t('console.workflows.publishTitleModal')}
+        note={t('console.workflows.publishModalNote')}
+        confirmLabel={t('console.workflows.publishAction')}
+        busy={publishMutation.isPending}
+        onConfirm={() => publishMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.workflows.publishConfirm', { name: publishTarget?.name ?? '' })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={archiving != null}
+        onOpenChange={(open) => !open && setArchiving(null)}
+        title={t('console.workflows.archiveTitle')}
+        confirmLabel={t('console.workflows.archiveAction')}
+        destructive
+        busy={archiveMutation.isPending}
+        onConfirm={() => archiveMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.workflows.archiveConfirm', { name: archiving?.name ?? '' })}
+        </div>
+      </ConsoleModal>
     </Workbench>
   )
 }

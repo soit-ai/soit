@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import {
   ConsoleButton,
+  ConsoleModal,
   DataStateNote,
   IconPlus,
   IconSend,
@@ -18,7 +19,14 @@ import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { createResponse } from '@/services/responses-service'
-import { getThread, listThreads, type ThreadMessage } from '@/services/thread-service'
+import {
+  createThread,
+  deleteThread,
+  getThread,
+  listThreads,
+  updateThread,
+  type ThreadMessage,
+} from '@/services/thread-service'
 import { listRuns } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
 
@@ -127,6 +135,56 @@ export default function ConsoleChat() {
     },
   })
 
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [newThread, setNewThread] = useState({ title: '', agent: '' })
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const [deletingThread, setDeletingThread] = useState(false)
+
+  const createThreadMutation = useMutation({
+    mutationKey: ['console', 'chat', 'create-thread'],
+    mutationFn: () =>
+      createThread({
+        title: newThread.title.trim() || undefined,
+        agent_id: newThread.agent.trim() || agentId || undefined,
+      }),
+    onSuccess: (created) => {
+      setComposeOpen(false)
+      setNewThread({ title: '', agent: '' })
+      setSelectedThread(created.id)
+      void threadsQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to create the thread'))
+    },
+  })
+
+  const renameMutation = useMutation({
+    mutationKey: ['console', 'chat', 'rename-thread'],
+    mutationFn: () => updateThread(activeThreadId, { title: renameValue.trim() }),
+    onSuccess: () => {
+      setRenaming(false)
+      void threadsQuery.refetch()
+      void threadQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to rename the thread'))
+    },
+  })
+
+  const deleteThreadMutation = useMutation({
+    mutationKey: ['console', 'chat', 'delete-thread'],
+    mutationFn: () => deleteThread(activeThreadId),
+    onSuccess: () => {
+      setDeletingThread(false)
+      setSelectedThread(null)
+      void threadsQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to delete the thread'))
+    },
+  })
+
   const buckets: Array<['today' | 'yesterday' | 'earlier', string]> = [
     ['today', t('console.chat.today')],
     ['yesterday', t('console.chat.yesterday')],
@@ -162,7 +220,7 @@ export default function ConsoleChat() {
           {t('console.chat.governed')}
         </span>
         <span className="spacer" />
-        <ConsoleButton variant="primary">
+        <ConsoleButton variant="primary" onClick={() => setComposeOpen(true)}>
           <IconPlus />
           {t('console.chat.newThread')}
         </ConsoleButton>
@@ -230,6 +288,28 @@ export default function ConsoleChat() {
             <span className="mono dimmer" style={{ fontSize: 10.5 }}>
               {thread?.default_model_ref || '—'}
             </span>
+            {thread && (
+              <>
+                <ConsoleButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setRenameValue(thread.title || '')
+                    setRenaming(true)
+                  }}
+                >
+                  {t('console.chat.rename')}
+                </ConsoleButton>
+                <ConsoleButton
+                  variant="ghost"
+                  size="sm"
+                  style={{ color: 'var(--danger-foreground)' }}
+                  onClick={() => setDeletingThread(true)}
+                >
+                  {t('console.chat.deleteAction')}
+                </ConsoleButton>
+              </>
+            )}
           </div>
 
           <div className="msgs">
@@ -340,6 +420,72 @@ export default function ConsoleChat() {
           </div>
         </div>
       </div>
+
+      <ConsoleModal
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        title={t('console.chat.newTitle')}
+        note={t('console.chat.newNote')}
+        confirmLabel={t('console.common.create')}
+        busy={createThreadMutation.isPending}
+        onConfirm={() => createThreadMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>{t('console.chat.threadName')}</label>
+          <input
+            className="input"
+            value={newThread.title}
+            onChange={(event) =>
+              setNewThread((state) => ({ ...state, title: event.target.value }))
+            }
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.chat.threadAgent')}</label>
+          <input
+            className="input"
+            placeholder={agentLabel}
+            value={newThread.agent}
+            onChange={(event) =>
+              setNewThread((state) => ({ ...state, agent: event.target.value }))
+            }
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={renaming}
+        onOpenChange={setRenaming}
+        title={t('console.chat.renameTitle')}
+        confirmLabel={t('console.common.save')}
+        confirmDisabled={!renameValue.trim()}
+        busy={renameMutation.isPending}
+        onConfirm={() => renameMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>{t('console.chat.threadName')}</label>
+          <input
+            className="input"
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deletingThread}
+        onOpenChange={setDeletingThread}
+        title={t('console.chat.deleteTitle')}
+        confirmLabel={t('console.chat.deleteAction')}
+        destructive
+        busy={deleteThreadMutation.isPending}
+        onConfirm={() => deleteThreadMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.chat.deleteConfirm')}
+        </div>
+      </ConsoleModal>
     </>
   )
 }
