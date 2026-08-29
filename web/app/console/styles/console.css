@@ -180,7 +180,7 @@
 .console-root :focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: 6px; }
 
 /* ---------- shell ---------- */
-.console-root.shell{display:flex;height:100vh;min-width:1080px}
+.console-root.shell{display:flex;height:100vh;min-width:0}
 .console-root.shell.nosider{min-width:0}
 
 /* ---------- two-tier sidebar: icon rail + contextual panel ---------- */
@@ -969,3 +969,37 @@
 :is(.console-root,.console-theme) [data-slot="skeleton"],.console-theme[data-slot="skeleton"]{background:var(--raised)}
 :is(.console-root,.console-theme) [data-slot="progress"],.console-theme[data-slot="progress"]{height:5px;border-radius:3px;background:var(--raised)}
 :is(.console-root,.console-theme) [data-slot="progress-indicator"],.console-theme[data-slot="progress-indicator"]{background:var(--primary)}
+
+/* ============================================================
+   responsive layer - the prototype targets desktop; the app adapts.
+   Wide content scrolls inside its panel, grids collapse by width.
+   ============================================================ */
+.console-root .panel{overflow-x:auto}
+.console-root .panel > table{min-width:640px}
+.console-root .rail .panel table,
+.console-root .rdgrid .panel table{min-width:0}
+.console-root .ledger,.console-root .spans,.console-root .sem{min-width:560px}
+
+@media (max-width:1100px){
+  .console-root .tiles{grid-template-columns:repeat(2,1fr)}
+  .console-root .costgrid{grid-template-columns:1fr}
+  .console-root .costgrid>div{border-right:none;border-bottom:1px solid var(--border)}
+  .console-root .costgrid>div:last-child{border-bottom:none}
+}
+@media (max-width:980px){
+  .console-root .rdgrid{grid-template-columns:1fr}
+  .console-root .ovgrid{grid-template-columns:1fr}
+  .console-root .setgrid{grid-template-columns:1fr}
+  .console-root .polgrid{grid-template-columns:1fr}
+  .console-root .taskgrid{grid-template-columns:1fr}
+  .console-root .chatgrid{grid-template-columns:1fr}
+  .console-root .wfshell{grid-template-columns:1fr}
+  .console-root .searchbtn{width:150px}
+}
+@media (max-width:760px){
+  .console-root .tiles{grid-template-columns:1fr}
+  .console-root .cards{grid-template-columns:1fr}
+  .console-root .onboard{grid-template-columns:1fr}
+  .console-root .subnav{display:none}
+  .console-root .subnav-open{display:grid}
+}

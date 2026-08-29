@@ -16,6 +16,7 @@ export function Pager({
   nextLabel = 'Next ›',
   children,
   className,
+  style,
 }: {
   summary?: React.ReactNode
   onPrev?: () => void
@@ -26,9 +27,10 @@ export function Pager({
   nextLabel?: React.ReactNode
   children?: React.ReactNode
   className?: string
+  style?: React.CSSProperties
 }) {
   return (
-    <div className={cn('pager', className)}>
+    <div className={cn('pager', className)} style={style}>
       {summary != null && <span>{summary}</span>}
       {children}
       <span className="spacer" />
