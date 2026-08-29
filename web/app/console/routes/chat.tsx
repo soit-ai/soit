@@ -1,126 +1,157 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+
+import { useParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   ConsoleButton,
+  DataStateNote,
   IconPlus,
   IconSend,
   IconSort,
   StatusChip,
-  type ConsoleStatus,
+  runStatusToConsole,
 } from '../components'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
+import { catColor, relativeTime } from '../adapters/palette'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { createResponse } from '@/services/responses-service'
+import { getThread, listThreads, type ThreadMessage } from '@/services/thread-service'
+import { listRuns } from '@/services/run-service'
+import { requestErrorMessage } from '@/utils/request'
 
-interface MockThread {
-  id: string
-  cap: 'today' | 'yesterday'
-  title: string
-  time: string
-  note: string
+const PAGE_SIZE = 50
+
+function clockTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(11, 19)}Z`
 }
 
-interface MockEvidence {
-  run_id: string
-  status: ConsoleStatus
-  label: string
-  parts: string[]
+/** Threads group into Today / Yesterday / Earlier by last activity. */
+function bucketOf(iso?: string | null): 'today' | 'yesterday' | 'earlier' {
+  if (!iso) return 'earlier'
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return 'earlier'
+  const today = new Date()
+  const sameDay = (a: Date, b: Date) => a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10)
+  if (sameDay(then, today)) return 'today'
+  const yesterday = new Date(today.getTime() - 86_400_000)
+  if (sameDay(then, yesterday)) return 'yesterday'
+  return 'earlier'
 }
 
-interface MockMessage {
-  id: string
-  who: 'user' | 'agent'
-  name: string
-  time: string
-  body: React.ReactNode
-  typing?: boolean
-  evidence?: MockEvidence
+function initials(name?: string | null): string {
+  if (!name) return '··'
+  const parts = name.trim().split(/[\s@._-]+/).filter(Boolean)
+  if (parts.length === 0) return '··'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
-// BACKEND-PENDING: chat threads and governed-run replies come from the chat service.
-const MOCK_THREADS: MockThread[] = [
-  { id: 'thread_8f2c', cap: 'today', title: 'checkout-api 502s', time: '13:47Z', note: 'tailing error logs from the restarted pods…' },
-  { id: 'thread_8e01', cap: 'today', title: 'staging deploy window', time: '11:20Z', note: 'window confirmed 14:00–15:00Z, freeze after' },
-  { id: 'thread_8d4b', cap: 'today', title: 'quota report for finance', time: '09:02Z', note: 'exported usage by team as run artifact' },
-  { id: 'thread_7c92', cap: 'yesterday', title: 'vault rotation runbook', time: '18:44Z', note: 'SLACK_BOT_TOKEN rotated · 3 agents re-bound' },
-  { id: 'thread_7b10', cap: 'yesterday', title: 'gpu-01 disk pressure', time: '15:02Z', note: 'cleared 42 GB of stale model shards' },
-]
-
-const MOCK_MESSAGES: MockMessage[] = [
-  {
-    id: 'm1',
-    who: 'user',
-    name: 'Jude',
-    time: '13:45:12Z',
-    body: <p>restart the checkout-api deployment in staging, it&apos;s serving 502s</p>,
-  },
-  {
-    id: 'm2',
-    who: 'agent',
-    name: 'ops-copilot',
-    time: '13:45:40Z',
-    body: (
-      <p>
-        Restarted <span className="mono">deployment/checkout-api</span> in{' '}
-        <span className="mono">ns/staging</span> and watched the rollout: all 12 replicas are back to
-        ready. 502 rate dropped to zero within ~30s of the new pods passing readiness.
-      </p>
-    ),
-    evidence: { run_id: 'run_01J9KD7Z2M', status: 'pass', label: 'PASS', parts: ['2/2 gates', '7 steps', '8.9s', '$0.038'] },
-  },
-  {
-    id: 'm3',
-    who: 'user',
-    name: 'Jude',
-    time: '13:46:05Z',
-    body: <p>great — can you also purge the CDN cache for the storefront?</p>,
-  },
-  {
-    id: 'm4',
-    who: 'agent',
-    name: 'ops-copilot',
-    time: '13:46:18Z',
-    body: (
-      <p>
-        I can&apos;t do that: <span className="mono">cdn.purge</span> isn&apos;t inside my tool grants,
-        so the policy gate stopped the call before it executed. Nothing was sent to the CDN provider.
-        An owner can extend grant <span className="mono">g_44</span> if this should be in scope.
-      </p>
-    ),
-    evidence: { run_id: 'run_01J9KD8B4X', status: 'blocked', label: 'BLOCKED', parts: ['gate tool-permission', '1.1s', '$0.003'] },
-  },
-  {
-    id: 'm5',
-    who: 'user',
-    name: 'Jude',
-    time: '13:47:02Z',
-    body: <p>ok, tail the last 50 error-level logs from the new pods instead</p>,
-  },
-  {
-    id: 'm6',
-    who: 'agent',
-    name: 'ops-copilot',
-    time: '13:47:10Z',
-    body: (
-      <p>
-        Pulling logs from the 12 fresh pods, filtering to <span className="mono">level=error</span>{' '}
-        since the rollout completed
-        <span className="caret" />
-      </p>
-    ),
-    evidence: { run_id: 'run_01J9KD9QRS', status: 'running', label: 'RUNNING', parts: ['step 3/5 · k8s.logs', '3.4s'] },
-  },
-]
-
+/**
+ * The console shell around the existing chat data model. Threads and their
+ * message ledger come from thread-service; each assistant turn links to the run
+ * it executed as, which is the evidence chip the prototype shows.
+ */
 export default function ConsoleChat() {
   const { t } = useTranslation()
+  const { agentId, threadId } = useParams<{ agentId?: string; threadId?: string }>()
   const navigate = useConsoleNavigate()
-  const [activeThread, setActiveThread] = useState('thread_8f2c')
+  const [selectedThread, setSelectedThread] = useState<string | null>(threadId || null)
+  const [draft, setDraft] = useState('')
 
-  const caps: Array<['today' | 'yesterday', string]> = [
+  const threadsQuery = useQuery({
+    queryKey: ['console', 'chat', 'threads', agentId],
+    queryFn: () => listThreads({ page_size: PAGE_SIZE, agent_id: agentId }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const threads = threadsQuery.data?.items || []
+  const activeThreadId = selectedThread || threads[0]?.id || ''
+
+  const threadQuery = useQuery({
+    queryKey: ['console', 'chat', 'thread', activeThreadId],
+    queryFn: () => getThread(activeThreadId),
+    options: { enabled: Boolean(activeThreadId), retry: false, refetchOnWindowFocus: false },
+  })
+
+  const thread = threadQuery.data?.thread
+  const messages = useMemo(
+    () => (threadQuery.data?.messages || []).filter((message) => message.role !== 'system'),
+    [threadQuery.data],
+  )
+
+  // Assistant turns carry a run_id; fetch those runs so each reply can show the
+  // real verdict, step count and duration rather than a decorative chip.
+  const runIds = useMemo(
+    () =>
+      Array.from(
+        new Set(messages.map((message) => message.run_id).filter((id): id is string => Boolean(id))),
+      ),
+    [messages],
+  )
+  const runsQuery = useQuery({
+    queryKey: ['console', 'chat', 'runs', activeThreadId, runIds.join(',')],
+    queryFn: () => listRuns({ page_size: PAGE_SIZE, include_observe_summary: true }),
+    options: {
+      enabled: runIds.length > 0,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+  const runById = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof runsQuery.data>['items'][number]>()
+    ;(runsQuery.data?.items || []).forEach((run) => map.set(run.id, run))
+    return map
+  }, [runsQuery.data])
+
+  const sendMutation = useMutation({
+    mutationKey: ['console', 'chat', 'send', activeThreadId],
+    mutationFn: () =>
+      createResponse({
+        thread_id: activeThreadId,
+        agent_id: thread?.agent_id || agentId || undefined,
+        input: [{ role: 'user', content: draft.trim() }],
+      }),
+    onSuccess: () => {
+      setDraft('')
+      void threadQuery.refetch()
+      void threadsQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to send the message'))
+    },
+  })
+
+  const buckets: Array<['today' | 'yesterday' | 'earlier', string]> = [
     ['today', t('console.chat.today')],
     ['yesterday', t('console.chat.yesterday')],
+    ['earlier', t('console.common.all')],
   ]
+
+  const agentLabel = thread?.agent_id || agentId || '—'
+
+  const evidenceFor = (message: ThreadMessage) => {
+    if (!message.run_id) return null
+    const run = runById.get(message.run_id)
+    const parts: string[] = []
+    if (run?.observe_summary) {
+      parts.push(`${run.observe_summary.step_count} steps`)
+      if (run.observe_summary.audit_count) parts.push(`${run.observe_summary.audit_count} audits`)
+    }
+    if (run?.duration_ms != null) parts.push(`${(run.duration_ms / 1000).toFixed(1)}s`)
+    return {
+      run_id: message.run_id,
+      status: runStatusToConsole(run?.status || 'unknown'),
+      label: (run?.status || 'run').toUpperCase(),
+      parts,
+      terminal: run?.status !== 'running',
+    }
+  }
 
   return (
     <>
@@ -140,111 +171,170 @@ export default function ConsoleChat() {
       <div className="chatgrid">
         <div className="panel threads">
           <div className="panel-head" style={{ gap: 8 }}>
-            <span className="idm" style={{ '--c': 'var(--cat-purple)' } as React.CSSProperties}>
+            <span className="idm" style={{ '--c': catColor(agentLabel) } as React.CSSProperties}>
               <i />
-              <b style={{ fontWeight: 600 }}>ops-copilot</b>
+              <b style={{ fontWeight: 600 }}>{agentLabel}</b>
             </span>
             <IconSort style={{ color: 'var(--faint)', marginLeft: 'auto' }} />
           </div>
           <div className="thread-list">
-            {caps.map(([cap, label]) => (
-              <div key={cap}>
-                <div className="thread-cap">{label}</div>
-                {MOCK_THREADS.filter((thread) => thread.cap === cap).map((thread) => (
-                  <a
-                    key={thread.id}
-                    className={cn('thread', activeThread === thread.id && 'on')}
-                    href={`/v2/chat/ops-copilot/${thread.id}`}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      setActiveThread(thread.id)
-                    }}
-                  >
-                    <b>
-                      {thread.title} <time>{thread.time}</time>
-                    </b>
-                    <small>{thread.note}</small>
-                  </a>
-                ))}
-              </div>
-            ))}
+            {threads.length === 0 ? (
+              <DataStateNote
+                isPending={threadsQuery.isPending}
+                isError={threadsQuery.isError}
+              />
+            ) : (
+              buckets.map(([bucket, label]) => {
+                const inBucket = threads.filter(
+                  (row) => bucketOf(row.last_message_at || row.updated_at) === bucket,
+                )
+                if (inBucket.length === 0) return null
+                return (
+                  <div key={bucket}>
+                    <div className="thread-cap">{label}</div>
+                    {inBucket.map((row) => (
+                      <a
+                        key={row.id}
+                        className={cn('thread', activeThreadId === row.id && 'on')}
+                        href={`/v2/chat/${row.agent_id || 'agent'}/${row.id}`}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          setSelectedThread(row.id)
+                        }}
+                      >
+                        <b>
+                          {row.title || row.id}{' '}
+                          <time>{clockTime(row.last_message_at || row.updated_at)}</time>
+                        </b>
+                        <small>{row.summary || `${row.message_count} messages`}</small>
+                      </a>
+                    ))}
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
 
         <div className="panel chatpane">
           <div className="chat-head">
-            <h2>checkout-api 502s</h2>
+            <h2>{thread?.title || t('console.chat.title')}</h2>
             <span className="chip">
-              <i style={{ background: 'var(--cat-purple)' }} />
-              ops-copilot
+              <i style={{ background: catColor(agentLabel) }} />
+              {agentLabel}
             </span>
             <span className="mono dimmer" style={{ fontSize: 10.5 }}>
-              thread_8f2c
+              {thread?.id || '—'}
             </span>
             <span className="spacer" style={{ flex: 1 }} />
             <span className="mono dimmer" style={{ fontSize: 10.5 }}>
-              policy bundle v2026.08.27-2
+              {thread?.default_model_ref || '—'}
             </span>
           </div>
 
           <div className="msgs">
-            {MOCK_MESSAGES.map((message) => (
-              <div key={message.id} className="msg">
-                {message.who === 'user' ? (
-                  <span className="who avatar">JD</span>
-                ) : (
-                  <span
-                    className="who aavatar"
-                    style={{ '--c': 'var(--cat-purple)', width: 26, height: 26 } as React.CSSProperties}
-                  />
-                )}
-                <div>
-                  <div className="msg-h">
-                    <b>{message.name}</b>
-                    <time>{message.time}</time>
-                  </div>
-                  <div className="msg-b">{message.body}</div>
-                  {message.evidence && (
-                    <a
-                      className="evd"
-                      href={`/v2/observe/runs/${message.evidence.run_id}`}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        navigate(`/v2/observe/runs/${message.evidence!.run_id}`)
-                      }}
-                    >
-                      <span className="runid">{message.evidence.run_id}</span>
-                      <StatusChip status={message.evidence.status} label={message.evidence.label} />
-                      {message.evidence.parts.map((part) => (
-                        <span key={part} style={{ display: 'contents' }}>
-                          <span className="sep">·</span>
-                          <span>{part}</span>
-                        </span>
-                      ))}
-                      {message.evidence.status !== 'running' && (
-                        <span style={{ marginLeft: 'auto', color: 'var(--primary-subtle-foreground)' }}>
-                          {t('console.chat.openEvidence')}
-                        </span>
+            {messages.length === 0 ? (
+              <DataStateNote
+                isPending={Boolean(activeThreadId) && threadQuery.isPending}
+                isError={threadQuery.isError}
+              />
+            ) : (
+              messages.map((message) => {
+                const evidence = evidenceFor(message)
+                const isUser = message.role === 'user'
+                return (
+                  <div key={message.id} className="msg">
+                    {isUser ? (
+                      <span className="who avatar">{initials(message.created_by)}</span>
+                    ) : (
+                      <span
+                        className="who aavatar"
+                        style={
+                          {
+                            '--c': catColor(agentLabel),
+                            width: 26,
+                            height: 26,
+                          } as React.CSSProperties
+                        }
+                      />
+                    )}
+                    <div>
+                      <div className="msg-h">
+                        <b>{isUser ? message.created_by || 'you' : agentLabel}</b>
+                        <time>{clockTime(message.created_at)}</time>
+                      </div>
+                      <div className="msg-b">
+                        <p>{message.content}</p>
+                      </div>
+                      {evidence && (
+                        <a
+                          className="evd"
+                          href={`/v2/observe/runs/${evidence.run_id}`}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            navigate(`/v2/observe/runs/${evidence.run_id}`)
+                          }}
+                        >
+                          <span className="runid">{evidence.run_id}</span>
+                          <StatusChip status={evidence.status} label={evidence.label} />
+                          {evidence.parts.map((part) => (
+                            <span key={part} style={{ display: 'contents' }}>
+                              <span className="sep">·</span>
+                              <span>{part}</span>
+                            </span>
+                          ))}
+                          {evidence.terminal && (
+                            <span
+                              style={{ marginLeft: 'auto', color: 'var(--primary-subtle-foreground)' }}
+                            >
+                              {t('console.chat.openEvidence')}
+                            </span>
+                          )}
+                        </a>
                       )}
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
+                    </div>
+                  </div>
+                )
+              })
+            )}
           </div>
 
+          {/* Turns post to the Responses API and the ledger is refetched when the
+              run completes. Token-by-token streaming, tool calls and approval
+              interrupts live in the AG-UI runtime under components/ui/chat; this
+              shell should adopt that runtime rather than duplicate it. */}
           <div className="composer">
             <div className="composer-box">
-              <input placeholder={t('console.chat.composerPlaceholder')} />
-              <span className="chip">claude-sonnet-5</span>
-              <ConsoleButton variant="primary" style={{ height: 28 }}>
+              <input
+                placeholder={t('console.chat.composerPlaceholder')}
+                value={draft}
+                disabled={!activeThreadId || sendMutation.isPending}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey && draft.trim()) {
+                    event.preventDefault()
+                    sendMutation.mutate(undefined)
+                  }
+                }}
+              />
+              <span className="chip">{thread?.default_model_ref || '—'}</span>
+              <ConsoleButton
+                variant="primary"
+                style={{ height: 28 }}
+                disabled={!draft.trim() || !activeThreadId || sendMutation.isPending}
+                onClick={() => sendMutation.mutate(undefined)}
+              >
                 <IconSend />
                 {t('console.chat.send')}
               </ConsoleButton>
             </div>
             <div className="composer-note">
               <span>{t('console.chat.note1')}</span>
-              <span>{t('console.chat.note2')}</span>
+              <span>
+                {thread?.last_message_at
+                  ? `last activity ${relativeTime(thread.last_message_at)}`
+                  : '—'}
+              </span>
               <span style={{ marginLeft: 'auto' }}>{t('console.chat.note3')}</span>
             </div>
           </div>

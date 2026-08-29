@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useParams } from 'react-router'
 
@@ -6,43 +6,258 @@ import {
   Backlink,
   CodeBlock,
   ConsoleButton,
+  DataStateNote,
   IconExport,
   KeyValueList,
   StatTile,
   StatTileGrid,
   StatusChip,
-  Workbench,
   WorkbenchPanel,
+  runStatusToConsole,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import {
+  getAgent,
+  getAgentWorkbenchItems,
+  listAgentBindings,
+  listAgentReleases,
+  listAgentVersions,
+  type AgentVersion,
+} from '@/services/agent-service'
+import {
+  getCapabilityPluginSourceLabel,
+  getCapabilitySourceLabel,
+  listAgentCapabilities,
+  type AgentCapabilityItem,
+} from '@/services/capability-service'
+import { listRuns } from '@/services/run-service'
 
 type AgentTab = 'build' | 'monitor' | 'publish' | 'settings'
 
-// Mock editor state mirroring the prototype sample (support-triage draft).
-// BACKEND-PENDING: agent-service versions/releases/publish/rollback exist.
-const MOCK_PROMPT = `You triage inbound helpdesk tickets for Acme Robotics.
+/**
+ * `spec_json` is the soit agent runtime spec (agent_spec.schema.json):
+ * { runtime, system_prompt, temperature, planner, bindings: { model_ref,
+ * knowledge_refs, tool_refs, workflow_refs, skill_refs }, memory, limits,
+ * policies }.
+ */
+function readSpec(version?: AgentVersion | null): Record<string, any> {
+  const spec = version?.spec_json
+  return spec && typeof spec === 'object' ? (spec as Record<string, any>) : {}
+}
 
-- Classify each ticket into a queue from ticket_class.json and set priority.
-- Draft a reply grounded ONLY in cited knowledge chunks; never invent policy.
-- Escalate to a human when confidence < 0.8 or the ticket mentions billing disputes.
-- You cannot contact systems outside your tool grants — do not promise actions you cannot take.`
+function readRecord(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {}
+}
 
-const MOCK_RECENT_RUNS = [
-  { id: 'run_01J9KD84QF', trigger: 'webhook', observed: '4 st · 2 tool · 1 cit · 1 aud', policy: '2/2 gates', duration: '3.1s', cost: '$0.021', status: 'running' as const, label: 'RUNNING', started: '13:47:10Z' },
-  { id: 'run_01J9KD5PWB', trigger: 'webhook', observed: '6 st · 2 tool · 1 cit · 1 aud', policy: '2/2 gates', duration: '4.4s', cost: '$0.017', status: 'pass' as const, label: 'PASS', started: '13:33:44Z' },
-  { id: 'run_01J9KD1T4H', trigger: 'webhook', observed: '6 st · 2 tool · 1 cit · 1 aud', policy: '2/2 gates', duration: '3.8s', cost: '$0.015', status: 'pass' as const, label: 'PASS', started: '12:58:03Z' },
-]
+/** Editable form fields render the stored value, or blank when the spec omits it. */
+function fieldValue(value: unknown): string {
+  if (value == null || value === '') return ''
+  return String(value)
+}
 
-const MOCK_HIST: ('ok' | 'd' | 'f')[] = ['ok', 'ok', 'ok', 'd', 'ok', 'ok', 'ok', 'ok', 'f', 'ok', 'ok', 'ok']
+function formatDuration(ms?: number | null): string {
+  if (ms == null) return '—'
+  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`
+  return `${(ms / 1000).toFixed(1)}s`
+}
 
+function formatStarted(iso?: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(11, 19)}Z`
+}
+
+/** Nearest-rank percentile over the durations of the runs actually fetched. */
+function percentileMs(values: number[], p: number): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const rank = Math.ceil((p / 100) * sorted.length) - 1
+  return sorted[Math.min(sorted.length - 1, Math.max(0, rank))]
+}
+
+interface CapabilityRow {
+  ref: string
+  name: string
+  detail: string
+  bound: boolean
+}
+
+/**
+ * The pickable catalog for one capability kind, with the boxes that this
+ * version actually binds checked. A binding whose ref is no longer in the
+ * catalog (uninstalled plugin, archived knowledge base) is still listed so the
+ * grant stays visible rather than silently disappearing.
+ */
+function capabilityRows(
+  kind: string,
+  catalog: AgentCapabilityItem[],
+  boundRefs: Set<string>,
+  detailOf: (item: AgentCapabilityItem) => string,
+): CapabilityRow[] {
+  const rows = catalog
+    .filter((item) => item.kind === kind)
+    .map((item) => ({
+      ref: item.ref,
+      name: item.name || item.ref,
+      detail: detailOf(item),
+      bound: boundRefs.has(item.ref),
+    }))
+  const known = new Set(rows.map((row) => row.ref))
+  for (const ref of boundRefs) {
+    if (!known.has(ref)) rows.push({ ref, name: ref, detail: '', bound: true })
+  }
+  return rows
+}
+
+// BACKEND-PENDING: no per-run cost on the run record (/runs/costs/* only
+// aggregates across a filter set), no per-agent spend total, and the agent
+// record carries no trigger, output schema, rate limit, retry policy,
+// on-failure target, budget-alert threshold, or governance bundle/gate/review
+// fields — the "Governance preview" rail and those inputs have nothing to read.
+// Everything else comes from agent-service (/agents/{id}, /versions, /releases,
+// /bindings, /workbench/items), capability-service (/agents/capabilities) and
+// run-service (/runs).
 export default function ConsoleAgentDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<AgentTab>('build')
-  const name = id && id !== 'new' ? id : 'support-triage'
+
+  const agentId = id && id !== 'new' ? id : undefined
+  const enabled = Boolean(agentId)
+
+  const agentQuery = useQuery({
+    queryKey: ['console', 'agent', agentId],
+    queryFn: () => getAgent(agentId as string),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const versionsQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'versions'],
+    queryFn: () => listAgentVersions(agentId as string, { page_size: 20 }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const releasesQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'releases'],
+    queryFn: () => listAgentReleases(agentId as string, { page_size: 20 }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const runsQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'runs'],
+    queryFn: () =>
+      listRuns({
+        subject_kind: 'agent',
+        subject_id: agentId,
+        include_observe_summary: true,
+        page_size: 20,
+      }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const workbenchQuery = useQuery({
+    queryKey: ['console', 'agents', 'workbench', 'items'],
+    queryFn: () => getAgentWorkbenchItems({ page_size: 100 }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const catalogQuery = useQuery({
+    queryKey: ['console', 'agent', 'capabilities'],
+    queryFn: () => listAgentCapabilities({ page_size: 200 }),
+    options: { retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 },
+  })
+
+  const agent = agentQuery.data
+  const versions = versionsQuery.data?.items || []
+  const releases = releasesQuery.data?.items || []
+  const runs = runsQuery.data?.items || []
+  const catalog = catalogQuery.data?.items || []
+
+  // Agent versions carry a numeric `version`, so the rail needs no derived ordinal.
+  const versionRail = useMemo(() => [...versions].sort((a, b) => b.version - a.version), [versions])
+
+  const currentVersionId = agent?.current_version_id || null
+  const publishedVersionId = agent?.published_version_id || null
+  const currentVersion =
+    versionRail.find((version) => version.id === currentVersionId) || versionRail[0] || null
+  const publishedVersion = versionRail.find((version) => version.id === publishedVersionId) || null
+  const hasDraftChanges = Boolean(
+    currentVersionId && publishedVersionId && currentVersionId !== publishedVersionId,
+  )
+
+  /** Versions a release reverted — the only rollback signal the API exposes. */
+  const rolledBackVersionIds = useMemo(
+    () =>
+      new Set(
+        releases.filter((release) => release.status === 'rolled_back').map((release) => release.to_version_id),
+      ),
+    [releases],
+  )
+
+  const spec = readSpec(currentVersion)
+  const specBindings = readRecord(spec.bindings)
+  const limits = readRecord(spec.limits)
+
+  // The Build tab edits the current editor state, so bind against that version.
+  const bindingsQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'bindings', currentVersionId],
+    queryFn: () =>
+      listAgentBindings(agentId as string, currentVersionId ? { version_id: currentVersionId } : undefined),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const bindings = bindingsQuery.data || []
+
+  /** Bindings mirror the spec ref lists: binding.target_key === capability.ref. */
+  const boundRefs = useMemo(() => {
+    const groups: Record<string, Set<string>> = { tool: new Set(), skill: new Set(), knowledge: new Set() }
+    for (const binding of bindings) {
+      const group = groups[binding.binding_type]
+      if (group && binding.target_key) group.add(binding.target_key)
+    }
+    return groups
+  }, [bindings])
+
+  const toolRows = capabilityRows(
+    'tool',
+    catalog,
+    boundRefs.tool,
+    (item) => getCapabilityPluginSourceLabel(item) || getCapabilitySourceLabel(item),
+  )
+  const skillRows = capabilityRows('skill', catalog, boundRefs.skill, (item) =>
+    [item.source_version, getCapabilityPluginSourceLabel(item)].filter(Boolean).join(' · '),
+  )
+  const knowledgeRows = capabilityRows('knowledge', catalog, boundRefs.knowledge, (item) => {
+    const metadata = readRecord(item.metadata_json)
+    const parts = []
+    if (metadata.doc_count != null) parts.push(`${metadata.doc_count} docs`)
+    if (metadata.chunk_count != null) parts.push(`${metadata.chunk_count} chunks`)
+    return parts.join(' · ')
+  })
+
+  const capabilityState = {
+    isPending: catalogQuery.isPending || bindingsQuery.isPending,
+    isError: catalogQuery.isError || bindingsQuery.isError,
+  }
+
+  const workbenchRow = (workbenchQuery.data?.items || []).find((row) => row.id === agentId)
+  const durations = runs
+    .map((run) => run.duration_ms)
+    .filter((value): value is number => typeof value === 'number')
+  const p95 = percentileMs(durations, 95)
+  const p50 = percentileMs(durations, 50)
+
+  /** The outcome strip reads the fetched runs oldest → newest. */
+  const outcomes = useMemo(
+    () =>
+      [...runs]
+        .slice(0, 12)
+        .reverse()
+        .map((run) => (run.status === 'succeeded' ? 'ok' : run.status === 'failed' ? 'f' : 'd')),
+    [runs],
+  )
+
+  const name = agent?.name || agentId || '—'
 
   return (
     <>
@@ -51,16 +266,18 @@ export default function ConsoleAgentDetail() {
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
         <span className="chip">
-          <i style={{ background: 'var(--primary)' }} />
-          v12 published
+          <i style={{ background: catColor(agentId) }} />
+          {publishedVersion ? `v${publishedVersion.version} published` : 'unpublished'}
         </span>
-        <StatusChip status="warn" label="DRAFT CHANGES" />
+        {hasDraftChanges && <StatusChip status="warn" label="DRAFT CHANGES" />}
         <span className="spacer" />
         <ConsoleButton>{t('console.agentDetail.saveDraft')}</ConsoleButton>
         <ConsoleButton>{t('console.agentDetail.runTest')}</ConsoleButton>
         <ConsoleButton variant="primary">
           <IconExport />
-          {t('console.agentDetail.publish')}
+          {t('console.agentDetail.publish', {
+            version: currentVersion ? `v${currentVersion.version}` : '',
+          })}
         </ConsoleButton>
       </div>
 
@@ -86,15 +303,21 @@ export default function ConsoleAgentDetail() {
             <WorkbenchPanel title={t('console.agentDetail.definition')}>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.name')}</label>
-                <input className="input" defaultValue={name} />
+                <input key={`name-${agent?.id}`} className="input" defaultValue={agent?.name || ''} />
               </div>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.description')}</label>
-                <input className="input" defaultValue="Classifies inbound tickets, drafts replies, escalates on low confidence." />
+                <input
+                  key={`desc-${agent?.id}`}
+                  className="input"
+                  defaultValue={agent?.description || ''}
+                />
               </div>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.trigger')}</label>
-                <select className="input" style={{ maxWidth: 220 }} defaultValue="webhook">
+                {/* The agent record has no trigger column and the runtime spec
+                    carries none either; the option list stays the prototype's. */}
+                <select key={`trigger-${agent?.id}`} className="input" style={{ maxWidth: 220 }} defaultValue="">
                   <option>webhook</option>
                   <option>chat</option>
                   <option>schedule</option>
@@ -104,13 +327,32 @@ export default function ConsoleAgentDetail() {
               <div className="frow">
                 <label>{t('console.agentDetail.fields.model')}</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <select className="input" style={{ maxWidth: 220 }} defaultValue="claude-sonnet-5">
+                  {/* No model-catalogue endpoint drives this select yet; the
+                      value comes from the version spec's bindings.model_ref. */}
+                  <select
+                    key={`model-${currentVersion?.id}`}
+                    className="input"
+                    style={{ maxWidth: 220 }}
+                    defaultValue={fieldValue(specBindings.model_ref)}
+                  >
                     <option>claude-sonnet-5</option>
                     <option>claude-haiku-4.5</option>
                     <option>qwen3-235b</option>
                   </select>
-                  <input className="input" defaultValue="temp 0.2" style={{ maxWidth: 90 }} title="temperature" />
-                  <input className="input" defaultValue="max 4,096 tok" style={{ maxWidth: 120 }} title="max output tokens" />
+                  <input
+                    key={`temp-${currentVersion?.id}`}
+                    className="input"
+                    defaultValue={fieldValue(spec.temperature)}
+                    style={{ maxWidth: 90 }}
+                    title="temperature"
+                  />
+                  <input
+                    key={`maxtok-${currentVersion?.id}`}
+                    className="input"
+                    defaultValue={fieldValue(limits.max_tokens)}
+                    style={{ maxWidth: 120 }}
+                    title="max output tokens"
+                  />
                 </div>
               </div>
               <div className="frow">
@@ -118,12 +360,19 @@ export default function ConsoleAgentDetail() {
                   {t('console.agentDetail.fields.systemPrompt')}
                   <small>{t('console.agentDetail.fields.systemPromptHint')}</small>
                 </label>
-                <textarea className="input" style={{ minHeight: 120 }} defaultValue={MOCK_PROMPT} />
+                <textarea
+                  key={`prompt-${currentVersion?.id}`}
+                  className="input"
+                  style={{ minHeight: 120 }}
+                  defaultValue={fieldValue(spec.system_prompt)}
+                />
               </div>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.outputSchema')}</label>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span className="chip">ticket_class.json</span>
+                  {/* The agent spec has no output-schema slot (only workflows
+                      carry outputs_schema), so there is nothing to name here. */}
+                  <span className="chip">—</span>
                   <ConsoleButton variant="ghost" size="sm">
                     {t('console.agentDetail.fields.editSchema')}
                   </ConsoleButton>
@@ -135,22 +384,16 @@ export default function ConsoleAgentDetail() {
               <div className="frow">
                 <label>{t('console.agentDetail.toolGrants')}</label>
                 <div className="checks">
-                  <label>
-                    <input type="checkbox" defaultChecked />
-                    <span className="mono">g_45</span> tickets.read / tickets.write · helpdesk-api
-                  </label>
-                  <label>
-                    <input type="checkbox" defaultChecked />
-                    <span className="mono">web-fetch</span> net.egress · allowlist only
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    <span className="mono">g_44</span> k8s.* on ns/staging
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    <span className="mono">g_51</span> finance.journal.post · <span className="risk hi">HIGH</span> requires human approval
-                  </label>
+                  {toolRows.length === 0 ? (
+                    <DataStateNote {...capabilityState} />
+                  ) : (
+                    toolRows.map((row) => (
+                      <label key={row.ref}>
+                        <input type="checkbox" defaultChecked={row.bound} />
+                        <span className="mono">{row.name}</span> {row.detail}
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="frow">
@@ -159,14 +402,16 @@ export default function ConsoleAgentDetail() {
                   <small>{t('console.agentDetail.skillsHint')}</small>
                 </label>
                 <div className="checks">
-                  <label>
-                    <input type="checkbox" defaultChecked />
-                    <span className="mono">incident-writeup</span> v1.2.0 · postmortem structure
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    <span className="mono">runbook-triage</span> v0.4.1 · uses k8s.read via k8s-toolkit
-                  </label>
+                  {skillRows.length === 0 ? (
+                    <DataStateNote {...capabilityState} />
+                  ) : (
+                    skillRows.map((row) => (
+                      <label key={row.ref}>
+                        <input type="checkbox" defaultChecked={row.bound} />
+                        <span className="mono">{row.name}</span> {row.detail}
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="frow">
@@ -175,18 +420,16 @@ export default function ConsoleAgentDetail() {
                   <small>{t('console.agentDetail.knowledgeHint')}</small>
                 </label>
                 <div className="checks">
-                  <label>
-                    <input type="checkbox" defaultChecked />
-                    product-docs <span className="mono dimmer">91% hit rate</span>
-                  </label>
-                  <label>
-                    <input type="checkbox" defaultChecked />
-                    support-macros
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    runbooks
-                  </label>
+                  {knowledgeRows.length === 0 ? (
+                    <DataStateNote {...capabilityState} />
+                  ) : (
+                    knowledgeRows.map((row) => (
+                      <label key={row.ref}>
+                        <input type="checkbox" defaultChecked={row.bound} />
+                        {row.name} <span className="mono dimmer">{row.detail}</span>
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
             </WorkbenchPanel>
@@ -194,23 +437,33 @@ export default function ConsoleAgentDetail() {
 
           <div className="rail">
             <WorkbenchPanel title={t('console.agentDetail.governance')}>
+              {/* No policy-bundle, gate-preview, publish-review or secret-scope
+                  field exists on the agent, its version spec, or its releases. */}
               <KeyValueList
                 items={[
-                  { key: 'Policy bundle', value: 'workspace default' },
-                  { key: 'Gates that apply', value: 'intent-screen · tool-permission' },
-                  { key: 'Publish review', value: 'not required · no scope change' },
-                  { key: 'Secrets', value: 'by reference only' },
+                  { key: 'Policy bundle', value: '—' },
+                  { key: 'Gates that apply', value: '—' },
+                  { key: 'Publish review', value: '—' },
+                  { key: 'Secrets', value: '—' },
                 ]}
               />
             </WorkbenchPanel>
             <WorkbenchPanel title={t('console.agentDetail.budget')}>
               <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
                 <label>{t('console.agentDetail.dailyCap')}</label>
-                <input className="input" defaultValue="$12.00" style={{ maxWidth: 120 }} />
+                {/* spec.limits.budget is the per-run cost ceiling — the only
+                    budget number the spec carries; there is no daily window. */}
+                <input
+                  key={`budget-${currentVersion?.id}`}
+                  className="input"
+                  defaultValue={fieldValue(limits.budget)}
+                  style={{ maxWidth: 120 }}
+                />
               </div>
               <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
                 <label>{t('console.agentDetail.alertAt')}</label>
-                <select className="input" style={{ maxWidth: 120 }} defaultValue="80%">
+                {/* No budget-alert threshold is stored anywhere. */}
+                <select className="input" style={{ maxWidth: 120 }} defaultValue="">
                   <option>80%</option>
                   <option>50%</option>
                 </select>
@@ -233,13 +486,34 @@ export default function ConsoleAgentDetail() {
       {tab === 'monitor' && (
         <>
           <StatTileGrid>
-            <StatTile label="Runs · 24h" value="412" delta={{ direction: 'up', label: '+8.6%' }} sub="vs prev 24h" />
-            <StatTile label="Pass rate" value="98.3%" sub={<span className="mono dimmer">405 pass · 5 degraded · 2 blocked</span>} />
-            <StatTile label="Spend · 24h" value="$11.20" sub={<span className="mono dimmer">cap $12.00/day · 93%</span>} />
-            <StatTile label="P95 duration" value="4.9s" sub={<span className="mono dimmer">p50 2.1s</span>} />
+            <StatTile
+              label="Runs · 24h"
+              value={workbenchRow ? compactNumber(workbenchRow.today_calls) : '—'}
+              na={!workbenchRow}
+              sub={<span className="mono dimmer">today</span>}
+            />
+            <StatTile
+              label="Pass rate"
+              value={workbenchRow ? percent(workbenchRow.success_rate) : '—'}
+              na={!workbenchRow}
+              sub={
+                <span className="mono dimmer">
+                  {workbenchRow ? `${workbenchRow.recent_exception_count} exceptions` : '—'}
+                </span>
+              }
+            />
+            {/* No per-agent spend total: /runs/costs/* reports token and time
+                counters, and only a run detail carries a currency amount. */}
+            <StatTile label="Spend · 24h" value="—" na sub={<span className="mono dimmer">—</span>} />
+            <StatTile
+              label="P95 duration"
+              value={p95 == null ? '—' : latency(p95)}
+              na={p95 == null}
+              sub={<span className="mono dimmer">p50 {p50 == null ? '—' : latency(p50)}</span>}
+            />
           </StatTileGrid>
           <WorkbenchPanel
-            title={t('console.agentDetail.monitorRecent')}
+            title={t('console.agentDetail.monitorRecent', { name })}
             actions={
               <a
                 className="more"
@@ -267,34 +541,51 @@ export default function ConsoleAgentDetail() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_RECENT_RUNS.map((run) => (
-                  <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
-                    <td>
-                      <span className="runid">{run.id}</span>
+                {runs.length === 0 ? (
+                  <tr>
+                    <td colSpan={8}>
+                      <DataStateNote isPending={runsQuery.isPending} isError={runsQuery.isError} />
                     </td>
-                    <td className="dim">{run.trigger}</td>
-                    <td>
-                      <span className="mono dimmer" style={{ fontSize: 10.5 }}>
-                        {run.observed}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="mono dimmer">{run.policy}</span>
-                    </td>
-                    <td className="num dim">{run.duration}</td>
-                    <td className="num dim">{run.cost}</td>
-                    <td>
-                      <StatusChip status={run.status} label={run.label} />
-                    </td>
-                    <td className="num dimmer">{run.started}</td>
                   </tr>
-                ))}
+                ) : (
+                  runs.map((run) => {
+                    const observed = run.observe_summary
+                    return (
+                      <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
+                        <td>
+                          <span className="runid">{run.id}</span>
+                        </td>
+                        <td className="dim">{run.mode}</td>
+                        <td>
+                          <span className="mono dimmer" style={{ fontSize: 10.5 }}>
+                            {observed
+                              ? `${observed.step_count} st · ${observed.tool_call_count} tool · ${observed.citation_count} cit · ${observed.audit_count} aud`
+                              : '—'}
+                          </span>
+                        </td>
+                        <td>
+                          {/* Runs record audit entries, not gate pass/total. */}
+                          <span className="mono dimmer">
+                            {observed ? `${observed.audit_count} audits` : '—'}
+                          </span>
+                        </td>
+                        <td className="num dim">{formatDuration(run.duration_ms)}</td>
+                        {/* Per-run cost is not on the run record. */}
+                        <td className="num dim">—</td>
+                        <td>
+                          <StatusChip status={runStatusToConsole(run.status)} />
+                        </td>
+                        <td className="num dimmer">{formatStarted(run.started_at)}</td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
             <div className="pager">
               <span>{t('console.agentDetail.lastOutcomes')}</span>
               <span className="hist" style={{ marginLeft: 10 }} aria-label={t('console.agentDetail.lastOutcomes')}>
-                {MOCK_HIST.map((outcome, index) => (
+                {outcomes.map((outcome, index) => (
                   <i key={index} className={outcome === 'ok' ? undefined : outcome} />
                 ))}
               </span>
@@ -307,28 +598,41 @@ export default function ConsoleAgentDetail() {
 
       {tab === 'publish' && (
         <WorkbenchPanel title={t('console.agentDetail.versions')} hint={t('console.agentDetail.versionsHint')}>
-          <a className="bundle">
-            <b>
-              v13 <StatusChip status="warn" label="DRAFT" />
-            </b>
-            <small>current editor state · validation ✓ · adds web-fetch scope → publish review required</small>
-          </a>
-          <a className="bundle on">
-            <b>
-              v12 <StatusChip status="pass" label="PUBLISHED" />
-            </b>
-            <small>production since 2026-08-26 · 412 runs · 24h · 98.3% pass</small>
-          </a>
-          <a className="bundle">
-            <b>
-              v11 <StatusChip status="info" label="ARCHIVED" />
-            </b>
-            <small>rollback target · one-click revert</small>
-          </a>
+          {versionRail.length === 0 ? (
+            <DataStateNote isPending={versionsQuery.isPending} isError={versionsQuery.isError} />
+          ) : (
+            versionRail.map((version) => {
+              const isPublished = version.id === publishedVersionId
+              const isCurrent = version.id === currentVersionId
+              const wasRolledBack = rolledBackVersionIds.has(version.id)
+              return (
+                <a key={version.id} className={cn('bundle', isPublished && 'on')}>
+                  <b>
+                    v{version.version}{' '}
+                    <StatusChip
+                      status={
+                        isPublished
+                          ? 'published'
+                          : isCurrent
+                            ? 'draft'
+                            : wasRolledBack
+                              ? 'rolled_back'
+                              : 'info'
+                      }
+                    />
+                  </b>
+                  <small>
+                    {version.status} · {version.created_by || '—'} · {relativeTime(version.created_at)} ·{' '}
+                    {version.id}
+                  </small>
+                </a>
+              )
+            })
+          )}
           <CodeBlock
             style={{ borderRadius: '0 0 10px 10px' }}
-            command="soit agent publish support-triage@v13"
-            output="scope change detected (adds net.egress) → queued for publish review · see Agents › Publish review"
+            command={`soit agent publish ${name}${currentVersion ? `@v${currentVersion.version}` : ''}`}
+            output={`${bindings.length} bindings · ${releases.length} releases · runs switch on next trigger`}
           />
         </WorkbenchPanel>
       )}
@@ -337,33 +641,56 @@ export default function ConsoleAgentDetail() {
         <WorkbenchPanel title={t('console.agentDetail.settingsTitle')}>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.owner')}</label>
-            <input className="input" defaultValue="Wei" style={{ maxWidth: 200 }} />
+            <input
+              key={`owner-${agent?.id}`}
+              className="input"
+              defaultValue={agent?.updated_by || agent?.created_by || ''}
+              style={{ maxWidth: 200 }}
+            />
           </div>
           <div className="frow">
             <label>
               {t('console.agentDetail.settingsFields.channel')}
               <small>{t('console.agentDetail.settingsFields.channelHint')}</small>
             </label>
-            <select className="input" style={{ maxWidth: 240 }} defaultValue="production">
+            {/* There is no channel column; an agent is callable in production
+                exactly when it has a published version. */}
+            <select
+              key={`channel-${agent?.id}`}
+              className="input"
+              style={{ maxWidth: 240 }}
+              defaultValue={publishedVersionId ? 'production' : 'draft only'}
+            >
               <option>production</option>
               <option>draft only</option>
             </select>
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.rateLimit')}</label>
-            <input className="input" defaultValue="60 runs / hour" style={{ maxWidth: 200 }} />
+            {/* No rate-limit field on the agent or its spec. */}
+            <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.retry')}</label>
-            <input className="input" defaultValue="2× · backoff 2ⁿ min" style={{ maxWidth: 200 }} />
+            {/* No retry policy is stored; spec.limits.max_failures is a failure
+                budget for a single run, not a retry schedule. */}
+            <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.timeout')}</label>
-            <input className="input" defaultValue="120s per run" style={{ maxWidth: 200 }} />
+            <input
+              key={`timeout-${currentVersion?.id}`}
+              className="input"
+              defaultValue={
+                typeof limits.timeout_ms === 'number' ? `${Math.round(limits.timeout_ms / 1000)}s per run` : ''
+              }
+              style={{ maxWidth: 200 }}
+            />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.onFailure')}</label>
-            <input className="input" defaultValue="notify #support-oncall" style={{ maxWidth: 260 }} />
+            {/* No notification target is stored on the agent. */}
+            <input className="input" defaultValue="" style={{ maxWidth: 260 }} />
           </div>
           <div className="frow">
             <label style={{ color: 'var(--danger-foreground)' }}>

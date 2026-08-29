@@ -21,7 +21,11 @@ import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { mockSchedules } from '../../mocks/execute'
 import { useTranslation } from '@/i18n'
 
-// BACKEND-PENDING: schedules are a mock-first object per the rebuild plan.
+// BACKEND-PENDING: schedules are the one screen with no server side at all —
+// there is no schedule model, service or route anywhere in the backend, so this
+// is a design surface for a feature that has not been built. Every other
+// console screen now reads its real service; these rows are fixtures and must
+// not be mistaken for live state.
 export default function ConsoleSchedules() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()

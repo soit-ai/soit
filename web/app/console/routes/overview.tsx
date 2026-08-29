@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   ConsoleButton,
+  DataStateNote,
   Hist,
   IconBot,
   IconFileMark,
@@ -13,252 +14,314 @@ import {
   StatTile,
   StatTileGrid,
   StatusChip,
-  type ConsoleStatus,
+  runStatusToConsole,
 } from '../components'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
+import { catColor, compactNumber, percent } from '../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { getAgentWorkbench } from '@/services/agent-service'
+import { getObserveDashboard, type ObserveRange } from '@/services/observe-service'
+import {
+  listRunAudits,
+  listRuns,
+  type RunAuditLogResponse,
+  type RunResponse,
+} from '@/services/run-service'
 
-type Range = '1h' | '24h' | '7d' | '30d'
+const RANGES = ['1h', '24h', '7d', '30d'] as const
+type Range = (typeof RANGES)[number]
 
-// BACKEND-PENDING: overview aggregates come from run-service metrics.
-const OUTCOME_BUCKETS: Array<[number, number, number]> = [
-  [38, 1, 0], [31, 0, 0], [26, 1, 0], [22, 0, 1], [19, 0, 0], [24, 1, 0], [33, 0, 0], [41, 2, 1],
-  [52, 1, 0], [61, 2, 1], [66, 1, 0], [58, 3, 1], [63, 1, 2], [71, 2, 0], [68, 1, 1], [74, 2, 0],
-  [69, 1, 1], [62, 2, 0], [57, 1, 1], [64, 2, 2], [70, 1, 0], [66, 2, 1], [59, 1, 0], [48, 2, 3],
-]
+const RANGE_MS: Record<Range, number> = {
+  '1h': 3_600_000,
+  '24h': 86_400_000,
+  '7d': 7 * 86_400_000,
+  '30d': 30 * 86_400_000,
+}
 
-const MOCK_RECENT_RUNS = [
-  { id: 'run_01J9KD84QF', agent: 'support-triage', color: 'var(--cat-cyan)', status: 'running' as ConsoleStatus, label: 'RUNNING', duration: '3.1s', cost: '$0.021', started: 'just now' },
-  { id: 'run_01J9KD7Z2M', agent: 'ops-copilot', color: 'var(--cat-purple)', status: 'pass' as ConsoleStatus, label: 'PASS', duration: '8.9s', cost: '$0.038', started: '2m ago' },
-  { id: 'run_01J9KD6H0T', agent: 'billing-audit', color: 'var(--cat-indigo)', status: 'blocked' as ConsoleStatus, label: 'BLOCKED', duration: '1.2s', cost: '$0.004', started: '9m ago' },
-  { id: 'run_01J9KD5PWB', agent: 'support-triage', color: 'var(--cat-cyan)', status: 'pass' as ConsoleStatus, label: 'PASS', duration: '4.4s', cost: '$0.017', started: '14m ago' },
-  { id: 'run_01J9KD4XN2', agent: 'kb-refresher', color: 'var(--cat-teal)', status: 'warn' as ConsoleStatus, label: 'DEGRADED', duration: '21.7s', cost: '$0.092', started: '22m ago' },
-  { id: 'run_01J9KD3F7Q', agent: 'ops-copilot', color: 'var(--cat-purple)', status: 'pass' as ConsoleStatus, label: 'PASS', duration: '6.0s', cost: '$0.029', started: '31m ago' },
-]
+/** The observe dashboard only models these windows. */
+const OBSERVE_RANGE: Record<Range, ObserveRange> = {
+  '1h': '1h',
+  '24h': '24h',
+  '7d': '7d',
+  '30d': '7d',
+}
 
-const MOCK_ACTIVE_AGENTS = [
-  { id: 'support-triage', color: 'var(--cat-cyan)', hist: 'pppdppppfppp', runs: '412 runs' },
-  { id: 'ops-copilot', color: 'var(--cat-purple)', hist: 'pppppdpppppp', runs: '287 runs' },
-  { id: 'kb-refresher', color: 'var(--cat-teal)', hist: 'pdppdpppppdp', runs: '96 runs' },
-  { id: 'billing-audit', color: 'var(--cat-indigo)', hist: 'ppfpppfppppf', runs: '64 runs' },
-]
+const RUN_SAMPLE = 200
+const BUCKETS = 24
+
+function clockTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(11, 19)}Z`
+}
+
+function formatDuration(ms?: number | null): string {
+  if (ms == null) return '—'
+  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+type Outcome = 'pass' | 'degraded' | 'blocked'
+
+function outcomeOf(status: string): Outcome {
+  if (status === 'succeeded') return 'pass'
+  if (status === 'failed' || status === 'cancelled' || status === 'canceled') return 'blocked'
+  return 'degraded'
+}
+
+/** Bucket the sampled runs into equal slices across the selected window. */
+function bucketRuns(runs: RunResponse[], windowMs: number): Array<[number, number, number]> {
+  const now = Date.now()
+  const start = now - windowMs
+  const width = windowMs / BUCKETS
+  const buckets: Array<[number, number, number]> = Array.from({ length: BUCKETS }, () => [0, 0, 0])
+  runs.forEach((run) => {
+    const at = new Date(run.started_at).getTime()
+    if (Number.isNaN(at) || at < start) return
+    const index = Math.min(BUCKETS - 1, Math.max(0, Math.floor((at - start) / width)))
+    const outcome = outcomeOf(run.status)
+    if (outcome === 'pass') buckets[index][0] += 1
+    else if (outcome === 'degraded') buckets[index][1] += 1
+    else buckets[index][2] += 1
+  })
+  return buckets
+}
+
+/** Gateway audits are the governance feed; tone them by recorded outcome. */
+function auditTone(entry: RunAuditLogResponse): { className: string; Icon: typeof IconShieldX } {
+  const outcome = (entry.outcome || '').toLowerCase()
+  if (outcome && outcome !== 'succeeded' && outcome !== 'ok' && outcome !== 'pass') {
+    return { className: 't-bad', Icon: IconShieldX }
+  }
+  const gateway = (entry.gateway_type || '').toLowerCase()
+  if (gateway.includes('secret')) return { className: 't-info', Icon: IconKey }
+  if (gateway.includes('budget') || gateway.includes('cost')) {
+    return { className: 't-warn', Icon: IconWarnTriangle }
+  }
+  if (gateway.includes('policy') || gateway.includes('intent')) {
+    return { className: 't-brand', Icon: IconFileMark }
+  }
+  return { className: 't-info', Icon: IconBot }
+}
 
 export default function ConsoleOverview() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [range, setRange] = useState<Range>('24h')
-  const [demoEmpty, setDemoEmpty] = useState(false)
 
-  const bucketMax = Math.max(...OUTCOME_BUCKETS.map(([p, d, b]) => p + d + b))
+  const startedAfter = useMemo(
+    () => new Date(Date.now() - RANGE_MS[range]).toISOString(),
+    [range],
+  )
+
+  const dashboardQuery = useQuery({
+    queryKey: ['console', 'overview', 'dashboard', range],
+    queryFn: () => getObserveDashboard({ range: OBSERVE_RANGE[range] }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const runsQuery = useQuery({
+    queryKey: ['console', 'overview', 'runs', startedAfter],
+    queryFn: () =>
+      listRuns({
+        started_after: startedAfter,
+        include_observe_summary: true,
+        page_size: RUN_SAMPLE,
+      }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const auditsQuery = useQuery({
+    queryKey: ['console', 'overview', 'audits'],
+    queryFn: () => listRunAudits({ page_size: 5 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const agentsQuery = useQuery({
+    queryKey: ['console', 'overview', 'agents'],
+    queryFn: () => getAgentWorkbench({ page_size: 4 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const runs = useMemo(() => runsQuery.data?.items || [], [runsQuery.data])
+  const buckets = useMemo(() => bucketRuns(runs, RANGE_MS[range]), [runs, range])
+  const bucketMax = Math.max(1, ...buckets.map(([p, d, b]) => p + d + b))
+
+  const passCount = runs.filter((run) => outcomeOf(run.status) === 'pass').length
+  const degradedCount = runs.filter((run) => outcomeOf(run.status) === 'degraded').length
+  const blockedCount = runs.filter((run) => outcomeOf(run.status) === 'blocked').length
+  const settled = passCount + blockedCount
+  const durations = runs
+    .map((run) => run.duration_ms)
+    .filter((value): value is number => value != null)
+    .sort((a, b) => a - b)
+  const p95 = durations.length
+    ? durations[Math.min(durations.length - 1, Math.floor(durations.length * 0.95))]
+    : null
+  const p50 = durations.length ? durations[Math.floor(durations.length * 0.5)] : null
+
+  const recentRuns = runs.slice(0, 6)
+  const audits = auditsQuery.data?.items || []
+  const agents = agentsQuery.data?.items || []
+
+  const spendCard = dashboardQuery.data?.metric_cards?.find((card) =>
+    card.id.toLowerCase().includes('cost') || card.label.toLowerCase().includes('spend'),
+  )
+
+  // Per-agent outcome history has no endpoint; derive a real strip from the
+  // sampled runs for that agent, newest last, and leave the rest blank.
+  const histFor = (agentId: string) => {
+    const own = runs
+      .filter((run) => run.subject_id === agentId)
+      .slice(0, 12)
+      .reverse()
+      .map((run) => {
+        const outcome = outcomeOf(run.status)
+        return outcome === 'pass' ? 'p' : outcome === 'degraded' ? 'd' : 'f'
+      })
+      .join('')
+    return own.padStart(12, 'e')
+  }
 
   return (
     <>
       <div className="page-head">
         <h1>{t('console.overview.title')}</h1>
         <span className="spacer" />
-        <Seg options={['1h', '24h', '7d', '30d'] as const} value={range} onChange={setRange} />
-        <ConsoleButton>
+        <Seg options={RANGES} value={range} onChange={setRange} />
+        <ConsoleButton
+          onClick={() => {
+            void runsQuery.refetch()
+            void dashboardQuery.refetch()
+            void auditsQuery.refetch()
+            void agentsQuery.refetch()
+          }}
+        >
           <IconReplay />
           {t('console.overview.refresh')}
         </ConsoleButton>
-        <ConsoleButton variant="ghost" onClick={() => setDemoEmpty((value) => !value)}>
-          {t('console.overview.demoEmpty')}
-        </ConsoleButton>
       </div>
 
-      {demoEmpty ? (
-        <div>
-          <StatTileGrid>
-            <StatTile label={t('console.overview.tiles.runs')} value="—" na sub={<span className="mono dimmer">no runs yet</span>} />
-            <StatTile label={t('console.overview.tiles.passRate')} value="—" na sub={<span className="mono dimmer">measured after the first run</span>} />
-            <StatTile label={t('console.overview.tiles.spend')} value="$0.00" sub={<span className="mono dimmer">budget $120.00/day</span>} />
-            <StatTile label={t('console.overview.tiles.p95')} value="—" na sub={<span className="mono dimmer">no data</span>} />
-          </StatTileGrid>
-          <div className="panel" style={{ marginBottom: 12 }}>
-            <div className="panel-head">
-              <h2>{t('console.overview.onboardTitle')}</h2>
-              <span className="hint">{t('console.overview.onboardHint')}</span>
-            </div>
-            <div className="onboard">
-              <div className="ob-step done">
-                <span className="obn">STEP 1 · DONE</span>
-                <b>{t('console.overview.onboard.step1')}</b>
-                <p>{t('console.overview.onboard.step1Note')}</p>
-                <StatusChip status="pass" label="CONNECTED" />
-              </div>
-              <div className="ob-step">
-                <span className="obn">STEP 2</span>
-                <b>{t('console.overview.onboard.step2')}</b>
-                <p>{t('console.overview.onboard.step2Note')}</p>
-                <ConsoleButton
-                  variant="primary"
-                  style={{ height: 26, fontSize: 11.5 }}
-                  onClick={() => navigate('/v2/build/agents/new')}
+      <div>
+        <StatTileGrid>
+          <StatTile
+            label={t('console.overview.tiles.runs')}
+            value={runsQuery.data ? compactNumber(runs.length) : '—'}
+            na={!runsQuery.data}
+            sub={
+              <span className="mono dimmer">
+                {runs.length >= RUN_SAMPLE ? `first ${RUN_SAMPLE} in window` : `in the last ${range}`}
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.overview.tiles.passRate')}
+            value={settled > 0 ? percent(passCount / settled) : '—'}
+            na={settled === 0}
+            sub={
+              <span className="mono dimmer">
+                {passCount} pass · {degradedCount} in flight · {blockedCount} failed
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.overview.tiles.spend')}
+            value={spendCard?.value || '—'}
+            na={!spendCard}
+            sub={<span className="mono dimmer">{spendCard?.delta || 'from run cost entries'}</span>}
+          />
+          <StatTile
+            label={t('console.overview.tiles.p95')}
+            value={formatDuration(p95)}
+            na={p95 == null}
+            sub={<span className="mono dimmer">p50 {formatDuration(p50)}</span>}
+          />
+        </StatTileGrid>
+
+        <div className="ovgrid">
+          <div className="stack">
+            <div className="panel">
+              <div className="panel-head">
+                <h2>{t('console.overview.outcomesTitle')}</h2>
+                <span className="hint">{t('console.overview.outcomesHint')}</span>
+                <a
+                  className="more"
+                  href="/v2/observe/runs"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate('/v2/observe/runs')
+                  }}
                 >
-                  {t('console.overview.onboard.newAgent')}
-                </ConsoleButton>
+                  {t('console.overview.openRuns')}
+                </a>
               </div>
-              <div className="ob-step">
-                <span className="obn">STEP 3</span>
-                <b>{t('console.overview.onboard.step3')}</b>
-                <p>{t('console.overview.onboard.step3Note')}</p>
-                <ConsoleButton style={{ height: 26, fontSize: 11.5 }} disabled>
-                  {t('console.overview.onboard.waiting')}
-                </ConsoleButton>
+              <div className="chartwrap">
+                <div className="legend">
+                  <span>
+                    <i style={{ background: 'var(--success)', opacity: 0.75 }} />
+                    {t('console.overview.legend.pass')}
+                  </span>
+                  <span>
+                    <i style={{ background: 'var(--warning)' }} />
+                    {t('console.overview.legend.degraded')}
+                  </span>
+                  <span>
+                    <i style={{ background: 'var(--destructive)' }} />
+                    {t('console.overview.legend.blocked')}
+                  </span>
+                </div>
+                <div className="bars">
+                  {buckets.map(([pass, degraded, blocked], index) => (
+                    <div
+                      key={index}
+                      className="col"
+                      title={`${pass} pass · ${degraded} in flight · ${blocked} failed`}
+                    >
+                      {(
+                        [
+                          [pass, 'b-pass'],
+                          [degraded, 'b-deg'],
+                          [blocked, 'b-blk'],
+                        ] as const
+                      ).map(
+                        ([value, cls]) =>
+                          value > 0 && (
+                            <span
+                              key={cls}
+                              className={cls}
+                              style={{ height: `${Math.max(2, (value / bucketMax) * 100)}%` }}
+                            />
+                          ),
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="axis">
+                  <span>−{range}</span>
+                  <span />
+                  <span />
+                  <span />
+                  <span>now</span>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="ovgrid">
+
             <div className="panel">
               <div className="panel-head">
                 <h2>{t('console.overview.recentRuns')}</h2>
+                <a
+                  className="more"
+                  href="/v2/observe/runs"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate('/v2/observe/runs')
+                  }}
+                >
+                  {t('console.overview.viewAll')}
+                </a>
               </div>
-              <div className="empty-note">
-                {t('console.overview.recentEmpty')}
-                <span className="mono">{t('console.overview.recentEmptyNote')}</span>
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-head">
-                <h2>{t('console.overview.governanceTitle')}</h2>
-              </div>
-              <div className="empty-note">
-                {t('console.overview.governanceEmpty')}
-                <span className="mono">{t('console.overview.governanceEmptyNote')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <StatTileGrid>
-            <StatTile
-              label={t('console.overview.tiles.runs')}
-              value="1,284"
-              delta={{ direction: 'up', label: '+12.4%' }}
-              sub="vs prev 24h"
-              spark={
-                <svg className="spark" width="88" height="26" viewBox="0 0 88 26">
-                  <polyline
-                    fill="none"
-                    stroke="var(--chart-1)"
-                    strokeWidth="1.5"
-                    points="0,20 8,18 16,19 24,14 32,15 40,10 48,12 56,8 64,9 72,5 80,7 88,3"
-                  />
-                </svg>
-              }
-            />
-            <StatTile
-              label={t('console.overview.tiles.passRate')}
-              value="96.4%"
-              sub={<span className="mono dimmer">1,238 pass · 31 degraded · 15 blocked</span>}
-            />
-            <StatTile
-              label={t('console.overview.tiles.spend')}
-              value="$41.32"
-              delta={{ direction: 'down', label: '−8.1%' }}
-              sub="budget $120.00/day"
-              spark={
-                <svg className="spark" width="88" height="26" viewBox="0 0 88 26">
-                  <polyline
-                    fill="none"
-                    stroke="var(--chart-2)"
-                    strokeWidth="1.5"
-                    points="0,8 8,10 16,7 24,12 32,11 40,14 48,13 56,16 64,15 72,18 80,17 88,19"
-                  />
-                </svg>
-              }
-            />
-            <StatTile
-              label={t('console.overview.tiles.p95')}
-              value="8.2s"
-              delta={{ direction: 'flat', label: '±0.0%' }}
-              sub="p50 2.9s"
-            />
-          </StatTileGrid>
-
-          <div className="ovgrid">
-            <div className="stack">
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>{t('console.overview.outcomesTitle')}</h2>
-                  <span className="hint">{t('console.overview.outcomesHint')}</span>
-                  <a
-                    className="more"
-                    href="/v2/observe/runs"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/observe/runs')
-                    }}
-                  >
-                    {t('console.overview.openRuns')}
-                  </a>
-                </div>
-                <div className="chartwrap">
-                  <div className="legend">
-                    <span>
-                      <i style={{ background: 'var(--success)', opacity: 0.75 }} />
-                      {t('console.overview.legend.pass')}
-                    </span>
-                    <span>
-                      <i style={{ background: 'var(--warning)' }} />
-                      {t('console.overview.legend.degraded')}
-                    </span>
-                    <span>
-                      <i style={{ background: 'var(--destructive)' }} />
-                      {t('console.overview.legend.blocked')}
-                    </span>
-                  </div>
-                  <div className="bars">
-                    {OUTCOME_BUCKETS.map(([pass, degraded, blocked], index) => (
-                      <div
-                        key={index}
-                        className="col"
-                        title={`${pass} pass · ${degraded} degraded · ${blocked} blocked/failed`}
-                      >
-                        {(
-                          [
-                            [pass, 'b-pass'],
-                            [degraded, 'b-deg'],
-                            [blocked, 'b-blk'],
-                          ] as const
-                        ).map(
-                          ([value, cls]) =>
-                            value > 0 && (
-                              <span
-                                key={cls}
-                                className={cls}
-                                style={{ height: `${Math.max(2, (value / bucketMax) * 100)}%` }}
-                              />
-                            ),
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="axis">
-                    <span>00:00</span>
-                    <span>06:00</span>
-                    <span>12:00</span>
-                    <span>18:00</span>
-                    <span>now</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>{t('console.overview.recentRuns')}</h2>
-                  <a
-                    className="more"
-                    href="/v2/observe/runs"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/observe/runs')
-                    }}
-                  >
-                    {t('console.overview.viewAll')}
-                  </a>
-                </div>
+              {recentRuns.length === 0 ? (
+                <DataStateNote isPending={runsQuery.isPending} isError={runsQuery.isError} />
+              ) : (
                 <table>
                   <thead>
                     <tr>
@@ -271,7 +334,7 @@ export default function ConsoleOverview() {
                     </tr>
                   </thead>
                   <tbody>
-                    {MOCK_RECENT_RUNS.map((run) => (
+                    {recentRuns.map((run) => (
                       <tr
                         key={run.id}
                         className="rowlink"
@@ -281,140 +344,122 @@ export default function ConsoleOverview() {
                           <span className="runid">{run.id}</span>
                         </td>
                         <td>
-                          <span className="idm" style={{ '--c': run.color } as React.CSSProperties}>
+                          <span
+                            className="idm"
+                            style={{ '--c': catColor(run.subject_id) } as React.CSSProperties}
+                          >
                             <i />
-                            {run.agent}
+                            {run.subject_id || '—'}
                           </span>
                         </td>
                         <td>
-                          <StatusChip status={run.status} label={run.label} />
+                          <StatusChip status={runStatusToConsole(run.status)} />
                         </td>
-                        <td className="num dim">{run.duration}</td>
-                        <td className="num dim">{run.cost}</td>
-                        <td className="num dimmer">{run.started}</td>
+                        <td className="num dim">{formatDuration(run.duration_ms)}</td>
+                        {/* RunResponse carries no per-run cost; see the Runs
+                            screen's cost overview for the aggregate. */}
+                        <td className="num dim">—</td>
+                        <td className="num dimmer">{clockTime(run.started_at)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              )}
+            </div>
+          </div>
+
+          <div className="stack">
+            <div className="panel">
+              <div className="panel-head">
+                <h2>{t('console.overview.governanceTitle')}</h2>
+                <a
+                  className="more"
+                  href="/v2/govern/audit"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate('/v2/govern/audit')
+                  }}
+                >
+                  {t('console.overview.auditLog')}
+                </a>
               </div>
+              {audits.length === 0 ? (
+                <div className="empty-note">
+                  {auditsQuery.isPending
+                    ? t('console.common.loading')
+                    : auditsQuery.isError
+                      ? t('console.common.loadError')
+                      : t('console.overview.governanceEmpty')}
+                  <span className="mono">{t('console.overview.governanceEmptyNote')}</span>
+                </div>
+              ) : (
+                <ul className="feed">
+                  {audits.map((entry, index) => {
+                    const tone = auditTone(entry)
+                    return (
+                      <li key={entry.audit_id || `${entry.run_id}:${index}`}>
+                        <span className={`fico ${tone.className}`}>
+                          <tone.Icon strokeWidth={2.2} />
+                        </span>
+                        <div>
+                          <p>
+                            <span className="mono">{entry.gateway_type || entry.step_type}</span>{' '}
+                            {entry.preview || entry.step_type}
+                          </p>
+                          <time>
+                            {clockTime(entry.timestamp)} · {entry.run_id}
+                          </time>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </div>
 
-            <div className="stack">
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>{t('console.overview.governanceTitle')}</h2>
-                  <a
-                    className="more"
-                    href="/v2/govern/audit"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/govern/audit')
-                    }}
-                  >
-                    {t('console.overview.auditLog')}
-                  </a>
-                </div>
-                <ul className="feed">
-                  <li>
-                    <span className="fico t-bad">
-                      <IconShieldX strokeWidth={2.2} />
-                    </span>
-                    <div>
-                      <p>
-                        <span className="mono">egress-allowlist</span> blocked tool call{' '}
-                        <span className="mono">fetch_url</span> — destination not in allowlist.
-                      </p>
-                      <time>13:42:07Z · billing-audit</time>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="fico t-warn">
-                      <IconWarnTriangle strokeWidth={2.2} />
-                    </span>
-                    <div>
-                      <p>
-                        Budget threshold 80% reached for <span className="mono">ops-copilot</span> daily
-                        cap.
-                      </p>
-                      <time>12:58:44Z · cost-guard</time>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="fico t-brand">
-                      <IconFileMark strokeWidth={2.2} />
-                    </span>
-                    <div>
-                      <p>
-                        Policy bundle <span className="mono">v2026.08.27-2</span> activated across
-                        workspace.
-                      </p>
-                      <time>09:15:02Z · Jude</time>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="fico t-info">
-                      <IconKey strokeWidth={2.2} />
-                    </span>
-                    <div>
-                      <p>
-                        Secret <span className="mono">SLACK_BOT_TOKEN</span> rotated. 3 agents re-bound
-                        by reference.
-                      </p>
-                      <time>08:03:19Z · secrets</time>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="fico t-info">
-                      <IconBot strokeWidth={2.2} />
-                    </span>
-                    <div>
-                      <p>
-                        Agent <span className="mono">release-notes</span> promoted to production
-                        channel.
-                      </p>
-                      <time>07:40:56Z · Wei</time>
-                    </div>
-                  </li>
-                </ul>
+            <div className="panel">
+              <div className="panel-head">
+                <h2>{t('console.overview.activeAgents')}</h2>
+                <a
+                  className="more"
+                  href="/v2/build/agents"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate('/v2/build/agents')
+                  }}
+                >
+                  {t('console.overview.allAgents')}
+                </a>
               </div>
-
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>{t('console.overview.activeAgents')}</h2>
-                  <a
-                    className="more"
-                    href="/v2/build/agents"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/build/agents')
-                    }}
-                  >
-                    {t('console.overview.allAgents')}
-                  </a>
-                </div>
+              {agents.length === 0 ? (
+                <DataStateNote isPending={agentsQuery.isPending} isError={agentsQuery.isError} />
+              ) : (
                 <table>
                   <tbody>
-                    {MOCK_ACTIVE_AGENTS.map((agent) => (
+                    {agents.map((agent) => (
                       <tr key={agent.id}>
                         <td>
-                          <span className="idm" style={{ '--c': agent.color } as React.CSSProperties}>
+                          <span
+                            className="idm"
+                            style={{ '--c': catColor(agent.id) } as React.CSSProperties}
+                          >
                             <i />
-                            {agent.id}
+                            {agent.name}
                           </span>
                         </td>
                         <td className="num">
-                          <Hist pattern={agent.hist} label="last 12 run outcomes" />
+                          <Hist pattern={histFor(agent.id)} label="recent run outcomes" />
                         </td>
-                        <td className="num dim">{agent.runs}</td>
+                        <td className="num dim">{compactNumber(agent.today_calls)} runs</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+      </div>
     </>
   )
 }

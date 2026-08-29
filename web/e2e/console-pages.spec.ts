@@ -102,12 +102,75 @@ const modelProviders = {
   page_size: 200,
 }
 
+const runsPage = {
+  items: [
+    { id: 'run_01J9KD84QF', trace_id: 'trace_4d19a2', attempt_no: 1, mode: 'chat', subject_kind: 'agent', subject_id: 'support-triage', status: 'succeeded', started_at: NOW, ended_at: NOW, duration_ms: 3100, created_at: NOW, updated_at: NOW, observe_summary: { step_count: 6, tool_call_count: 2, child_run_count: 0, response_event_count: 14, citation_count: 1, audit_count: 2, cost_entry_count: 3 } },
+    { id: 'run_01J9KD7Z2M', trace_id: 'trace_4d19a3', attempt_no: 1, mode: 'workflow', subject_kind: 'workflow', subject_id: 'ticket-escalation', status: 'succeeded', started_at: NOW, ended_at: NOW, duration_ms: 8900, created_at: NOW, updated_at: NOW, observe_summary: { step_count: 7, tool_call_count: 1, child_run_count: 0, response_event_count: 9, citation_count: 0, audit_count: 2, cost_entry_count: 2 } },
+    { id: 'run_01J9KD6H0T', trace_id: 'trace_4d19a4', attempt_no: 1, mode: 'task', subject_kind: 'agent', subject_id: 'billing-audit', status: 'failed', started_at: NOW, ended_at: NOW, duration_ms: 1200, created_at: NOW, updated_at: NOW, observe_summary: { step_count: 3, tool_call_count: 0, child_run_count: 0, response_event_count: 4, citation_count: 0, audit_count: 1, cost_entry_count: 1 } },
+  ],
+  next_page_token: null,
+  page_size: 200,
+}
+
+const runAudits = {
+  items: [
+    { audit_id: 'aud_77b2', run_id: 'run_01J9KD84QF', step_id: 'st_1', step_type: 'policy_gate', outcome: 'succeeded', gateway_type: 'intent-screen', preview: 'matched "infra.restart.staging"', truncated: false, timestamp: NOW },
+    { audit_id: 'aud_77b9', run_id: 'run_01J9KD6H0T', step_id: 'st_3', step_type: 'tool_call', outcome: 'blocked', gateway_type: 'egress-allowlist', preview: 'destination not in allowlist', truncated: false, timestamp: NOW },
+  ],
+  next_page_token: null,
+  page_size: 5,
+}
+
+const agentWorkbench = {
+  summary: { total_agents: 2, configured_agents: 2, running_agents: 1, today_calls: 699, avg_latency_ms: 1800, success_rate: 0.983, pending_exceptions: 1, updated_at: NOW },
+  tabs: { all: 2, high_calls: 1, low_success: 0, long_latency: 0, unconfigured: 0 },
+  items: [
+    { id: 'support-triage', name: 'support-triage', description: 'Ticket triage', status: 'running', capabilities: [{ type: 'tool', label: 'helpdesk-api' }], today_calls: 412, avg_latency_ms: 1800, success_rate: 0.983, recent_exception_count: 0, owner: 'Jude', last_run_at: NOW, action_enabled: true, updated_at: NOW },
+    { id: 'billing-audit', name: 'billing-audit', description: 'Invoice checks', status: 'abnormal', capabilities: [], today_calls: 64, avg_latency_ms: 2400, success_rate: 0.81, recent_exception_count: 3, owner: 'Ming', last_run_at: NOW, action_enabled: true, updated_at: NOW },
+  ],
+  next_page_token: null,
+  page_size: 4,
+}
+
+const observeDashboard = {
+  overview: { workspace_health_score: 92, workspace_health_status: 'healthy', active_alert_count: 1, sampling_rate: 1, sampling_status: 'full', refreshed_at: NOW },
+  metric_cards: [
+    { id: 'cost_today', label: 'Spend', value: '$41.32', delta: '−8.1%', trend: [], tone: 'green' },
+  ],
+  priority_alert: null,
+  tabs: [],
+  section: { id: 'agent_health', empty_state: null },
+  recent_runs: [],
+}
+
+const threads = {
+  items: [
+    { id: 'thread_8f2c', tenant_id: 't1', workspace_id: 'w1', agent_id: 'ops-copilot', title: 'checkout-api 502s', status: 'active', thread_type: 'chat', message_count: 4, last_message_at: NOW, knowledge_config_json: {}, tool_config_json: {}, metadata_json: {}, default_model_ref: 'claude-sonnet-5', created_at: NOW, updated_at: NOW },
+  ],
+  next_page_token: null,
+  page_size: 50,
+}
+
+const threadDetail = {
+  thread: threads.items[0],
+  messages: [
+    { id: 'm1', tenant_id: 't1', workspace_id: 'w1', thread_id: 'thread_8f2c', sequence_no: 1, role: 'user', content: 'restart the checkout-api deployment in staging', message_type: 'text', status: 'completed', content_json: {}, citations_json: [], attachments_json: [], tool_calls_json: [], metadata_json: {}, created_by: 'Jude', created_at: NOW },
+    { id: 'm2', tenant_id: 't1', workspace_id: 'w1', thread_id: 'thread_8f2c', run_id: 'run_01J9KD7Z2M', sequence_no: 2, role: 'assistant', content: 'Restarted deployment/checkout-api in ns/staging.', message_type: 'text', status: 'completed', content_json: {}, citations_json: [], attachments_json: [], tool_calls_json: [], metadata_json: {}, created_at: NOW },
+  ],
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('token', 'e2e-token')
     localStorage.setItem('soit-console-theme', 'dark')
   })
   await mockShellApi(page)
+  await json(page, '**/api/v1/runs?**', runsPage)
+  await json(page, '**/api/v1/runs/audits**', runAudits)
+  await json(page, '**/api/v1/agents/workbench**', agentWorkbench)
+  await json(page, '**/api/v1/observe/dashboard**', observeDashboard)
+  await json(page, '**/api/v1/threads?**', threads)
+  await json(page, '**/api/v1/threads/thread_8f2c', threadDetail)
   await json(page, '**/api/v1/workflows/workbench**', workflowWorkbench)
   await json(page, '**/api/v1/knowledge/workbench**', knowledgeWorkbench)
   await json(page, '**/api/v1/plugins?**', plugins)
@@ -116,25 +179,29 @@ test.beforeEach(async ({ page }) => {
   await json(page, '**/api/v1/modelhub/workbench/providers**', modelProviders)
 })
 
-test('overview renders the dashboard and toggles the empty-state demo', async ({ page }) => {
+test('overview aggregates runs into the outcome chart and recent list', async ({ page }) => {
   await page.goto('/v2', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
-  await expect(page.getByText('1,284')).toBeVisible()
-  await expect(page.getByText('96.4%')).toBeVisible()
-  // 24 one-hour buckets in the outcome chart.
+  // Three runs sampled: two settled succeeded, one failed → 66.7% pass.
+  await expect(page.getByText('66.7%')).toBeVisible()
   await expect(page.locator('.bars .col')).toHaveCount(24)
-  await expect(page.getByText('run_01J9KD84QF')).toBeVisible()
+  await expect(page.locator('.runid', { hasText: 'run_01J9KD84QF' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Demo: empty state' }).click()
-  await expect(page.getByText('Get your workspace running')).toBeVisible()
-  await expect(page.getByText('No runs yet.', { exact: false })).toBeVisible()
+  // The governance feed reads gateway audits, not a fixture list.
+  await expect(page.locator('.feed').getByText('intent-screen')).toBeVisible()
 })
 
 test('overview recent-run row opens the run detail route', async ({ page }) => {
   await page.goto('/v2', { waitUntil: 'domcontentloaded' })
-  await page.getByText('run_01J9KD6H0T').click()
+  await page.locator('.runid', { hasText: 'run_01J9KD6H0T' }).click()
   await expect(page).toHaveURL(/\/v2\/observe\/runs\/run_01J9KD6H0T/)
+})
+
+test('overview surfaces an empty governance feed rather than fixtures', async ({ page }) => {
+  await json(page, '**/api/v1/runs/audits**', { items: [], next_page_token: null, page_size: 5 })
+  await page.goto('/v2', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Quiet so far.', { exact: false })).toBeVisible()
 })
 
 test('knowledge list filters by source kind and opens the library detail', async ({ page }) => {
@@ -245,30 +312,71 @@ test('models library filters by capability', async ({ page }) => {
   await expect(page.getByText('claude-sonnet-5')).toHaveCount(0)
 })
 
-test('chat switches threads and links replies to run evidence', async ({ page }) => {
+test('chat renders the thread ledger and links replies to run evidence', async ({ page }) => {
   await page.goto('/v2/chat', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Chat' })).toBeVisible()
   await expect(page.locator('.thread.on')).toContainText('checkout-api 502s')
+  await expect(page.getByText('restart the checkout-api deployment', { exact: false })).toBeVisible()
 
-  await page.locator('.thread', { hasText: 'vault rotation runbook' }).click()
-  await expect(page.locator('.thread.on')).toContainText('vault rotation runbook')
-
-  await page.locator('.evd', { hasText: 'run_01J9KD7Z2M' }).click()
+  // The assistant turn's evidence chip carries the real run verdict.
+  const evidence = page.locator('.evd', { hasText: 'run_01J9KD7Z2M' })
+  await expect(evidence).toContainText('7 steps')
+  await evidence.click()
   await expect(page).toHaveURL(/\/v2\/observe\/runs\/run_01J9KD7Z2M/)
 })
 
+test('chat posts a turn to the responses API', async ({ page }) => {
+  let sent: Record<string, unknown> | null = null
+  await page.route('**/api/v1/responses', (route) => {
+    sent = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ id: 'resp_1', tenant_id: 't1', workspace_id: 'w1', thread_id: 'thread_8f2c', status: 'completed' }),
+    })
+  })
+
+  await page.goto('/v2/chat', { waitUntil: 'domcontentloaded' })
+  await page.locator('.composer-box input').fill('tail the error logs')
+  await page.getByRole('button', { name: 'Send' }).click()
+
+  await expect.poll(() => sent).not.toBeNull()
+  expect(sent).toMatchObject({ thread_id: 'thread_8f2c', agent_id: 'ops-copilot' })
+})
+
 test('settings redirects to account and navigates sections via the subnav', async ({ page }) => {
+  await json(page, '**/api/v1/workspaces/*/members', [
+    { user_id: 'u_1', email: 'zzpd106@gmail.com', name: 'Jude', role: 'owner', status: 'active' },
+    { user_id: 'u_2', email: 'wei@acme.io', name: 'Wei', role: 'admin', status: 'active' },
+  ])
+  await json(page, '**/api/v1/billing/credits/balance', {
+    currency: 'USD',
+    balance: '3600.00',
+    granted_total: '4212.40',
+    consumed_total: '612.40',
+    updated_at: NOW,
+  })
+  await json(page, '**/api/v1/billing/credits/entries**', {
+    items: [
+      { id: 'ce_001', tenant_id: 't1', kind: 'grant', currency: 'USD', amount: '4212.40', note: 'annual allocation', created_at: NOW },
+    ],
+    next_page_token: null,
+    page_size: 20,
+  })
+
   await page.goto('/v2/settings', { waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(/\/v2\/settings\/account/)
   await expect(page.getByText('Display name')).toBeVisible()
 
   await page.locator('.subnav .sl', { hasText: 'Team' }).click()
   await expect(page).toHaveURL(/\/v2\/settings\/team/)
-  await expect(page.getByText('audit-bot')).toBeVisible()
+  await expect(page.getByText('wei@acme.io')).toBeVisible()
 
-  await page.locator('.subnav .sl', { hasText: 'Billing & license' }).click()
-  await expect(page.getByText('INV-2026-0301')).toBeVisible()
+  // Billing reads the credit ledger, the only billing object that exists.
+  await page.locator('.subnav .sl', { hasText: 'Billing' }).click()
+  await expect(page.getByText('ce_001')).toBeVisible()
+  await expect(page.getByText('annual allocation')).toBeVisible()
 
   await page.locator('.subnav .sl', { hasText: 'About' }).click()
   await expect(page.getByText('github.com/soit-ai/soit')).toBeVisible()
