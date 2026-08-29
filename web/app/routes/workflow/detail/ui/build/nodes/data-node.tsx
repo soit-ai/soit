@@ -92,7 +92,7 @@ export const DataProperties: React.FC<DataPropertiesProps> = ({ data, onChange }
         <Label htmlFor="dataType">{t('workflow.detail.nodes.data.fields.dataTypeLabel')}</Label>
         <Select
           value={data.dataType || 'document'}
-          onValueChange={(value) => handleChange('dataType', value)}
+          onValueChange={(value) => value != null && handleChange('dataType', value)}
         >
           <SelectTrigger id="dataType">
             <SelectValue placeholder={t('workflow.detail.nodes.data.placeholders.dataType')} />
@@ -168,7 +168,7 @@ export const DataProperties: React.FC<DataPropertiesProps> = ({ data, onChange }
             <Label htmlFor="method">{t('workflow.detail.nodes.data.fields.methodLabel')}</Label>
             <Select
               value={data.method || 'GET'}
-              onValueChange={(value) => handleChange('method', value)}
+              onValueChange={(value) => value != null && handleChange('method', value)}
             >
               <SelectTrigger id="method">
                 <SelectValue placeholder={t('workflow.detail.nodes.data.placeholders.method')} />

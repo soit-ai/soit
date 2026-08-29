@@ -1,31 +1,52 @@
-import {
-  Activity,
-  Blocks,
-  LayoutDashboard,
-  ListChecks,
-  MessageSquareDot,
-  MessagesSquare,
-  Settings,
-  ShieldCheck,
-} from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
 
-import logoIcon from '@/assets/logo-m.png'
+import {
+  IconBuild,
+  IconChat,
+  IconDocs,
+  IconExecute,
+  IconFeedback,
+  IconGovern,
+  IconLogo,
+  IconMoon,
+  IconObserve,
+  IconOverview,
+  IconSettings,
+  IconSun,
+} from '@/console/components/icons'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useUserStore } from '@/stores/user'
 
+import { useConsoleTheme } from './console-theme'
 import { PANEL_CONFIG, pillarForPathname, type ConsolePillar } from './panel-config'
 import { useConsoleNavigate } from './use-console-navigate'
 
+function ThemeToggleRailButton() {
+  const { t } = useTranslation()
+  const { theme, toggleTheme } = useConsoleTheme()
+
+  return (
+    <button
+      type="button"
+      title={t('console.shell.toggleTheme')}
+      aria-label={t('console.shell.toggleTheme')}
+      onClick={toggleTheme}
+      className="grid h-8 w-9 cursor-pointer place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-hover-wash hover:text-foreground"
+    >
+      {theme === 'dark' ? <IconSun /> : <IconMoon />}
+    </button>
+  )
+}
+
 const PILLAR_ICON: Record<ConsolePillar, React.ComponentType<{ className?: string }>> = {
-  overview: LayoutDashboard,
-  chat: MessagesSquare,
-  build: Blocks,
-  execute: ListChecks,
-  observe: Activity,
-  govern: ShieldCheck,
-  settings: Settings,
+  overview: IconOverview,
+  chat: IconChat,
+  build: IconBuild,
+  execute: IconExecute,
+  observe: IconObserve,
+  govern: IconGovern,
+  settings: IconSettings,
 }
 
 export function IconRail() {
@@ -52,7 +73,7 @@ export function IconRail() {
         className="mb-2 grid size-[34px] place-items-center rounded-lg border border-border bg-panel transition-shadow hover:ring-[3px] hover:ring-ring"
         aria-label="SOIT"
       >
-        <img src={logoIcon} alt="SOIT" className="size-6" />
+        <IconLogo size={24} />
       </NavLink>
 
       {pillars.map((entry) => {
@@ -77,12 +98,22 @@ export function IconRail() {
                 : 'hover:bg-hover-wash hover:text-foreground',
             )}
           >
-            <Icon className="size-[18px]" />
+            <Icon />
           </button>
         )
       })}
 
       <span className="flex-1" />
+
+      <button
+        type="button"
+        title={t('console.shell.feedback')}
+        aria-label={t('console.shell.feedback')}
+        onClick={() => navigate('/feedback')}
+        className="grid h-8 w-9 cursor-pointer place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-hover-wash hover:text-foreground"
+      >
+        <IconFeedback />
+      </button>
 
       <a
         href="https://github.com/soit-ai/soit"
@@ -91,8 +122,10 @@ export function IconRail() {
         title={t('console.shell.docs')}
         className="grid h-8 w-9 place-items-center rounded-[9px] text-muted-foreground transition-colors hover:bg-hover-wash hover:text-foreground"
       >
-        <MessageSquareDot className="size-4" />
+        <IconDocs />
       </a>
+
+      <ThemeToggleRailButton />
 
       {settingsPillar && (
         <button
@@ -108,7 +141,7 @@ export function IconRail() {
               : 'hover:bg-hover-wash hover:text-foreground',
           )}
         >
-          <Settings className="size-[18px]" />
+          <IconSettings />
         </button>
       )}
 

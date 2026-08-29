@@ -116,7 +116,7 @@ export const QuestionClassifierProperties: React.FC<QuestionClassifierProperties
         <Label htmlFor="classifierType">{t('workflow.detail.nodes.questionClassifier.fields.classifierTypeLabel')}</Label>
         <Select
           value={data.classifierType || 'llm'}
-          onValueChange={(value) => handleChange('classifierType', value)}
+          onValueChange={(value) => value != null && handleChange('classifierType', value)}
         >
           <SelectTrigger id="classifierType">
             <SelectValue placeholder={t('workflow.detail.nodes.questionClassifier.placeholders.classifierType')} />
@@ -134,7 +134,7 @@ export const QuestionClassifierProperties: React.FC<QuestionClassifierProperties
         <Label htmlFor="model">{t('workflow.detail.nodes.common.modelLabel')}</Label>
         <Select
           value={data.model || 'gpt-3.5-turbo'}
-          onValueChange={(value) => handleChange('model', value)}
+          onValueChange={(value) => value != null && handleChange('model', value)}
         >
           <SelectTrigger id="model">
             <SelectValue placeholder={t('workflow.detail.nodes.common.modelPlaceholder')} />

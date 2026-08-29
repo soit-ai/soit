@@ -481,9 +481,7 @@ export function ModelForm({ model, onSave, onCancel, onChange, title }: ModelFor
 
       <DrawerFooter className="border-t">
         <div className="flex justify-between gap-4">
-          <DrawerClose asChild>
-            <Button variant="outline" onClick={onCancel}>{t('common.operation.cancel')}</Button>
-          </DrawerClose>
+          <DrawerClose render={<Button variant="outline" onClick={onCancel}>{t('common.operation.cancel')}</Button>} />
           <Button onClick={(event) => {
             event.preventDefault()
             onSave(event)

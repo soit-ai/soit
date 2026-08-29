@@ -1,5 +1,6 @@
-import { Bell, Moon, PanelLeftOpen, Sun } from 'lucide-react'
 import { useLocation } from 'react-router'
+
+import { IconBell, IconChevronRight, IconMoon, IconSun } from '@/console/components/icons'
 
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -28,7 +29,7 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
           title={t('console.shell.expandPanel')}
           className="grid size-[26px] cursor-pointer place-items-center rounded-[7px] border border-border bg-panel text-muted-foreground hover:border-border-strong hover:text-foreground"
         >
-          <PanelLeftOpen className="size-3.5" />
+          <IconChevronRight />
         </button>
       )}
 
@@ -54,7 +55,7 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
           title={t('console.shell.toggleTheme')}
           className="grid size-[30px] cursor-pointer place-items-center rounded-[7px] text-muted-foreground hover:bg-hover-wash hover:text-foreground"
         >
-          {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {theme === 'dark' ? <IconSun /> : <IconMoon />}
         </button>
 
         <button
@@ -65,7 +66,7 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
             'hover:bg-hover-wash hover:text-foreground',
           )}
         >
-          <Bell className="size-4" />
+          <IconBell />
         </button>
       </span>
     </header>

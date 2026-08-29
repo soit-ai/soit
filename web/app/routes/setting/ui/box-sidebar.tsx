@@ -37,7 +37,7 @@ import { useNavigate } from '@/hooks/use-navigate'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -371,14 +371,14 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <Badge variant="outline">Community</Badge>
             </div>
             <div className="flex justify-between mt-2 pt-2 border-t text-xs">
-                <Button variant="ghost" size="sm" className="h-7 gap-1" nativeButton={false} render={<a href="https://docs.soit.ai" target="_blank" rel="noreferrer" />}>
+                <a href="https://docs.soit.ai" target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-7 gap-1')}>
                   <BookOpen className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.docs')}</span>
-                </Button>
-                <Button variant="ghost" size="sm" className="h-7 gap-1" nativeButton={false} render={<a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" />}>
+                </a>
+                <a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-7 gap-1')}>
                   <Github className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.github')}</span>
-                </Button>
+                </a>
               </div>
           </div>
         </div>

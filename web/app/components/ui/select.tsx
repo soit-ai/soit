@@ -6,9 +6,50 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-// Bare re-export: Root.Props is generic (<Value, Multiple>), so a wrapper
-// function would erase the generics. Root renders no DOM of its own.
-const Select = SelectPrimitive.Root
+function collectItemLabels(
+  children: React.ReactNode,
+  map: Map<unknown, React.ReactNode>
+) {
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return
+    const props = child.props as {
+      value?: unknown
+      children?: React.ReactNode
+    }
+    if (child.type === SelectItem && props.value != null) {
+      if (!map.has(props.value)) map.set(props.value, props.children)
+      return
+    }
+    if (props.children) collectItemLabels(props.children, map)
+  })
+}
+
+/**
+ * Base UI resolves the trigger label from the Root `items` prop (without it,
+ * the raw value string is shown until the popup mounts). To keep the
+ * radix-era DX where `<SelectItem>` children double as the selected label,
+ * the wrapper derives `items` from the element tree when not provided.
+ */
+function Select<Value, Multiple extends boolean | undefined = false>({
+  items,
+  children,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  const derivedItems = React.useMemo(() => {
+    if (items) return items
+    const map = new Map<unknown, React.ReactNode>()
+    collectItemLabels(children, map)
+    return map.size
+      ? Array.from(map, ([value, label]) => ({ value, label }))
+      : undefined
+  }, [items, children])
+
+  return (
+    <SelectPrimitive.Root data-slot="select" items={derivedItems} {...props}>
+      {children}
+    </SelectPrimitive.Root>
+  )
+}
 
 function SelectGroup({ ...props }: SelectPrimitive.Group.Props) {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />
@@ -64,12 +105,14 @@ function SelectContent({
         align={align}
         alignOffset={alignOffset}
         alignItemWithTrigger={alignItemWithTrigger}
+        className="isolate z-50"
       >
         <SelectPrimitive.Popup
           data-slot="select-content"
+          data-align-trigger={alignItemWithTrigger}
           className={cn(
-            "bg-popover text-popover-foreground isolate relative z-50 max-h-(--available-height) min-w-[8rem] origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md outline-none",
-            "transition-[opacity,transform] duration-150 data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0",
+            "bg-popover text-popover-foreground relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-[8rem] origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md outline-none",
+            "duration-100 data-[align-trigger=true]:animate-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
             className
           )}
           {...props}

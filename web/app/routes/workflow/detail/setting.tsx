@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useTranslation } from '@/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { getWorkflow, updateWorkflow, deleteWorkflow } from '@/services/workflow-service'
 import { useNavigate } from '@/hooks/use-navigate'
+import { cn } from '@/lib/utils'
 import {
   createResourceGrant,
   getCurrentUser,
@@ -504,9 +505,9 @@ function Page() {
           <CardDescription>{t('workflow.detail.setting.execution.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button variant="outline" nativeButton={false} render={<Link to={`/workflow/${workflowId}/build`} />}>
+          <Link to={`/workflow/${workflowId}/build`} className={cn(buttonVariants({ variant: 'outline' }))}>
             {t('workflow.detail.setting.execution.builderLink')}
-          </Button>
+          </Link>
         </CardContent>
       </Card>
 

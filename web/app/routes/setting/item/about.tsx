@@ -1,6 +1,7 @@
 import { ExternalLink, Info } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Link } from '@/components/ui/link'
 
@@ -19,13 +20,13 @@ function Page() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
-          <Button variant="outline" nativeButton={false} render={<a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" />}>
+          <a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'outline' }))}>
             Source <ExternalLink className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" nativeButton={false} render={<a href="https://docs.soit.ai" target="_blank" rel="noreferrer" />}>
+          </a>
+          <a href="https://docs.soit.ai" target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'outline' }))}>
             Documentation <ExternalLink className="h-4 w-4" />
-          </Button>
-          <Button nativeButton={false} render={<Link to="/feedback" />}>Send feedback</Button>
+          </a>
+          <Link to="/feedback" className={cn(buttonVariants())}>Send feedback</Link>
         </CardContent>
       </Card>
     </div>

@@ -156,7 +156,7 @@ export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) 
         <Label htmlFor="modelRef">{t('workflow.detail.nodes.llm.fields.modelLabel')}</Label>
         <Select
           value={modelRef}
-          onValueChange={(value) => handleChange('modelRef', value)}
+          onValueChange={(value) => value != null && handleChange('modelRef', value)}
           disabled={modelSelectDisabled}
         >
           <SelectTrigger id="modelRef" aria-describedby="modelRef-status">

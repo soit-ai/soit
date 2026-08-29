@@ -246,7 +246,7 @@ function SelectModel({
       </div>
       <PopoverContent
         className={cn('p-0 w-full', contentClassName)}
-        style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '240px' }}
+        style={{ width: 'var(--anchor-width)', minWidth: '240px' }}
       >
         <Command className={cn('p-0 w-full')}>
           {showSearch && (

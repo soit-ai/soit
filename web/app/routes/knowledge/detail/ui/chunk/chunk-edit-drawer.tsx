@@ -103,9 +103,7 @@ export function ChunkEditDrawer({
         </div>
         <DrawerFooter className="border-t p-6 gap-4">
           <div className="flex gap-3 justify-end">
-            <DrawerClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DrawerClose>
+            <DrawerClose render={<Button variant="outline">Cancel</Button>} />
             <Button
               variant="destructive"
               onClick={onDelete}

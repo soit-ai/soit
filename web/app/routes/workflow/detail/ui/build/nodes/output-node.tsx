@@ -87,7 +87,7 @@ export const OutputProperties: React.FC<OutputPropertiesProps> = ({ data, onChan
         <Label htmlFor="format">{t('workflow.detail.nodes.output.fields.formatLabel')}</Label>
         <Select
           value={data.format || 'text'}
-          onValueChange={(value) => handleChange('format', value)}
+          onValueChange={(value) => value != null && handleChange('format', value)}
         >
           <SelectTrigger id="format">
             <SelectValue placeholder={t('workflow.detail.nodes.output.placeholders.format')} />
@@ -106,7 +106,7 @@ export const OutputProperties: React.FC<OutputPropertiesProps> = ({ data, onChan
         <Label htmlFor="destination">{t('workflow.detail.nodes.output.fields.destinationLabel')}</Label>
         <Select
           value={data.destination || 'ui'}
-          onValueChange={(value) => handleChange('destination', value)}
+          onValueChange={(value) => value != null && handleChange('destination', value)}
         >
           <SelectTrigger id="destination">
             <SelectValue placeholder={t('workflow.detail.nodes.output.placeholders.destination')} />

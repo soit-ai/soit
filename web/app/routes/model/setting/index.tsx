@@ -940,9 +940,7 @@ export function SettingSheet(props: SettingSheetProps) {
 
       <DrawerFooter className="border-t flex-col gap-4">
         <div className="flex w-full justify-between gap-4">
-          <DrawerClose asChild className="flex-1">
-            <Button variant="outline">{t('common.operation.cancel')}</Button>
-          </DrawerClose>
+          <DrawerClose className="flex-1" render={<Button variant="outline">{t('common.operation.cancel')}</Button>} />
           <Button className="flex-1" onClick={handleSave}>
             {t('model.providerSettings.actions.saveChanges')}
           </Button>

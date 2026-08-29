@@ -147,7 +147,6 @@ export const DrawerProvider: React.FC<DrawerProviderProps> = ({ children, handle
         <Drawer 
           key={drawer.id}
           open={true} 
-          handleOnly={handleOnly}
           onOpenChange={(value) => handleOpenChange(value, drawer.id)} 
           direction={drawer.options.direction || 'right'}
         >

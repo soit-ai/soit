@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Link } from "@/components/ui/link"
 
 export function ForgotPasswordForm({
@@ -23,9 +23,9 @@ export function ForgotPasswordForm({
             Sign in
           </Link>
         </div>
-        <Button className="h-11 w-full rounded-lg" nativeButton={false} render={<Link to="/sign-in" />}>
+        <Link to="/sign-in" className={cn(buttonVariants(), 'h-11 w-full rounded-lg')}>
           Back to sign in
-        </Button>
+        </Link>
       </div>
     </div>
   )

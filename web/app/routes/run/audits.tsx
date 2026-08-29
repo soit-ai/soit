@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ArrowRight, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -86,10 +87,10 @@ function AuditExplorerPage() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
-            <Button nativeButton={false} render={<Link to="/observe/runs?include_observe_summary=true" />}>
+            <Link to="/observe/runs?include_observe_summary=true" className={cn(buttonVariants())}>
               Run Explorer
               <ArrowRight className="h-4 w-4" />
-            </Button>
+            </Link>
           </div>
         </div>
 
@@ -155,9 +156,9 @@ function AuditExplorerPage() {
                         <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{audit.preview || '-'}</TableCell>
                         <TableCell className="max-w-[260px] truncate font-mono text-xs text-muted-foreground">{previewPayload(audit.request)}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" nativeButton={false} render={<Link to={`/observe/runs/${audit.run_id}`} />}>
+                          <Link to={`/observe/runs/${audit.run_id}`} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
                             Open Run
-                          </Button>
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}

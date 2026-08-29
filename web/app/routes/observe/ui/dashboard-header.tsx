@@ -29,15 +29,10 @@ export function DashboardHeader({
           <RefreshCw className="h-4 w-4" />
           {t('observe.header.refresh')}
         </Button>
-        <Button
-          variant="outline"
-          className="h-10 rounded-lg bg-panel/90"
-          nativeButton={false}
-          render={<Link to="/observe/audits" aria-label={t('observe.header.openAuditExplorer')} />}
-        >
+        <Link to="/observe/audits" aria-label={t('observe.header.openAuditExplorer')} className={cn(buttonVariants({ variant: 'outline' }), 'h-10 rounded-lg bg-panel/90')}>
           Audit Explorer
           <ShieldCheck className="h-4 w-4" />
-        </Button>
+        </Link>
         <Link
           to={runExplorerUrl}
           aria-label={t('observe.header.openRunExplorer')}

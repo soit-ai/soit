@@ -302,7 +302,7 @@ test('observe dashboard keeps tab state in the URL', async ({ page }) => {
   await page.goto('/observe?tab=tool_reliability&range=1h&bucket=10m', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Observability Workbench' })).toBeVisible({ timeout: pageReadyTimeout })
-  await expect(page.getByRole('tab', { name: 'Tool Reliability' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('tab', { name: 'Tool Reliability' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('row').filter({ hasText: 'search_tool' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Knowledge Quality' }).click()

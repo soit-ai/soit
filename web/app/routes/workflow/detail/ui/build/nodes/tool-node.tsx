@@ -187,7 +187,7 @@ export const ToolProperties: React.FC<ToolPropertiesProps> = ({ data, onChange }
         <Label htmlFor="toolRef">{t('workflow.detail.nodes.tool.fields.toolLabel')}</Label>
         <Select
           value={toolRef}
-          onValueChange={(value) => handleChange('toolRef', value)}
+          onValueChange={(value) => value != null && handleChange('toolRef', value)}
           disabled={toolSelectDisabled}
         >
           <SelectTrigger id="toolRef" aria-describedby="toolRef-status">

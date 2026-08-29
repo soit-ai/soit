@@ -170,6 +170,26 @@ describe('console v2 design system', () => {
     }
   })
 
+  it('draws shell chrome with the prototype icon set, not a generic library', () => {
+    const icons = read('app/console/components/icons.tsx')
+
+    // Traced from the v13 prototype; stroke-based 24x24, currentColor.
+    expect(icons).toContain('viewBox="0 0 24 24"')
+    expect(icons).toContain('IconLogo')
+    expect(icons).toContain('var(--brand-blue-600)')
+    expect(icons).toContain('var(--brand-teal-500)')
+
+    for (const file of ['app/console/shell/icon-rail.tsx', 'app/console/shell/topbar.tsx']) {
+      const content = read(file)
+      expect(content, `${file} should use the prototype icon set`).toContain(
+        "@/console/components/icons"
+      )
+      expect(content, `${file} should not pull shell chrome icons from lucide`).not.toContain(
+        'lucide-react'
+      )
+    }
+  })
+
   it('builds the workbench template on the shared Box suite', () => {
     const index = read('app/console/components/index.ts')
 

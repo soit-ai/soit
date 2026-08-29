@@ -181,7 +181,7 @@ export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps>
         <Label htmlFor="knowledgeRef">{t('workflow.detail.nodes.knowledgeSearch.fields.dataSourceLabel')}</Label>
         <Select
           value={knowledgeRef}
-          onValueChange={(value) => handleChange('knowledgeRef', value)}
+          onValueChange={(value) => value != null && handleChange('knowledgeRef', value)}
           disabled={knowledgeSelectDisabled}
         >
           <SelectTrigger id="knowledgeRef" aria-describedby="knowledgeRef-status">
@@ -275,7 +275,7 @@ export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps>
                   />
                   <Select
                     value={filter.operator}
-                    onValueChange={(value) => updateFilter(index, 'operator', value)}
+                    onValueChange={(value) => value != null && updateFilter(index, 'operator', value)}
                   >
                     <SelectTrigger className="h-8 w-28">
                       <SelectValue placeholder={t('workflow.detail.nodes.knowledgeSearch.placeholders.filterOperator')} />

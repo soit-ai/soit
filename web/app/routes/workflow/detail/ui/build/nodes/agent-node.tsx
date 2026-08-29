@@ -116,7 +116,7 @@ export const AgentProperties: React.FC<AgentPropertiesProps> = ({ data, onChange
         <Label htmlFor="agentType">{t('workflow.customNodes.agent.form.agentType')}</Label>
         <Select
           value={data.agentType || 'react'}
-          onValueChange={(value) => handleChange('agentType', value)}
+          onValueChange={(value) => value != null && handleChange('agentType', value)}
         >
           <SelectTrigger id="agentType">
             <SelectValue placeholder={t('workflow.customNodes.agent.form.agentTypePlaceholder')} />
@@ -135,7 +135,7 @@ export const AgentProperties: React.FC<AgentPropertiesProps> = ({ data, onChange
         <Label htmlFor="model">{t('workflow.customNodes.agent.form.model')}</Label>
         <Select
           value={data.model || 'gpt-4'}
-          onValueChange={(value) => handleChange('model', value)}
+          onValueChange={(value) => value != null && handleChange('model', value)}
         >
           <SelectTrigger id="model">
             <SelectValue placeholder={t('workflow.customNodes.agent.form.modelPlaceholder')} />
