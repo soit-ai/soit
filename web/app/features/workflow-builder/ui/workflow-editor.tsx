@@ -47,6 +47,16 @@ interface WorkflowEditorProps {
 }
 
 // Defines the layout for nodes and edges.
+/**
+ * The toolbar is a top-center overlay and the console gives this canvas far
+ * less height than the standalone page did, so the default fit padding can
+ * leave a node underneath the toolbar where it cannot be clicked at all. Top
+ * padding reserves room for it; the rest keeps the graph off the edges.
+ */
+const FIT_VIEW_OPTIONS = {
+  padding: { top: '96px', right: '10%', bottom: '10%', left: '10%' },
+} as const
+
 const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => {
   const dagreGraph = new dagre.graphlib.Graph()
   dagreGraph.setDefaultEdgeLabel(() => ({}))
@@ -144,7 +154,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
     }
 
     const handleResetView = () => {
-      fitView({ padding: 0.2 })
+      fitView(FIT_VIEW_OPTIONS)
     }
 
     const handleLayoutChange = useCallback(
@@ -164,7 +174,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
         }
 
         window.requestAnimationFrame(() => {
-          fitView({ padding: 0.2 })
+          fitView(FIT_VIEW_OPTIONS)
         })
       },
       [reactFlowInstance, setDirection, onNodesSet, onEdgesSet, fitView]
@@ -195,6 +205,7 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
             onDragOver={onDragOver}
             onInit={handleInit}
             fitView
+            fitViewOptions={FIT_VIEW_OPTIONS}
             nodeTypes={nodeTypes}
             proOptions={{ hideAttribution: true }}
             nodesDraggable={!interactionDisabled}

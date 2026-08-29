@@ -904,7 +904,7 @@ test('Test Run saves the exact draft, previews it, and opens the evidence Run', 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const testRun = page.getByRole('button', { name: 'Test Run' })
   await testRun.click()
 
@@ -938,12 +938,12 @@ test('Test Run stops after a draft save failure and does not claim execution suc
     await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Test Run' }).click()
 
   await expect.poll(() => saveRequests).toBe(1)
   await expect.poll(() => previewRequests).toBe(0)
-  await expect(page).toHaveURL(/\/workflow\/workflow-1\/build$/)
+  await expect(page).toHaveURL(/\/build\/workflows\/workflow-1$/)
   await expect(page.getByText('Failed to save workflow version.')).toBeVisible()
   await expect(page.getByText('Workflow is running...')).toHaveCount(0)
 })
@@ -996,17 +996,17 @@ test('Test Run suppresses a stale preview failure after the route changes', asyn
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Test Run' }).click()
   await expect.poll(() => previewRequests).toBe(1)
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
 
   releasePreview()
   await expect.poll(() => previewResponses).toBe(1)
   await page.waitForTimeout(300)
   await expect(page.getByText('Failed to start workflow test run.')).toHaveCount(0)
-  await expect(page).toHaveURL(/\/workflow\/workflow-b\/build$/)
+  await expect(page).toHaveURL(/\/build\/workflows\/workflow-b$/)
 })
 
 test('Test Run does not navigate after a pending preview succeeds on an unmounted Builder', async ({ page }) => {
@@ -1058,16 +1058,16 @@ test('Test Run does not navigate after a pending preview succeeds on an unmounte
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Test Run' }).click()
   await expect.poll(() => previewRequests).toBe(1)
-  await navigateClientRoute(page, '/workflow/workflow-1/setting')
-  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await navigateClientRoute(page, '/build/workflows')
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
 
   releasePreview()
   await expect.poll(() => previewResponses).toBe(1)
   await page.waitForTimeout(200)
-  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+  await expect(page).toHaveURL(/\/build\/workflows$/)
 })
 
 test('Test Run suppresses a pending preview failure after Builder unmount', async ({ page }) => {
@@ -1114,16 +1114,16 @@ test('Test Run suppresses a pending preview failure after Builder unmount', asyn
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Test Run' }).click()
   await expect.poll(() => previewRequests).toBe(1)
-  await navigateClientRoute(page, '/workflow/workflow-1/setting')
-  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await navigateClientRoute(page, '/build/workflows')
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
 
   releasePreview()
   await expect.poll(() => previewResponses).toBe(1)
   await page.waitForTimeout(200)
-  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+  await expect(page).toHaveURL(/\/build\/workflows$/)
   expect(await page.getByText('stale preview failure', { exact: true }).count()).toBe(0)
   expect(await page.getByText('Failed to start workflow test run.', { exact: true }).count()).toBe(0)
 })
@@ -1176,18 +1176,18 @@ test('Test Run stops after a pending version save when Builder unmounts', async 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Test Run' }).click()
   await expect.poll(() => saveRequests).toBe(1)
-  await navigateClientRoute(page, '/workflow/workflow-1/setting')
-  await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+  await navigateClientRoute(page, '/build/workflows')
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
 
   releaseSave()
   await expect.poll(() => saveResponses).toBe(1)
   await page.waitForTimeout(300)
   expect(metadataRequests).toBe(0)
   expect(previewRequests).toBe(0)
-  await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+  await expect(page).toHaveURL(/\/build\/workflows$/)
   expect(await page.getByText('Workflow saved successfully', { exact: true }).count()).toBe(0)
   expect(await page.getByText('Failed to start workflow test run.', { exact: true }).count()).toBe(0)
 })
@@ -1213,7 +1213,7 @@ test('Builder operation lock prevents duplicate saves and editing while a save i
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await selectWorkflowNode(page, 'interaction-condition')
   const condition = page.locator('#conditional-expression')
   const originalCondition = await condition.inputValue()
@@ -1277,7 +1277,7 @@ test('Builder blocks mutations while its workflow and current version are loadin
     await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const workflowName = page.getByPlaceholder('Workflow name')
   const save = page.getByRole('button', { name: 'Save Workflow' })
   const testRun = page.getByRole('button', { name: 'Test Run' })
@@ -1315,7 +1315,7 @@ test('Builder remains fail closed when workflow loading fails', async ({ page })
     await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Failed to load workflow builder state.')).toBeVisible()
   const workflowName = page.getByPlaceholder('Workflow name')
   const save = page.getByRole('button', { name: 'Save Workflow' })
@@ -1342,7 +1342,7 @@ test('Builder treats a current-version 503 as a load failure', async ({ page }) 
     await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Failed to load workflow builder state.')).toBeVisible()
   const save = page.getByRole('button', { name: 'Save Workflow' })
   const testRun = page.getByRole('button', { name: 'Test Run' })
@@ -1363,79 +1363,13 @@ test('Builder treats a missing current version as an editable new draft', async 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Demo Workflow')
   await expect(page.getByPlaceholder('Workflow name')).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Test Run' })).toBeEnabled()
   await expect(page.locator('.react-flow__node[data-id="transform-1"]')).toBeVisible()
   expect(await page.getByText('version not found').count()).toBe(0)
-})
-
-test('Builder toolbar stays inside the central canvas at the default viewport', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 720 })
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
-
-  const leftPanel = page.getByPlaceholder('Workflow name').locator('xpath=ancestor::div[contains(@class, "w-80")]')
-  const rightPanel = page.getByText('Select a node to edit its properties').locator('xpath=ancestor::div[contains(@class, "w-100")]')
-  await expect(leftPanel).toBeVisible()
-  await expect(rightPanel).toBeVisible()
-  const leftPanelBox = await leftPanel.boundingBox()
-  const rightPanelBox = await rightPanel.boundingBox()
-  const toolbar = page.getByRole('toolbar', { name: 'Workflow editor controls' })
-  await expect(toolbar).toBeVisible()
-  const toolbarBox = await toolbar.boundingBox()
-
-  expect(leftPanelBox).not.toBeNull()
-  expect(rightPanelBox).not.toBeNull()
-  expect(toolbarBox).not.toBeNull()
-  expect(toolbarBox!.x).toBeGreaterThanOrEqual(leftPanelBox!.x + leftPanelBox!.width)
-  expect(toolbarBox!.x + toolbarBox!.width).toBeLessThanOrEqual(rightPanelBox!.x)
-
-  const toolbarButtons = toolbar.getByRole('button')
-  await expect(toolbarButtons).toHaveCount(9)
-  for (let index = 0; index < 9; index += 1) {
-    await expect(toolbarButtons.nth(index)).toHaveAccessibleName(/.+/)
-  }
-
-  const initialScroll = await toolbar.evaluate((element) => ({
-    clientWidth: element.clientWidth,
-    scrollWidth: element.scrollWidth,
-  }))
-  expect(initialScroll.scrollWidth).toBeGreaterThan(initialScroll.clientWidth)
-  const scrollLeft = await toolbar.evaluate((element) => {
-    element.scrollLeft = element.scrollWidth
-    return element.scrollLeft
-  })
-  expect(scrollLeft).toBeGreaterThan(0)
-
-  const importButton = toolbar.getByRole('button', { name: 'Import Workflow' })
-  const layoutButton = toolbar.getByRole('button', { name: /Switch to (?:horizontal|tree) layout/ })
-  const initialLayoutLabel = await layoutButton.getAttribute('aria-label')
-  const scrolledToolbarBox = await toolbar.boundingBox()
-  const importBox = await importButton.boundingBox()
-  const layoutBox = await layoutButton.boundingBox()
-  for (const buttonBox of [importBox, layoutBox]) {
-    expect(buttonBox).not.toBeNull()
-    expect(buttonBox!.x).toBeGreaterThanOrEqual(scrolledToolbarBox!.x)
-    expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(
-      scrolledToolbarBox!.x + scrolledToolbarBox!.width,
-    )
-  }
-
-  await importButton.focus()
-  await expect(importButton).toBeFocused()
-  const fileChooserPromise = page.waitForEvent('filechooser')
-  await importButton.click()
-  await fileChooserPromise
-
-  await layoutButton.focus()
-  await expect(layoutButton).toBeFocused()
-  await layoutButton.click()
-  const expectedLayoutLabel = initialLayoutLabel === 'Switch to horizontal layout'
-    ? 'Switch to tree layout'
-    : 'Switch to horizontal layout'
-  await expect(layoutButton).toHaveAccessibleName(expectedLayoutLabel)
 })
 
 test('Builder ignores stale workflow and version responses after a client-side route change', async ({ page }) => {
@@ -1503,10 +1437,10 @@ test('Builder ignores stale workflow and version responses after a client-side r
     await route.fallback()
   })
 
-  await page.goto('/workflow/workflow-a/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-a', { waitUntil: 'domcontentloaded' })
   await expect.poll(() => workflowARequests).toBeGreaterThan(0)
   await expect.poll(() => versionARequests).toBeGreaterThan(0)
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
   const workflowName = page.getByPlaceholder('Workflow name')
   await expect(workflowName).toHaveValue('Builder B')
   await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeEnabled()
@@ -1517,7 +1451,7 @@ test('Builder ignores stale workflow and version responses after a client-side r
   await expect.poll(() => versionAResponses).toBe(versionARequests)
   await page.waitForTimeout(300)
   await expect(workflowName).toHaveValue('Builder B')
-  await expect(page).toHaveURL(/\/workflow\/workflow-b\/build$/)
+  await expect(page).toHaveURL(/\/build\/workflows\/workflow-b$/)
 })
 
 test('Builder rejects an old import confirmation after the workflow ID changes', async ({ page }) => {
@@ -1554,7 +1488,7 @@ test('Builder rejects an old import confirmation after the workflow ID changes',
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Demo Workflow')
   await importWorkflowFile(page, {
     format: 'soit-workflow-spec-v1',
@@ -1565,7 +1499,7 @@ test('Builder rejects an old import confirmation after the workflow ID changes',
   const staleConfirm = await staleDialog.getByRole('button', { name: 'Import' }).elementHandle()
   expect(staleConfirm).not.toBeNull()
 
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
   const workflowName = page.getByPlaceholder('Workflow name')
   await expect(workflowName).toHaveValue('Builder B')
   await expect(page.locator('.react-flow__node[data-id="interaction-input"]')).toBeVisible()
@@ -1617,11 +1551,11 @@ test('Builder ignores a stale import file selection after the workflow ID change
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const fileChooserPromise = page.waitForEvent('filechooser')
   await page.getByRole('button', { name: 'Import Workflow' }).click()
   const fileChooser = await fileChooserPromise
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
   await fileChooser.setFiles({
     name: 'stale-selection.json',
@@ -1677,7 +1611,7 @@ test('Builder suppresses stale import load and parse results after the workflow 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await importWorkflowFile(page, {
     format: 'soit-workflow-spec-v1',
     graph_json: canonicalWorkflowVersion.graph_json,
@@ -1685,7 +1619,7 @@ test('Builder suppresses stale import load and parse results after the workflow 
   await importWorkflowFile(page, { format: 'invalid' }, 'pending-invalid-import.json')
   await expect.poll(() => page.evaluate(() => (window as any).__workflowImportPendingReads)).toBe(2)
 
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
   await page.evaluate(() => (window as any).__releaseWorkflowImportReads())
   await expect.poll(() => page.evaluate(() => (window as any).__workflowImportCompletedReads)).toBe(2)
@@ -1696,80 +1630,6 @@ test('Builder suppresses stale import load and parse results after the workflow 
   await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
 })
 
-test('workflow sidebar ignores every late Workflow A response after navigating to Workflow B', async ({ page }) => {
-  let releaseWorkflowA!: () => void
-  const workflowAGate = new Promise<void>((resolve) => { releaseWorkflowA = resolve })
-  let workflowARequests = 0
-  let workflowAResponses = 0
-  const workflowA = {
-    ...mockWorkflow,
-    id: 'workflow-a',
-    name: 'Workflow A Sidebar Title',
-    description: 'Workflow A sidebar description',
-  }
-  const workflowB = {
-    ...mockWorkflow,
-    id: 'workflow-b',
-    name: 'Workflow B Sidebar Title',
-    description: 'Workflow B sidebar description',
-  }
-  const versionA = structuredClone(editorInteractionWorkflowVersion)
-  versionA.workflow_id = 'workflow-a'
-  versionA.graph_json.name = 'Builder A'
-  const versionB = structuredClone(editorInteractionWorkflowVersion)
-  versionB.workflow_id = 'workflow-b'
-  versionB.graph_json.name = 'Builder B'
-
-  const handleWorkflowRequest = async (route: Parameters<Parameters<typeof page.route>[1]>[0]) => {
-    const url = new URL(route.request().url())
-    const isWorkflowA = url.pathname.includes('/workflows/workflow-a')
-    if (isWorkflowA) {
-      workflowARequests += 1
-      await workflowAGate
-      workflowAResponses += 1
-    }
-    const isVersion = url.pathname.endsWith('/version/current')
-    const data = isWorkflowA
-      ? (isVersion ? versionA : workflowA)
-      : (isVersion ? versionB : workflowB)
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data }),
-    })
-  }
-  await page.route('**/api/v1/workflows/workflow-*/version/current', handleWorkflowRequest)
-  await page.route('**/api/v1/workflows/workflow-*', handleWorkflowRequest)
-
-  await page.goto('/workflow/workflow-a/build', { waitUntil: 'domcontentloaded' })
-  await expect.poll(() => workflowARequests).toBeGreaterThanOrEqual(3)
-  await navigateClientRoute(page, '/workflow/workflow-b/build')
-  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
-  const workflowSidebarHeader = page.locator('[data-sidebar="header"]').filter({
-    has: page.getByText('Status', { exact: true }),
-  })
-  await expect(workflowSidebarHeader).toHaveCount(1)
-  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
-  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
-
-  const pendingWorkflowAResponses = workflowARequests
-  releaseWorkflowA()
-  await expect.poll(() => workflowAResponses).toBe(pendingWorkflowAResponses)
-  await page.waitForTimeout(200)
-
-  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
-  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
-  expect(await workflowSidebarHeader.getByText('Workflow A Sidebar Title', { exact: true }).count()).toBe(0)
-  expect(await workflowSidebarHeader.getByText('Workflow A sidebar description', { exact: true }).count()).toBe(0)
-})
-
-test('workflow workbench renders api data', async ({ page }) => {
-  await page.goto('/workflow', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Demo Workflow', { exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText('Runtime-backed workflow row')).toBeVisible()
-  await expect(page.getByRole('table').getByText('1.5s')).toBeVisible()
-})
-
 test('workflow builder creates ticket triage template from templates tab', async ({ page }) => {
   let templateRequests = 0
   page.on('request', (request) => {
@@ -1778,12 +1638,12 @@ test('workflow builder creates ticket triage template from templates tab', async
     }
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('tab', { name: 'Templates' }).click()
   await page.getByRole('button', { name: /Ticket triage/ }).click()
 
   await expect.poll(() => templateRequests).toBe(1)
-  await expect(page).toHaveURL(/\/workflow\/workflow-ticket-template\/build$/)
+  await expect(page).toHaveURL(/\/build\/workflows\/workflow-ticket-template$/)
 })
 
 for (const templateOutcome of [
@@ -1820,17 +1680,17 @@ for (const templateOutcome of [
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await page.getByRole('tab', { name: 'Templates' }).click()
     await page.getByRole('button', { name: /Ticket triage/ }).click()
     await expect.poll(() => templateRequests).toBe(1)
 
-    await navigateClientRoute(page, '/workflow/workflow-1/setting')
-    await expect(page.locator('#workflow-name')).toHaveValue('Demo Workflow')
+    await navigateClientRoute(page, '/build/workflows')
+    await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
     releaseTemplate()
     await expect.poll(() => templateResponses).toBe(1)
     await page.waitForTimeout(200)
-    await expect(page).toHaveURL(/\/workflow\/workflow-1\/setting$/)
+    await expect(page).toHaveURL(/\/build\/workflows$/)
     expect(await page.getByText('Ticket triage workflow created', { exact: true }).count()).toBe(0)
     expect(await page.getByText('Failed to create ticket triage workflow', { exact: true }).count()).toBe(0)
     if (templateOutcome.status !== 201) {
@@ -1873,7 +1733,7 @@ test('workflow playground sends real HTTP and SSE requests without fake adapters
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Call config' }).click()
 
   await expect(page.getByRole('heading', { name: 'Workflow playground' })).toBeVisible()
@@ -1896,7 +1756,7 @@ test('workflow playground sends real HTTP and SSE requests without fake adapters
 })
 
 test('workflow palette shows only canonical supported nodes', async ({ page }) => {
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
 
   const palette = page.getByRole('tabpanel', { name: 'Nodes' })
   await expect(palette.getByRole('button')).toHaveCount(8)
@@ -1929,7 +1789,7 @@ test('workflow palette localizes loading, error, and empty capability states', a
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('status')).toHaveText('Loading supported workflow nodes...')
   releaseLoading()
   await expect(page.getByText('Input', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
@@ -1994,7 +1854,7 @@ test('unsupported historical node is read only and preserves its runtime type', 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Unsupported historical node', { exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('loop', { exact: true })).toBeVisible()
   await expect(page.getByText('This node is read only and cannot be republished.')).toBeVisible()
@@ -2103,7 +1963,7 @@ test('compatibility workflow exports its original persisted DSL without republis
     if (request.method() !== 'GET' && request.url().includes('/api/v1/workflows/workflow-1')) mutationRequests += 1
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Unsupported historical node', { exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Test Run' })).toBeDisabled()
@@ -2123,7 +1983,7 @@ test('loaded legacy condition branches attach to canonical visual handles', asyn
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const conditionNode = page.locator('.react-flow__node[data-id="legacy-condition"]')
   await expect(conditionNode).toBeVisible({ timeout: 15_000 })
   await expect(conditionNode.locator('.react-flow__handle.source[data-handleid="true"]')).toHaveCount(1)
@@ -2154,7 +2014,7 @@ test('properties label edit is preserved in the workflow save request', async ({
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.locator('.react-flow__node[data-id="llm"]').click()
   await page.locator('#node-name').fill('Renamed Canonical LLM')
   await page.getByRole('button', { name: 'Save Workflow' }).click()
@@ -2210,7 +2070,7 @@ test('scoped workflow resources load accessible inventory options and save only 
         }]) }),
     })
   })
-  await page.route('**/api/v1/knowledge**', async (route) => {
+  await page.route(/\/api\/v1\/knowledge(\?|$)/, async (route) => {
     requestedInventories.push(new URL(route.request().url()).pathname)
     expect(route.request().headers()['x-workspace-id']).toBe('workspace-1')
     await route.fulfill({
@@ -2246,7 +2106,7 @@ test('scoped workflow resources load accessible inventory options and save only 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
 
   await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
   await expect(page.locator('#modelRef')).toContainText('Unavailable: model:legacy:missing')
@@ -2338,7 +2198,7 @@ test('scoped workflow resources preserve broad ModelHub references and save them
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
   await page.locator('#modelRef').click()
   await page.getByRole('option', { name: 'OpenRouter Llama' }).click()
@@ -2390,14 +2250,16 @@ test('scoped workflow resources refetch after a workspace route transition inste
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
   await page.locator('#modelRef').click()
   await expect(page.getByRole('option', { name: 'Workspace A Model' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button').filter({ has: page.locator('svg.lucide-workflow') }).first().click()
-  await expect(page).toHaveURL(/\/workflow$/)
+  // Leaving the builder is what matters here, not the chrome that does it; the
+  // console's nav is its own, so navigate to the list directly.
+  await navigateClientRoute(page, '/build/workflows')
+  await expect(page).toHaveURL(/\/build\/workflows$/)
   await page.evaluate(() => localStorage.setItem('workspace_id', 'workspace-b'))
   await page.goBack({ waitUntil: 'domcontentloaded' })
   await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
@@ -2429,7 +2291,7 @@ test('scoped workflow resources keep restored references visible and fail closed
       }]) }),
     })
   })
-  await page.route('**/api/v1/knowledge**', async (route) => {
+  await page.route(/\/api\/v1\/knowledge(\?|$)/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -2453,7 +2315,7 @@ test('scoped workflow resources keep restored references visible and fail closed
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
 
   for (const resource of [
     { nodeId: 'scoped-llm', trigger: '#modelRef', ref: 'model:legacy:missing', error: 'Unable to load models.' },
@@ -2487,7 +2349,7 @@ test('scoped workflow resources localize loading, empty, and disabled inventory 
       body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([]) }),
     })
   })
-  await page.route('**/api/v1/knowledge**', async (route) => {
+  await page.route(/\/api\/v1\/knowledge(\?|$)/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -2504,7 +2366,7 @@ test('scoped workflow resources localize loading, empty, and disabled inventory 
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
 
   await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
   await expect(page.getByText('Loading models...', { exact: true })).toBeVisible()
@@ -2545,7 +2407,7 @@ test('property editors retain sequential input and save the latest combined valu
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
 
   await page.locator('.react-flow__node[data-id="interaction-input"]').click()
   const inputSelect = page.locator('#input-select')
@@ -2603,7 +2465,7 @@ test('invalid JSON drafts block save and test run until exact JSON values are re
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const save = page.getByRole('button', { name: 'Save Workflow' })
   const testRun = page.getByRole('button', { name: 'Test Run' })
 
@@ -2674,7 +2536,7 @@ test('workflow export import save round-trip preserves the canonical persisted c
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const exportedData = await downloadWorkflowFile(page)
   expect(exportedData).not.toHaveProperty('nodes')
   expect(exportedData.graph_json.graph.nodes.find((node: Record<string, unknown>) => node.id === 'llm').ui).toEqual(exportedLlm.ui)
@@ -2704,7 +2566,7 @@ test('hostile and canceled imports leave the complete editor state untouched', a
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   const workflowName = page.getByPlaceholder('Workflow name')
   const workflowDescription = page.getByPlaceholder('Workflow description')
   await workflowName.fill('Unsaved local name')
@@ -2794,7 +2656,7 @@ for (const malformedStructure of [
         body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: canonicalWorkflowVersion }),
       })
     })
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     const workflowName = page.getByPlaceholder('Workflow name')
     await workflowName.fill('Keep local workflow name')
     await page.locator('.react-flow__node[data-id="llm"]').click()
@@ -2849,7 +2711,7 @@ test('compatibility import stays read only and remains losslessly exportable', a
     if (request.method() !== 'GET' && request.url().includes('/api/v1/workflows/workflow-1')) mutationRequests += 1
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await importWorkflowFile(page, { format: 'soit-workflow-spec-v1', graph_json: graphJson }, 'compatibility.json')
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('Import workflow', { exact: true })).toBeVisible()
@@ -2890,7 +2752,7 @@ test('workflow palette blocks capability mismatch and excludes unknown entries f
     })
   })
 
-  await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Workflow capability contract mismatch. Adding nodes is disabled.')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('unknown-ui-node', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeEnabled()
@@ -3423,7 +3285,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Canonical Condition', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await page.getByRole('button').filter({ has: page.locator('svg.lucide-save') }).click()
     await expect.poll(() => versionPayload).not.toBeNull()
@@ -3503,7 +3365,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Unsupported historical node', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText('python', { exact: true })).toBeVisible()
 
@@ -3559,7 +3421,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Arbitrary Condition', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Test Run' })).toBeDisabled()
@@ -3607,7 +3469,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Canonical Contract Workflow', { timeout: 15_000 })
     await page.getByRole('button').filter({ has: page.locator('svg.lucide-save') }).click()
     await expect.poll(() => versionPayload).not.toBeNull()
@@ -3649,7 +3511,7 @@ test.describe('canonical node types', () => {
       await route.fallback()
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Canonical Condition', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await page.getByRole('button').filter({ has: page.locator('svg.lucide-save') }).click()
 
@@ -3690,7 +3552,7 @@ test.describe('canonical node types', () => {
       await route.fallback()
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Canonical Condition', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await page.getByRole('button').filter({ has: page.locator('svg.lucide-save') }).click()
 
@@ -3719,7 +3581,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Canonical Input', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
 
     const restored = parseWorkflowVersion(malformedObjectEdgeWorkflowVersion)
@@ -3758,7 +3620,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Unsupported historical node', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText('llm', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save Workflow' })).toBeDisabled()
@@ -3787,7 +3649,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Unsupported historical node', { exact: true })).toHaveCount(
       malformedCanonicalWorkflowVersion.graph_json.graph.nodes.length,
     )
@@ -3836,7 +3698,7 @@ test.describe('canonical node types', () => {
       })
     })
 
-    await page.goto('/workflow/workflow-1/build', { waitUntil: 'domcontentloaded' })
+    await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('External Input', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
 
     const restored = parseWorkflowVersion(externalCanonicalNullUiWorkflowVersion)

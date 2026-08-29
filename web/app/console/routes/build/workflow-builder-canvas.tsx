@@ -82,10 +82,22 @@ export default function WorkflowBuilderCanvas({ workflowId }: WorkflowBuilderCan
     handleNodeValidityChange,
     importDialogOpen,
     DialogComponent,
+    hasCompatibilityNodes,
+    hasUnsupportedEdges,
   } = useWorkflowBuilder({ workflowId, navigation })
 
   return (
     <>
+      {/* The hook blocks saving on incompatible nodes or edges. Without this
+          banner the console blocked the save and said nothing, which the
+          standalone page never did — the user saw a failure with no cause. */}
+      {(hasCompatibilityNodes || hasUnsupportedEdges) && (
+        <div role="alert" className="warnbar" style={{ marginBottom: 8 }}>
+          {hasCompatibilityNodes
+            ? t('workflow.detail.build.compatibilityMessage')
+            : t('workflow.detail.build.unsupportedEdgeMessage')}
+        </div>
+      )}
       <div className="wfshell wfshell-live">
         <div className="panel palette">
           <div className="pcap">{t('console.wfDetail.nodesCap')}</div>

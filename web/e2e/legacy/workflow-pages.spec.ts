@@ -1682,3 +1682,141 @@ test('permissions suppress a pending revoke result after leaving its workflow', 
   expect(await page.getByText('Failed to revoke grant', { exact: true }).count()).toBe(0)
 })
 
+test('workflow workbench renders api data', async ({ page }) => {
+  await page.goto('/workflow', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Demo Workflow', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('Runtime-backed workflow row')).toBeVisible()
+  await expect(page.getByRole('table').getByText('1.5s')).toBeVisible()
+})
+
+test('Builder toolbar stays inside the central canvas at the default viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
+
+  const leftPanel = page.getByPlaceholder('Workflow name').locator('xpath=ancestor::div[contains(@class, "w-80")]')
+  const rightPanel = page.getByText('Select a node to edit its properties').locator('xpath=ancestor::div[contains(@class, "w-100")]')
+  await expect(leftPanel).toBeVisible()
+  await expect(rightPanel).toBeVisible()
+  const leftPanelBox = await leftPanel.boundingBox()
+  const rightPanelBox = await rightPanel.boundingBox()
+  const toolbar = page.getByRole('toolbar', { name: 'Workflow editor controls' })
+  await expect(toolbar).toBeVisible()
+  const toolbarBox = await toolbar.boundingBox()
+
+  expect(leftPanelBox).not.toBeNull()
+  expect(rightPanelBox).not.toBeNull()
+  expect(toolbarBox).not.toBeNull()
+  expect(toolbarBox!.x).toBeGreaterThanOrEqual(leftPanelBox!.x + leftPanelBox!.width)
+  expect(toolbarBox!.x + toolbarBox!.width).toBeLessThanOrEqual(rightPanelBox!.x)
+
+  const toolbarButtons = toolbar.getByRole('button')
+  await expect(toolbarButtons).toHaveCount(9)
+  for (let index = 0; index < 9; index += 1) {
+    await expect(toolbarButtons.nth(index)).toHaveAccessibleName(/.+/)
+  }
+
+  const initialScroll = await toolbar.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(initialScroll.scrollWidth).toBeGreaterThan(initialScroll.clientWidth)
+  const scrollLeft = await toolbar.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth
+    return element.scrollLeft
+  })
+  expect(scrollLeft).toBeGreaterThan(0)
+
+  const importButton = toolbar.getByRole('button', { name: 'Import Workflow' })
+  const layoutButton = toolbar.getByRole('button', { name: /Switch to (?:horizontal|tree) layout/ })
+  const initialLayoutLabel = await layoutButton.getAttribute('aria-label')
+  const scrolledToolbarBox = await toolbar.boundingBox()
+  const importBox = await importButton.boundingBox()
+  const layoutBox = await layoutButton.boundingBox()
+  for (const buttonBox of [importBox, layoutBox]) {
+    expect(buttonBox).not.toBeNull()
+    expect(buttonBox!.x).toBeGreaterThanOrEqual(scrolledToolbarBox!.x)
+    expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(
+      scrolledToolbarBox!.x + scrolledToolbarBox!.width,
+    )
+  }
+
+  await importButton.focus()
+  await expect(importButton).toBeFocused()
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await importButton.click()
+  await fileChooserPromise
+
+  await layoutButton.focus()
+  await expect(layoutButton).toBeFocused()
+  await layoutButton.click()
+  const expectedLayoutLabel = initialLayoutLabel === 'Switch to horizontal layout'
+    ? 'Switch to tree layout'
+    : 'Switch to horizontal layout'
+  await expect(layoutButton).toHaveAccessibleName(expectedLayoutLabel)
+})
+test('workflow sidebar ignores every late Workflow A response after navigating to Workflow B', async ({ page }) => {
+  let releaseWorkflowA!: () => void
+  const workflowAGate = new Promise<void>((resolve) => { releaseWorkflowA = resolve })
+  let workflowARequests = 0
+  let workflowAResponses = 0
+  const workflowA = {
+    ...mockWorkflow,
+    id: 'workflow-a',
+    name: 'Workflow A Sidebar Title',
+    description: 'Workflow A sidebar description',
+  }
+  const workflowB = {
+    ...mockWorkflow,
+    id: 'workflow-b',
+    name: 'Workflow B Sidebar Title',
+    description: 'Workflow B sidebar description',
+  }
+  const versionA = structuredClone(editorInteractionWorkflowVersion)
+  versionA.workflow_id = 'workflow-a'
+  versionA.graph_json.name = 'Builder A'
+  const versionB = structuredClone(editorInteractionWorkflowVersion)
+  versionB.workflow_id = 'workflow-b'
+  versionB.graph_json.name = 'Builder B'
+
+  const handleWorkflowRequest = async (route: Parameters<Parameters<typeof page.route>[1]>[0]) => {
+    const url = new URL(route.request().url())
+    const isWorkflowA = url.pathname.includes('/workflows/workflow-a')
+    if (isWorkflowA) {
+      workflowARequests += 1
+      await workflowAGate
+      workflowAResponses += 1
+    }
+    const isVersion = url.pathname.endsWith('/version/current')
+    const data = isWorkflowA
+      ? (isVersion ? versionA : workflowA)
+      : (isVersion ? versionB : workflowB)
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data }),
+    })
+  }
+  await page.route('**/api/v1/workflows/workflow-*/version/current', handleWorkflowRequest)
+  await page.route('**/api/v1/workflows/workflow-*', handleWorkflowRequest)
+
+  await page.goto('/build/workflows/workflow-a', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => workflowARequests).toBeGreaterThanOrEqual(3)
+  await navigateClientRoute(page, '/build/workflows/workflow-b')
+  await expect(page.getByPlaceholder('Workflow name')).toHaveValue('Builder B')
+  const workflowSidebarHeader = page.locator('[data-sidebar="header"]').filter({
+    has: page.getByText('Status', { exact: true }),
+  })
+  await expect(workflowSidebarHeader).toHaveCount(1)
+  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
+  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
+
+  const pendingWorkflowAResponses = workflowARequests
+  releaseWorkflowA()
+  await expect.poll(() => workflowAResponses).toBe(pendingWorkflowAResponses)
+  await page.waitForTimeout(200)
+
+  await expect(workflowSidebarHeader.getByText('Workflow B Sidebar Title', { exact: true })).toBeVisible()
+  await expect(workflowSidebarHeader.getByText('Workflow B sidebar description', { exact: true })).toBeVisible()
+  expect(await workflowSidebarHeader.getByText('Workflow A Sidebar Title', { exact: true }).count()).toBe(0)
+  expect(await workflowSidebarHeader.getByText('Workflow A sidebar description', { exact: true }).count()).toBe(0)
+})
