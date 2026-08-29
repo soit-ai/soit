@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   ConsoleToggle,
   DataStateNote,
@@ -28,9 +31,24 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
 import { mockAgentMarket, mockAgentReview } from '../../mocks/build-agents'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
-import { getAgentWorkbench, type AgentWorkbenchRow } from '@/services/agent-service'
+import type { TranslationKey } from '@/i18n/types'
+import {
+  createAgent,
+  getAgentWorkbench,
+  type AgentWorkbenchRow,
+} from '@/services/agent-service'
+import { requestErrorMessage } from '@/utils/request'
+
+/** The four values `AgentCreate.visibility` accepts server-side. */
+const VISIBILITY_LABELS = {
+  private: 'console.agents.visibility.private',
+  workspace: 'console.agents.visibility.workspace',
+  tenant: 'console.agents.visibility.tenant',
+  public: 'console.agents.visibility.public',
+} as const satisfies Record<string, TranslationKey>
+type Visibility = keyof typeof VISIBILITY_LABELS
 
 type AgentsTab = 'workbench' | 'library' | 'market' | 'review' | 'exceptions' | 'recycle'
 type CardFilter = 'all' | 'enabled' | 'paused'
@@ -47,10 +65,38 @@ export default function ConsoleAgents() {
   const [search, setSearch] = useState('')
   const [pausedOverride, setPausedOverride] = useState<Record<string, boolean>>({})
 
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState<{ name: string; description: string; visibility: Visibility }>({
+    name: '',
+    description: '',
+    visibility: 'private',
+  })
+
   const workbenchQuery = useQuery({
     queryKey: ['console', 'agents', 'workbench'],
     queryFn: () => getAgentWorkbench({ page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const createMutation = useMutation({
+    mutationKey: ['console', 'agents', 'create'],
+    mutationFn: () =>
+      createAgent({
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+        visibility: form.visibility,
+      }),
+    onSuccess: (agent) => {
+      setCreating(false)
+      setForm({ name: '', description: '', visibility: 'private' })
+      // The new agent lands on the workbench, so the list behind the modal has
+      // to be re-read even though we navigate away from it.
+      void workbenchQuery.refetch()
+      navigate(`/v2/build/agents/${agent.id}`)
+    },
+    onError: (error: unknown) => {
+      toast.error(requestErrorMessage(error, 'Failed to create the agent'))
+    },
   })
 
   const summary = workbenchQuery.data?.summary
@@ -84,7 +130,13 @@ export default function ConsoleAgents() {
             <IconExport />
             {t('console.agents.import')}
           </ConsoleButton>
-          <ConsoleButton variant="primary" onClick={() => navigate('/v2/build/agents/new')}>
+          <ConsoleButton
+            variant="primary"
+            onClick={() => {
+              setForm({ name: '', description: '', visibility: 'private' })
+              setCreating(true)
+            }}
+          >
             <IconPlus />
             {t('console.agents.newAgent')}
           </ConsoleButton>
@@ -427,6 +479,61 @@ export default function ConsoleAgents() {
           </div>
         </WorkbenchPanel>
       )}
+
+      {/* Only name, description and visibility exist on `AgentCreate`; the
+          spec (model, prompt, grants) is a version, authored on the detail
+          page once the agent record exists. */}
+      <ConsoleModal
+        open={creating}
+        onOpenChange={setCreating}
+        title={t('console.agents.createTitle')}
+        note={t('console.agents.createNote')}
+        confirmLabel={t('console.common.create')}
+        confirmDisabled={!form.name.trim()}
+        busy={createMutation.isPending}
+        onConfirm={() => createMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.agents.fields.name')}
+            <small>{t('console.agents.fields.nameHint')}</small>
+          </label>
+          <input
+            className="input"
+            value={form.name}
+            onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.agents.fields.description')}</label>
+          <input
+            className="input"
+            value={form.description}
+            onChange={(event) =>
+              setForm((state) => ({ ...state, description: event.target.value }))
+            }
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.agents.fields.visibility')}
+            <small>{t('console.agents.fields.visibilityHint')}</small>
+          </label>
+          <select
+            className="input"
+            value={form.visibility}
+            onChange={(event) =>
+              setForm((state) => ({ ...state, visibility: event.target.value as Visibility }))
+            }
+          >
+            {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((value) => (
+              <option key={value} value={value}>
+                {t(VISIBILITY_LABELS[value])}
+              </option>
+            ))}
+          </select>
+        </div>
+      </ConsoleModal>
     </Workbench>
   )
 }

@@ -328,12 +328,19 @@ export const createKnowledgeBase = (
   return post<KnowledgeBase>('/knowledge', data, config)
 }
 
-export const updateKnowledgeBase = (knowledgeId: string, data: KnowledgeUpdateRequest): Promise<KnowledgeBase> => {
-  return put<KnowledgeBase>(`/knowledge/${knowledgeId}`, data)
+export const updateKnowledgeBase = (
+  knowledgeId: string,
+  data: KnowledgeUpdateRequest,
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeBase> => {
+  return put<KnowledgeBase>(`/knowledge/${knowledgeId}`, data, config)
 }
 
-export const deleteKnowledgeBase = (knowledgeId: string): Promise<void> => {
-  return del(`/knowledge/${knowledgeId}`).then(() => undefined)
+export const deleteKnowledgeBase = (
+  knowledgeId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/knowledge/${knowledgeId}`, undefined, config).then(() => undefined)
 }
 
 export const listKnowledgeDocuments = (
@@ -388,8 +395,12 @@ export const deleteKnowledgeIndex = (knowledgeId: string, indexId: string): Prom
   return del(`/knowledge/${knowledgeId}/indexes/${indexId}`).then(() => undefined)
 }
 
-export const rebuildKnowledgeIndex = (knowledgeId: string, indexId: string): Promise<KnowledgeIndex> => {
-  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}/rebuild`)
+export const rebuildKnowledgeIndex = (
+  knowledgeId: string,
+  indexId: string,
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeIndex> => {
+  return post<KnowledgeIndex>(`/knowledge/${knowledgeId}/indexes/${indexId}/rebuild`, undefined, config)
 }
 
 export const uploadKnowledgeDocument = async (
@@ -448,8 +459,14 @@ export const rollbackKnowledgeDocumentVersion = (
   return post<KnowledgeDocument>(`/knowledge/${knowledgeId}/documents/${docKey}/versions/${version}/rollback`)
 }
 
-export const deleteKnowledgeDocument = (knowledgeId: string, documentId: string): Promise<void> => {
-  return del(`/knowledge/${knowledgeId}/documents/${documentId}`).then(() => undefined)
+export const deleteKnowledgeDocument = (
+  knowledgeId: string,
+  documentId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/knowledge/${knowledgeId}/documents/${documentId}`, undefined, config).then(
+    () => undefined,
+  )
 }
 
 export const listKnowledgeChunks = (
@@ -464,9 +481,14 @@ export const updateKnowledgeChunk = (
   knowledgeId: string,
   documentId: string,
   chunkId: string,
-  data: KnowledgeChunkUpdateRequest
+  data: KnowledgeChunkUpdateRequest,
+  config?: RequestConfigWithToast,
 ): Promise<KnowledgeChunk> => {
-  return patch<KnowledgeChunk>(`/knowledge/${knowledgeId}/documents/${documentId}/chunks/${chunkId}`, data)
+  return patch<KnowledgeChunk>(
+    `/knowledge/${knowledgeId}/documents/${documentId}/chunks/${chunkId}`,
+    data,
+    config,
+  )
 }
 
 export const listKnowledgeIngestTasks = (
@@ -480,12 +502,28 @@ export const getKnowledgeIngestTask = (knowledgeId: string, taskId: string): Pro
   return get<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}`)
 }
 
-export const retryKnowledgeIngestTask = (knowledgeId: string, taskId: string): Promise<KnowledgeIngestTask> => {
-  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/retry`)
+export const retryKnowledgeIngestTask = (
+  knowledgeId: string,
+  taskId: string,
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeIngestTask> => {
+  return post<KnowledgeIngestTask>(
+    `/knowledge/${knowledgeId}/ingest-tasks/${taskId}/retry`,
+    undefined,
+    config,
+  )
 }
 
-export const cancelKnowledgeIngestTask = (knowledgeId: string, taskId: string): Promise<KnowledgeIngestTask> => {
-  return post<KnowledgeIngestTask>(`/knowledge/${knowledgeId}/ingest-tasks/${taskId}/cancel`)
+export const cancelKnowledgeIngestTask = (
+  knowledgeId: string,
+  taskId: string,
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeIngestTask> => {
+  return post<KnowledgeIngestTask>(
+    `/knowledge/${knowledgeId}/ingest-tasks/${taskId}/cancel`,
+    undefined,
+    config,
+  )
 }
 
 export const retryKnowledgeDocumentIngest = (

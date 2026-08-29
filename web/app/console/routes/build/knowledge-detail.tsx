@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   Backlink,
   ConsoleButton,
+  ConsoleModal,
   DataStateNote,
   FilterChip,
   IconReplay,
@@ -23,6 +25,8 @@ import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  deleteKnowledgeBase,
+  deleteKnowledgeDocument,
   getKnowledgeBase,
   getKnowledgeRunCostSummary,
   listKnowledgeChunks,
@@ -30,9 +34,17 @@ import {
   listKnowledgeIndexes,
   listKnowledgeUsages,
   queryKnowledge,
+  rebuildKnowledgeIndex,
+  retryKnowledgeDocumentIngest,
+  updateKnowledgeBase,
+  updateKnowledgeChunk,
+  uploadKnowledgeDocument,
+  type KnowledgeChunk,
+  type KnowledgeChunkUpdateRequest,
   type KnowledgeDocument,
   type KnowledgeQueryResponse,
 } from '@/services/knowledge-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'analytics' | 'settings'
 
@@ -97,6 +109,25 @@ function documentLabel(doc: KnowledgeDocument): string {
   return doc.source_uri || doc.title || doc.filename || doc.doc_key
 }
 
+/**
+ * The threshold box carries the prototype's `score ≥ 0.42` phrasing, so the
+ * saved value is the first number in whatever the operator typed; an empty or
+ * number-free box clears `retrieval_json.keyword_min_score`.
+ */
+function parseThreshold(value: string): number | null {
+  const match = value.match(/-?\d+(?:\.\d+)?/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const CHUNK_STATUS_OPTIONS: KnowledgeChunkUpdateRequest['index_status'][] = [
+  'pending',
+  'indexed',
+  'failed',
+  'disabled',
+]
+
 export default function ConsoleKnowledgeDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
@@ -106,6 +137,14 @@ export default function ConsoleKnowledgeDetail() {
   const [docFilter, setDocFilter] = useState('')
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [testQuery, setTestQuery] = useState('')
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [deletingDoc, setDeletingDoc] = useState<KnowledgeDocument | null>(null)
+  const [retryDocId, setRetryDocId] = useState<string | null>(null)
+  const [editingChunk, setEditingChunk] = useState<KnowledgeChunk | null>(null)
+  const [chunkForm, setChunkForm] = useState({ content: '', indexStatus: '' })
+  const [settingsForm, setSettingsForm] = useState({ name: '', source: '', threshold: '' })
+  const [deleteBaseOpen, setDeleteBaseOpen] = useState(false)
 
   const knowledgeId = id || ''
   const enabled = Boolean(knowledgeId)
@@ -203,6 +242,154 @@ export default function ConsoleKnowledgeDetail() {
   })
   const activeDoc = documents.find((doc) => doc.id === activeDocId)
 
+  // Settings mirror the loaded record; a refetch after a save re-seeds them.
+  useEffect(() => {
+    if (!base) return
+    const keywordMin = readNumber(base.retrieval_json, 'keyword_min_score')
+    setSettingsForm({
+      name: base.name || '',
+      // The meta row above falls back to settings_json.source_kind for display;
+      // this field binds to source_uri alone so saving can never write the kind
+      // into the uri.
+      source: readString(base.settings_json, 'source_uri') ?? '',
+      threshold: keywordMin != null ? `score ≥ ${keywordMin}` : '',
+    })
+  }, [base])
+
+  const onWriteError = (fallback: string) => (error: unknown) => {
+    setRetryDocId(null)
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  // "Sync now" rebuilds the primary index — the same call the legacy settings
+  // page makes; there is no library-level re-sync endpoint.
+  const rebuildMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'rebuild', knowledgeId],
+    mutationFn: () => rebuildKnowledgeIndex(knowledgeId, primaryIndex!.id),
+    onSuccess: () => {
+      toast.success(t('console.knowDetail.syncQueued'))
+      void indexesQuery.refetch()
+      void baseQuery.refetch()
+    },
+    onError: onWriteError('Failed to queue the index rebuild'),
+  })
+
+  const uploadMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'upload', knowledgeId],
+    mutationFn: async () => {
+      // One document per file, uploaded in order so a mid-batch failure leaves
+      // the earlier documents ingesting rather than rolling everything back.
+      for (const file of uploadFiles) {
+        await uploadKnowledgeDocument(
+          knowledgeId,
+          {
+            doc_key: `${Date.now()}-${file.name}`,
+            source_kind: 'upload',
+            title: file.name,
+            filename: file.name,
+            mime_type: file.type,
+            size_bytes: file.size,
+          },
+          file,
+        )
+      }
+    },
+    onSuccess: () => {
+      setUploadOpen(false)
+      setUploadFiles([])
+      void documentsQuery.refetch()
+      void baseQuery.refetch()
+    },
+    onError: onWriteError('Failed to upload the documents'),
+  })
+
+  // Re-crawl and "Reprocess with OCR" are the same operation on the API: the
+  // document is queued for ingest again. There is no separate crawl endpoint
+  // and no OCR switch — the labels are prototype copy.
+  const retryDocMutation = useMutation<unknown, unknown, KnowledgeDocument>({
+    mutationKey: ['console', 'knowledge', 'retry-ingest', knowledgeId],
+    mutationFn: (doc) => retryKnowledgeDocumentIngest(knowledgeId, doc.id),
+    onMutate: (doc) => setRetryDocId(doc.id),
+    onSuccess: () => {
+      setRetryDocId(null)
+      void documentsQuery.refetch()
+    },
+    onError: onWriteError('Failed to reprocess the document'),
+  })
+
+  const deleteDocMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'delete-document', knowledgeId],
+    mutationFn: () => deleteKnowledgeDocument(knowledgeId, deletingDoc!.id),
+    onSuccess: () => {
+      setDeletingDoc(null)
+      void documentsQuery.refetch()
+      void baseQuery.refetch()
+    },
+    onError: onWriteError('Failed to delete the document'),
+  })
+
+  const chunkDirty =
+    editingChunk != null &&
+    (chunkForm.content !== (editingChunk.text_preview || '') ||
+      chunkForm.indexStatus !== editingChunk.index_status)
+
+  const chunkMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'update-chunk', knowledgeId],
+    mutationFn: () => {
+      const payload: KnowledgeChunkUpdateRequest = {}
+      // The list endpoint returns `text_preview`, not the full chunk body, so
+      // `content` is only sent when the operator actually rewrote the text —
+      // otherwise a save would truncate the chunk to its own preview.
+      if (chunkForm.content !== (editingChunk?.text_preview || '')) {
+        payload.content = chunkForm.content
+      }
+      if (chunkForm.indexStatus !== editingChunk?.index_status) {
+        payload.index_status = chunkForm.indexStatus as KnowledgeChunkUpdateRequest['index_status']
+      }
+      return updateKnowledgeChunk(knowledgeId, activeDocId, editingChunk!.id, payload)
+    },
+    onSuccess: () => {
+      setEditingChunk(null)
+      void chunksQuery.refetch()
+    },
+    onError: onWriteError('Failed to save the chunk'),
+  })
+
+  const saveSettingsMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'update', knowledgeId],
+    mutationFn: () => {
+      const settingsJson = { ...(base?.settings_json || {}) }
+      const source = settingsForm.source.trim()
+      if (source) settingsJson.source_uri = source
+      else delete settingsJson.source_uri
+
+      const retrievalJson = { ...(base?.retrieval_json || {}) }
+      const threshold = parseThreshold(settingsForm.threshold)
+      if (threshold != null) retrievalJson.keyword_min_score = threshold
+      else delete retrievalJson.keyword_min_score
+
+      return updateKnowledgeBase(knowledgeId, {
+        name: settingsForm.name.trim(),
+        settings_json: settingsJson,
+        retrieval_json: retrievalJson,
+      })
+    },
+    onSuccess: () => {
+      void baseQuery.refetch()
+    },
+    onError: onWriteError('Failed to save the library settings'),
+  })
+
+  const deleteBaseMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'delete', knowledgeId],
+    mutationFn: () => deleteKnowledgeBase(knowledgeId),
+    onSuccess: () => {
+      setDeleteBaseOpen(false)
+      navigate('/v2/build/knowledge')
+    },
+    onError: onWriteError('Failed to delete the library'),
+  })
+
   const tabItems: [KdTab, string, React.ReactNode][] = [
     ['documents', t('console.knowDetail.tabs.documents'), base ? compactNumber(base.doc_count) : null],
     ['chunks', t('console.knowDetail.tabs.chunks'), base ? compactNumber(base.chunk_count) : null],
@@ -227,11 +414,23 @@ export default function ConsoleKnowledgeDetail() {
           {base?.knowledge_type || '—'}
         </span>
         <span className="spacer" />
-        <ConsoleButton>
+        <ConsoleButton
+          disabled={!primaryIndex || rebuildMutation.isPending}
+          onClick={() => rebuildMutation.mutate(undefined)}
+        >
           <IconReplay />
           {t('console.knowDetail.syncNow')}
         </ConsoleButton>
-        <ConsoleButton variant="primary">{t('console.knowDetail.addDocs')}</ConsoleButton>
+        <ConsoleButton
+          variant="primary"
+          disabled={!enabled}
+          onClick={() => {
+            setUploadFiles([])
+            setUploadOpen(true)
+          }}
+        >
+          {t('console.knowDetail.addDocs')}
+        </ConsoleButton>
       </div>
 
       <div className="rd-meta">
@@ -337,15 +536,34 @@ export default function ConsoleKnowledgeDetail() {
                         carry token_count, and they are not joined here. */}
                     <td className="num dim">—</td>
                     <td className="num dimmer">{relativeTime(doc.updated_at)}</td>
-                    <td className="num">
+                    <td className="num" onClick={(event) => event.stopPropagation()}>
                       {doc.status !== 'failed' && (
-                        <ConsoleButton variant="ghost" size="sm">
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          disabled={retryDocId === doc.id}
+                          onClick={() => retryDocMutation.mutate(doc)}
+                        >
                           {t('console.knowDetail.recrawl')}
                         </ConsoleButton>
                       )}
                       {doc.status === 'failed' && (
-                        <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
+                        <ConsoleButton
+                          size="sm"
+                          disabled={retryDocId === doc.id}
+                          onClick={() => retryDocMutation.mutate(doc)}
+                        >
+                          {t('console.knowledge.reprocess')}
+                        </ConsoleButton>
                       )}
+                      <ConsoleButton
+                        variant="ghost"
+                        size="sm"
+                        style={{ color: 'var(--danger-foreground)' }}
+                        onClick={() => setDeletingDoc(doc)}
+                      >
+                        {t('console.knowDetail.deleteDoc')}
+                      </ConsoleButton>
                     </td>
                   </tr>
                 ))
@@ -399,7 +617,17 @@ export default function ConsoleKnowledgeDetail() {
                 </tr>
               ) : (
                 chunks.map((chunk) => (
-                  <tr key={chunk.id} className="rowlink">
+                  <tr
+                    key={chunk.id}
+                    className="rowlink"
+                    onClick={() => {
+                      setChunkForm({
+                        content: chunk.text_preview || '',
+                        indexStatus: chunk.index_status,
+                      })
+                      setEditingChunk(chunk)
+                    }}
+                  >
                     <td>
                       <span className="mono">{chunk.chunk_key || `${chunk.id}#${chunk.chunk_no}`}</span>
                     </td>
@@ -581,10 +809,28 @@ export default function ConsoleKnowledgeDetail() {
       )}
 
       {tab === 'settings' && (
-        <WorkbenchPanel title={t('console.knowDetail.settingsTitle')}>
+        <WorkbenchPanel
+          title={t('console.knowDetail.settingsTitle')}
+          actions={
+            <ConsoleButton
+              variant="primary"
+              size="sm"
+              disabled={!base || !settingsForm.name.trim() || saveSettingsMutation.isPending}
+              onClick={() => saveSettingsMutation.mutate(undefined)}
+            >
+              {t('console.common.save')}
+            </ConsoleButton>
+          }
+        >
           <div className="frow">
             <label>{t('console.knowDetail.fields.name')}</label>
-            <input key={`name-${base?.id ?? 'pending'}`} className="input" defaultValue={base?.name ?? ''} />
+            <input
+              className="input"
+              value={settingsForm.name}
+              onChange={(event) =>
+                setSettingsForm((state) => ({ ...state, name: event.target.value }))
+              }
+            />
           </div>
           <div className="frow">
             <label>
@@ -592,9 +838,11 @@ export default function ConsoleKnowledgeDetail() {
               <small>{t('console.knowDetail.fields.sourceHint')}</small>
             </label>
             <input
-              key={`source-${base?.id ?? 'pending'}`}
               className="input"
-              defaultValue={sourceUri ?? ''}
+              value={settingsForm.source}
+              onChange={(event) =>
+                setSettingsForm((state) => ({ ...state, source: event.target.value }))
+              }
               style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
             />
           </div>
@@ -631,12 +879,10 @@ export default function ConsoleKnowledgeDetail() {
           <div className="frow">
             <label>{t('console.knowDetail.fields.threshold')}</label>
             <input
-              key={`threshold-${base?.id ?? 'pending'}`}
               className="input"
-              defaultValue={
-                readNumber(retrieval, 'keyword_min_score') != null
-                  ? `score ≥ ${readNumber(retrieval, 'keyword_min_score')}`
-                  : ''
+              value={settingsForm.threshold}
+              onChange={(event) =>
+                setSettingsForm((state) => ({ ...state, threshold: event.target.value }))
               }
               style={{ maxWidth: 140 }}
             />
@@ -647,13 +893,126 @@ export default function ConsoleKnowledgeDetail() {
               <small>{t('console.knowDetail.fields.delHint')}</small>
             </label>
             <div>
-              <ConsoleButton style={{ color: 'var(--danger-foreground)' }}>
+              <ConsoleButton
+                style={{ color: 'var(--danger-foreground)' }}
+                disabled={!base}
+                onClick={() => setDeleteBaseOpen(true)}
+              >
                 {t('console.knowDetail.fields.delBtn')}
               </ConsoleButton>
             </div>
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        title={t('console.knowDetail.uploadTitle')}
+        note={t('console.knowDetail.uploadNote')}
+        confirmLabel={t('console.knowDetail.uploadConfirm')}
+        confirmDisabled={uploadFiles.length === 0}
+        busy={uploadMutation.isPending}
+        onConfirm={() => uploadMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.knowDetail.uploadFields.files')}
+            <small>{t('console.knowDetail.uploadFields.filesHint')}</small>
+          </label>
+          <input
+            className="input"
+            type="file"
+            multiple
+            onChange={(event) => setUploadFiles(Array.from(event.target.files || []))}
+          />
+        </div>
+        {uploadFiles.length > 0 && (
+          <div className="mrow">
+            <label />
+            <span className="mono dim">
+              {t('console.knowDetail.uploadFields.selected', { count: uploadFiles.length })}
+            </span>
+          </div>
+        )}
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deletingDoc != null}
+        onOpenChange={(open) => !open && setDeletingDoc(null)}
+        title={t('console.knowDetail.deleteDocTitle')}
+        confirmLabel={t('console.knowDetail.deleteDoc')}
+        destructive
+        busy={deleteDocMutation.isPending}
+        onConfirm={() => deleteDocMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.knowDetail.deleteDocConfirm', {
+            name: deletingDoc ? documentLabel(deletingDoc) : '',
+          })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={editingChunk != null}
+        onOpenChange={(open) => !open && setEditingChunk(null)}
+        title={t('console.knowDetail.chunkEditTitle')}
+        note={t('console.knowDetail.chunkEditNote')}
+        confirmLabel={t('console.common.save')}
+        confirmDisabled={!chunkDirty}
+        busy={chunkMutation.isPending}
+        onConfirm={() => chunkMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.knowDetail.chunkFields.content')}
+            <small>{t('console.knowDetail.chunkFields.contentHint')}</small>
+          </label>
+          <textarea
+            className="input"
+            value={chunkForm.content}
+            onChange={(event) =>
+              setChunkForm((state) => ({ ...state, content: event.target.value }))
+            }
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.knowDetail.chunkFields.status')}</label>
+          <select
+            className="input"
+            value={chunkForm.indexStatus}
+            onChange={(event) =>
+              setChunkForm((state) => ({ ...state, indexStatus: event.target.value }))
+            }
+          >
+            {/* A chunk can hold a status the update payload does not accept
+                (`chunking`, say); keep it selectable so opening the modal never
+                silently rewrites it. */}
+            {!CHUNK_STATUS_OPTIONS.includes(
+              chunkForm.indexStatus as KnowledgeChunkUpdateRequest['index_status'],
+            ) && <option value={chunkForm.indexStatus}>{chunkForm.indexStatus}</option>}
+            {CHUNK_STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deleteBaseOpen}
+        onOpenChange={setDeleteBaseOpen}
+        title={t('console.knowDetail.deleteTitle')}
+        confirmLabel={t('console.knowDetail.fields.delBtn')}
+        destructive
+        busy={deleteBaseMutation.isPending}
+        onConfirm={() => deleteBaseMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.knowDetail.deleteConfirm', { name })}
+        </div>
+      </ConsoleModal>
     </>
   )
 }

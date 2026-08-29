@@ -276,7 +276,9 @@ export default function ConsoleChat() {
 
         <div className="panel chatpane">
           <div className="chat-head">
-            <h2>{thread?.title || t('console.chat.title')}</h2>
+            {/* Falling back to the page title made two "Chat" headings on the
+                page while a thread loaded; the id identifies the thread. */}
+            <h2>{thread?.title || activeThreadId || '—'}</h2>
             <span className="chip">
               <i style={{ background: catColor(agentLabel) }} />
               {agentLabel}

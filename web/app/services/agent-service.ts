@@ -1,4 +1,4 @@
-import { del, get, post, put, sse, type SseEvent, API_BASE_URL } from '@/utils/request'
+import { del, get, post, put, sse, type SseEvent, API_BASE_URL, type RequestConfigWithToast } from '@/utils/request'
 import type { FetchEventSourceInit } from '@microsoft/fetch-event-source'
 import type { PaginatedResponse } from '@/types/api'
 
@@ -219,16 +219,26 @@ export const getAgentWorkbenchItems = (params?: {
   return get<AgentWorkbenchItemsResponse>('/agents/workbench/items', params)
 }
 
-export const createAgent = (data: AgentCreateRequest): Promise<Agent> => {
-  return post<Agent>('/agents', data)
+export const createAgent = (
+  data: AgentCreateRequest,
+  config?: RequestConfigWithToast,
+): Promise<Agent> => {
+  return post<Agent>('/agents', data, config)
 }
 
-export const updateAgent = (agentId: string, data: AgentUpdateRequest): Promise<Agent> => {
-  return put<Agent>(`/agents/${agentId}`, data)
+export const updateAgent = (
+  agentId: string,
+  data: AgentUpdateRequest,
+  config?: RequestConfigWithToast,
+): Promise<Agent> => {
+  return put<Agent>(`/agents/${agentId}`, data, config)
 }
 
-export const deleteAgent = (agentId: string): Promise<void> => {
-  return del(`/agents/${agentId}`)
+export const deleteAgent = (
+  agentId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/agents/${agentId}`, undefined, config)
 }
 
 export const listAgentVersions = (
@@ -243,9 +253,10 @@ export const listAgentVersions = (
 
 export const createAgentVersion = (
   agentId: string,
-  data: AgentVersionCreateRequest
+  data: AgentVersionCreateRequest,
+  config?: RequestConfigWithToast,
 ): Promise<AgentVersion> => {
-  return post<AgentVersion>(`/agents/${agentId}/versions`, data)
+  return post<AgentVersion>(`/agents/${agentId}/versions`, data, config)
 }
 
 export const listAgentReleases = (
@@ -269,9 +280,10 @@ export const listAgentBindings = (
 
 export const publishAgentVersion = (
   agentId: string,
-  data: AgentPublishRequest
+  data: AgentPublishRequest,
+  config?: RequestConfigWithToast,
 ): Promise<Agent> => {
-  return post<Agent>(`/agents/${agentId}/publish`, data)
+  return post<Agent>(`/agents/${agentId}/publish`, data, config)
 }
 
 /**

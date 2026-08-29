@@ -1,4 +1,4 @@
-import { get, post, del, uploadFile } from '@/utils/request'
+import { get, post, del, uploadFile, type RequestConfigWithToast } from '@/utils/request'
 import type { PaginatedResponse } from '@/types/api'
 
 export type { PaginatedResponse } from '@/types/api'
@@ -129,13 +129,19 @@ export const getPlugin = (pluginId: string): Promise<Plugin> => {
 
 export const installPlugin = (
   pluginId: string,
-  config_json?: Record<string, any>
+  config_json?: Record<string, any>,
+  config?: RequestConfigWithToast,
 ): Promise<PluginInstallResponse> => {
-  return post<PluginInstallResponse>(`/plugins/${pluginId}/install`, { config_json }).then(unwrapApiData)
+  return post<PluginInstallResponse>(`/plugins/${pluginId}/install`, { config_json }, config).then(
+    unwrapApiData,
+  )
 }
 
-export const uninstallPlugin = (pluginId: string): Promise<void> => {
-  return del(`/plugins/${pluginId}/install`).then(() => undefined)
+export const uninstallPlugin = (
+  pluginId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/plugins/${pluginId}/install`, undefined, config).then(() => undefined)
 }
 
 export const uploadPluginPackage = (

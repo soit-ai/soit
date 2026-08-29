@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   ConsoleToggle,
   DataStateNote,
@@ -29,11 +30,18 @@ import {
 import { catColor } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
-import { listPlugins, setPluginEnabled, type Plugin } from '@/services/plugin-service'
+import {
+  installPlugin,
+  listPlugins,
+  setPluginEnabled,
+  uninstallPlugin,
+  uploadPluginPackage,
+  type Plugin,
+} from '@/services/plugin-service'
 import { requestErrorMessage } from '@/utils/request'
 
 type PlTab = 'installed' | 'market' | 'incidents' | 'recycle'
-type PlFilter = 'all' | 'mcp' | 'tools' | 'skills' | 'disabled'
+type PlFilter = 'all' | 'mcp' | 'tools' | 'skills' | 'disabled' | 'available'
 
 const PAGE_SIZE = 100
 
@@ -47,7 +55,9 @@ const FILTER_TYPE: Record<'mcp' | 'tools' | 'skills', Plugin['plugin_type']> = {
 // BACKEND-PENDING: the marketplace is the one fixture left on this page —
 // there is no marketplace/catalogue endpoint at all (plugin-service only lists
 // the workspace registry), so browsing and installing remote packages cannot be
-// wired until that API exists.
+// wired until that API exists. Install/uninstall are wired on the Installed tab
+// instead, against the registry rows that really exist: the "Not installed"
+// chip lists registry plugins this workspace has not installed yet.
 const MOCK_MARKET = [
   { id: 's3-tools', color: 'var(--cat-cyan)', meta: 'tool pack · soit-labs · v2.1.0', description: 'Object storage read/write with per-bucket scopes and size caps.', risk: 'lo', risk_label: 'LOW', scopes: ['s3.read', 's3.write'] },
   { id: 'jira-connector', color: 'var(--cat-indigo)', meta: 'MCP server · community · v1.8.4', description: 'Issue create/update/search. Writes are idempotent and audited.', risk: 'md', risk_label: 'MEDIUM', scopes: ['jira.read', 'jira.write'] },
@@ -55,12 +65,23 @@ const MOCK_MARKET = [
   { id: 'postmortem-writer', color: 'var(--cat-cyan)', meta: 'skill · soit-labs · v2.0.3', description: 'Structured incident postmortems drafted from run evidence, timeline and citations included.', risk: 'lo', risk_label: 'LOW', scopes: ['prompt pack · no tool scopes'] },
 ]
 
+/** The upload endpoint rejects a package whose version is already registered. */
+function isSameVersionConflict(error: unknown) {
+  const data = (error as { response?: { data?: { details?: { reason?: string } } } } | null)?.response?.data
+  return data?.details?.reason === 'same_version_exists'
+}
+
 export default function ConsolePlugins() {
   const { t } = useTranslation()
   const [tab, setTab] = useState<PlTab>('installed')
   const [filter, setFilter] = useState<PlFilter>('all')
   const [search, setSearch] = useState('')
   const [enabledOverride, setEnabledOverride] = useState<Record<string, boolean>>({})
+
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [reinstallOpen, setReinstallOpen] = useState(false)
+  const [packageFile, setPackageFile] = useState<File | null>(null)
+  const [uninstalling, setUninstalling] = useState<Plugin | null>(null)
 
   const pluginsQuery = useQuery({
     queryKey: ['console', 'plugins', 'list'],
@@ -73,18 +94,71 @@ export default function ConsolePlugins() {
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setPluginEnabled(id, enabled),
   })
 
-  // The registry lists every plugin; this tab is the installed subset.
-  const installed = (pluginsQuery.data?.items || []).filter((row) => row.installed)
+  const onWriteError = (fallback: string) => (error: unknown) => {
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  const installMutation = useMutation({
+    mutationKey: ['console', 'plugins', 'install'],
+    // The registry install takes an optional config; there is no per-plugin
+    // config form in the prototype, so it installs with the plugin's defaults.
+    mutationFn: (plugin: Plugin) => installPlugin(plugin.id, {}),
+    onSuccess: () => {
+      toast.success(t('console.plugins.installedToast'))
+      void pluginsQuery.refetch()
+    },
+    onError: onWriteError('Failed to install the plugin'),
+  })
+
+  const uninstallMutation = useMutation({
+    mutationKey: ['console', 'plugins', 'uninstall'],
+    mutationFn: () => uninstallPlugin(uninstalling!.id),
+    onSuccess: () => {
+      toast.success(t('console.plugins.uninstalledToast'))
+      setUninstalling(null)
+      void pluginsQuery.refetch()
+    },
+    onError: onWriteError('Failed to uninstall the plugin'),
+  })
+
+  const uploadMutation = useMutation({
+    mutationKey: ['console', 'plugins', 'upload'],
+    mutationFn: (mode: 'auto' | 'reinstall') => uploadPluginPackage(packageFile!, mode),
+    onSuccess: () => {
+      toast.success(t('console.plugins.uploadedToast'))
+      setUploadOpen(false)
+      setReinstallOpen(false)
+      setPackageFile(null)
+      void pluginsQuery.refetch()
+    },
+    onError: (error: unknown) => {
+      // Same behaviour as the legacy package dialog: an identical version is a
+      // confirmable reinstall, not a failure.
+      if (isSameVersionConflict(error)) {
+        setUploadOpen(false)
+        setReinstallOpen(true)
+        return
+      }
+      toast.error(requestErrorMessage(error, 'Failed to upload the plugin package'))
+    },
+  })
+
+  // The registry lists every plugin; this tab is the installed subset, with the
+  // not-installed remainder reachable through its own chip so install has real
+  // rows to act on.
+  const items = pluginsQuery.data?.items || []
+  const installed = items.filter((row) => row.installed)
+  const available = items.filter((row) => !row.installed)
   const isEnabled = (row: Plugin) => enabledOverride[row.id] ?? row.enabled === true
 
   const countOfType = (kind: 'mcp' | 'tools' | 'skills') =>
     installed.filter((row) => row.plugin_type === FILTER_TYPE[kind]).length
   const disabledCount = installed.filter((row) => !isEnabled(row)).length
 
-  const rows = installed.filter((row) => {
+  const rows = (filter === 'available' ? available : installed).filter((row) => {
     if (filter === 'disabled') {
       if (isEnabled(row)) return false
-    } else if (filter !== 'all' && row.plugin_type !== FILTER_TYPE[filter]) {
+    } else if (filter !== 'all' && filter !== 'available' && row.plugin_type !== FILTER_TYPE[filter]) {
       return false
     }
     const query = search.trim().toLowerCase()
@@ -116,7 +190,12 @@ export default function ConsolePlugins() {
       description={t('console.plugins.description')}
       actions={
         <>
-          <ConsoleButton>
+          <ConsoleButton
+            onClick={() => {
+              setPackageFile(null)
+              setUploadOpen(true)
+            }}
+          >
             <IconExport />
             {t('console.plugins.upload')}
           </ConsoleButton>
@@ -185,6 +264,7 @@ export default function ConsolePlugins() {
                 ['tools', t('console.plugins.filters.tools'), countOfType('tools')],
                 ['skills', t('console.plugins.filters.skills'), countOfType('skills')],
                 ['disabled', t('console.plugins.filters.disabled'), disabledCount],
+                ['available', t('console.plugins.filters.available'), available.length],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -257,11 +337,32 @@ export default function ConsolePlugins() {
                     <TableCell className="num dim">—</TableCell>
                     <TableCell className="num dim">—</TableCell>
                     <TableCell>
-                      <ConsoleToggle
-                        on={isEnabled(row)}
-                        label={row.name}
-                        onChange={(next) => toggle(row, next)}
-                      />
+                      {row.installed ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <ConsoleToggle
+                            on={isEnabled(row)}
+                            label={row.name}
+                            onChange={(next) => toggle(row, next)}
+                          />
+                          <ConsoleButton
+                            variant="ghost"
+                            size="sm"
+                            style={{ color: 'var(--danger-foreground)' }}
+                            disabled={uninstallMutation.isPending}
+                            onClick={() => setUninstalling(row)}
+                          >
+                            {t('console.plugins.uninstall')}
+                          </ConsoleButton>
+                        </span>
+                      ) : (
+                        <ConsoleButton
+                          size="sm"
+                          disabled={installMutation.isPending}
+                          onClick={() => installMutation.mutate(row)}
+                        >
+                          {t('console.plugins.install')}
+                        </ConsoleButton>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -329,6 +430,64 @@ export default function ConsolePlugins() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open)
+          if (!open) setPackageFile(null)
+        }}
+        title={t('console.plugins.uploadTitle')}
+        note={t('console.plugins.uploadNote')}
+        confirmLabel={t('console.plugins.uploadConfirm')}
+        confirmDisabled={!packageFile}
+        busy={uploadMutation.isPending}
+        onConfirm={() => uploadMutation.mutate('auto')}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.plugins.uploadFields.package')}
+            <small>{t('console.plugins.uploadFields.packageHint')}</small>
+          </label>
+          <input
+            className="input"
+            type="file"
+            accept=".zip,application/zip"
+            aria-label={t('console.plugins.uploadFields.package')}
+            onChange={(event) => setPackageFile(event.target.files?.[0] || null)}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={reinstallOpen}
+        onOpenChange={(open) => {
+          setReinstallOpen(open)
+          if (!open) setPackageFile(null)
+        }}
+        title={t('console.plugins.reinstallTitle')}
+        confirmLabel={t('console.plugins.reinstallAction')}
+        busy={uploadMutation.isPending}
+        onConfirm={() => uploadMutation.mutate('reinstall')}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.plugins.reinstallConfirm')}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={uninstalling != null}
+        onOpenChange={(open) => !open && setUninstalling(null)}
+        title={t('console.plugins.uninstallTitle')}
+        confirmLabel={t('console.plugins.uninstall')}
+        destructive
+        busy={uninstallMutation.isPending}
+        onConfirm={() => uninstallMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.plugins.uninstallConfirm', { name: uninstalling?.name ?? '' })}
+        </div>
+      </ConsoleModal>
     </Workbench>
   )
 }

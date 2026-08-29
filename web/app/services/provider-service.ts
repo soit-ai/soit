@@ -1,4 +1,4 @@
-import { get, post, patch, del } from '@/utils/request'
+import { get, post, patch, del, type RequestConfigWithToast } from '@/utils/request'
 import type { ModelConfig } from '@/routes/model/setting/ui/types'
 import type { ProviderConfig } from '@/routes/model/setting/ui/types'
 import type { PaginatedResponse } from '@/types/api'
@@ -621,8 +621,8 @@ export async function updateProvider(id: string, data: ProviderConfig) {
   return mapProviderToConfig(response as ProviderResponse)
 }
 
-export async function deleteProvider(id: string) {
-  await del(`/modelhub/providers/${id}`)
+export async function deleteProvider(id: string, config?: RequestConfigWithToast) {
+  await del(`/modelhub/providers/${id}`, undefined, config)
 }
 
 export async function listProviderModels(providerId: string) {
@@ -657,8 +657,12 @@ export async function updateProviderModel(providerId: string, modelId: string, d
   return mapProviderModelToConfig(response as ProviderModelResponse)
 }
 
-export async function deleteProviderModel(providerId: string, modelId: string) {
-  await del(`/modelhub/providers/${providerId}/models/${modelId}`)
+export async function deleteProviderModel(
+  providerId: string,
+  modelId: string,
+  config?: RequestConfigWithToast,
+) {
+  await del(`/modelhub/providers/${providerId}/models/${modelId}`, undefined, config)
 }
 
 export async function syncFromPlatform(providerId: string, includeModelIds?: string[]) {
@@ -687,12 +691,22 @@ export async function listPlatformModels(providerKind: string) {
   return (response?.items || []).map(mapProviderModelToConfig)
 }
 
-export async function testModelConnection(providerId: string, modelId: string, input: string, type: 'chat' | 'embeddings') {
+export async function testModelConnection(
+  providerId: string,
+  modelId: string,
+  input: string,
+  type: 'chat' | 'embeddings',
+  config?: RequestConfigWithToast,
+) {
   const endpoint = type === 'chat' ? '/modelhub/test/chat' : '/modelhub/test/embeddings'
-  const response = await post(endpoint, {
-    provider_id: providerId,
-    model_id: modelId,
-    input,
-  })
+  const response = await post(
+    endpoint,
+    {
+      provider_id: providerId,
+      model_id: modelId,
+      input,
+    },
+    config,
+  )
   return response
 }

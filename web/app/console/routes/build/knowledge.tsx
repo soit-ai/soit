@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   DataStateRow,
   FilterChip,
@@ -25,14 +28,17 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
+  cancelKnowledgeIngestTask,
   getKnowledgeWorkbench,
   listKnowledgeIngestTasks,
+  retryKnowledgeIngestTask,
   type KnowledgeIngestTask,
   type KnowledgeWorkbenchRow,
 } from '@/services/knowledge-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type KnTab = 'libraries' | 'ingest' | 'exceptions' | 'recycle'
 type KindFilter = 'all' | 'web crawl' | 'upload' | 'git sync'
@@ -52,12 +58,20 @@ interface IngestEntry {
   library: KnowledgeWorkbenchRow
 }
 
+// Retry / cancel gating matches the legacy ingest-task dialog: a stopped job can
+// be retried, a live one can be cancelled, and everything else has no action.
+const RETRYABLE_TASK = new Set(['failed', 'canceled'])
+const CANCELLABLE_TASK = new Set(['queued', 'running'])
+
 export default function ConsoleKnowledge() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<KnTab>('libraries')
   const [filter, setFilter] = useState<KindFilter>('all')
   const [search, setSearch] = useState('')
+  const [cancelTarget, setCancelTarget] = useState<IngestEntry | null>(null)
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
+  const [busyLibraryId, setBusyLibraryId] = useState<string | null>(null)
 
   const workbenchQuery = useQuery({
     queryKey: ['console', 'knowledge', 'workbench'],
@@ -99,6 +113,63 @@ export default function ConsoleKnowledge() {
   const ingestTasks = ingestQuery.data || []
   const ingestPending =
     workbenchQuery.isPending || (libraryIds.length > 0 && ingestQuery.isPending)
+
+  const onWriteError = (fallback: string) => (error: unknown) => {
+    setBusyTaskId(null)
+    setBusyLibraryId(null)
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  const retryTaskMutation = useMutation<unknown, unknown, IngestEntry>({
+    mutationKey: ['console', 'knowledge', 'ingest-task-retry'],
+    mutationFn: (entry) => retryKnowledgeIngestTask(entry.library.id, entry.task.id),
+    onMutate: (entry) => setBusyTaskId(entry.task.id),
+    onSuccess: () => {
+      setBusyTaskId(null)
+      void ingestQuery.refetch()
+      void workbenchQuery.refetch()
+    },
+    onError: onWriteError('Failed to retry the ingest job'),
+  })
+
+  const cancelTaskMutation = useMutation<unknown, unknown, void>({
+    mutationKey: ['console', 'knowledge', 'ingest-task-cancel'],
+    mutationFn: () => cancelKnowledgeIngestTask(cancelTarget!.library.id, cancelTarget!.task.id),
+    onMutate: () => setBusyTaskId(cancelTarget?.task.id ?? null),
+    onSuccess: () => {
+      setBusyTaskId(null)
+      setCancelTarget(null)
+      void ingestQuery.refetch()
+      void workbenchQuery.refetch()
+    },
+    onError: onWriteError('Failed to cancel the ingest job'),
+  })
+
+  // The workbench exception row aggregates failing runs for a library but
+  // carries no failing document or task id, so "reprocess" replays that
+  // library's stopped ingest jobs — the only re-ingest handle the list page
+  // has. There is no OCR switch on the API; the label is prototype copy.
+  const retryableTasksFor = (libraryId: string) =>
+    ingestTasks.filter(
+      (entry) => entry.library.id === libraryId && RETRYABLE_TASK.has(entry.task.status),
+    )
+
+  const reprocessMutation = useMutation<unknown, unknown, KnowledgeWorkbenchRow>({
+    mutationKey: ['console', 'knowledge', 'exception-reprocess'],
+    mutationFn: (library) =>
+      Promise.all(
+        retryableTasksFor(library.id).map((entry) =>
+          retryKnowledgeIngestTask(entry.library.id, entry.task.id),
+        ),
+      ),
+    onMutate: (library) => setBusyLibraryId(library.id),
+    onSuccess: () => {
+      setBusyLibraryId(null)
+      void ingestQuery.refetch()
+      void workbenchQuery.refetch()
+    },
+    onError: onWriteError('Failed to reprocess the failed ingest jobs'),
+  })
 
   const matchesKind = (row: KnowledgeWorkbenchRow, kind: Exclude<KindFilter, 'all'>) =>
     (row.content_source || '').toLowerCase().includes(kind)
@@ -288,11 +359,12 @@ export default function ConsoleKnowledge() {
                 <TableHead className="num">{t('console.knowledge.columns.docs')}</TableHead>
                 <TableHead>{t('console.knowledge.columns.run')}</TableHead>
                 <TableHead className="num">{t('console.knowledge.columns.started')}</TableHead>
+                <TableHead className="num" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {ingestTasks.length === 0 ? (
-                <DataStateRow colSpan={7} isPending={ingestPending} isError={ingestQuery.isError} />
+                <DataStateRow colSpan={8} isPending={ingestPending} isError={ingestQuery.isError} />
               ) : (
                 ingestTasks.map(({ task, library }) => (
                   <TableRow key={task.id}>
@@ -337,6 +409,28 @@ export default function ConsoleKnowledge() {
                     </TableCell>
                     <TableCell className="num dimmer">
                       {relativeTime(task.started_at || task.created_at)}
+                    </TableCell>
+                    <TableCell className="num">
+                      {RETRYABLE_TASK.has(task.status) && (
+                        <ConsoleButton
+                          size="sm"
+                          disabled={busyTaskId === task.id}
+                          onClick={() => retryTaskMutation.mutate({ task, library })}
+                        >
+                          {t('console.knowledge.retryTask')}
+                        </ConsoleButton>
+                      )}
+                      {CANCELLABLE_TASK.has(task.status) && (
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: 'var(--danger-foreground)' }}
+                          disabled={busyTaskId === task.id}
+                          onClick={() => setCancelTarget({ task, library })}
+                        >
+                          {t('console.knowledge.cancelTask')}
+                        </ConsoleButton>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -385,7 +479,18 @@ export default function ConsoleKnowledge() {
                         stamp rather than a link into the run ledger. */}
                     <TableCell className="dimmer">{relativeTime(row.last_sync_at)}</TableCell>
                     <TableCell className="num">
-                      <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
+                      <ConsoleButton
+                        size="sm"
+                        disabled={busyLibraryId === row.id || retryableTasksFor(row.id).length === 0}
+                        title={
+                          retryableTasksFor(row.id).length === 0
+                            ? t('console.knowledge.reprocessNone')
+                            : undefined
+                        }
+                        onClick={() => reprocessMutation.mutate(row)}
+                      >
+                        {t('console.knowledge.reprocess')}
+                      </ConsoleButton>
                     </TableCell>
                   </TableRow>
                 ))
@@ -406,6 +511,20 @@ export default function ConsoleKnowledge() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={cancelTarget != null}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        title={t('console.knowledge.cancelTaskTitle')}
+        confirmLabel={t('console.knowledge.cancelTask')}
+        destructive
+        busy={cancelTaskMutation.isPending}
+        onConfirm={() => cancelTaskMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.knowledge.cancelTaskConfirm', { id: cancelTarget?.task.id ?? '' })}
+        </div>
+      </ConsoleModal>
     </Workbench>
   )
 }

@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { useParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   Backlink,
   CodeBlock,
   ConsoleButton,
+  ConsoleModal,
   DataStateNote,
   IconExport,
   KeyValueList,
@@ -17,16 +19,21 @@ import {
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  createAgentVersion,
+  deleteAgent,
   getAgent,
   getAgentWorkbenchItems,
   listAgentBindings,
   listAgentReleases,
   listAgentVersions,
+  publishAgentVersion,
+  updateAgent,
   type AgentVersion,
+  type AgentVersionCreateRequest,
 } from '@/services/agent-service'
 import {
   getCapabilityPluginSourceLabel,
@@ -35,6 +42,7 @@ import {
   type AgentCapabilityItem,
 } from '@/services/capability-service'
 import { listRuns } from '@/services/run-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type AgentTab = 'build' | 'monitor' | 'publish' | 'settings'
 
@@ -57,6 +65,81 @@ function readRecord(value: unknown): Record<string, any> {
 function fieldValue(value: unknown): string {
   if (value == null || value === '') return ''
   return String(value)
+}
+
+/** A blank or unparseable box means "not set", never zero. */
+function numberField(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function intField(value: string): number | undefined {
+  const parsed = numberField(value)
+  return parsed == null ? undefined : Math.round(parsed)
+}
+
+/** The timeout box reads back as the prototype writes it: `30s per run`, or `30`. */
+function secondsField(value: string): number | undefined {
+  const match = value.trim().match(/^\d+(?:\.\d+)?/)
+  if (!match) return undefined
+  const parsed = Math.round(Number(match[0]))
+  return parsed >= 1 ? parsed : undefined
+}
+
+/**
+ * Spec values the console has no control for are carried into the next
+ * version rather than dropped — a draft save must not quietly reset limits
+ * and policies the console never showed.
+ */
+function carryNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function carryString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
+}
+
+function carryRefs(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+/** The prototype's model list; no model-catalogue endpoint drives it yet. */
+const MODEL_OPTIONS = ['claude-sonnet-5', 'claude-haiku-4.5', 'qwen3-235b']
+
+interface DraftState {
+  /** Agent-record fields — saved with `updateAgent`. */
+  name: string
+  description: string
+  /** Version-spec fields — saved by creating a new `AgentVersion`. */
+  modelRef: string
+  temperature: string
+  maxTokens: string
+  systemPrompt: string
+  budget: string
+  timeout: string
+  toolRefs: string[]
+  skillRefs: string[]
+  knowledgeRefs: string[]
+}
+
+const EMPTY_DRAFT: DraftState = {
+  name: '',
+  description: '',
+  modelRef: '',
+  temperature: '',
+  maxTokens: '',
+  systemPrompt: '',
+  budget: '',
+  timeout: '',
+  toolRefs: [],
+  skillRefs: [],
+  knowledgeRefs: [],
+}
+
+function toggleRef(refs: string[], ref: string): string[] {
+  return refs.includes(ref) ? refs.filter((item) => item !== ref) : [...refs, ref]
 }
 
 function formatDuration(ms?: number | null): string {
@@ -127,6 +210,9 @@ export default function ConsoleAgentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<AgentTab>('build')
+  const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT)
+  const [publishTarget, setPublishTarget] = useState<AgentVersion | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const agentId = id && id !== 'new' ? id : undefined
   const enabled = Boolean(agentId)
@@ -198,6 +284,9 @@ export default function ConsoleAgentDetail() {
   const spec = readSpec(currentVersion)
   const specBindings = readRecord(spec.bindings)
   const limits = readRecord(spec.limits)
+  const policies = readRecord(spec.policies)
+  const memory = readRecord(spec.memory)
+  const memoryPolicy = readRecord(memory.policy)
 
   // The Build tab edits the current editor state, so bind against that version.
   const bindingsQuery = useQuery({
@@ -217,6 +306,141 @@ export default function ConsoleAgentDetail() {
     }
     return groups
   }, [bindings])
+
+  // The editor is seeded from what the server holds, and re-seeded after a
+  // save so the boxes show what was actually stored.
+  useEffect(() => {
+    if (!agent) return
+    setDraft((state) => ({
+      ...state,
+      name: agent.name || '',
+      description: agent.description || '',
+    }))
+  }, [agent])
+
+  useEffect(() => {
+    const nextSpec = readSpec(currentVersion)
+    const nextBindings = readRecord(nextSpec.bindings)
+    const nextLimits = readRecord(nextSpec.limits)
+    setDraft((state) => ({
+      ...state,
+      modelRef: fieldValue(nextBindings.model_ref),
+      temperature: fieldValue(nextSpec.temperature),
+      maxTokens: fieldValue(nextLimits.max_tokens),
+      systemPrompt: fieldValue(nextSpec.system_prompt),
+      budget: fieldValue(nextLimits.budget),
+      timeout:
+        typeof nextLimits.timeout_ms === 'number'
+          ? `${Math.round(nextLimits.timeout_ms / 1000)}s per run`
+          : '',
+    }))
+  }, [currentVersion])
+
+  useEffect(() => {
+    if (!bindingsQuery.data) return
+    setDraft((state) => ({
+      ...state,
+      toolRefs: [...boundRefs.tool],
+      skillRefs: [...boundRefs.skill],
+      knowledgeRefs: [...boundRefs.knowledge],
+    }))
+  }, [bindingsQuery.data, boundRefs])
+
+  const onWriteError = (fallback: string) => (error: unknown) => {
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  /**
+   * A version is immutable, so "Save draft" writes a whole new one. Every
+   * `AgentVersionCreate` field the console can reach is sent; the rest is
+   * carried over from the version being edited.
+   *
+   * `rag_top_k`, `rag_strategy`, `context_window_messages` and
+   * `context_window_chars` are accepted by the API but absent from
+   * `AgentVersionCreateRequest`, so they cannot be carried through from here.
+   */
+  const buildVersionRequest = (): AgentVersionCreateRequest => ({
+    system_prompt: draft.systemPrompt.trim() || undefined,
+    temperature: numberField(draft.temperature),
+    max_tokens_total: intField(draft.maxTokens),
+    max_cost: numberField(draft.budget),
+    max_runtime_seconds: secondsField(draft.timeout),
+    max_iterations: carryNumber(limits.max_iterations),
+    max_tool_calls: carryNumber(limits.max_tool_calls),
+    max_llm_calls: carryNumber(limits.max_llm_calls),
+    max_failures: carryNumber(limits.max_failures),
+    cost_currency: carryString(policies.cost_currency),
+    failure_strategy: carryString(policies.failure_strategy),
+    verify: typeof policies.verify === 'boolean' ? policies.verify : undefined,
+    memory_strategy: carryString(memory.type),
+    memory_top_k: carryNumber(memoryPolicy.top_k),
+    bindings: {
+      model_ref: draft.modelRef,
+      tool_refs: draft.toolRefs,
+      skill_refs: draft.skillRefs,
+      knowledge_refs: draft.knowledgeRefs,
+      // The Build tab has no workflow picker, so the bound workflows are kept
+      // as they are rather than being unbound by omission.
+      workflow_refs: carryRefs(specBindings.workflow_refs),
+    },
+  })
+
+  const saveDraftMutation = useMutation({
+    mutationKey: ['console', 'agent', agentId, 'save-draft'],
+    mutationFn: async () => {
+      // Name and description live on the agent record, not the version spec,
+      // so they only travel when the user actually changed them.
+      const name = draft.name.trim()
+      const description = draft.description.trim()
+      if (name !== (agent?.name || '') || description !== (agent?.description || '')) {
+        await updateAgent(agentId as string, { name, description })
+      }
+      return createAgentVersion(agentId as string, buildVersionRequest())
+    },
+    onSuccess: () => {
+      void agentQuery.refetch()
+      void versionsQuery.refetch()
+      void bindingsQuery.refetch()
+    },
+    onError: onWriteError('Failed to save the draft'),
+  })
+
+  const publishMutation = useMutation({
+    mutationKey: ['console', 'agent', agentId, 'publish'],
+    mutationFn: () =>
+      publishAgentVersion(agentId as string, { version_id: (publishTarget as AgentVersion).id }),
+    onSuccess: () => {
+      setPublishTarget(null)
+      void agentQuery.refetch()
+      void versionsQuery.refetch()
+      void releasesQuery.refetch()
+    },
+    onError: onWriteError('Failed to publish the version'),
+  })
+
+  /** DELETE /agents/{id} only stamps `deleted_at` — the agent is archived. */
+  const deleteMutation = useMutation({
+    mutationKey: ['console', 'agent', agentId, 'delete'],
+    mutationFn: () => deleteAgent(agentId as string),
+    onSuccess: () => {
+      setDeleting(false)
+      void workbenchQuery.refetch()
+      navigate('/v2/build/agents')
+    },
+    onError: onWriteError('Failed to archive the agent'),
+  })
+
+  const isPaused = agent?.status === 'disabled'
+  const statusMutation = useMutation({
+    mutationKey: ['console', 'agent', agentId, 'status'],
+    mutationFn: () =>
+      updateAgent(agentId as string, { status: isPaused ? 'active' : 'disabled' }),
+    onSuccess: () => {
+      void agentQuery.refetch()
+      void workbenchQuery.refetch()
+    },
+    onError: onWriteError('Failed to change the agent status'),
+  })
 
   const toolRows = capabilityRows(
     'tool',
@@ -271,9 +495,23 @@ export default function ConsoleAgentDetail() {
         </span>
         {hasDraftChanges && <StatusChip status="warn" label="DRAFT CHANGES" />}
         <span className="spacer" />
-        <ConsoleButton>{t('console.agentDetail.saveDraft')}</ConsoleButton>
+        <ConsoleButton
+          // A version needs a model binding server-side, and the agent record
+          // needs a name — neither can be sent blank.
+          disabled={
+            !agentId || !draft.name.trim() || !draft.modelRef || saveDraftMutation.isPending
+          }
+          onClick={() => saveDraftMutation.mutate(undefined)}
+        >
+          {t('console.agentDetail.saveDraft')}
+        </ConsoleButton>
+        {/* No dry-run endpoint exists for a draft version yet. */}
         <ConsoleButton>{t('console.agentDetail.runTest')}</ConsoleButton>
-        <ConsoleButton variant="primary">
+        <ConsoleButton
+          variant="primary"
+          disabled={!agentId || !currentVersion}
+          onClick={() => currentVersion && setPublishTarget(currentVersion)}
+        >
           <IconExport />
           {t('console.agentDetail.publish', {
             version: currentVersion ? `v${currentVersion.version}` : '',
@@ -303,20 +541,29 @@ export default function ConsoleAgentDetail() {
             <WorkbenchPanel title={t('console.agentDetail.definition')}>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.name')}</label>
-                <input key={`name-${agent?.id}`} className="input" defaultValue={agent?.name || ''} />
+                <input
+                  className="input"
+                  value={draft.name}
+                  onChange={(event) =>
+                    setDraft((state) => ({ ...state, name: event.target.value }))
+                  }
+                />
               </div>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.description')}</label>
                 <input
-                  key={`desc-${agent?.id}`}
                   className="input"
-                  defaultValue={agent?.description || ''}
+                  value={draft.description}
+                  onChange={(event) =>
+                    setDraft((state) => ({ ...state, description: event.target.value }))
+                  }
                 />
               </div>
               <div className="frow">
                 <label>{t('console.agentDetail.fields.trigger')}</label>
                 {/* The agent record has no trigger column and the runtime spec
-                    carries none either; the option list stays the prototype's. */}
+                    carries none either; the option list stays the prototype's
+                    and the choice is not saved anywhere. */}
                 <select key={`trigger-${agent?.id}`} className="input" style={{ maxWidth: 220 }} defaultValue="">
                   <option>webhook</option>
                   <option>chat</option>
@@ -328,28 +575,42 @@ export default function ConsoleAgentDetail() {
                 <label>{t('console.agentDetail.fields.model')}</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {/* No model-catalogue endpoint drives this select yet; the
-                      value comes from the version spec's bindings.model_ref. */}
+                      value comes from the version spec's bindings.model_ref.
+                      A stored ref outside the prototype list is listed as-is so
+                      saving a draft cannot silently rewrite the binding. */}
                   <select
-                    key={`model-${currentVersion?.id}`}
                     className="input"
                     style={{ maxWidth: 220 }}
-                    defaultValue={fieldValue(specBindings.model_ref)}
+                    value={draft.modelRef}
+                    onChange={(event) =>
+                      setDraft((state) => ({ ...state, modelRef: event.target.value }))
+                    }
                   >
-                    <option>claude-sonnet-5</option>
-                    <option>claude-haiku-4.5</option>
-                    <option>qwen3-235b</option>
+                    {!draft.modelRef && <option value="">—</option>}
+                    {draft.modelRef && !MODEL_OPTIONS.includes(draft.modelRef) && (
+                      <option value={draft.modelRef}>{draft.modelRef}</option>
+                    )}
+                    {MODEL_OPTIONS.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
                   </select>
                   <input
-                    key={`temp-${currentVersion?.id}`}
                     className="input"
-                    defaultValue={fieldValue(spec.temperature)}
+                    value={draft.temperature}
+                    onChange={(event) =>
+                      setDraft((state) => ({ ...state, temperature: event.target.value }))
+                    }
                     style={{ maxWidth: 90 }}
                     title="temperature"
                   />
                   <input
-                    key={`maxtok-${currentVersion?.id}`}
                     className="input"
-                    defaultValue={fieldValue(limits.max_tokens)}
+                    value={draft.maxTokens}
+                    onChange={(event) =>
+                      setDraft((state) => ({ ...state, maxTokens: event.target.value }))
+                    }
                     style={{ maxWidth: 120 }}
                     title="max output tokens"
                   />
@@ -361,10 +622,12 @@ export default function ConsoleAgentDetail() {
                   <small>{t('console.agentDetail.fields.systemPromptHint')}</small>
                 </label>
                 <textarea
-                  key={`prompt-${currentVersion?.id}`}
                   className="input"
                   style={{ minHeight: 120 }}
-                  defaultValue={fieldValue(spec.system_prompt)}
+                  value={draft.systemPrompt}
+                  onChange={(event) =>
+                    setDraft((state) => ({ ...state, systemPrompt: event.target.value }))
+                  }
                 />
               </div>
               <div className="frow">
@@ -389,7 +652,16 @@ export default function ConsoleAgentDetail() {
                   ) : (
                     toolRows.map((row) => (
                       <label key={row.ref}>
-                        <input type="checkbox" defaultChecked={row.bound} />
+                        <input
+                          type="checkbox"
+                          checked={draft.toolRefs.includes(row.ref)}
+                          onChange={() =>
+                            setDraft((state) => ({
+                              ...state,
+                              toolRefs: toggleRef(state.toolRefs, row.ref),
+                            }))
+                          }
+                        />
                         <span className="mono">{row.name}</span> {row.detail}
                       </label>
                     ))
@@ -407,7 +679,16 @@ export default function ConsoleAgentDetail() {
                   ) : (
                     skillRows.map((row) => (
                       <label key={row.ref}>
-                        <input type="checkbox" defaultChecked={row.bound} />
+                        <input
+                          type="checkbox"
+                          checked={draft.skillRefs.includes(row.ref)}
+                          onChange={() =>
+                            setDraft((state) => ({
+                              ...state,
+                              skillRefs: toggleRef(state.skillRefs, row.ref),
+                            }))
+                          }
+                        />
                         <span className="mono">{row.name}</span> {row.detail}
                       </label>
                     ))
@@ -425,7 +706,16 @@ export default function ConsoleAgentDetail() {
                   ) : (
                     knowledgeRows.map((row) => (
                       <label key={row.ref}>
-                        <input type="checkbox" defaultChecked={row.bound} />
+                        <input
+                          type="checkbox"
+                          checked={draft.knowledgeRefs.includes(row.ref)}
+                          onChange={() =>
+                            setDraft((state) => ({
+                              ...state,
+                              knowledgeRefs: toggleRef(state.knowledgeRefs, row.ref),
+                            }))
+                          }
+                        />
                         {row.name} <span className="mono dimmer">{row.detail}</span>
                       </label>
                     ))
@@ -454,15 +744,18 @@ export default function ConsoleAgentDetail() {
                 {/* spec.limits.budget is the per-run cost ceiling — the only
                     budget number the spec carries; there is no daily window. */}
                 <input
-                  key={`budget-${currentVersion?.id}`}
                   className="input"
-                  defaultValue={fieldValue(limits.budget)}
+                  value={draft.budget}
+                  onChange={(event) =>
+                    setDraft((state) => ({ ...state, budget: event.target.value }))
+                  }
                   style={{ maxWidth: 120 }}
                 />
               </div>
               <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
                 <label>{t('console.agentDetail.alertAt')}</label>
-                {/* No budget-alert threshold is stored anywhere. */}
+                {/* No budget-alert threshold is stored anywhere, so this
+                    select has nothing to save into. */}
                 <select className="input" style={{ maxWidth: 120 }} defaultValue="">
                   <option>80%</option>
                   <option>50%</option>
@@ -606,7 +899,11 @@ export default function ConsoleAgentDetail() {
               const isCurrent = version.id === currentVersionId
               const wasRolledBack = rolledBackVersionIds.has(version.id)
               return (
-                <a key={version.id} className={cn('bundle', isPublished && 'on')}>
+                <a
+                  key={version.id}
+                  className={cn('bundle', isPublished && 'on')}
+                  onClick={() => !isPublished && setPublishTarget(version)}
+                >
                   <b>
                     v{version.version}{' '}
                     <StatusChip
@@ -641,6 +938,8 @@ export default function ConsoleAgentDetail() {
         <WorkbenchPanel title={t('console.agentDetail.settingsTitle')}>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.owner')}</label>
+            {/* `created_by` / `updated_by` are server-stamped audit columns and
+                are not on `AgentUpdate`; this box cannot be saved. */}
             <input
               key={`owner-${agent?.id}`}
               className="input"
@@ -667,29 +966,31 @@ export default function ConsoleAgentDetail() {
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.rateLimit')}</label>
-            {/* No rate-limit field on the agent or its spec. */}
+            {/* No rate-limit field on the agent or its spec — nothing to save. */}
             <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.retry')}</label>
             {/* No retry policy is stored; spec.limits.max_failures is a failure
-                budget for a single run, not a retry schedule. */}
+                budget for a single run, not a retry schedule. Not saved. */}
             <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.timeout')}</label>
+            {/* This one is real: spec.limits.timeout_ms. It is part of the
+                version spec, so it ships with "Save draft" like the rest. */}
             <input
-              key={`timeout-${currentVersion?.id}`}
               className="input"
-              defaultValue={
-                typeof limits.timeout_ms === 'number' ? `${Math.round(limits.timeout_ms / 1000)}s per run` : ''
+              value={draft.timeout}
+              onChange={(event) =>
+                setDraft((state) => ({ ...state, timeout: event.target.value }))
               }
               style={{ maxWidth: 200 }}
             />
           </div>
           <div className="frow">
             <label>{t('console.agentDetail.settingsFields.onFailure')}</label>
-            {/* No notification target is stored on the agent. */}
+            {/* No notification target is stored on the agent — nothing to save. */}
             <input className="input" defaultValue="" style={{ maxWidth: 260 }} />
           </div>
           <div className="frow">
@@ -698,14 +999,57 @@ export default function ConsoleAgentDetail() {
               <small>{t('console.agentDetail.settingsFields.dangerHint')}</small>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <ConsoleButton>{t('console.agentDetail.settingsFields.pause')}</ConsoleButton>
-              <ConsoleButton style={{ color: 'var(--danger-foreground)' }}>
+              <ConsoleButton
+                disabled={!agentId || statusMutation.isPending}
+                onClick={() => statusMutation.mutate(undefined)}
+              >
+                {isPaused
+                  ? t('console.agentDetail.settingsFields.resume')
+                  : t('console.agentDetail.settingsFields.pause')}
+              </ConsoleButton>
+              <ConsoleButton
+                style={{ color: 'var(--danger-foreground)' }}
+                disabled={!agentId}
+                onClick={() => setDeleting(true)}
+              >
                 {t('console.agentDetail.settingsFields.archive')}
               </ConsoleButton>
             </div>
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={publishTarget != null}
+        onOpenChange={(open) => !open && setPublishTarget(null)}
+        title={t('console.agentDetail.publishTitle')}
+        note={t('console.agentDetail.publishNote')}
+        confirmLabel={t('console.agentDetail.publishAction')}
+        busy={publishMutation.isPending}
+        onConfirm={() => publishMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.agentDetail.publishConfirm', {
+            name,
+            version: publishTarget ? `v${publishTarget.version}` : '',
+          })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={t('console.agentDetail.archiveTitle')}
+        note={t('console.agentDetail.archiveNote')}
+        confirmLabel={t('console.agentDetail.settingsFields.archive')}
+        destructive
+        busy={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.agentDetail.archiveConfirm', { name })}
+        </div>
+      </ConsoleModal>
     </>
   )
 }
