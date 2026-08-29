@@ -1,4 +1,4 @@
-import { del, get, patch, post, put } from '@/utils/request'
+import { del, get, patch, post, put, type RequestConfigWithToast } from '@/utils/request'
 import type { PaginatedResponse } from '@/types/api'
 
 export type { PaginatedResponse } from '@/types/api'
@@ -106,8 +106,10 @@ export const listNotifications = async (params?: NotificationListParams): Promis
   return unwrapResponse<PaginatedResponse<Notification>>(data)
 }
 
-export const getNotificationUnreadCount = async (): Promise<NotificationUnreadCount> => {
-  const data = await get('/notifications/unread-count')
+export const getNotificationUnreadCount = async (
+  config?: RequestConfigWithToast,
+): Promise<NotificationUnreadCount> => {
+  const data = await get('/notifications/unread-count', undefined, config)
   return unwrapResponse<NotificationUnreadCount>(data)
 }
 

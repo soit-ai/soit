@@ -7,11 +7,14 @@ import {
   IconSearch,
   IconSun,
 } from '@/console/components/icons'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { getNotificationUnreadCount } from '@/services/notification-service'
 import { useUserStore } from '@/stores/user'
 
 import { useConsoleTheme } from './console-theme'
 import { pillarForPathname } from './panel-config'
+import { useConsoleNavigate } from './use-console-navigate'
 
 interface TopbarProps {
   panelCollapsed: boolean
@@ -24,7 +27,17 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
   const location = useLocation()
   const { theme, toggleTheme } = useConsoleTheme()
   const currentUser = useUserStore((state) => state.currentUser)
+  const navigate = useConsoleNavigate()
   const config = pillarForPathname(location.pathname)
+
+  // The bell is a shell affordance, so a failure here must stay silent rather
+  // than toast over whatever the user is doing.
+  const unreadQuery = useQuery({
+    queryKey: ['console', 'notifications', 'unread-count'],
+    queryFn: () => getNotificationUnreadCount({ suppressErrorToast: true }),
+    options: { retry: false, refetchOnWindowFocus: false, refetchInterval: 60_000 },
+  })
+  const unreadCount = unreadQuery.data?.count ?? 0
 
   const initials = (currentUser?.name || currentUser?.email || 'S')
     .split(/[\s@._-]+/)
@@ -66,8 +79,19 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
           {theme === 'dark' ? <IconSun /> : <IconMoon />}
         </button>
 
-        <button type="button" className="iconbtn" title={t('console.shell.notifications')}>
+        <button
+          type="button"
+          className="iconbtn"
+          title={
+            unreadCount > 0
+              ? `${t('console.shell.notifications')} · ${unreadCount}`
+              : t('console.shell.notifications')
+          }
+          onClick={() => navigate('/notifications')}
+        >
           <IconBell />
+          {/* The prototype's unread pip; only shown when there is something. */}
+          {unreadCount > 0 && <i className="dot" aria-hidden />}
         </button>
 
         <span
