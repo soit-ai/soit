@@ -149,11 +149,6 @@ export const PANEL_CONFIG: PillarConfig[] = [
           { labelKey: 'console.settings.account', to: '/v2/settings/account' },
           { labelKey: 'console.settings.team', to: '/v2/settings/team' },
           { labelKey: 'console.settings.api', to: '/v2/settings/api' },
-        ],
-      },
-      {
-        captionKey: 'console.settings.groupSecurity',
-        links: [
           { labelKey: 'console.settings.security', to: '/v2/settings/security' },
           { labelKey: 'console.settings.secrets', to: '/v2/settings/secrets' },
         ],
