@@ -161,7 +161,7 @@ const NodePropertiesPanel: React.FC<NodePropertiesPanelProps> = ({
                       defaultValue={[selectedNode.data.timeout as number || 30]}
                       max={120}
                       step={1}
-                      onValueChange={(value) => handleDataChange({ timeout: value[0] })}
+                      onValueChange={(value) => handleDataChange({ timeout: Array.isArray(value) ? value[0] : value })}
                       className="flex-1"
                     />
                     <span className="w-12 text-center text-sm">

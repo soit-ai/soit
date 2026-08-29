@@ -23,9 +23,7 @@ export function PageHeader({ documentCount, selectedDocs, onShowUploadDialog, on
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink asChild>
-              <Link to="/knowledge">{t('knowledge.document.header.breadcrumb.root')}</Link>
-            </BreadcrumbLink>
+            <BreadcrumbLink render={<Link to="/knowledge" />}>{t('knowledge.document.header.breadcrumb.root')}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

@@ -190,7 +190,7 @@ export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) 
           max={2}
           step={0.1}
           value={[data.temperature || 0.7]}
-          onValueChange={(value) => handleChange('temperature', value[0])}
+          onValueChange={(value) => handleChange('temperature', Array.isArray(value) ? value[0] : value)}
         />
       </div>
 
@@ -216,7 +216,7 @@ export const LLMProperties: React.FC<LLMPropertiesProps> = ({ data, onChange }) 
           max={1}
           step={0.05}
           value={[data.topP || 1]}
-          onValueChange={(value) => handleChange('topP', value[0])}
+          onValueChange={(value) => handleChange('topP', Array.isArray(value) ? value[0] : value)}
         />
       </div>
 

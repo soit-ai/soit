@@ -25,9 +25,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink asChild>
-              <Link to="/workflow">{t('workflow.build.header.root')}</Link>
-            </BreadcrumbLink>
+            <BreadcrumbLink render={<Link to="/workflow" />}>{t('workflow.build.header.root')}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

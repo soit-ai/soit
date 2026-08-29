@@ -375,17 +375,13 @@ export function BoxSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <Badge variant="outline">Community</Badge>
             </div>
             <div className="flex justify-between mt-2 pt-2 border-t text-xs">
-                <Button variant="ghost" size="sm" className="h-7 gap-1" asChild>
-                  <a href="https://docs.soit.ai" target="_blank" rel="noreferrer">
+                <Button variant="ghost" size="sm" className="h-7 gap-1" nativeButton={false} render={<a href="https://docs.soit.ai" target="_blank" rel="noreferrer" />}>
                   <BookOpen className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.docs')}</span>
-                  </a>
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 gap-1" asChild>
-                  <a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer">
+                <Button variant="ghost" size="sm" className="h-7 gap-1" nativeButton={false} render={<a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" />}>
                   <Github className="h-3.5 w-3.5" />
                   <span>{t('system.settings.sidebar.info.github')}</span>
-                  </a>
                 </Button>
               </div>
           </div>

@@ -86,11 +86,9 @@ function AuditExplorerPage() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
-            <Button asChild>
-              <Link to="/observe/runs?include_observe_summary=true">
-                Run Explorer
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+            <Button nativeButton={false} render={<Link to="/observe/runs?include_observe_summary=true" />}>
+              Run Explorer
+              <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -157,8 +155,8 @@ function AuditExplorerPage() {
                         <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{audit.preview || '-'}</TableCell>
                         <TableCell className="max-w-[260px] truncate font-mono text-xs text-muted-foreground">{previewPayload(audit.request)}</TableCell>
                         <TableCell className="text-right">
-                          <Button asChild variant="outline" size="sm">
-                            <Link to={`/observe/runs/${audit.run_id}`}>Open Run</Link>
+                          <Button variant="outline" size="sm" nativeButton={false} render={<Link to={`/observe/runs/${audit.run_id}`} />}>
+                            Open Run
                           </Button>
                         </TableCell>
                       </TableRow>

@@ -504,10 +504,8 @@ function Page() {
           <CardDescription>{t('workflow.detail.setting.execution.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button asChild variant="outline">
-            <Link to={`/workflow/${workflowId}/build`}>
-              {t('workflow.detail.setting.execution.builderLink')}
-            </Link>
+          <Button variant="outline" nativeButton={false} render={<Link to={`/workflow/${workflowId}/build`} />}>
+            {t('workflow.detail.setting.execution.builderLink')}
           </Button>
         </CardContent>
       </Card>

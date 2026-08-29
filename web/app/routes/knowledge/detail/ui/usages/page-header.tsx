@@ -17,9 +17,7 @@ export function PageHeader({ title, onRefresh }: PageHeaderProps) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
-            <BreadcrumbLink asChild>
-              <Link to="/knowledge">{t('knowledge.usages.breadcrumb.root')}</Link>
-            </BreadcrumbLink>
+            <BreadcrumbLink render={<Link to="/knowledge" />}>{t('knowledge.usages.breadcrumb.root')}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden md:block" />
           <BreadcrumbItem>

@@ -145,7 +145,7 @@ const AttachmentThumb: FC = () => {
   const src = useAttachmentSrc();
   return (
     <Avatar className="bg-muted flex size-10 items-center justify-center rounded border text-sm">
-      <AvatarFallback delayMs={isImage ? 200 : 0}>
+      <AvatarFallback delay={isImage ? 200 : 0}>
         <FileIcon />
       </AvatarFallback>
       <AvatarImage src={src} />

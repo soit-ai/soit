@@ -828,12 +828,15 @@ const AssistantMeta: FC = () => {
 
   return (
     <Collapsible className="ml-1 mt-2 max-w-2xl overflow-hidden rounded-lg border border-border/60 bg-muted/20 text-xs">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          aria-label={t('chat.thread.run.panelTitle')}
-          className="group flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-muted-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        >
+      <CollapsibleTrigger
+        render={
+          <button
+            type="button"
+            aria-label={t('chat.thread.run.panelTitle')}
+            className="group flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-muted-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          />
+        }
+      >
           <Activity className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
           <span className="min-w-0 flex-1 font-medium text-foreground">
             {t('chat.thread.run.panelTitle')}
@@ -847,10 +850,9 @@ const AssistantMeta: FC = () => {
             {t(`chat.thread.run.status.${statusKey}`)}
           </Badge>
           <ChevronDownIcon
-            className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+            className="size-3.5 shrink-0 transition-transform group-data-panel-open:rotate-180"
             aria-hidden="true"
           />
-        </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="overflow-hidden border-t border-border/50">
         <div className="grid grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 px-3 py-3 text-muted-foreground">

@@ -229,7 +229,7 @@ export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps>
           max={20}
           step={1}
           value={[data.topK || 3]}
-          onValueChange={(value) => handleChange('topK', value[0])}
+          onValueChange={(value) => handleChange('topK', Array.isArray(value) ? value[0] : value)}
         />
       </div>
 
@@ -243,7 +243,7 @@ export const KnowledgeSearchProperties: React.FC<KnowledgeSearchPropertiesProps>
           max={1}
           step={0.05}
           value={[data.similarityThreshold || 0.7]}
-          onValueChange={(value) => handleChange('similarityThreshold', value[0])}
+          onValueChange={(value) => handleChange('similarityThreshold', Array.isArray(value) ? value[0] : value)}
         />
       </div>
 

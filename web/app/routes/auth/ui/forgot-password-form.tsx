@@ -23,8 +23,8 @@ export function ForgotPasswordForm({
             Sign in
           </Link>
         </div>
-        <Button className="h-11 w-full rounded-lg" asChild>
-          <Link to="/sign-in">Back to sign in</Link>
+        <Button className="h-11 w-full rounded-lg" nativeButton={false} render={<Link to="/sign-in" />}>
+          Back to sign in
         </Button>
       </div>
     </div>

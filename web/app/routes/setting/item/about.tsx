@@ -19,13 +19,13 @@ function Page() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
-          <Button variant="outline" asChild>
-            <a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer">Source <ExternalLink className="h-4 w-4" /></a>
+          <Button variant="outline" nativeButton={false} render={<a href="https://github.com/soit-ai/soit" target="_blank" rel="noreferrer" />}>
+            Source <ExternalLink className="h-4 w-4" />
           </Button>
-          <Button variant="outline" asChild>
-            <a href="https://docs.soit.ai" target="_blank" rel="noreferrer">Documentation <ExternalLink className="h-4 w-4" /></a>
+          <Button variant="outline" nativeButton={false} render={<a href="https://docs.soit.ai" target="_blank" rel="noreferrer" />}>
+            Documentation <ExternalLink className="h-4 w-4" />
           </Button>
-          <Button asChild><Link to="/feedback">Send feedback</Link></Button>
+          <Button nativeButton={false} render={<Link to="/feedback" />}>Send feedback</Button>
         </CardContent>
       </Card>
     </div>

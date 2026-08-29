@@ -38,25 +38,27 @@ export function NavMain({
       {title ? <SidebarGroupLabel>{title}</SidebarGroupLabel> : null}
       <SidebarMenu>
         {items.map((item) => (
-          <Collapsible key={item.title} asChild defaultOpen={item.isActive} className="group/collapsible">
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton tooltip={item.title}>
-                  <Link
-                    to={item.url}
-                    onClick={(e) => {
-                      if (item.onClick) {
-                        e.preventDefault()
-                        item.onClick?.()
-                      }
-                    }}
-                    className="flex items-center w-full gap-2 overflow-hidden"
-                  >
-                    <item.icon size={16} />
-                    <span className="text-sm">{item.title}</span>
-                  </Link>
-                  {item.items && <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />}
-                </SidebarMenuButton>
+          <Collapsible
+            key={item.title}
+            defaultOpen={item.isActive}
+            render={<SidebarMenuItem />}
+            className="group/collapsible"
+          >
+              <CollapsibleTrigger render={<SidebarMenuButton tooltip={item.title} />}>
+                <Link
+                  to={item.url}
+                  onClick={(e) => {
+                    if (item.onClick) {
+                      e.preventDefault()
+                      item.onClick?.()
+                    }
+                  }}
+                  className="flex items-center w-full gap-2 overflow-hidden"
+                >
+                  <item.icon size={16} />
+                  <span className="text-sm">{item.title}</span>
+                </Link>
+                {item.items && <ChevronRight className="ml-auto transition-transform duration-200 group-data-open/collapsible:rotate-90" />}
               </CollapsibleTrigger>
               {item.items && <CollapsibleContent>
                 <SidebarMenuSub>
@@ -71,7 +73,6 @@ export function NavMain({
                   ))}
                 </SidebarMenuSub>
               </CollapsibleContent>}
-            </SidebarMenuItem>
           </Collapsible>
         ))}
       </SidebarMenu>

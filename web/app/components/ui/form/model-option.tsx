@@ -111,7 +111,7 @@ export function ModelOption({
                       max={2}
                       step={0.1}
                       value={[option.temperature]}
-                      onValueChange={([value]) => handleOptionChange("temperature", value)}
+                      onValueChange={(value) => handleOptionChange("temperature", Array.isArray(value) ? value[0] : value)}
                       className="flex-1"
                       disabled={option.temperature === 0}
                     />
@@ -162,7 +162,7 @@ export function ModelOption({
                       max={1}
                       step={0.05}
                       value={[option.topP]}
-                      onValueChange={([value]) => handleOptionChange("topP", value)}
+                      onValueChange={(value) => handleOptionChange("topP", Array.isArray(value) ? value[0] : value)}
                       className="flex-1"
                       disabled={option.topP === 0}
                     />
@@ -213,7 +213,7 @@ export function ModelOption({
                       max={2}
                       step={0.1}
                       value={[option.presencePenalty]}
-                      onValueChange={([value]) => handleOptionChange("presencePenalty", value)}
+                      onValueChange={(value) => handleOptionChange("presencePenalty", Array.isArray(value) ? value[0] : value)}
                       className="flex-1"
                       disabled={option.presencePenalty === 0}
                     />
@@ -264,7 +264,7 @@ export function ModelOption({
                       max={2}
                       step={0.1}
                       value={[option.frequencyPenalty]}
-                      onValueChange={([value]) => handleOptionChange("frequencyPenalty", value)}
+                      onValueChange={(value) => handleOptionChange("frequencyPenalty", Array.isArray(value) ? value[0] : value)}
                       className="flex-1"
                       disabled={option.frequencyPenalty === 0}
                     />
@@ -315,7 +315,7 @@ export function ModelOption({
                       max={4096}
                       step={1}
                       value={[option.maxTokens]}
-                      onValueChange={([value]) => handleOptionChange("maxTokens", value)}
+                      onValueChange={(value) => handleOptionChange("maxTokens", Array.isArray(value) ? value[0] : value)}
                       className="flex-1"
                       disabled={option.maxTokens === 0}
                     />
