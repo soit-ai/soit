@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 
 import { NavLink } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   DataStateNote,
   DataStateRow,
@@ -26,14 +28,17 @@ import {
   TableRow,
 } from '../../components/ui'
 import { relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
   getWorkspaceEgressPolicy,
   getWorkspaceUsagePolicy,
   listEgressPolicyAudits,
+  updateWorkspaceEgressPolicy,
+  updateWorkspaceUsagePolicy,
 } from '@/services/security-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type PolicyTab = 'rules' | 'bundles' | 'staged'
 type RuleFilter = 'all' | 'grants' | 'intents' | 'egress' | 'budget' | 'approval'
@@ -75,6 +80,67 @@ export default function ConsolePolicies() {
     queryKey: ['console', 'policies', 'audits'],
     queryFn: () => listEgressPolicyAudits({ page_size: 20 }),
     options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({
+    allowlist: '',
+    blocklist: '',
+    llm_rate: '',
+    tool_rate: '',
+    llm_quota: '',
+    tool_quota: '',
+  })
+
+  const openEditor = () => {
+    setDraft({
+      allowlist: (egressQuery.data?.allowlist || []).join('\n'),
+      blocklist: (egressQuery.data?.blocklist || []).join('\n'),
+      llm_rate: usageQuery.data?.llm_rate_limit_per_minute?.toString() ?? '',
+      tool_rate: usageQuery.data?.tool_rate_limit_per_minute?.toString() ?? '',
+      llm_quota: usageQuery.data?.llm_daily_quota?.toString() ?? '',
+      tool_quota: usageQuery.data?.tool_daily_quota?.toString() ?? '',
+    })
+    setEditing(true)
+  }
+
+  const asLines = (value: string) =>
+    value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+  // An empty box means "no limit", which the API models as null — not zero.
+  const asLimit = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  }
+
+  const saveMutation = useMutation({
+    mutationKey: ['console', 'policies', 'save'],
+    // Both surfaces are separate endpoints; a partial failure must still report.
+    mutationFn: async () => {
+      await updateWorkspaceEgressPolicy({
+        allowlist: asLines(draft.allowlist),
+        blocklist: asLines(draft.blocklist),
+      })
+      await updateWorkspaceUsagePolicy({
+        llm_rate_limit_per_minute: asLimit(draft.llm_rate),
+        tool_rate_limit_per_minute: asLimit(draft.tool_rate),
+        llm_daily_quota: asLimit(draft.llm_quota),
+        tool_daily_quota: asLimit(draft.tool_quota),
+      })
+    },
+    onSuccess: () => {
+      setEditing(false)
+      void egressQuery.refetch()
+      void usageQuery.refetch()
+      void auditsQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to save the policy'))
+    },
   })
 
   // The security service stores configuration, not a rule ledger: each
@@ -139,13 +205,19 @@ export default function ConsolePolicies() {
       description={t('console.policies.description')}
       actions={
         <>
-          <ConsoleButton>
+          {/* Bundles do not exist server-side, so "compare versions" has nothing
+              to compare; the audit trail on the Bundles tab is the real history. */}
+          <ConsoleButton onClick={() => setTab('bundles')}>
             <IconCopy />
             {t('console.policies.compare')}
           </ConsoleButton>
-          <ConsoleButton variant="primary">
+          <ConsoleButton
+            variant="primary"
+            disabled={!egressQuery.data && !usageQuery.data}
+            onClick={openEditor}
+          >
             <IconPlus />
-            {t('console.policies.newBundle')}
+            {t('console.policies.editRules')}
           </ConsoleButton>
         </>
       }
@@ -307,6 +379,61 @@ export default function ConsolePolicies() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={editing}
+        onOpenChange={setEditing}
+        title={t('console.policies.editTitle')}
+        note={t('console.policies.editNote')}
+        confirmLabel={t('console.common.save')}
+        busy={saveMutation.isPending}
+        onConfirm={() => saveMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.policies.fields.allowlist')}
+            <small>{t('console.policies.fields.allowlistHint')}</small>
+          </label>
+          <textarea
+            className="input"
+            value={draft.allowlist}
+            onChange={(event) => setDraft((state) => ({ ...state, allowlist: event.target.value }))}
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.policies.fields.blocklist')}
+            <small>{t('console.policies.fields.blocklistHint')}</small>
+          </label>
+          <textarea
+            className="input"
+            value={draft.blocklist}
+            onChange={(event) => setDraft((state) => ({ ...state, blocklist: event.target.value }))}
+          />
+        </div>
+        {(
+          [
+            ['llm_rate', t('console.policies.fields.llmRate')],
+            ['tool_rate', t('console.policies.fields.toolRate')],
+            ['llm_quota', t('console.policies.fields.llmQuota')],
+            ['tool_quota', t('console.policies.fields.toolQuota')],
+          ] as const
+        ).map(([key, label], index) => (
+          <div className="mrow" key={key}>
+            <label>
+              {label}
+              {index === 0 && <small>{t('console.policies.fields.limitsHint')}</small>}
+            </label>
+            <input
+              className="input"
+              inputMode="numeric"
+              style={{ maxWidth: 140 }}
+              value={draft[key]}
+              onChange={(event) => setDraft((state) => ({ ...state, [key]: event.target.value }))}
+            />
+          </div>
+        ))}
+      </ConsoleModal>
     </Workbench>
   )
 }

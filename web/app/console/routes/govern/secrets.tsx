@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
+  ConsoleModal,
   ConsoleTabs,
   DataStateRow,
   FilterChip,
@@ -22,9 +25,17 @@ import {
   TableRow,
 } from '../../components/ui'
 import { relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
-import { listSecrets } from '@/services/secrets-service'
+import {
+  createSecret,
+  deleteSecret,
+  listSecrets,
+  testSecret,
+  updateSecret,
+  type Secret,
+} from '@/services/secrets-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type SecretsTab = 'vault' | 'rotations' | 'usage'
 type KindFilter = 'all' | 'apiKeys' | 'tokens' | 'configs'
@@ -51,10 +62,64 @@ export default function ConsoleSecrets() {
   const [filter, setFilter] = useState<KindFilter>('all')
   const [search, setSearch] = useState('')
 
+  const [creating, setCreating] = useState(false)
+  const [rotating, setRotating] = useState<Secret | null>(null)
+  const [deleting, setDeleting] = useState<Secret | null>(null)
+  const [form, setForm] = useState({ name: '', description: '', value: '' })
+
   const secretsQuery = useQuery({
     queryKey: ['console', 'secrets'],
     queryFn: () => listSecrets({ limit: 200 }),
     options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const afterWrite = () => {
+    void secretsQuery.refetch()
+    setCreating(false)
+    setRotating(null)
+    setDeleting(null)
+    setForm({ name: '', description: '', value: '' })
+  }
+  const onWriteError = (fallback: string) => (error: unknown) => {
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  const createMutation = useMutation({
+    mutationKey: ['console', 'secrets', 'create'],
+    mutationFn: () =>
+      createSecret({
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+        value: form.value,
+      }),
+    onSuccess: afterWrite,
+    onError: onWriteError('Failed to create the secret'),
+  })
+  const rotateMutation = useMutation({
+    mutationKey: ['console', 'secrets', 'rotate'],
+    mutationFn: () =>
+      updateSecret(rotating!.id, {
+        description: form.description.trim() || undefined,
+        // An empty box means "description only" — do not blank the value.
+        ...(form.value ? { value: form.value } : {}),
+      }),
+    onSuccess: afterWrite,
+    onError: onWriteError('Failed to rotate the secret'),
+  })
+  const deleteMutation = useMutation({
+    mutationKey: ['console', 'secrets', 'delete'],
+    mutationFn: () => deleteSecret(deleting!.id),
+    onSuccess: afterWrite,
+    onError: onWriteError('Failed to delete the secret'),
+  })
+  const testMutation = useMutation({
+    mutationKey: ['console', 'secrets', 'test'],
+    mutationFn: (secretId: string) => testSecret(secretId),
+    onSuccess: (result) => {
+      if (result.ok) toast.success(result.message || t('console.secrets.testOk'))
+      else toast.error(result.message || 'Credential rejected')
+    },
+    onError: onWriteError('Failed to test the secret'),
   })
 
   const secrets = secretsQuery.data || []
@@ -80,7 +145,13 @@ export default function ConsoleSecrets() {
         </>
       }
       actions={
-        <ConsoleButton variant="primary">
+        <ConsoleButton
+          variant="primary"
+          onClick={() => {
+            setForm({ name: '', description: '', value: '' })
+            setCreating(true)
+          }}
+        >
           <IconPlus />
           {t('console.secrets.addSecret')}
         </ConsoleButton>
@@ -164,12 +235,13 @@ export default function ConsoleSecrets() {
                 <TableHead className="num">{t('console.secrets.columns.rotated')}</TableHead>
                 <TableHead className="num">{t('console.secrets.columns.due')}</TableHead>
                 <TableHead className="num">{t('console.secrets.columns.lastUsed')}</TableHead>
+                <TableHead className="num" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <DataStateRow
-                  colSpan={6}
+                  colSpan={7}
                   isPending={secretsQuery.isPending}
                   isError={secretsQuery.isError}
                 />
@@ -184,6 +256,39 @@ export default function ConsoleSecrets() {
                     <TableCell className="num dim">{relativeTime(row.last_rotated_at)}</TableCell>
                     <TableCell className="num dim">—</TableCell>
                     <TableCell className="num dimmer">—</TableCell>
+                    <TableCell className="num">
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          disabled={testMutation.isPending}
+                          onClick={() => testMutation.mutate(row.id)}
+                        >
+                          {t('console.secrets.testAction')}
+                        </ConsoleButton>
+                        <ConsoleButton
+                          size="sm"
+                          onClick={() => {
+                            setForm({
+                              name: row.name,
+                              description: row.description || '',
+                              value: '',
+                            })
+                            setRotating(row)
+                          }}
+                        >
+                          {t('console.secrets.rotate')}
+                        </ConsoleButton>
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: 'var(--danger-foreground)' }}
+                          onClick={() => setDeleting(row)}
+                        >
+                          {t('console.secrets.deleteAction')}
+                        </ConsoleButton>
+                      </span>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -212,6 +317,106 @@ export default function ConsoleSecrets() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={creating}
+        onOpenChange={setCreating}
+        title={t('console.secrets.newTitle')}
+        note={t('console.secrets.createNote')}
+        confirmLabel={t('console.common.create')}
+        confirmDisabled={!form.name.trim() || !form.value}
+        busy={createMutation.isPending}
+        onConfirm={() => createMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>
+            {t('console.secrets.fields.name')}
+            <small>{t('console.secrets.fields.nameHint')}</small>
+          </label>
+          <input
+            className="input"
+            value={form.name}
+            onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.secrets.fields.description')}</label>
+          <input
+            className="input"
+            value={form.description}
+            onChange={(event) =>
+              setForm((state) => ({ ...state, description: event.target.value }))
+            }
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.secrets.fields.value')}
+            <small>{t('console.secrets.fields.valueHint')}</small>
+          </label>
+          <textarea
+            className="input"
+            value={form.value}
+            onChange={(event) => setForm((state) => ({ ...state, value: event.target.value }))}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={rotating != null}
+        onOpenChange={(open) => !open && setRotating(null)}
+        title={t('console.secrets.editTitle')}
+        note={t('console.secrets.rotateNote')}
+        confirmLabel={t('console.common.save')}
+        busy={rotateMutation.isPending}
+        onConfirm={() => rotateMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>{t('console.secrets.fields.name')}</label>
+          <input
+            className="input"
+            value={`vault:${rotating?.name ?? ''}`}
+            disabled
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.secrets.fields.description')}</label>
+          <input
+            className="input"
+            value={form.description}
+            onChange={(event) =>
+              setForm((state) => ({ ...state, description: event.target.value }))
+            }
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.secrets.fields.value')}
+            <small>{t('console.secrets.fields.valueRotateHint')}</small>
+          </label>
+          <textarea
+            className="input"
+            value={form.value}
+            onChange={(event) => setForm((state) => ({ ...state, value: event.target.value }))}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deleting != null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t('console.secrets.deleteTitle')}
+        confirmLabel={t('console.secrets.deleteAction')}
+        destructive
+        busy={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.secrets.deleteConfirm', { name: `vault:${deleting?.name ?? ''}` })}
+        </div>
+      </ConsoleModal>
     </Workbench>
   )
 }
