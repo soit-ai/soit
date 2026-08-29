@@ -353,8 +353,11 @@ export default function ConsoleKnowledgeDetail() {
             </tbody>
           </table>
           <div className="pager">
-            <span className="mono">
-              {`${documents.length} / ${base ? compactNumber(base.doc_count) : '—'}`}
+            <span>
+              {t('console.knowDetail.docsPager', {
+                loaded: documents.length,
+                total: base ? compactNumber(base.doc_count) : '—',
+              })}
             </span>
             <span className="spacer" />
             <ConsoleButton
