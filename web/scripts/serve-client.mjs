@@ -35,7 +35,7 @@ function resolveFile(urlPath) {
   }
 }
 
-createServer((request, response) => {
+const server = createServer((request, response) => {
   const file = resolveFile(request.url || "/");
   const contentType = mimeTypes[extname(file)] || "application/octet-stream";
 
@@ -43,5 +43,31 @@ createServer((request, response) => {
     "Cache-Control": file === indexFile ? "no-cache" : "public, max-age=31536000, immutable",
     "Content-Type": contentType,
   });
-  createReadStream(file).pipe(response);
-}).listen(port, "0.0.0.0");
+
+  const stream = createReadStream(file);
+
+  // A browser that navigates away mid-response makes the socket emit 'error'.
+  // Unhandled, that took the whole server down and failed every test still to
+  // run, which reads as a wall of connection refusals rather than one abort.
+  stream.on("error", () => {
+    response.destroy();
+  });
+  response.on("error", () => {
+    stream.destroy();
+  });
+  response.on("close", () => {
+    stream.destroy();
+  });
+
+  stream.pipe(response);
+});
+
+// Client-socket resets surface here too, and are never worth exiting over.
+server.on("clientError", (_error, socket) => {
+  socket.destroy();
+});
+server.on("error", (error) => {
+  console.error("[serve-client] server error:", error);
+});
+
+server.listen(port, "0.0.0.0");
