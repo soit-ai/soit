@@ -7,13 +7,11 @@ export function TeamSwitcher() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton asChild size="lg" className="p-0 h-full w-full flex items-center justify-center">
-          <Link to="/" aria-label="SOIT home">
+        <SidebarMenuButton size="lg" className="p-0 h-full w-full flex items-center justify-center" render={<Link to="/" aria-label="SOIT home">
             <div className="text-sidebar-primary-foreground flex size-10 items-center justify-center rounded-lg">
               <img src={logoIcon} alt="SOIT" className="size-12" />
             </div>
-          </Link>
-        </SidebarMenuButton>
+          </Link>} />
       </SidebarMenuItem>
     </SidebarMenu>
   )

@@ -178,7 +178,7 @@ function BoxPage() {
               className="pl-8"
             />
           </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
+          <Select value={sortBy} onValueChange={(value) => value != null && setSortBy(value)}>
             <SelectTrigger className="w-full sm:w-[140px]">
               <SlidersHorizontal className="mr-2 h-4 w-4" />
               <SelectValue placeholder={t('model.home.sort.placeholder')} />

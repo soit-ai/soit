@@ -364,7 +364,7 @@ function ModelProvidersPage() {
         onRefresh={reload}
         actions={(
           <>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(value) => value != null && setStatusFilter(value)}>
               <SelectTrigger className="h-10 w-full border-border bg-panel shadow-sm sm:w-[130px]">
                 <SelectValue placeholder={t('model.providers.toolbar.status')} />
               </SelectTrigger>
@@ -375,7 +375,7 @@ function ModelProvidersPage() {
                 <SelectItem value="error">{t('model.providers.status.error')}</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={regionFilter} onValueChange={setRegionFilter}>
+            <Select value={regionFilter} onValueChange={(value) => value != null && setRegionFilter(value)}>
               <SelectTrigger className="h-10 w-full border-border bg-panel shadow-sm sm:w-[130px]">
                 <SelectValue placeholder={t('model.providers.toolbar.region')} />
               </SelectTrigger>
@@ -383,7 +383,7 @@ function ModelProvidersPage() {
                 <SelectItem value="all">{t('model.providers.toolbar.allRegions')}</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={modelTypeFilter} onValueChange={setModelTypeFilter}>
+            <Select value={modelTypeFilter} onValueChange={(value) => value != null && setModelTypeFilter(value)}>
               <SelectTrigger className="h-10 w-full border-border bg-panel shadow-sm sm:w-[150px]">
                 <SelectValue placeholder={t('model.providers.toolbar.modelType')} />
               </SelectTrigger>

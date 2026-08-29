@@ -347,12 +347,10 @@ function Page() {
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                          <DropdownMenuTrigger render={<Button variant="ghost" size="icon">
                               <MoreVertical className="h-4 w-4" />
                               <span className="sr-only">{t('system.settings.team.members.actions.openMenu')}</span>
-                            </Button>
-                          </DropdownMenuTrigger>
+                            </Button>} />
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleChangeRole(member.id, 'admin')}>
                               <Shield className="mr-2 h-4 w-4" />
@@ -425,7 +423,7 @@ function Page() {
                       <Label htmlFor="industry">{t('system.settings.team.info.fields.industry')}</Label>
                       <Select 
                         value={teamInfo.industry} 
-                        onValueChange={(value) => handleTeamInfoChange('industry', value)}
+                        onValueChange={(value) => handleTeamInfoChange('industry', (value ?? ''))}
                       >
                         <SelectTrigger id="industry">
                           <SelectValue placeholder={t('system.settings.team.info.placeholders.industry')} />
@@ -443,7 +441,7 @@ function Page() {
                       <Label htmlFor="size">{t('system.settings.team.info.fields.size')}</Label>
                       <Select 
                         value={teamInfo.size} 
-                        onValueChange={(value) => handleTeamInfoChange('size', value)}
+                        onValueChange={(value) => handleTeamInfoChange('size', (value ?? ''))}
                       >
                         <SelectTrigger id="size">
                           <SelectValue placeholder={t('system.settings.team.info.placeholders.size')} />

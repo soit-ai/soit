@@ -523,7 +523,7 @@ function Page() {
               disabled={loading || !settingsHydrated || savingAccess}
               onValueChange={(value) => {
                 if (!settingsHydrated || savingAccess) return
-                setAccess((prev) => ({ ...prev, visibility: value }))
+                setAccess((prev) => ({ ...prev, visibility: value ?? prev.visibility }))
               }}
             >
               <SelectTrigger>

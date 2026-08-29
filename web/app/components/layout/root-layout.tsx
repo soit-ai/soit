@@ -22,6 +22,8 @@ export default function RootLayout() {
     }
     const token = localStorage.getItem('token')
     if (!token) {
+      // Dev builds skip the sign-in interception for local screen review.
+      if (import.meta.env.DEV) return
       clearUser()
       const returnTo = `${location.pathname}${location.search}${location.hash}`
       navigate(signInRouteFor(returnTo), { replace: true })
@@ -44,7 +46,11 @@ export default function RootLayout() {
     }
   }, [clearUser, location.hash, location.pathname, location.search, navigate, setCurrentUser])
 
-  if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+  if (
+    typeof window !== 'undefined' &&
+    !localStorage.getItem('token') &&
+    !import.meta.env.DEV
+  ) {
     return null
   }
 

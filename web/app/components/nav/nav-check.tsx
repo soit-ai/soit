@@ -40,14 +40,12 @@ export function NavCheck({
       <SidebarMenu>
         {items.map((item) => (
           <Collapsible key={item.title} defaultOpen={item.isActive} render={<SidebarMenuItem />}>
-              <SidebarMenuButton asChild tooltip={item.title}>
-                <div className="flex items-center space-x-0">
+              <SidebarMenuButton tooltip={item.title} render={<div className="flex items-center space-x-0">
                   <Checkbox id="terms" />
                   <label htmlFor="terms" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                     {item.title}
                   </label>
-                </div>
-              </SidebarMenuButton>
+                </div>} />
               {item.items?.length ? (
                 <>
                   <CollapsibleTrigger render={<SidebarMenuAction className="data-panel-open:rotate-90" />}>
@@ -58,14 +56,12 @@ export function NavCheck({
                     <SidebarMenuSub>
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
-                          <SidebarMenuSubButton asChild>
-                            <div className="flex items-center space-x-0">
+                          <SidebarMenuSubButton render={<div className="flex items-center space-x-0">
                               <Checkbox id="terms" />
                               <label htmlFor="terms" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                                 {subItem.title}
                               </label>
-                            </div>
-                          </SidebarMenuSubButton>
+                            </div>} />
                         </SidebarMenuSubItem>
                       ))}
                     </SidebarMenuSub>

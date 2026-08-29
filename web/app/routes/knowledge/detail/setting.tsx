@@ -351,7 +351,7 @@ function Page() {
                 <Label>{t('knowledge.setting.basic.visibility')}</Label>
                 <Select
                   value={form.visibility}
-                  onValueChange={(value) => setForm((prev) => ({ ...prev, visibility: value }))}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, visibility: (value ?? '') }))}
                   disabled={loading}
                 >
                   <SelectTrigger>
@@ -538,7 +538,7 @@ function Page() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>{t('knowledge.query.strategyLabel')}</Label>
-                  <Select value={queryStrategy} onValueChange={setQueryStrategy}>
+                  <Select value={queryStrategy} onValueChange={(value) => value != null && setQueryStrategy(value)}>
                     <SelectTrigger>
                       <SelectValue placeholder={t('knowledge.query.strategyPlaceholder')} />
                     </SelectTrigger>
@@ -563,7 +563,7 @@ function Page() {
                 </div>
                 <div className="grid gap-2">
                   <Label>{t('knowledge.query.indexLabel')}</Label>
-                  <Select value={queryIndexId || DEFAULT_QUERY_INDEX_VALUE} onValueChange={setQueryIndexId}>
+                  <Select value={queryIndexId || DEFAULT_QUERY_INDEX_VALUE} onValueChange={(value) => value != null && setQueryIndexId(value)}>
                     <SelectTrigger>
                       <SelectValue placeholder={primaryIndex ? primaryIndex.name : t('knowledge.query.indexPlaceholder')} />
                     </SelectTrigger>
@@ -705,7 +705,7 @@ function Page() {
               <Label>{t('knowledge.setting.indexes.createDialog.metric')}</Label>
               <Select
                 value={createIndexForm.metric_type}
-                onValueChange={(value) => setCreateIndexForm((prev) => ({ ...prev, metric_type: value }))}
+                onValueChange={(value) => setCreateIndexForm((prev) => ({ ...prev, metric_type: (value ?? '') }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t('knowledge.setting.indexes.createDialog.metricPlaceholder')} />

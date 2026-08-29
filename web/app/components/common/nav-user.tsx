@@ -39,8 +39,7 @@ export function NavUser({
     <SidebarMenu className={cn("flex justify-center items-center", className)}>
       <SidebarMenuItem>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg" className={cn('data-[state=open]:bg-sidebar-accent  flex justify-center items-center data-[state=open]:text-sidebar-accent-foreground p-0 ' + (right === true ? 'pr-0' : ''), '')}>
+          <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className={cn('data-[state=open]:bg-sidebar-accent  flex justify-center items-center data-[state=open]:text-sidebar-accent-foreground p-0 ' + (right === true ? 'pr-0' : ''), '')}>
               {right === true ? (
                 <>
                   <div className="grid flex-1 text-right  text-sm leading-tight">
@@ -66,8 +65,7 @@ export function NavUser({
                   {/* <ChevronsUpDown className="ml-auto size-4" /> */}
                 </>
               )}
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
+            </SidebarMenuButton>} />
           <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg" side={isMobile ? 'bottom' : 'right'} align="end" sideOffset={4}>
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">

@@ -309,7 +309,7 @@ function IndexPage() {
 
         <div className="flex items-center gap-3 mr-2">
           <div className="flex items-center w-[220px]">
-            <Select value={agentId} onValueChange={handleAgentChange}>
+            <Select value={agentId} onValueChange={(value) => value != null && handleAgentChange(value)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select agent" />
               </SelectTrigger>
@@ -347,11 +347,9 @@ function IndexPage() {
 
           {/* More options */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon">
                 <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
+              </Button>} />
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleRefresh}>
                 <RefreshCwIcon className="mr-2 h-4 w-4" />

@@ -117,7 +117,7 @@ function Page() {
               {/* Date format */}
               <div className="space-y-2">
                 <Label htmlFor="date-format">{t('system.settings.lang.dateFormat')}</Label>
-                <Select value={dateFormat} onValueChange={setDateFormat}>
+                <Select value={dateFormat} onValueChange={(value) => value != null && setDateFormat(value)}>
                   <SelectTrigger id="date-format">
                     <SelectValue placeholder={t('system.settings.lang.selectDateFormat')} />
                   </SelectTrigger>
@@ -156,7 +156,7 @@ function Page() {
             {/* Timezone settings */}
             <div className="space-y-2">
               <Label htmlFor="timezone">{t('system.settings.lang.timezone')}</Label>
-              <Select value={timezone} onValueChange={setTimezone}>
+              <Select value={timezone} onValueChange={(value) => value != null && setTimezone(value)}>
                 <SelectTrigger id="timezone">
                   <SelectValue placeholder={t('system.settings.lang.selectTimezone')} />
                 </SelectTrigger>

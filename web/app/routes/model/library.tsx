@@ -311,7 +311,7 @@ function ModelLibraryPage() {
         onRefresh={() => { void workbenchQuery.refetch(); void providersQuery.refetch() }}
         actions={(
           <>
-            <Select value={providerFilter} onValueChange={setProviderFilter}>
+            <Select value={providerFilter} onValueChange={(value) => value != null && setProviderFilter(value)}>
               <SelectTrigger className="h-10 w-full border-border bg-panel shadow-sm sm:w-[180px]">
                 <SelectValue placeholder={t('model.library.toolbar.provider')} />
               </SelectTrigger>
@@ -320,7 +320,7 @@ function ModelLibraryPage() {
                 {providers.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(value) => value != null && setStatusFilter(value)}>
               <SelectTrigger className="h-10 w-full border-border bg-panel shadow-sm sm:w-[150px]">
                 <SelectValue placeholder={t('model.library.toolbar.status')} />
               </SelectTrigger>

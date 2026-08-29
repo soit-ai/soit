@@ -18,25 +18,18 @@ export function NavSecondary({
       <SidebarGroupContent>
         <SidebarMenu className="items-center">
           <SidebarMenuItem key={'theme'} className="flex justify-center">
-            <SidebarMenuButton asChild size="lg" className="mx-auto size-11 justify-center p-0">
-              <ModeSwitcher />
-            </SidebarMenuButton>
+            <SidebarMenuButton size="lg" className="mx-auto size-11 justify-center p-0" render={<ModeSwitcher />} />
           </SidebarMenuItem>
           {items.map((item) => (
             <SidebarMenuItem key={item.title} className="flex justify-center">
-              <SidebarMenuButton
-                asChild
-                size="default"
+              <SidebarMenuButton size="default"
                 className="mx-auto size-11 justify-center p-0"
                 tooltip={{
                   children: item.title,
                   hidden: false,
-                }}
-              >
-                <a href={item.url}>
+                }} render={<a href={item.url}>
                   <item.icon className="size-[18px]" />
-                </a>
-              </SidebarMenuButton>
+                </a>} />
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

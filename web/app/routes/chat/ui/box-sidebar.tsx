@@ -369,7 +369,7 @@ export function BoxSidebar({
           </div>
           {providers.length > 0 && (
             <div className="mt-3 px-2">
-              <Select value={selectedProvider || ''} onValueChange={onProviderChange}>
+              <Select value={selectedProvider || ''} onValueChange={(value) => value != null && onProviderChange?.(value)}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder={t('common.model.selector.labels.provider')} />
                 </SelectTrigger>

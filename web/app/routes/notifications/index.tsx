@@ -242,7 +242,7 @@ export default function NotificationsPage() {
                 <Filter className="mr-2 h-4 w-4" />
                 {t('notification.filters.button')}
               </Button>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(value) => value != null && setStatusFilter(value)}>
                 <SelectTrigger className="w-[170px]">
                   <SelectValue placeholder={t('notification.filters.status.label')} />
                 </SelectTrigger>
@@ -254,7 +254,7 @@ export default function NotificationsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={severityFilter} onValueChange={setSeverityFilter}>
+              <Select value={severityFilter} onValueChange={(value) => value != null && setSeverityFilter(value)}>
                 <SelectTrigger className="w-[170px]">
                   <SelectValue placeholder={t('notification.filters.severity.label')} />
                 </SelectTrigger>

@@ -439,7 +439,7 @@ export function SettingSheet(props: SettingSheetProps) {
                   </div>
                   <div className="space-y-2">
                     <Label>{t('model.providerSettings.fields.kind')}</Label>
-                    <Select value={formData.kind} onValueChange={handleProviderKindChange}>
+                    <Select value={formData.kind} onValueChange={(value) => value != null && handleProviderKindChange(value)}>
                       <SelectTrigger>
                         <SelectValue placeholder={t('model.providerSettings.fields.kindPlaceholder')} />
                       </SelectTrigger>

@@ -40,11 +40,9 @@ export function PageHeader({ documentCount, selectedDocs, onShowUploadDialog, on
       <div className="flex items-center gap-2">
         {selectedDocs.length > 0 && (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm">
                 {t('knowledge.document.header.batchActions', { count: selectedDocs.length })}
-              </Button>
-            </DropdownMenuTrigger>
+              </Button>} />
             <DropdownMenuContent>
               <DropdownMenuItem className="text-destructive" onClick={onBatchDelete}>
                 <Trash2 className="mr-2 h-4 w-4" />

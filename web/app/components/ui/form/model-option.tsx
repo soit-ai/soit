@@ -348,7 +348,7 @@ export function ModelOption({
                   <div className="flex items-center gap-2">
                     <Select
                       value={option.responseFormat}
-                      onValueChange={(value) => handleOptionChange("responseFormat", value)}
+                      onValueChange={(value) => handleOptionChange("responseFormat", (value ?? ''))}
                       disabled={option.responseFormat === "auto"}
                     >
                       <SelectTrigger className="h-7 text-xs">

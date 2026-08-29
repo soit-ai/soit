@@ -49,7 +49,7 @@ import { cn } from '@/lib/utils'
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 
-import { ScrollArea as ScrollAreaPrimitive } from 'radix-ui'
+import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 import { Button } from '@/components/ui/button'
 import { MarkdownText } from '@/components/ui/chat/markdown-text'
 import { TooltipIconButton } from '@/components/ui/chat/tooltip-icon-button'
@@ -119,21 +119,23 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
 
   return (
     <ScrollAreaPrimitive.Root
-      asChild
+      render={
+        <ThreadPrimitive.Root className="bg-background box-border flex h-full flex-col overflow-hidden " />
+      }
       className={cn(
         'flex flex-col h-full w-full p-2 justify-center [--thread-max-width:100%] lg:[--thread-max-width:50rem] xl:[--thread-max-width:50rem] 2xl:[--thread-max-width:55rem] 3xl:[--thread-max-width:60rem]',
         className
       )}
     >
-      <ThreadPrimitive.Root className="bg-background box-border flex h-full flex-col overflow-hidden ">
-        {/* {topTitle && (
-          <div className="flex items-center justify-center py-4 border-b">
-            <h2 className="text-lg font-semibold">{topTitle}</h2>
-          </div>
-        )} */}
-        <ScrollAreaPrimitive.Viewport asChild className="thread-viewport flex h-full flex-col ">
-          {/* <ThreadPrimitive.Viewport className="flex h-full flex-col items-center overflow-y-scroll scroll-smooth bg-inherit px-4 pt-8"> */}
-          <ThreadPrimitive.Viewport className={cn('flex h-full flex-col items-center self-stretch overflow-y-scroll bg-inherit px-4 pt-8 ')} style={{ scrollbarWidth: 'none' }}>
+        <ScrollAreaPrimitive.Viewport
+          className="thread-viewport flex h-full flex-col "
+          render={
+            <ThreadPrimitive.Viewport
+              className={cn('flex h-full flex-col items-center self-stretch overflow-y-scroll bg-inherit px-4 pt-8 ')}
+              style={{ scrollbarWidth: 'none' }}
+            />
+          }
+        >
             <ThreadPrimitive.Empty>
               <div className={cn('flex h-full flex-col w-full  max-w-[var(--thread-max-width)] items-center justify-center mt-[0px]')}>
                 <ThreadWelcome />
@@ -155,7 +157,6 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
             <div className="fixed pl-3 pr-3 bottom-[150px] flex w-full min-w-auto max-w-[var(--thread-max-width)] flex-col items-end justify-end rounded-t-lg bg-inherit ">
               <ThreadScrollToBottom />
             </div>
-          </ThreadPrimitive.Viewport>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar />
         <ApprovalInterrupts />
@@ -163,8 +164,6 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
           <Composer className="bottom-0 w-full max-w-[var(--thread-max-width)] mx-2" />
         </ThreadPrimitive.If>
         <ThreadPrimitive.If empty={true}>{inputPosition === 'bottom' && <Composer className="bottom-0 w-full max-w-[var(--thread-max-width)]" />}</ThreadPrimitive.If>
-        
-      </ThreadPrimitive.Root>
     </ScrollAreaPrimitive.Root>
   )
 }

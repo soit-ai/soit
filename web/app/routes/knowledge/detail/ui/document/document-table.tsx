@@ -187,11 +187,9 @@ export function DocumentTable({
                 <TableCell>{doc.updated_at}</TableCell>
                 <TableCell>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
+                    <DropdownMenuTrigger render={<Button variant="ghost" size="sm">
                         <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
+                      </Button>} />
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => onPreviewDoc(doc)}>
                         <Eye className="mr-2 h-4 w-4" />

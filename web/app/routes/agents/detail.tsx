@@ -560,7 +560,7 @@ function AgentDetailPage() {
                 <Label>{t('agent.detail.overview.visibility')}</Label>
                 <Select
                   value={profileForm.visibility}
-                  onValueChange={(value) => setProfileForm((current) => ({ ...current, visibility: value }))}
+                  onValueChange={(value) => setProfileForm((current) => ({ ...current, visibility: (value ?? '') }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('agent.detail.overview.selectVisibility')} />
@@ -578,7 +578,7 @@ function AgentDetailPage() {
                 <Label>{t('agent.detail.overview.status')}</Label>
                 <Select
                   value={profileForm.status}
-                  onValueChange={(value) => setProfileForm((current) => ({ ...current, status: value }))}
+                  onValueChange={(value) => setProfileForm((current) => ({ ...current, status: (value ?? '') }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('agent.detail.overview.selectStatus')} />
@@ -634,7 +634,7 @@ function AgentDetailPage() {
                 <Label>{t('agent.detail.assembly.model')}</Label>
                 <Select
                   value={draftForm.modelRef}
-                  onValueChange={(value) => setDraftForm((current) => ({ ...current, modelRef: value }))}
+                  onValueChange={(value) => setDraftForm((current) => ({ ...current, modelRef: (value ?? '') }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('agent.detail.assembly.selectModel')} />

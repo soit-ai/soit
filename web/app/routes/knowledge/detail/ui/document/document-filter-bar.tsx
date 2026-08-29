@@ -38,7 +38,7 @@ export function DocumentFilterBar({
           className="w-[200px]"
         />
       </div>
-      <Select value={selectedType} onValueChange={onTypeChange}>
+      <Select value={selectedType} onValueChange={(value) => value != null && onTypeChange(value)}>
         <SelectTrigger className="w-[120px]">
           <SelectValue placeholder={t('knowledge.document.filter.typePlaceholder')} />
         </SelectTrigger>

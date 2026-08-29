@@ -31,8 +31,7 @@ export function NavProjects({
       <SidebarMenu>
         {projects.map((item) => (
           <SidebarMenuItem key={item.id || item.name}>
-            <SidebarMenuButton asChild isActive={item.isActive}>
-              <Link
+            <SidebarMenuButton isActive={item.isActive} render={<Link
                 to={item.url}
                 onClick={(e) => {
                   if (item.onClick) {
@@ -47,16 +46,13 @@ export function NavProjects({
                   <span className="truncate text-sm">{item.name}</span>
                   {typeof item.subname == 'string' ? <span className="truncate text-[10px]">{item.subname}</span> : item.subname}
                 </div>
-              </Link>
-            </SidebarMenuButton>
+              </Link>} />
             {item.moreActions && (
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuAction showOnHover>
+                <DropdownMenuTrigger render={<SidebarMenuAction showOnHover>
                     <MoreHorizontal />
                     <span className="sr-only">More</span>
-                </SidebarMenuAction>
-              </DropdownMenuTrigger>
+                </SidebarMenuAction>} />
               <DropdownMenuContent className="w-48" side={isMobile ? 'bottom' : 'right'} align={isMobile ? 'end' : 'start'}>
                 {item.moreActions?.map((more) => (
                   <DropdownMenuItem key={more.label} onClick={more.onClick}>

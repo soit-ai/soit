@@ -188,7 +188,7 @@ function Page() {
           <div className="flex flex-1 flex-wrap gap-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{t('workflow.detail.log.filters.run.label')}</span>
-              <Select value={selectedRunId} onValueChange={setSelectedRunId}>
+              <Select value={selectedRunId} onValueChange={(value) => value != null && setSelectedRunId(value)}>
                 <SelectTrigger className="w-full sm:w-[260px]">
                   <SelectValue placeholder={t('workflow.detail.log.filters.run.placeholder')} />
                 </SelectTrigger>
@@ -208,7 +208,7 @@ function Page() {
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{t('workflow.detail.log.filters.status.label')}</span>
-              <Select value={filters.status} onValueChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}>
+              <Select value={filters.status} onValueChange={(value) => setFilters((prev) => ({ ...prev, status: (value ?? '') }))}>
                 <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder={t('workflow.detail.log.filters.status.label')} />
                 </SelectTrigger>

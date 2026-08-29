@@ -130,9 +130,7 @@ export function SectionTable({ section, onOpenRuns, onOpenDetail }: SectionTable
                     <Button variant="outline" size="icon-sm" aria-label={t('observe.table.rowActions.viewRuns')} onClick={() => onOpenRuns(row)}><BarChart3 className="h-4 w-4" /></Button>
                     <Button variant="outline" size="icon-sm" aria-label={t('observe.table.rowActions.viewDetail')} onClick={() => onOpenDetail(row)}><LineChart className="h-4 w-4" /></Button>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon-sm" aria-label={t('observe.table.rowActions.more')}><MoreHorizontal className="h-4 w-4" /></Button>
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" aria-label={t('observe.table.rowActions.more')}><MoreHorizontal className="h-4 w-4" /></Button>} />
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => onOpenRuns(row)}>{t('observe.table.rowActions.viewRuns')}</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => navigator.clipboard?.writeText(row.id)}>{t('observe.table.rowActions.copyId')}</DropdownMenuItem>

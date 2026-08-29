@@ -288,7 +288,7 @@ function Page() {
           <div className="flex flex-1 flex-wrap gap-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{t('run.list.filters.status.label')}</span>
-              <Select value={filters.status} onValueChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}>
+              <Select value={filters.status} onValueChange={(value) => setFilters((prev) => ({ ...prev, status: (value ?? '') }))}>
                 <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder={t('run.list.filters.status.label')} />
                 </SelectTrigger>

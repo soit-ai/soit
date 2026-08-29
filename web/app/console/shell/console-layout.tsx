@@ -84,10 +84,12 @@ export default function ConsoleLayout() {
 
   // Same session guard as the legacy root layout: unauthenticated visits go
   // to sign-in with a return path; authenticated ones sync the user profile.
+  // Dev builds skip the interception so screens are viewable without login.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const token = localStorage.getItem('token')
     if (!token) {
+      if (import.meta.env.DEV) return
       clearUser()
       const returnTo = `${location.pathname}${location.search}${location.hash}`
       navigate(signInRouteFor(returnTo), { replace: true })
@@ -108,7 +110,11 @@ export default function ConsoleLayout() {
     }
   }, [clearUser, location.hash, location.pathname, location.search, navigate, setCurrentUser])
 
-  if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+  if (
+    typeof window !== 'undefined' &&
+    !localStorage.getItem('token') &&
+    !import.meta.env.DEV
+  ) {
     return null
   }
 

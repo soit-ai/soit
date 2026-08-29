@@ -218,7 +218,7 @@ function TaskCenterPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('task.center.searchPlaceholder')} className="h-10 pl-9" />
           </div>
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={(value) => value != null && setStatus(value)}>
             <SelectTrigger className="h-10 w-[150px] bg-panel">
               <SelectValue placeholder={t('task.center.statusPlaceholder')} />
             </SelectTrigger>

@@ -217,11 +217,9 @@ export const RootHeader = () => {
       <div className="flex items-center justify-end gap-1.5">
         {/* API key management */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.apiKey.label')}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="relative border-transparent" aria-label={t('layout.header.apiKey.label')}>
               <Key className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
+            </Button>} />
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>{t('layout.header.apiKey.title')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -294,11 +292,9 @@ export const RootHeader = () => {
 
         {/* Help center */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.help.label')}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.help.label')}>
               <HelpCircle className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
+            </Button>} />
           <DropdownMenuContent align="end" className="w-56 rounded-[var(--radius-lg)] border-border/70 bg-elevated backdrop-blur-xl">
             <DropdownMenuLabel>{t('layout.header.help.title')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -319,11 +315,9 @@ export const RootHeader = () => {
 
         {/* Language switch */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.language.label')} disabled={isChanging}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.language.label')} disabled={isChanging}>
               <Globe className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
+            </Button>} />
           <DropdownMenuContent align="end" className="w-56 rounded-[var(--radius-lg)] border-border/70 bg-elevated backdrop-blur-xl">
             <DropdownMenuLabel>{t('system.settings.lang.languageSettings')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -348,11 +342,9 @@ export const RootHeader = () => {
 
         {/* Settings */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/settings')}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="border-transparent" aria-label={t('layout.header.settings.label')} onClick={() => navigate('/settings')}>
               <Settings className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
+            </Button>} />
         </DropdownMenu>
 
         <ModeSwitcher />
