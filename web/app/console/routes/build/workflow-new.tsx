@@ -1,9 +1,14 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import { Backlink, ConsoleButton } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { useMutation } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { createTicketTriageWorkflow, createWorkflow } from '@/services/workflow-service'
+import { requestErrorMessage } from '@/utils/request'
 
 const TEMPLATES = [
   { id: 'blank', name: 'Blank canvas', description: 'Start from an empty graph. Input and output nodes are placed for you.', nodes: 2, colors: ['var(--cat-amber)', 'var(--cat-teal)'] },
@@ -16,6 +21,27 @@ export default function ConsoleWorkflowNew() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [selected, setSelected] = useState('blank')
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+
+  // Only the ticket-triage template has a seeding endpoint; every other card
+  // creates an empty workflow the builder then fills in.
+  const createMutation = useMutation({
+    mutationKey: ['console', 'workflows', 'create'],
+    mutationFn: (templateId: string) =>
+      templateId === 'ticket'
+        ? createTicketTriageWorkflow({ name: name.trim() }, { suppressErrorToast: true })
+        : createWorkflow(
+            { name: name.trim(), description: description.trim() || undefined },
+            { suppressErrorToast: true },
+          ),
+    onSuccess: (workflow) => {
+      navigate(`/v2/build/workflows/${workflow.id}`)
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to create the workflow'))
+    },
+  })
 
   return (
     <>
@@ -27,11 +53,21 @@ export default function ConsoleWorkflowNew() {
       <div className="panel" style={{ marginBottom: 12 }}>
         <div className="frow">
           <label>{t('console.wfNew.name')}</label>
-          <input className="input" placeholder="my-workflow" />
+          <input
+            className="input"
+            placeholder="my-workflow"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </div>
         <div className="frow">
           <label>{t('console.wfNew.description')}</label>
-          <input className="input" placeholder="What this workflow does" />
+          <input
+            className="input"
+            placeholder="What this workflow does"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
         </div>
       </div>
 
@@ -57,9 +93,11 @@ export default function ConsoleWorkflowNew() {
               <ConsoleButton
                 variant={selected === template.id ? 'primary' : 'default'}
                 size="sm"
+                disabled={!name.trim() || createMutation.isPending}
                 onClick={(event) => {
                   event.stopPropagation()
-                  navigate('/v2/build/workflows/new-draft')
+                  setSelected(template.id)
+                  createMutation.mutate(template.id)
                 }}
               >
                 {t('console.wfNew.useTemplate')}

@@ -1,16 +1,65 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import { Backlink, ConsoleButton, FilterChip, KeyValueList, StatusChip } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { useMutation } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { createKnowledgeBase } from '@/services/knowledge-service'
+import { requestErrorMessage } from '@/utils/request'
 
 const SOURCE_KINDS = ['Web crawl', 'File upload', 'Git sync', 'API push']
 
-// BACKEND-PENDING: knowledge-service create + ingest estimate endpoints.
+// BACKEND-PENDING: the estimate rail (pages discovered, chunk and time
+// projections) has no endpoint to compute from before the first crawl.
 export default function ConsoleKnowledgeNew() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [sourceKind, setSourceKind] = useState('Web crawl')
+  const [name, setName] = useState('')
+  const [sourceUri, setSourceUri] = useState('')
+  const [depth, setDepth] = useState('3 levels')
+  const [patterns, setPatterns] = useState(
+    'include: /guides/**, /reference/**\nexclude: /blog/**, **/*.zip',
+  )
+  const [chunking, setChunking] = useState('auto · 512 tokens, 64 overlap')
+  const [embedding, setEmbedding] = useState('bge-m3 · vllm self-hosted')
+  const [rerank, setRerank] = useState('on · bge-reranker')
+  const [schedule, setSchedule] = useState('nightly 02:00Z')
+  const [visibility, setVisibility] = useState('workspace · all members')
+
+  // The wizard's controls are richer than the create payload's typed fields, so
+  // the source, schedule and pattern choices ride along in settings_json where
+  // the ingest pipeline reads them.
+  const createMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'create'],
+    mutationFn: () =>
+      createKnowledgeBase(
+        {
+          name: name.trim(),
+          knowledge_type: 'document',
+          visibility: visibility.startsWith('workspace') ? 'workspace' : 'restricted',
+          settings_json: {
+            source_kind: sourceKind,
+            source_uri: sourceUri.trim() || undefined,
+            crawl_depth: depth,
+            patterns,
+            sync_schedule: schedule,
+          },
+          chunking_json: { preset: chunking },
+          retrieval_json: { use_rerank: rerank.startsWith('on') },
+          default_embedding_model_ref: embedding,
+        },
+        { suppressErrorToast: true },
+      ),
+    onSuccess: (knowledge) => {
+      navigate(`/v2/build/knowledge/${knowledge.id}`)
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to create the knowledge base'))
+    },
+  })
 
   return (
     <>
@@ -30,7 +79,12 @@ export default function ConsoleKnowledgeNew() {
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.name')}</label>
-              <input className="input" placeholder="product-docs" />
+              <input
+                className="input"
+                placeholder="product-docs"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.sourceKind')}</label>
@@ -51,11 +105,18 @@ export default function ConsoleKnowledgeNew() {
                 className="input"
                 placeholder="https://docs.acme.io"
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+                value={sourceUri}
+                onChange={(event) => setSourceUri(event.target.value)}
               />
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.depth')}</label>
-              <select className="input" style={{ maxWidth: 140 }} defaultValue="3 levels">
+              <select
+                className="input"
+                style={{ maxWidth: 140 }}
+                value={depth}
+                onChange={(event) => setDepth(event.target.value)}
+              >
                 <option>3 levels</option>
                 <option>2 levels</option>
                 <option>unlimited</option>
@@ -68,7 +129,8 @@ export default function ConsoleKnowledgeNew() {
               </label>
               <textarea
                 className="input"
-                defaultValue={'include: /guides/**, /reference/**\nexclude: /blog/**, **/*.zip'}
+                value={patterns}
+                onChange={(event) => setPatterns(event.target.value)}
               />
             </div>
           </div>
@@ -81,7 +143,11 @@ export default function ConsoleKnowledgeNew() {
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.chunking')}</label>
-              <select className="input" defaultValue="auto · 512 tokens, 64 overlap">
+              <select
+                className="input"
+                value={chunking}
+                onChange={(event) => setChunking(event.target.value)}
+              >
                 <option>auto · 512 tokens, 64 overlap</option>
                 <option>auto · 1024 tokens</option>
                 <option>by heading</option>
@@ -89,21 +155,35 @@ export default function ConsoleKnowledgeNew() {
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.embedding')}</label>
-              <select className="input" defaultValue="bge-m3 · vllm self-hosted">
+              <select
+                className="input"
+                value={embedding}
+                onChange={(event) => setEmbedding(event.target.value)}
+              >
                 <option>bge-m3 · vllm self-hosted</option>
                 <option>voyage-3</option>
               </select>
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.rerank')}</label>
-              <select className="input" style={{ maxWidth: 200 }} defaultValue="on · bge-reranker">
+              <select
+                className="input"
+                style={{ maxWidth: 200 }}
+                value={rerank}
+                onChange={(event) => setRerank(event.target.value)}
+              >
                 <option>on · bge-reranker</option>
                 <option>off</option>
               </select>
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.schedule')}</label>
-              <select className="input" style={{ maxWidth: 200 }} defaultValue="nightly 02:00Z">
+              <select
+                className="input"
+                style={{ maxWidth: 200 }}
+                value={schedule}
+                onChange={(event) => setSchedule(event.target.value)}
+              >
                 <option>nightly 02:00Z</option>
                 <option>hourly</option>
                 <option>manual only</option>
@@ -139,7 +219,12 @@ export default function ConsoleKnowledgeNew() {
             </div>
             <div className="frow">
               <label>{t('console.knowNew.fields.visibility')}</label>
-              <select className="input" style={{ maxWidth: 240 }} defaultValue="workspace · all members">
+              <select
+                className="input"
+                style={{ maxWidth: 240 }}
+                value={visibility}
+                onChange={(event) => setVisibility(event.target.value)}
+              >
                 <option>workspace · all members</option>
                 <option>restricted · selected teams</option>
               </select>
@@ -152,7 +237,11 @@ export default function ConsoleKnowledgeNew() {
               {t('console.knowNew.cancel')}
             </ConsoleButton>
             <ConsoleButton>{t('console.knowNew.saveDraft')}</ConsoleButton>
-            <ConsoleButton variant="primary" onClick={() => navigate('/v2/build/knowledge')}>
+            <ConsoleButton
+              variant="primary"
+              disabled={!name.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate(undefined)}
+            >
               {t('console.knowNew.create')}
             </ConsoleButton>
           </div>
