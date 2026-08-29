@@ -568,26 +568,6 @@
 .console-root .chatpane{display:flex;flex-direction:column;overflow:hidden}
 .console-root .chat-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);flex:none}
 .console-root .chat-head h2{font-size:13px;font-weight:600}
-.console-root .msgs{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
-.console-root .msg{display:flex;gap:11px;max-width:760px}
-.console-root .msg .who{flex:none;margin-top:1px}
-.console-root .msg-h{display:flex;align-items:baseline;gap:8px}
-.console-root .msg-h b{font-size:12.5px;font-weight:600}
-.console-root .msg-h time{font-family:var(--font-mono);font-size:10px;color:var(--faint)}
-.console-root .msg-b{font-size:13px;line-height:1.6;color:var(--foreground);margin-top:2px}
-.console-root .msg-b .mono{font-size:12px}
-.console-root .msg-b p+p{margin-top:6px}
-.console-root .caret{display:inline-block;width:7px;height:13px;background:var(--primary);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
-@keyframes blink{50%{opacity:0}}
-.console-root .evd{
-  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
-  padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--shell);
-  font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground);
-}
-.console-root .evd:hover{border-color:var(--border-strong)}
-.console-root .evd .runid{font-size:11px}
-.console-root .evd .sep{color:var(--faint)}
-.console-root .composer{flex:none;border-top:1px solid var(--border);padding:10px 12px}
 
 /* The conversation is the assistant-ui thread, not the prototype's own message
    list: give it the pane's remaining height and let it own its scrolling, and
@@ -595,10 +575,6 @@
 .console-root .chatpane-thread{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .console-root .chatpane-thread>*{flex:1;min-height:0}
 .console-root .chatpane .composer-note{flex:none;border-top:1px solid var(--border);padding:8px 14px 9px}
-.console-root .composer-box{display:flex;align-items:center;gap:10px;background:var(--shell);border:1px solid var(--border);border-radius:9px;padding:8px 8px 8px 12px}
-.console-root .composer-box:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
-.console-root .composer-box input{flex:1;background:none;border:none;outline:none;color:var(--foreground);font:inherit;font-size:13px}
-.console-root .composer-box input::placeholder{color:var(--faint)}
 .console-root .composer-note{display:flex;gap:14px;padding:7px 4px 0;font-family:var(--font-mono);font-size:10px;color:var(--faint)}
 
 /* tasks */
@@ -949,7 +925,7 @@
 .console-root{font-size:13px}
 .console-root .page-head h1{font-size:18px;letter-spacing:-.015em}
 .console-root .panel-head h2{letter-spacing:.005em}
-.console-root .mono, .console-root .tile .val, .console-root td.num, .console-root th.num, .console-root .sl .ct, .console-root .sdur, .console-root .evd, .console-root .kv .v, .console-root .progress em, .console-root .sem .etype, .console-root .axisrow, .console-root .thread b time, .console-root .msg-h time{font-variant-numeric:tabular-nums}
+.console-root .mono, .console-root .tile .val, .console-root td.num, .console-root th.num, .console-root .sl .ct, .console-root .sdur, .console-root .kv .v, .console-root .progress em, .console-root .sem .etype, .console-root .axisrow, .console-root .thread b time{font-variant-numeric:tabular-nums}
 
 /* depth: hairline top highlight + micro shadow, never heavy */
 .console-root .panel, .console-root .tile, .console-root .acard, .console-root .node, .console-root .modal-box, .console-root .cmdk-box{box-shadow:var(--shadow-1)}
@@ -982,7 +958,7 @@
 .console-root .tabs button.on{position:relative}
 
 /* inputs */
-.console-root .input, .console-root .fsearch, .console-root .searchbtn, .console-root .composer-box{transition:border-color .12s ease,box-shadow .12s ease}
+.console-root .input, .console-root .fsearch, .console-root .searchbtn{transition:border-color .12s ease,box-shadow .12s ease}
 
 /* tiles: staggered settle on view entry */
 .console-root .view.active .tiles .tile{animation:fadein .28s ease backwards}
