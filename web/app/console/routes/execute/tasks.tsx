@@ -151,7 +151,10 @@ export default function ConsoleTasks() {
       title={t('console.tasks.title')}
       description={t('console.tasks.description')}
       actions={
-        <ConsoleButton variant="primary">
+        // There is no POST /tasks: a task is created by the runtime when a run
+        // needs one, so the honest affordance is to go start a run rather than
+        // offer a create dialog with nothing behind it.
+        <ConsoleButton variant="primary" onClick={() => navigate('/v2/chat')}>
           <IconPlus />
           {t('console.tasks.newTask')}
         </ConsoleButton>
