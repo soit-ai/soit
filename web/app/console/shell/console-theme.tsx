@@ -9,6 +9,9 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 export type ConsoleTheme = 'dark' | 'light'
 
 export const CONSOLE_THEME_STORAGE_KEY = 'soit-console-theme'
+/** The key the pre-rebuild tree wrote, read once so the switch-over to the
+ *  console at the root does not silently discard an existing preference. */
+const LEGACY_THEME_STORAGE_KEY = 'vite-ui-theme'
 const DEFAULT_THEME: ConsoleTheme = 'dark'
 
 interface ConsoleThemeState {
@@ -26,7 +29,12 @@ const ConsoleThemeContext = createContext<ConsoleThemeState>({
 function readStoredTheme(): ConsoleTheme {
   if (typeof window === 'undefined') return DEFAULT_THEME
   const stored = window.localStorage.getItem(CONSOLE_THEME_STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' ? stored : DEFAULT_THEME
+  if (stored === 'light' || stored === 'dark') return stored
+  // No console preference yet: adopt the legacy one if the user set it there.
+  // "system" is not a console theme, so it falls through to the dark default.
+  const legacy = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY)
+  if (legacy === 'light' || legacy === 'dark') return legacy
+  return DEFAULT_THEME
 }
 
 export function ConsoleThemeProvider({ children }: { children: React.ReactNode }) {
