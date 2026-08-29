@@ -56,6 +56,8 @@ export default [
     // which is prototype-derived by definition — while still rendering inside
     // the shell, because the rail links here.
     route('feedback', './system/feedback.tsx'),
+    // Same for the notification centre, which the topbar bell links to.
+    route('notifications', './system/notifications.tsx'),
     route('_kitchen', './console/routes/kitchen.tsx'),
   ]),
 
