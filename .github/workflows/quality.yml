@@ -319,6 +319,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Design-system tests
+        run: npm test
+
       - name: Dependency audit
         run: npm audit --omit=dev
 

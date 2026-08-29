@@ -1,0 +1,144 @@
+/*
+ * SOIT Console (v2) token increments, scoped to `.console-root`.
+ *
+ * Base ramps, semantic status colours and the categorical palette live in
+ * app/app.css and are shared with the legacy tree — nothing there moves.
+ * This file only adds what the v13 prototype needs on top of that baseline
+ * (spec source: docs/product prototypes, v13 assets/console.css + DESIGN.md):
+ * engineering type stack, press state, hover wash, raised surface, the quiet
+ * depth layer and data density. Utility mappings for the new tokens
+ * (--color-primary-press etc.) are registered in app/app.css @theme inline.
+ */
+
+.console-root {
+  /* Type: IBM Plex Sans for UI, JetBrains Mono for data. Chinese text falls
+     back to the system stack. Woff2 files ship via @fontsource imports in
+     shell/console-layout.tsx. */
+  --font-sans:
+    'IBM Plex Sans', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'SFMono-Regular',
+    Consolas, 'PingFang SC', 'Microsoft YaHei', monospace;
+
+  /* Interaction tokens. Hover on primary is always a darker stop of the same
+     ramp (DESIGN.md: hover only ever darkens). */
+  --primary-press: var(--brand-blue-700);
+  --hover-wash: rgb(15 23 42 / 0.04);
+  --raised: #f1f5f9;
+  --border-strong: rgb(15 23 42 / 0.17);
+
+  /* Depth layer: hairline top highlight + micro shadow, never heavy. */
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-2: 0 8px 28px rgb(15 23 42 / 0.09);
+  --hl: rgb(255 255 255 / 0.7);
+  --thbg: rgb(15 23 42 / 0.025);
+  --glow: radial-gradient(1100px 480px at 16% -6%, rgb(0 115 213 / 0.045), transparent 62%);
+
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.console-root.dark {
+  --primary-press: var(--brand-blue-500);
+  --hover-wash: rgb(255 255 255 / 0.04);
+  --raised: #1c2740;
+  --border-strong: rgb(255 255 255 / 0.14);
+
+  --shadow-1: 0 1px 2px rgb(2 6 16 / 0.35);
+  --shadow-2: 0 8px 28px rgb(2 6 16 / 0.35);
+  --hl: rgb(255 255 255 / 0.055);
+  --thbg: rgb(255 255 255 / 0.022);
+  --glow: radial-gradient(1100px 480px at 16% -6%, rgb(59 158 255 / 0.05), transparent 62%);
+}
+
+/* Data is always tabular. Applied broadly: every numeric column, id, count,
+   duration and timestamp in the console renders in mono with lining figures. */
+.console-root {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Panel depth: micro shadow plus a hairline top highlight. Use together with
+   border/background utilities (border-border bg-panel rounded-md). */
+.console-depth {
+  position: relative;
+  box-shadow: var(--shadow-1);
+}
+.console-depth::after {
+  content: '';
+  position: absolute;
+  inset: 0 10px auto 10px;
+  height: 1px;
+  pointer-events: none;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--hl), transparent);
+}
+
+/* One quiet brand glow behind the working area — the only ambient gradient
+   allowed in the console. */
+.console-glow {
+  background-image: var(--glow);
+}
+
+/* Identity mark (categorical = kind, never state). Colour arrives through
+   the --c custom property, always one of the --cat-* tokens. */
+.console-idm {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  flex: none;
+  display: inline-block;
+  position: relative;
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 34%, transparent);
+}
+.console-idm::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0.9;
+  transform: skewX(-12deg);
+}
+
+/* v13: buttons are flat. Shared shadcn primitives rendered inside the console
+   keep their focus ring but lose decorative gradients and drop shadows. */
+.console-root [data-slot='button']:not(:focus-visible) {
+  box-shadow: none;
+}
+.console-root [data-slot='button'] {
+  background-image: none;
+}
+
+/* Thin, quiet, rounded scrollbars. */
+.console-root *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.console-root *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.console-root *::-webkit-scrollbar-thumb {
+  background: var(--raised);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+.console-root *::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .console-root *,
+  .console-root *::before,
+  .console-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

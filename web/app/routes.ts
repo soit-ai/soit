@@ -1,6 +1,13 @@
 import { type RouteConfig, index, route, layout, prefix } from '@react-router/dev/routes'
 
 export default [
+  // Console v2 (v13 prototype rebuild) — parallel tree under /v2 until switch-over (P7).
+  ...prefix('/v2', [
+    layout('./console/shell/console-layout.tsx', [
+      index('./console/routes/overview.tsx'),
+    ]),
+  ]),
+
   // index('./routes/index/index.tsx'),
   route('/sign-in', './routes/auth/sign-in.tsx'),
   route('/sign-up', './routes/auth/sign-up.tsx'),

@@ -8,6 +8,7 @@ type TranslationKeys = {
   login: typeof import('./en-US/login').default
   model: typeof import('./en-US/model').default
   chat: typeof import('./en-US/chat').default
+  console: typeof import('./en-US/console').default
   knowledge: typeof import('./en-US/knowledge').default
   observe: typeof import('./en-US/observe').default
   run: typeof import('./en-US/run').default

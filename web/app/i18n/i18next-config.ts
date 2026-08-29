@@ -23,6 +23,7 @@ const loadLangResources = async (lang: string): Promise<ResourceType | null> => 
         agent: (await import(`./${lang}/agent.ts`)).default,
         chat: (await import(`./${lang}/chat.ts`)).default,
         common: (await import(`./${lang}/common.ts`)).default,
+        console: (await import(`./${lang}/console.ts`)).default,
         knowledge: (await import(`./${lang}/knowledge.ts`)).default,
         layout: (await import(`./${lang}/layout.ts`)).default,
         login: (await import(`./${lang}/login.ts`)).default,
