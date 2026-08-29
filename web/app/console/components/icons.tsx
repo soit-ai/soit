@@ -117,6 +117,8 @@ export const IconSearch = makeIcon(
 
 export const IconChevronRight = makeIcon(<path d="m10 6 6 6-6 6" />, 13)
 
+export const IconChevronLeft = makeIcon(<path d="m14 6-6 6 6 6" />, 13)
+
 /** The parametric two-slab mark; slab colours come from the brand tokens. */
 export function IconLogo({ size = 24, ...props }: IconProps) {
   return (

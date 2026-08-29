@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { CornerDownLeft } from 'lucide-react'
+import { Command } from 'cmdk'
 
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
+import { IconSearch } from '@/console/components/icons'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import { searchWorkspace, type GlobalSearchResult } from '@/services/global-search-service'
@@ -17,9 +10,9 @@ import { searchWorkspace, type GlobalSearchResult } from '@/services/global-sear
 import { useConsoleNavigate } from './use-console-navigate'
 
 /**
- * ⌘K palette. Rendered as a fixed overlay inside .console-root on purpose:
- * a portalled dialog would land on <body>, outside the console's scoped
- * theme and type tokens.
+ * ⌘K palette (prototype .cmdk). Rendered as a fixed overlay inside
+ * .console-root on purpose: a portalled dialog would land on <body>,
+ * outside the console's scoped theme and type tokens.
  */
 const JUMP_TARGETS: { labelKey: TranslationKey; to: string }[] = [
   { labelKey: 'console.nav.overview', to: '/v2' },
@@ -86,54 +79,58 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[14vh] backdrop-blur-[2px]"
-      onClick={onClose}
-    >
-      <div
-        className="console-depth w-[520px] overflow-hidden rounded-xl border border-border-strong bg-panel"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <Command shouldFilter={results.length === 0} className="bg-transparent">
-          <CommandInput
-            autoFocus
-            value={query}
-            onValueChange={setQuery}
-            placeholder={t('console.shell.searchPlaceholder')}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') onClose()
-            }}
-          />
-          <CommandList className="max-h-[300px]">
-            <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
-              {t('console.shell.searchEmpty')}
-            </CommandEmpty>
+    <div className="cmdk open" onClick={onClose}>
+      <div className="cmdk-box" onClick={(event) => event.stopPropagation()}>
+        <Command shouldFilter={results.length === 0}>
+          <div className="cmdk-in">
+            <IconSearch style={{ color: 'var(--faint)' }} />
+            <Command.Input
+              autoFocus
+              value={query}
+              onValueChange={setQuery}
+              placeholder={t('console.shell.searchPlaceholder')}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') onClose()
+              }}
+            />
+          </div>
+          <Command.List className="cmdk-list">
+            <Command.Empty>
+              <div className="empty-note">{t('console.shell.searchEmpty')}</div>
+            </Command.Empty>
             {results.length > 0 && (
-              <CommandGroup heading={t('console.shell.results')}>
+              <Command.Group heading={<div className="cap">{t('console.shell.results')}</div>}>
                 {results.map((item) => (
-                  <CommandItem
+                  <Command.Item
                     key={`${item.kind}-${item.id}`}
                     value={`${item.kind}-${item.id}`}
                     onSelect={() => go(item.url)}
                   >
-                    <span className="font-mono text-[10.5px] text-muted-foreground/70">{item.kind}</span>
+                    <span className="mono dimmer">{item.kind}</span>
                     <span className="truncate">{item.title}</span>
-                    {item.subtitle && (
-                      <span className="truncate text-muted-foreground">{item.subtitle}</span>
-                    )}
-                  </CommandItem>
+                    {item.subtitle && <span className="dim truncate">{item.subtitle}</span>}
+                  </Command.Item>
                 ))}
-              </CommandGroup>
+              </Command.Group>
             )}
-            <CommandGroup heading={t('console.shell.jumpTo')}>
+            <Command.Group heading={<div className="cap">{t('console.shell.jumpTo')}</div>}>
               {JUMP_TARGETS.map((target) => (
-                <CommandItem key={target.to} value={t(target.labelKey)} onSelect={() => go(target.to)}>
+                <Command.Item
+                  key={target.to}
+                  value={t(target.labelKey)}
+                  onSelect={() => go(target.to)}
+                >
                   {t(target.labelKey)}
-                  <CornerDownLeft className="ml-auto size-3 text-muted-foreground/50" />
-                </CommandItem>
+                  <kbd>↵</kbd>
+                </Command.Item>
               ))}
-            </CommandGroup>
-          </CommandList>
+            </Command.Group>
+          </Command.List>
+          <div className="cmdk-foot">
+            <span>↑↓ navigate</span>
+            <span>↵ open</span>
+            <span>esc close</span>
+          </div>
         </Command>
       </div>
     </div>

@@ -3,8 +3,8 @@ import type { CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Categorical identity for object kinds — never used to encode status.
- * Colours come exclusively from the --cat-* palette in app/app.css.
+ * Categorical identity for object kinds (prototype .idm) — never used to
+ * encode status. Colours come exclusively from the --cat-* palette.
  */
 export type ConsoleKind =
   | 'agent'
@@ -46,14 +46,10 @@ interface KindChipProps {
 export function KindChip({ kind, label, markOnly, className }: KindChipProps) {
   const style = { '--c': CONSOLE_KIND_COLOR[kind] } as CSSProperties
 
-  if (markOnly) {
-    return <i aria-hidden className={cn('console-idm', className)} style={style} />
-  }
-
   return (
-    <span className={cn('inline-flex items-center gap-2', className)} style={style}>
-      <i aria-hidden className="console-idm" />
-      <span className="font-mono text-[10.5px] text-muted-foreground">{label ?? kind}</span>
+    <span className={cn('idm', className)} style={style}>
+      <i aria-hidden />
+      {!markOnly && (label ?? kind)}
     </span>
   )
 }

@@ -53,13 +53,15 @@ function ConsoleRoot() {
   return (
     <div
       className={cn(
-        'console-root flex h-dvh min-w-0 overflow-hidden bg-background text-foreground',
+        'console-root shell',
         theme === 'dark' && 'dark',
+        panelCollapsed && 'subnav-collapsed',
+        nosider && 'nosider',
       )}
     >
       {!nosider && <IconRail />}
-      {!nosider && !panelCollapsed && <ContextPanel onCollapse={() => setCollapsed(true)} />}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {!nosider && <ContextPanel onCollapse={() => setCollapsed(true)} />}
+      <div className="main">
         {!nosider && (
           <Topbar
             panelCollapsed={panelCollapsed}
@@ -67,8 +69,10 @@ function ConsoleRoot() {
             onOpenSearch={() => setSearchOpen(true)}
           />
         )}
-        <main className="console-glow min-h-0 flex-1 overflow-y-auto px-6 pb-12 pt-5.5">
-          <Outlet />
+        <main className="content">
+          <section className="view active">
+            <Outlet />
+          </section>
         </main>
       </div>
       <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />

@@ -1,19 +1,17 @@
 /*
- * SOIT Console (v2) token increments, scoped to `.console-root`.
+ * SOIT Console (v2) design system - a faithful port of the v13 prototype
+ * stylesheet (docs/product prototypes, v13 assets/console.css), scoped under
+ * .console-root and remapped onto the app token names so Tailwind utilities
+ * and the ported structural classes resolve to the same values.
  *
- * Base ramps, semantic status colours and the categorical palette live in
- * app/app.css and are shared with the legacy tree — nothing there moves.
- * This file only adds what the v13 prototype needs on top of that baseline
- * (spec source: docs/product prototypes, v13 assets/console.css + DESIGN.md):
- * engineering type stack, press state, hover wash, raised surface, the quiet
- * depth layer and data density. Utility mappings for the new tokens
- * (--color-primary-press etc.) are registered in app/app.css @theme inline.
+ * Discipline (DESIGN.md): one brand hue (Signal Blue), status hues reserved
+ * for state, categorical hues for identity only, --contrast marks run ids.
+ * v13: buttons are flat - solid fills, hover one stop darker, no shadows.
  */
 
 .console-root {
-  /* Type: IBM Plex Sans for UI, JetBrains Mono for data. Chinese text falls
-     back to the system stack. Woff2 files ship via @fontsource imports in
-     shell/console-layout.tsx. */
+  /* Type: IBM Plex Sans for UI, JetBrains Mono for data; Chinese falls back
+     to the system stack. Woff2 ships via @fontsource imports in the shell. */
   --font-sans:
     'IBM Plex Sans', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif,
@@ -22,14 +20,65 @@
     'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'SFMono-Regular',
     Consolas, 'PingFang SC', 'Microsoft YaHei', monospace;
 
-  /* Interaction tokens. Hover on primary is always a darker stop of the same
-     ramp (DESIGN.md: hover only ever darkens). */
-  --primary-press: var(--brand-blue-700);
-  --hover-wash: rgb(15 23 42 / 0.04);
+  /* ---- light theme (prototype [data-theme=light]) ---- */
+  --background: #f7f9fc;
+  --shell: #ffffff;
+  --shell-foreground: #0f172a;
+  --panel: #ffffff;
+  --panel-foreground: #0f172a;
+  --elevated: #ffffff;
   --raised: #f1f5f9;
+  --foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --faint: #94a3b8;
+  --hover-wash: rgb(15 23 42 / 0.04);
+  --border: rgb(15 23 42 / 0.10);
   --border-strong: rgb(15 23 42 / 0.17);
+  --input: rgb(15 23 42 / 0.10);
 
-  /* Depth layer: hairline top highlight + micro shadow, never heavy. */
+  --primary: var(--brand-blue-600);
+  --primary-press: var(--brand-blue-700);
+  --primary-foreground: #ffffff;
+  --primary-subtle: var(--brand-blue-50);
+  --primary-subtle-foreground: var(--brand-blue-900);
+  --contrast: var(--brand-blue-900);
+  --ring: rgb(43 147 234 / 0.34);
+
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+
+  --success: #047857;
+  --success-foreground: #047857;
+  --ok-tint: rgb(4 120 87 / 0.10);
+  --warning: #b45309;
+  --warning-foreground: #b45309;
+  --warn-tint: rgb(180 83 9 / 0.11);
+  --danger: #b91c1c;
+  --danger-foreground: #b91c1c;
+  --bad-tint: rgb(185 28 28 / 0.09);
+  --info: #475569;
+  --info-foreground: #334155;
+  --info-tint: rgb(71 85 105 / 0.10);
+  --destructive: var(--danger);
+
+  --cat-blue: var(--brand-blue-600);
+  --cat-cyan: #0e7490;
+  --cat-teal: var(--brand-teal-700);
+  --cat-purple: #7c3aed;
+  --cat-indigo: #4f46e5;
+  --cat-pink: #db2777;
+  --cat-amber: #b45309;
+  --cat-slate: #64748b;
+
+  --chart-1: var(--brand-blue-600);
+  --chart-2: #18a7a1;
+  --chart-3: #8b5cf6;
+  --chart-5: #64748b;
+
+  /* depth layer (v8 polish) */
   --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06);
   --shadow-2: 0 8px 28px rgb(15 23 42 / 0.09);
   --hl: rgb(255 255 255 / 0.7);
@@ -39,14 +88,69 @@
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 .console-root.dark {
-  --primary-press: var(--brand-blue-500);
-  --hover-wash: rgb(255 255 255 / 0.04);
+  /* ---- dark theme (prototype :root) ---- */
+  --background: var(--brand-graphite);
+  --shell: #0d1526;
+  --shell-foreground: #edf2f9;
+  --panel: #131c2e;
+  --panel-foreground: #edf2f9;
+  --elevated: #1c2740;
   --raised: #1c2740;
+  --foreground: #edf2f9;
+  --muted: #1c2740;
+  --muted-foreground: #9aa8bc;
+  --faint: #64748b;
+  --hover-wash: rgb(255 255 255 / 0.04);
+  --border: rgb(255 255 255 / 0.08);
   --border-strong: rgb(255 255 255 / 0.14);
+  --input: rgb(255 255 255 / 0.08);
+
+  --primary: var(--brand-blue-400);
+  --primary-press: var(--brand-blue-500);
+  --primary-foreground: var(--brand-graphite);
+  --primary-subtle: var(--brand-blue-950);
+  --primary-subtle-foreground: var(--brand-blue-300);
+  --contrast: var(--brand-blue-300);
+  --ring: rgb(59 158 255 / 0.32);
+
+  --secondary: #1c2740;
+  --secondary-foreground: #edf2f9;
+  --accent: #1c2740;
+  --accent-foreground: #edf2f9;
+
+  --success: #34d399;
+  --success-foreground: #6ee7b7;
+  --ok-tint: rgb(52 211 153 / 0.12);
+  --warning: #fbbf24;
+  --warning-foreground: #fcd34d;
+  --warn-tint: rgb(251 191 36 / 0.13);
+  --danger: #f87171;
+  --danger-foreground: #fca5a5;
+  --bad-tint: rgb(248 113 113 / 0.12);
+  --info: #94a3b8;
+  --info-foreground: #cbd5e1;
+  --info-tint: rgb(148 163 184 / 0.12);
+
+  --cat-blue: var(--brand-blue-400);
+  --cat-cyan: #22d3ee;
+  --cat-teal: var(--brand-teal-400);
+  --cat-purple: #a78bfa;
+  --cat-indigo: #818cf8;
+  --cat-pink: #f472b6;
+  --cat-amber: #fbbf24;
+  --cat-slate: #94a3b8;
+
+  --chart-1: var(--brand-blue-400);
+  --chart-2: #2dd4bf;
+  --chart-3: #a78bfa;
+  --chart-5: #94a3b8;
 
   --shadow-1: 0 1px 2px rgb(2 6 16 / 0.35);
   --shadow-2: 0 8px 28px rgb(2 6 16 / 0.35);
@@ -55,90 +159,730 @@
   --glow: radial-gradient(1100px 480px at 16% -6%, rgb(59 158 255 / 0.05), transparent 62%);
 }
 
-/* Data is always tabular. Applied broadly: every numeric column, id, count,
-   duration and timestamp in the console renders in mono with lining figures. */
-.console-root {
-  font-variant-numeric: tabular-nums;
+/* base element behaviour inside the console, per the prototype */
+.console-root a { color: inherit; text-decoration: none; }
+.console-root button { font: inherit; color: inherit; cursor: pointer; }
+.console-root ::selection { background: var(--ring); }
+.console-root :focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: 6px; }
+
+/* ---------- shell ---------- */
+.console-root.shell{display:flex;height:100vh;min-width:1080px}
+.console-root.shell.nosider{min-width:0}
+
+/* ---------- two-tier sidebar: icon rail + contextual panel ---------- */
+.console-root .navrail{
+  width:58px;flex:none;display:flex;flex-direction:column;align-items:center;
+  background:var(--shell);border-right:1px solid var(--border);padding:10px 0 12px;gap:4px;
+}
+.console-root .rail-logo{width:34px;height:34px;border-radius:8px;background:var(--panel);
+  border:1px solid var(--border);display:grid;place-items:center;margin-bottom:8px}
+.console-root .rail-btn{
+  width:40px;height:40px;border-radius:9px;display:grid;place-items:center;
+  color:var(--muted-foreground);position:relative;
+}
+.console-root .rail-btn:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .rail-btn.active{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root .rail-btn.active::before{content:"";position:absolute;left:-9px;top:10px;bottom:10px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--primary)}
+.console-root .rail-btn.util{width:36px;height:32px}
+.console-root .rail-sep{width:24px;height:1px;background:var(--border);margin:5px 0}
+.console-root .navrail .grow{flex:1}
+.console-root .avatar{width:26px;height:26px;border-radius:50%;background:var(--primary-subtle);
+  color:var(--primary-subtle-foreground);display:grid;place-items:center;
+  font-size:11px;font-weight:600;flex:none}
+
+.console-root .subnav{
+  width:230px;flex:none;display:flex;flex-direction:column;
+  background:var(--shell);border-right:1px solid var(--border);min-width:0;
+}
+.console-root.shell.subnav-collapsed .subnav{display:none}
+.console-root .subnav-head{display:flex;align-items:center;gap:8px;padding:12px 12px 10px;border-bottom:1px solid var(--border)}
+.console-root .subnav-head b{font-size:12.5px;font-weight:600}
+.console-root .subnav-head .mono{font-size:9.5px;color:var(--faint)}
+.console-root .subnav-collapse{margin-left:auto;width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--faint)}
+.console-root .subnav-collapse:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .subnav-body{flex:1;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
+.console-root .sub-panel{display:none}
+.console-root .sub-panel.on{display:block}
+.console-root .sub-cap{padding:12px 8px 4px;font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+.console-root .sub-panel .sub-cap:first-child{padding-top:2px}
+.console-root a.sl{
+  display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;
+  color:var(--muted-foreground);font-size:12.5px;font-weight:500;margin-bottom:1px;
+}
+.console-root a.sl:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root a.sl.active{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root a.sl svg{flex:none;opacity:.85}
+.console-root .sl .ct{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .sl.active .ct{color:inherit;opacity:.75}
+.console-root .livedot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:var(--primary);animation:pulse 1.4s ease infinite;flex:none}
+.console-root a.sub-mini{display:block;padding:5px 8px;border-radius:6px;margin-bottom:1px}
+.console-root a.sub-mini:hover{background:var(--hover-wash)}
+.console-root .sub-mini b{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;font-weight:500;color:var(--foreground)}
+.console-root .sub-mini b .mono{font-size:9.5px;color:var(--faint);font-weight:400;flex:none}
+.console-root .sub-mini small{display:block;font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.console-root a.sub-note{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:11.5px;color:var(--muted-foreground)}
+.console-root a.sub-note:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .sub-note i{width:6px;height:6px;border-radius:50%;flex:none;background:var(--faint)}
+.console-root .sub-note .ct{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .subnav-foot{border-top:1px solid var(--border);padding:9px 12px;display:flex;align-items:center;gap:7px;
+  font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .subnav-foot i{width:7px;height:7px;border-radius:50%;background:var(--success);flex:none}
+.console-root .subnav-open{display:none;width:26px;height:26px;border-radius:7px;place-items:center;
+  color:var(--muted-foreground);border:1px solid var(--border);background:var(--panel);flex:none}
+.console-root.shell.subnav-collapsed .subnav-open{display:grid}
+.console-root .subnav-open:hover{color:var(--foreground);border-color:var(--border-strong)}
+
+/* ---------- topbar ---------- */
+.console-root .main{flex:1;min-width:0;display:flex;flex-direction:column}
+.console-root .topbar{
+  height:52px;flex:none;display:flex;align-items:center;gap:12px;
+  padding:0 20px;border-bottom:1px solid var(--border);background:var(--background);
+}
+.console-root .crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted-foreground);min-width:0}
+.console-root .crumb b{color:var(--foreground);font-weight:600}
+.console-root .crumb .sep{color:var(--faint)}
+.console-root .env{
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em;color:var(--primary-subtle-foreground);
+  background:var(--primary-subtle);border:1px solid transparent;border-radius:99px;padding:2px 9px;
+}
+.console-root .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.console-root .searchbtn{
+  display:flex;align-items:center;gap:8px;width:230px;height:30px;padding:0 10px;
+  background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--faint);
+  font-size:12.5px;
+}
+.console-root .searchbtn:hover{border-color:var(--border-strong)}
+.console-root .searchbtn kbd{
+  margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--muted-foreground);
+  border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--background);
+}
+.console-root .iconbtn{
+  width:30px;height:30px;border-radius:7px;display:grid;place-items:center;
+  color:var(--muted-foreground);border:1px solid transparent;position:relative;
+}
+.console-root .iconbtn:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .iconbtn .dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;
+  background:var(--primary);border:1.5px solid var(--background)}
+.console-root.dark .sun{display:block}.console-root.dark .moon{display:none}
+.console-root:not(.dark) .sun{display:none}.console-root:not(.dark) .moon{display:block}
+
+/* ---------- content ---------- */
+.console-root .content{flex:1;overflow-y:auto;padding:22px 24px 48px;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
+.console-root .view{display:none;max-width:1240px;margin:0 auto;animation:fadein .18s ease}
+.console-root .view.active{display:block}
+@keyframes fadein{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+.console-root .page-head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.console-root .page-head h1{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.console-root .page-head p{color:var(--muted-foreground);font-size:12.5px;width:100%;margin-top:-6px;order:10}
+.console-root .spacer{flex:1}
+
+/* buttons */
+.console-root .btn{
+  display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;
+  border-radius:7px;font-size:12.5px;font-weight:600;border:1px solid var(--border);
+  background:var(--panel);color:var(--foreground);
+}
+.console-root .btn:hover{border-color:var(--border-strong);background:var(--raised)}
+.console-root .btn.primary{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+.console-root .btn.primary:hover{background:var(--primary-press)}
+.console-root .btn.ghost{background:transparent;border-color:transparent;color:var(--muted-foreground)}
+.console-root .btn.ghost:hover{color:var(--foreground);background:var(--hover-wash)}
+
+/* segmented range control */
+.console-root .seg{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:2px;gap:2px}
+.console-root .seg button{
+  height:24px;padding:0 10px;border-radius:5px;font-size:11.5px;font-weight:600;
+  color:var(--muted-foreground);font-family:var(--font-mono);
+}
+.console-root .seg button.on{background:var(--raised);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border)}
+.console-root .seg button:hover:not(.on){color:var(--foreground)}
+
+/* chips */
+.console-root .chip{
+  display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;
+  border-radius:99px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.02em;
+  border:1px solid var(--border);color:var(--muted-foreground);white-space:nowrap;
+}
+.console-root .chip i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+.console-root .chip.st-pass{background:var(--ok-tint);border-color:transparent;color:var(--success-foreground)}
+.console-root .chip.st-pass i{background:var(--success)}
+.console-root .chip.st-degraded{background:var(--warn-tint);border-color:transparent;color:var(--warning-foreground)}
+.console-root .chip.st-degraded i{background:var(--warning)}
+.console-root .chip.st-blocked, .console-root .chip.st-failed{background:var(--bad-tint);border-color:transparent;color:var(--danger-foreground)}
+.console-root .chip.st-blocked i, .console-root .chip.st-failed i{background:var(--danger)}
+.console-root .chip.st-running{background:var(--primary-subtle);border-color:transparent;color:var(--primary-subtle-foreground)}
+.console-root .chip.st-running i{background:var(--primary);animation:pulse 1.4s ease infinite}
+.console-root .chip.st-info{background:var(--info-tint);border-color:transparent;color:var(--info)}
+.console-root .chip.st-info i{background:var(--info)}
+@keyframes pulse{50%{opacity:.35}}
+
+/* panels & tiles */
+.console-root .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px}
+.console-root .panel-head{
+  display:flex;align-items:center;gap:10px;padding:11px 14px;
+  border-bottom:1px solid var(--border);
+}
+.console-root .panel-head h2{font-size:12.5px;font-weight:600}
+.console-root .panel-head .hint{color:var(--faint);font-size:11px;font-family:var(--font-mono)}
+.console-root .panel-head .more{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--primary-subtle-foreground)}
+.console-root .panel-head .more:hover{text-decoration:underline}
+
+.console-root .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+.console-root .tile{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:13px 14px;position:relative;overflow:hidden}
+.console-root .tile .lbl{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.console-root .tile .val{font-family:var(--font-mono);font-size:21px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+.console-root .tile .sub{display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11px;color:var(--muted-foreground);font-family:var(--font-mono)}
+.console-root .delta{font-family:var(--font-mono);font-size:10.5px;border-radius:5px;padding:1px 5px}
+.console-root .delta.up{color:var(--success-foreground);background:var(--ok-tint)}
+.console-root .delta.down{color:var(--danger-foreground);background:var(--bad-tint)}
+.console-root .delta.flat{color:var(--muted-foreground);background:var(--info-tint)}
+.console-root .tile svg.spark{position:absolute;right:10px;bottom:10px;opacity:.9}
+
+/* tables */
+.console-root table{width:100%;border-collapse:collapse}
+.console-root th{
+  text-align:left;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);padding:8px 14px;border-bottom:1px solid var(--border);white-space:nowrap;
+}
+.console-root td{padding:9px 14px;border-bottom:1px solid var(--border);font-size:12.5px;vertical-align:middle;white-space:nowrap}
+.console-root tr:last-child td{border-bottom:none}
+.console-root tbody tr{cursor:default}
+.console-root tbody tr.rowlink{cursor:pointer}
+.console-root tbody tr.rowlink:hover td{background:var(--hover-wash)}
+.console-root td.num, .console-root th.num{text-align:right;font-family:var(--font-mono)}
+.console-root .mono{font-family:var(--font-mono);font-size:12px}
+.console-root .runid{font-family:var(--font-mono);font-size:12px;color:var(--contrast)}
+.console-root .rowlink:hover .runid{text-decoration:underline}
+.console-root .dim{color:var(--muted-foreground)}
+.console-root .dimmer{color:var(--faint)}
+
+/* identity mark (categorical = kind, never state) */
+.console-root .idm{display:inline-flex;align-items:center;gap:8px}
+.console-root .idm i{
+  width:18px;height:18px;border-radius:5px;flex:none;display:inline-block;
+  background:color-mix(in srgb,var(--c) 16%,transparent);
+  border:1px solid color-mix(in srgb,var(--c) 34%,transparent);
+  position:relative;
+}
+.console-root .idm i::after{content:"";position:absolute;inset:5px;border-radius:2px;background:var(--c);opacity:.9;transform:skewX(-12deg)}
+
+/* filter bar */
+.console-root .filters{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.console-root .fchip{
+  display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;
+  border:1px solid var(--border);border-radius:7px;background:var(--panel);
+  font-size:12px;font-weight:500;color:var(--muted-foreground);
+}
+.console-root .fchip:hover{border-color:var(--border-strong);color:var(--foreground)}
+.console-root .fchip.on{background:var(--primary-subtle);border-color:transparent;color:var(--primary-subtle-foreground)}
+.console-root .fsearch{
+  display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;flex:1;max-width:260px;
+  background:var(--panel);border:1px solid var(--border);border-radius:7px;
+}
+.console-root .fsearch input{background:none;border:none;outline:none;color:var(--foreground);font:inherit;font-size:12.5px;width:100%}
+.console-root .fsearch input::placeholder{color:var(--faint)}
+
+/* chart */
+.console-root .chartwrap{padding:14px 14px 8px}
+.console-root .bars{display:flex;align-items:flex-end;gap:4px;height:150px}
+.console-root .bars .col{flex:1;display:flex;flex-direction:column-reverse;gap:2px;height:100%;justify-content:flex-start}
+.console-root .bars .col span{border-radius:2px;min-height:2px}
+.console-root .bars .col:hover span{filter:brightness(1.25)}
+.console-root .b-pass{background:var(--success);opacity:.75}
+.console-root .b-deg{background:var(--warning);opacity:.85}
+.console-root .b-blk{background:var(--danger);opacity:.85}
+.console-root .axis{display:flex;justify-content:space-between;color:var(--faint);font-family:var(--font-mono);font-size:10px;padding:7px 2px 4px}
+.console-root .legend{display:flex;gap:14px;padding:2px 2px 8px;font-size:11px;color:var(--muted-foreground)}
+.console-root .legend i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+/* overview grid */
+.console-root .ovgrid{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}
+.console-root .stack{display:grid;gap:12px}
+
+/* feed */
+.console-root .feed{list-style:none}
+.console-root .feed li{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)}
+.console-root .feed li:last-child{border-bottom:none}
+.console-root .feed .fico{
+  width:24px;height:24px;border-radius:6px;flex:none;display:grid;place-items:center;margin-top:1px;
+}
+.console-root .feed .fico.t-bad{background:var(--bad-tint);color:var(--danger-foreground)}
+.console-root .feed .fico.t-warn{background:var(--warn-tint);color:var(--warning-foreground)}
+.console-root .feed .fico.t-info{background:var(--info-tint);color:var(--info)}
+.console-root .feed .fico.t-brand{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root .feed p{font-size:12.5px;line-height:1.45}
+.console-root .feed .mono{font-size:11.5px}
+.console-root .feed time{display:block;color:var(--faint);font-size:10.5px;font-family:var(--font-mono);margin-top:2px}
+
+/* agents grid */
+.console-root .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.console-root .acard{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.console-root .acard:hover{border-color:var(--border-strong)}
+.console-root .acard-top{display:flex;align-items:center;gap:10px}
+.console-root .aavatar{
+  width:34px;height:34px;border-radius:8px;flex:none;position:relative;
+  background:color-mix(in srgb,var(--c) 15%,transparent);
+  border:1px solid color-mix(in srgb,var(--c) 32%,transparent);
+}
+.console-root .aavatar::after{content:"";position:absolute;inset:9px;border-radius:3px;background:var(--c);transform:skewX(-12deg)}
+.console-root .acard-top b{font-size:13.5px;font-weight:600;display:block}
+.console-root .acard-top .mono{color:var(--faint);font-size:10.5px}
+.console-root .acard p{color:var(--muted-foreground);font-size:12px;line-height:1.5;min-height:36px}
+.console-root .acard-stats{display:flex;gap:16px;font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground)}
+.console-root .acard-stats b{display:block;color:var(--foreground);font-size:13px;font-weight:600}
+.console-root .acard-foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:10px;margin-top:auto}
+.console-root .toggle{width:28px;height:16px;border-radius:99px;background:var(--raised);border:1px solid var(--border);position:relative;flex:none;cursor:pointer}
+.console-root .toggle::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--faint);transition:.15s}
+.console-root .toggle.on{background:var(--primary);border-color:transparent}
+.console-root .toggle.on::after{left:14px;background:var(--primary-foreground)}
+
+/* outcome history strip (status = state, labelled) */
+.console-root .hist{display:inline-flex;gap:2px;align-items:center}
+.console-root .hist i{width:4px;height:14px;border-radius:1.5px;background:var(--success);opacity:.75}
+.console-root .hist i.d{background:var(--warning);opacity:.9}
+.console-root .hist i.f{background:var(--danger);opacity:.9}
+.console-root .hist i.e{background:var(--raised);opacity:1}
+
+/* run detail */
+.console-root .rd-head{display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
+.console-root .rd-head h1{font-family:var(--font-mono);font-size:16px;font-weight:600;letter-spacing:-.01em}
+.console-root .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:12px;font-weight:600;margin-bottom:12px}
+.console-root .backlink:hover{color:var(--foreground)}
+.console-root .rd-meta{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0 16px;color:var(--muted-foreground);font-size:12px}
+.console-root .rd-meta span b{display:block;font-family:var(--font-mono);font-size:12px;color:var(--foreground);font-weight:500;margin-top:1px}
+.console-root .rd-meta span{min-width:0}
+.console-root .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.console-root .tabs button{
+  padding:8px 13px;font-size:12.5px;font-weight:600;color:var(--muted-foreground);
+  border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:6px 6px 0 0;
+}
+.console-root .tabs button:hover{color:var(--foreground);background:var(--hover-wash)}
+.console-root .tabs button.on{color:var(--foreground);border-bottom-color:var(--primary)}
+.console-root .tabs button .mono{color:var(--faint);font-size:10.5px;margin-left:5px}
+.console-root .rdgrid{display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start}
+
+/* ledger */
+.console-root .ledger{list-style:none}
+.console-root .ledger li{
+  display:grid;grid-template-columns:26px 118px 1fr 220px 64px 92px;
+  gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);
+}
+.console-root .ledger li:last-child{border-bottom:none}
+.console-root .ledger li:hover{background:var(--hover-wash)}
+.console-root .ledger .ix{font-family:var(--font-mono);font-size:10.5px;color:var(--faint)}
+.console-root .kind{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)}
+.console-root .kind i{width:8px;height:8px;border-radius:2px;background:var(--c);flex:none;transform:skewX(-10deg)}
+.console-root .ledger .what b{font-size:12.5px;font-weight:600;font-family:var(--font-mono);display:block}
+.console-root .ledger .what small{color:var(--muted-foreground);font-size:11.5px;display:block;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+.console-root .wf{position:relative;height:6px;background:var(--raised);border-radius:3px;overflow:hidden}
+.console-root .wf i{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--c);opacity:.85}
+.console-root .ledger .dur{font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground);text-align:right}
+.console-root .ledger .st{justify-self:end}
+
+/* right rail */
+.console-root .rail{display:grid;gap:12px}
+.console-root .verdict{padding:14px}
+.console-root .verdict-row{display:flex;align-items:center;gap:10px}
+.console-root .verdict h3{font-size:12.5px;font-weight:600}
+.console-root .verdict .big{font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--success-foreground);display:flex;align-items:center;gap:8px}
+.console-root .verdict .big i{width:8px;height:8px;border-radius:50%;background:var(--success)}
+.console-root .kv{list-style:none;font-size:12px}
+.console-root .kv li{display:flex;justify-content:space-between;gap:10px;padding:7px 14px;border-bottom:1px solid var(--border)}
+.console-root .kv li:last-child{border-bottom:none}
+.console-root .kv .k{color:var(--muted-foreground)}
+.console-root .kv .v{font-family:var(--font-mono);font-size:11.5px;text-align:right;color:var(--foreground)}
+.console-root .kv .v.link{color:var(--contrast)}
+.console-root .gate{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px}
+.console-root .gate:last-child{border-bottom:none}
+.console-root .gate .mono{color:var(--foreground)}
+.console-root .gate small{display:block;color:var(--faint);font-size:10.5px;font-family:var(--font-mono)}
+
+/* evidence chain */
+.console-root .chain{list-style:none;padding:6px 14px 10px}
+.console-root .chain li{position:relative;padding:7px 0 7px 22px}
+.console-root .chain li::before{
+  content:"";position:absolute;left:5px;top:13px;width:7px;height:7px;border-radius:50%;
+  background:var(--primary-subtle);border:1.5px solid var(--primary);
+}
+.console-root .chain li::after{
+  content:"";position:absolute;left:8px;top:22px;bottom:-9px;width:1px;background:var(--border);
+}
+.console-root .chain li:last-child::after{display:none}
+.console-root .chain b{font-size:12px;font-weight:600;display:block}
+.console-root .chain span{font-family:var(--font-mono);font-size:10.5px;color:var(--faint)}
+
+/* code / json block */
+.console-root .code{
+  font-family:var(--font-mono);font-size:11.5px;line-height:1.65;color:var(--muted-foreground);
+  background:var(--shell);border-top:1px solid var(--border);padding:12px 14px;
+  border-radius:0 0 10px 10px;overflow-x:auto;white-space:pre;
+}
+.console-root .code .k{color:var(--primary-subtle-foreground)}
+.console-root .code .s{color:var(--foreground)}
+
+/* settings */
+.console-root .setgrid{display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:start}
+.console-root .setnav{list-style:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px}
+.console-root .setnav a{display:block;padding:7px 10px;border-radius:6px;color:var(--muted-foreground);font-size:12.5px;font-weight:500}
+.console-root .setnav a:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .setnav a.on{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root .frow{display:grid;grid-template-columns:200px 1fr;gap:14px;padding:14px;border-bottom:1px solid var(--border);align-items:start}
+.console-root .frow:last-child{border-bottom:none}
+.console-root .frow label{font-size:12.5px;font-weight:600;padding-top:6px}
+.console-root .frow label small{display:block;color:var(--muted-foreground);font-weight:400;font-size:11.5px;margin-top:2px}
+.console-root .input{
+  width:100%;max-width:340px;height:30px;padding:0 10px;border-radius:7px;
+  background:var(--shell);border:1px solid var(--border);color:var(--foreground);font:inherit;font-size:12.5px;
+}
+.console-root .input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+
+/* chat */
+.console-root .chatgrid{display:grid;grid-template-columns:250px 1fr;gap:12px;height:calc(100vh - 190px);min-height:440px}
+.console-root .threads{display:flex;flex-direction:column;overflow:hidden}
+.console-root .threads .panel-head{flex:none}
+.console-root .thread-list{flex:1;overflow-y:auto;padding:6px;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
+.console-root .thread-cap{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:8px 8px 4px}
+.console-root .thread{display:block;padding:8px 9px;border-radius:7px;margin-bottom:1px}
+.console-root .thread:hover{background:var(--hover-wash)}
+.console-root .thread.on{background:var(--primary-subtle)}
+.console-root .thread b{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;font-weight:600}
+.console-root .thread.on b{color:var(--primary-subtle-foreground)}
+.console-root .thread b time{font-family:var(--font-mono);font-size:10px;color:var(--faint);font-weight:400;flex:none}
+.console-root .thread small{display:block;color:var(--muted-foreground);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.console-root .chatpane{display:flex;flex-direction:column;overflow:hidden}
+.console-root .chat-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);flex:none}
+.console-root .chat-head h2{font-size:13px;font-weight:600}
+.console-root .msgs{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
+.console-root .msg{display:flex;gap:11px;max-width:760px}
+.console-root .msg .who{flex:none;margin-top:1px}
+.console-root .msg-h{display:flex;align-items:baseline;gap:8px}
+.console-root .msg-h b{font-size:12.5px;font-weight:600}
+.console-root .msg-h time{font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .msg-b{font-size:13px;line-height:1.6;color:var(--foreground);margin-top:2px}
+.console-root .msg-b .mono{font-size:12px}
+.console-root .msg-b p+p{margin-top:6px}
+.console-root .caret{display:inline-block;width:7px;height:13px;background:var(--primary);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.console-root .evd{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;
+  padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--shell);
+  font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground);
+}
+.console-root .evd:hover{border-color:var(--border-strong)}
+.console-root .evd .runid{font-size:11px}
+.console-root .evd .sep{color:var(--faint)}
+.console-root .composer{flex:none;border-top:1px solid var(--border);padding:10px 12px}
+.console-root .composer-box{display:flex;align-items:center;gap:10px;background:var(--shell);border:1px solid var(--border);border-radius:9px;padding:8px 8px 8px 12px}
+.console-root .composer-box:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+.console-root .composer-box input{flex:1;background:none;border:none;outline:none;color:var(--foreground);font:inherit;font-size:13px}
+.console-root .composer-box input::placeholder{color:var(--faint)}
+.console-root .composer-note{display:flex;gap:14px;padding:7px 4px 0;font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+
+/* tasks */
+.console-root .taskgrid{display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start}
+.console-root .progress{display:inline-flex;align-items:center;gap:8px}
+.console-root .progress .track{width:72px;height:5px;border-radius:3px;background:var(--raised);overflow:hidden}
+.console-root .progress .track i{display:block;height:100%;border-radius:3px;background:var(--primary)}
+.console-root .progress em{font-style:normal;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)}
+.console-root .appr{padding:12px 14px;border-bottom:1px solid var(--border)}
+.console-root .appr:last-child{border-bottom:none}
+.console-root .appr p{font-size:12.5px;line-height:1.5}
+.console-root .appr .mono{font-size:11.5px}
+.console-root .appr small{display:block;font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:3px}
+.console-root .appr-actions{display:flex;gap:8px;margin-top:9px}
+.console-root .appr-actions .btn{height:26px;padding:0 10px;font-size:11.5px}
+
+/* plugins */
+.console-root .scopes{display:flex;gap:4px;flex-wrap:wrap;max-width:250px}
+.console-root .scopes .chip{height:18px;font-size:9.5px;padding:0 7px}
+.console-root .risk{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;border-radius:5px;padding:2px 7px}
+.console-root .risk.lo{background:var(--info-tint);color:var(--info)}
+.console-root .risk.md{background:var(--warn-tint);color:var(--warning-foreground)}
+.console-root .risk.hi{background:var(--bad-tint);color:var(--danger-foreground)}
+
+/* traces */
+.console-root .tbar{display:flex;width:130px;height:6px;border-radius:3px;overflow:hidden;background:var(--raised)}
+.console-root .tbar i{height:100%;display:block}
+
+/* trace waterfall */
+.console-root .axisrow{display:grid;grid-template-columns:290px 86px 1fr 60px;gap:12px;padding:7px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .axisrow .ticks{display:flex;justify-content:space-between}
+.console-root .spans{list-style:none}
+.console-root .spans li{display:grid;grid-template-columns:290px 86px 1fr 60px;gap:12px;align-items:center;padding:6px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.console-root .spans li:last-child{border-bottom:none}
+.console-root .spans li:hover{background:var(--hover-wash)}
+.console-root .spans li.sel{background:var(--hover-wash);box-shadow:inset 2px 0 0 var(--primary)}
+.console-root .sname{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.console-root .sname .twist{flex:none;color:var(--faint)}
+.console-root .sname.child{color:var(--muted-foreground)}
+.console-root .spans .wf i{opacity:.85}
+.console-root .spans li .sdur{font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground);text-align:right}
+
+/* policies */
+.console-root .polgrid{display:grid;grid-template-columns:280px 1fr;gap:12px;align-items:start}
+.console-root .bundle{display:block;padding:10px 12px;border-bottom:1px solid var(--border)}
+.console-root .bundle:last-child{border-bottom:none}
+.console-root .bundle:hover{background:var(--hover-wash)}
+.console-root .bundle.on{background:var(--primary-subtle)}
+.console-root .bundle b{font-family:var(--font-mono);font-size:12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.console-root .bundle.on b{color:var(--primary-subtle-foreground)}
+.console-root .bundle small{display:block;color:var(--muted-foreground);font-size:10.5px;font-family:var(--font-mono);margin-top:3px}
+.console-root .diff{font-family:var(--font-mono);font-size:11.5px;line-height:1.75;padding:12px 14px;overflow-x:auto;white-space:pre;color:var(--muted-foreground)}
+.console-root .diff .hd{color:var(--foreground);font-weight:600}
+.console-root .diff .add{color:var(--success-foreground)}
+.console-root .diff .del{color:var(--danger-foreground)}
+.console-root .diff .cm{color:var(--faint)}
+
+/* evidence matrix (from */
+.console-root .matrix .mrow2{display:grid;grid-template-columns:170px 1fr auto;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border);align-items:start}
+.console-root .matrix .mrow2:last-child{border-bottom:none}
+.console-root .matrix .mname{font-family:var(--font-mono);font-size:11.5px;color:var(--foreground);font-weight:500}
+.console-root .matrix .mdesc{font-size:12px;color:var(--muted-foreground)}
+.console-root .matrix .mrefs{display:block;font-family:var(--font-mono);font-size:10px;color:var(--faint);margin-top:3px;word-break:break-all}
+.console-root .matrix .mrefs b{font-weight:500;color:var(--warning-foreground)}
+.console-root .msummary{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+
+/* semantic event timeline (AG-UI projection, from */
+.console-root .sem{list-style:none}
+.console-root .sem li{display:grid;grid-template-columns:26px 190px 1fr 84px;gap:12px;padding:8px 14px;border-bottom:1px solid var(--border);align-items:baseline}
+.console-root .sem li:last-child{border-bottom:none}
+.console-root .sem .ix{font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .sem .etype{font-family:var(--font-mono);font-size:11px;color:var(--primary-subtle-foreground)}
+.console-root .sem .ejson{font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.console-root .sem time{font-family:var(--font-mono);font-size:10px;color:var(--faint);text-align:right}
+
+/* cost overview (from */
+.console-root .costgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--border)}
+.console-root .costgrid>div{border-right:1px solid var(--border)}
+.console-root .costgrid>div:last-child{border-right:none}
+.console-root .costgrid h3{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:9px 14px 2px}
+
+/* migration warning bar (defensive pattern from */
+.console-root .warnbar{
+  display:flex;align-items:center;gap:10px;margin-bottom:12px;
+  padding:9px 13px;border:1px solid transparent;border-radius:9px;
+  background:var(--warn-tint);color:var(--warning-foreground);font-size:12.5px;
+}
+.console-root .warnbar .btn{height:24px;font-size:11px;margin-left:auto;color:var(--foreground)}
+
+/* empty workspace (*/
+.console-root .onboard{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:14px}
+.console-root .ob-step{border:1px dashed var(--border-strong);border-radius:10px;padding:14px;position:relative}
+.console-root .ob-step.done{border-style:solid;border-color:var(--border)}
+.console-root .ob-step .obn{font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+.console-root .ob-step b{display:block;font-size:12.5px;font-weight:600;margin:4px 0 3px}
+.console-root .ob-step p{color:var(--muted-foreground);font-size:11.5px;line-height:1.5;margin-bottom:10px}
+.console-root .tile .val.na{color:var(--faint)}
+.console-root .empty-note{padding:26px 14px;text-align:center;color:var(--faint);font-size:12px}
+.console-root .empty-note .mono{display:block;margin-top:4px;font-size:10.5px}
+
+/* knowledge retrieval testing */
+.console-root .tres{padding:11px 14px;border-bottom:1px solid var(--border)}
+.console-root .tres:last-child{border-bottom:none}
+.console-root .tres-h{display:flex;align-items:center;gap:10px}
+.console-root .tres-h .mono{color:var(--faint);font-size:10.5px}
+.console-root .tres p{color:var(--muted-foreground);font-size:12px;line-height:1.55;margin-top:4px}
+.console-root .tres p b{color:var(--foreground);font-weight:600}
+
+/* full-page editors */
+.console-root .actionbar{display:flex;gap:8px;align-items:center;margin-top:12px}
+.console-root .actionbar .note{font-family:var(--font-mono);font-size:10px;color:var(--faint);margin-right:auto;max-width:420px;line-height:1.5}
+.console-root .stepno{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--primary-subtle-foreground);background:var(--primary-subtle);border-radius:99px;padding:2px 8px}
+.console-root .tplcard{cursor:pointer}
+.console-root .tplcard.sel{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+.console-root .tpl-nodes{display:flex;gap:4px}
+.console-root .tpl-nodes i{width:9px;height:9px;border-radius:2.5px;background:var(--c);transform:skewX(-10deg)}
+
+/* task detail events */
+.console-root .events{list-style:none}
+.console-root .events li{position:relative;padding:10px 14px 10px 42px;border-bottom:1px solid var(--border);font-size:12.5px}
+.console-root .events li:last-child{border-bottom:none}
+.console-root .events .eico{position:absolute;left:12px;top:11px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--info-tint);color:var(--info)}
+.console-root .events .eico.ok{background:var(--ok-tint);color:var(--success-foreground)}
+.console-root .events .eico.warn{background:var(--warn-tint);color:var(--warning-foreground)}
+.console-root .events .eico.brand{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root .events .eico.live i{width:6px;height:6px;border-radius:50%;background:var(--primary);animation:pulse 1.4s ease infinite}
+.console-root .events time{display:block;font-family:var(--font-mono);font-size:10px;color:var(--faint);margin-top:2px}
+
+/* workflow builder */
+.console-root .wfshell{display:grid;grid-template-columns:168px 1fr 280px;gap:12px;align-items:start}
+.console-root .palette{padding:6px}
+.console-root .palette .pcap{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:6px 8px 4px}
+.console-root .pitem{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12px;color:var(--muted-foreground);cursor:grab}
+.console-root .pitem:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .pitem i{width:8px;height:8px;border-radius:2px;background:var(--c);transform:skewX(-10deg);flex:none}
+.console-root .palette .phint{font-size:10.5px;color:var(--faint);padding:8px;border-top:1px solid var(--border);margin-top:6px}
+.console-root .canvas-wrap{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--shell);overflow:auto}
+.console-root .canvas{position:relative;width:1160px;height:520px;background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:22px 22px}
+.console-root .canvas svg.edges{position:absolute;inset:0;pointer-events:none}
+.console-root .canvas svg.edges path{fill:none;stroke:var(--border-strong);stroke-width:1.5}
+.console-root .canvas svg.edges path.hot{stroke:var(--primary);opacity:.8}
+.console-root .canvas svg.edges text{fill:var(--faint);font-family:var(--font-mono);font-size:10px}
+.console-root .node{position:absolute;width:160px;background:var(--panel);border:1px solid var(--border-strong);border-radius:9px;padding:9px 11px;cursor:pointer}
+.console-root .node:hover{border-color:var(--primary)}
+.console-root .node.sel{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
+.console-root .node .nk{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:9px;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
+.console-root .node .nk i{width:7px;height:7px;border-radius:2px;background:var(--c);transform:skewX(-10deg);flex:none}
+.console-root .node b{display:block;font-size:12px;font-weight:600;margin-top:3px}
+.console-root .node small{display:block;color:var(--muted-foreground);font-size:10px;margin-top:1px;line-height:1.4}
+.console-root .node .port{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--raised);border:1.5px solid var(--faint);top:50%;transform:translateY(-50%)}
+.console-root .node .port.in{left:-5px}.node .port.out{right:-5px}
+.console-root .canvas-tools{position:sticky;left:10px;bottom:0;margin:-34px 0 10px 10px;display:inline-flex;gap:2px;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:2px;z-index:5}
+.console-root .canvas-tools button{min-width:26px;height:24px;border-radius:5px;color:var(--muted-foreground);font-family:var(--font-mono);font-size:11px;padding:0 6px}
+.console-root .canvas-tools button:hover{background:var(--hover-wash);color:var(--foreground)}
+.console-root .inspector .frow{grid-template-columns:1fr;gap:5px;padding:10px 14px}
+.console-root .inspector .frow label{padding-top:0}
+.console-root .inspector .input{max-width:none}
+
+/* modals */
+.console-root .modal{position:fixed;inset:0;background:rgba(4,8,16,.6);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding-top:8vh;z-index:60}
+.console-root .modal.open{display:flex}
+.console-root .modal-box{width:560px;max-height:82vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.console-root .modal-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);flex:none}
+.console-root .modal-head h2{font-size:13.5px;font-weight:600}
+.console-root .modal-head .iconbtn{margin-left:auto}
+.console-root .modal-body{overflow-y:auto;padding:4px 0;scrollbar-width:thin;scrollbar-color:var(--raised) transparent}
+.console-root .mrow{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:9px 16px;align-items:start}
+.console-root .mrow>label{font-size:12.5px;font-weight:600;padding-top:6px}
+.console-root .mrow>label small{display:block;color:var(--muted-foreground);font-weight:400;font-size:11px;margin-top:1px}
+.console-root .mrow .input{max-width:none}
+.console-root textarea.input{height:auto;min-height:66px;padding:8px 10px;resize:vertical;font-family:var(--font-mono);font-size:11.5px;line-height:1.55}
+.console-root select.input{padding-right:26px}
+.console-root .checks{display:flex;flex-direction:column;gap:7px;padding-top:5px}
+.console-root .checks label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:400}
+.console-root .checks input{accent-color:var(--primary);width:13px;height:13px}
+.console-root .checks .mono{font-size:11px}
+.console-root .modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border);flex:none}
+.console-root .modal-foot .note{margin-right:auto;font-family:var(--font-mono);font-size:10px;color:var(--faint);align-self:center;max-width:280px;line-height:1.5}
+
+/* stub / empty state */
+.console-root .stub{
+  border:1px dashed var(--border-strong);border-radius:12px;padding:56px 20px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;
+}
+.console-root .stub .glyph{
+  width:44px;height:44px;border-radius:10px;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--c,var(--primary)) 12%,transparent);
+  color:var(--c,var(--primary));
+}
+.console-root .stub h2{font-size:15px;font-weight:600}
+.console-root .stub p{color:var(--muted-foreground);font-size:12.5px;max-width:420px}
+
+/* command palette */
+.console-root .cmdk{position:fixed;inset:0;background:rgba(4,8,16,.6);backdrop-filter:blur(2px);
+  display:none;align-items:flex-start;justify-content:center;padding-top:14vh;z-index:50}
+.console-root .cmdk.open{display:flex}
+.console-root .cmdk-box{width:520px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.console-root .cmdk-in{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.console-root .cmdk-in input{flex:1;background:none;border:none;outline:none;color:var(--foreground);font:inherit;font-size:13.5px}
+.console-root .cmdk-in input::placeholder{color:var(--faint)}
+.console-root .cmdk-list{list-style:none;max-height:300px;overflow-y:auto;padding:6px}
+.console-root .cmdk-list .cap{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:8px 10px 4px}
+.console-root .cmdk-list a,.console-root .cmdk-list [cmdk-item]{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--foreground)}
+.console-root .cmdk-list a:hover,.console-root .cmdk-list [cmdk-item][data-selected='true']{background:var(--primary-subtle);color:var(--primary-subtle-foreground)}
+.console-root .cmdk-list kbd,.console-root .cmdk-list [cmdk-item] kbd{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--faint);
+  border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+.console-root .cmdk-foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);
+  font-size:10.5px;color:var(--faint);font-family:var(--font-mono)}
+
+/* pagination */
+.console-root .pager{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--border);color:var(--faint);font-family:var(--font-mono);font-size:11px}
+.console-root .pager .btn{height:24px;padding:0 9px;font-size:11px}
+.console-root .pager .spacer{flex:1}
+
+/* toast feedback */
+.console-root .toasts{position:fixed;right:16px;bottom:44px;display:flex;flex-direction:column;gap:8px;z-index:80;pointer-events:none}
+.console-root .toast{
+  display:flex;align-items:flex-start;gap:9px;max-width:380px;
+  background:var(--panel);border:1px solid var(--border-strong);border-left:3px solid var(--primary);
+  border-radius:9px;padding:9px 13px;font-size:12px;color:var(--foreground);line-height:1.45;
+  box-shadow:0 12px 32px rgba(0,0,0,.35);animation:toastin .18s ease;
+}
+.console-root .toast .mono{font-size:11px}
+.console-root .toast.ok{border-left-color:var(--success)}
+.console-root .toast.warn{border-left-color:var(--warning)}
+.console-root .toast.bad{border-left-color:var(--danger)}
+.console-root .toast.out{opacity:0;transform:translateY(4px);transition:opacity .25s,transform .25s}
+@keyframes toastin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.console-root .spin svg{animation:rot .6s linear}
+@keyframes rot{to{transform:rotate(360deg)}}
+.console-root .decided-note{font-size:10.5px;color:var(--faint)}
+
+/* prototype badge */
+.console-root .proto{
+  position:fixed;right:14px;bottom:12px;z-index:40;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;color:var(--faint);
+  background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 10px;
 }
 
-/* Panel depth: micro shadow plus a hairline top highlight. Use together with
-   border/background utilities (border-border bg-panel rounded-md). */
-.console-depth {
-  position: relative;
-  box-shadow: var(--shadow-1);
+/* ============================================================
+   v8 professional polish — layered on top, brand tokens intact
+   ============================================================ */
+
+
+
+/* atmosphere: one quiet brand glow behind the working area */
+.console-root .content{background-image:var(--glow)}
+
+/* type: engineering grotesk + tabular data everywhere */
+.console-root{font-size:13px}
+.console-root .page-head h1{font-size:18px;letter-spacing:-.015em}
+.console-root .panel-head h2{letter-spacing:.005em}
+.console-root .mono, .console-root .tile .val, .console-root td.num, .console-root th.num, .console-root .sl .ct, .console-root .sdur, .console-root .evd, .console-root .kv .v, .console-root .progress em, .console-root .sem .etype, .console-root .axisrow, .console-root .thread b time, .console-root .msg-h time{font-variant-numeric:tabular-nums}
+
+/* depth: hairline top highlight + micro shadow, never heavy */
+.console-root .panel, .console-root .tile, .console-root .acard, .console-root .node, .console-root .modal-box, .console-root .cmdk-box{box-shadow:var(--shadow-1)}
+.console-root .modal-box, .console-root .cmdk-box{box-shadow:var(--shadow-1),var(--shadow-2)}
+.console-root .tile, .console-root .panel, .console-root .acard{position:relative}
+.console-root .tile::after, .console-root .panel::after, .console-root .acard::after{
+  content:"";position:absolute;inset:0 10px auto 10px;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--hl),transparent);border-radius:1px;
 }
-.console-depth::after {
-  content: '';
-  position: absolute;
-  inset: 0 10px auto 10px;
-  height: 1px;
-  pointer-events: none;
-  border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--hl), transparent);
+.console-root .acard:hover, .console-root .node:hover{box-shadow:var(--shadow-1),0 4px 14px rgba(2,6,16,.18)}
+
+/* tables: quiet header band, first-column weight, hover edge */
+.console-root thead th{background:var(--thbg)}
+.console-root tbody td:first-child{font-weight:500}
+.console-root tbody tr.rowlink:hover td:first-child{box-shadow:inset 2px 0 0 var(--primary)}
+
+/* buttons: subtle vertical light, tactile press */
+.console-root .btn, .console-root .fchip, .console-root .iconbtn, .console-root .rail-btn, .console-root .sl, .console-root .thread, .console-root .sub-mini, .console-root .sub-note, .console-root .toggle, .console-root .tabs button, .console-root .seg button, .console-root .bundle{
+  transition:background-color .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease;
+}
+.console-root .btn:active{transform:translateY(.5px)}
+/* v13: flat buttons — solid brand fill, hover darker (base layer rules apply) */
+.console-root .chip{letter-spacing:.035em}
+
+/* navigation: group rules extend, active states breathe */
+.console-root .sub-cap{display:flex;align-items:center;gap:8px}
+.console-root .sub-cap::after{content:"";flex:1;height:1px;background:var(--border)}
+.console-root .rail-logo{transition:box-shadow .15s ease}
+.console-root .rail-logo:hover{box-shadow:0 0 0 3px var(--ring)}
+.console-root .tabs button.on{position:relative}
+
+/* inputs */
+.console-root .input, .console-root .fsearch, .console-root .searchbtn, .console-root .composer-box{transition:border-color .12s ease,box-shadow .12s ease}
+
+/* tiles: staggered settle on view entry */
+.console-root .view.active .tiles .tile{animation:fadein .28s ease backwards}
+.console-root .view.active .tiles .tile:nth-child(2){animation-delay:.04s}
+.console-root .view.active .tiles .tile:nth-child(3){animation-delay:.08s}
+.console-root .view.active .tiles .tile:nth-child(4){animation-delay:.12s}
+
+/* scrollbars: thin, quiet, rounded */
+.console-root *::-webkit-scrollbar{width:10px;height:10px}
+.console-root *::-webkit-scrollbar-track{background:transparent}
+.console-root *::-webkit-scrollbar-thumb{background:var(--raised);border:3px solid transparent;background-clip:content-box;border-radius:8px}
+.console-root *::-webkit-scrollbar-thumb:hover{background:var(--border-strong);border:3px solid transparent;background-clip:content-box}
+
+/* light theme: paper needs a touch more edge definition */
+.console-root:not(.dark) .panel, .console-root:not(.dark) .tile, .console-root:not(.dark) .acard{border-color:rgba(15,23,42,.12)}
+
+/* motion respect */
+@media (prefers-reduced-motion:reduce){
+  .console-root *,.console-root *::before,.console-root *::after{animation:none!important;transition:none!important}
 }
 
-/* One quiet brand glow behind the working area — the only ambient gradient
-   allowed in the console. */
-.console-glow {
-  background-image: var(--glow);
-}
-
-/* Identity mark (categorical = kind, never state). Colour arrives through
-   the --c custom property, always one of the --cat-* tokens. */
-.console-idm {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  flex: none;
-  display: inline-block;
-  position: relative;
-  background: color-mix(in srgb, var(--c) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c) 34%, transparent);
-}
-.console-idm::after {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 2px;
-  background: var(--c);
-  opacity: 0.9;
-  transform: skewX(-12deg);
-}
-
-/* v13: buttons are flat. Shared shadcn primitives rendered inside the console
-   keep their focus ring but lose decorative gradients and drop shadows. */
-.console-root [data-slot='button']:not(:focus-visible) {
-  box-shadow: none;
-}
-.console-root [data-slot='button'] {
-  background-image: none;
-}
-
-/* Thin, quiet, rounded scrollbars. */
-.console-root *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-.console-root *::-webkit-scrollbar-track {
-  background: transparent;
-}
-.console-root *::-webkit-scrollbar-thumb {
-  background: var(--raised);
-  border: 3px solid transparent;
-  background-clip: content-box;
-  border-radius: 8px;
-}
-.console-root *::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .console-root *,
-  .console-root *::before,
-  .console-root *::after {
-    animation: none !important;
-    transition: none !important;
-  }
-}

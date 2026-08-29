@@ -160,7 +160,13 @@ describe('console v2 design system', () => {
   it('enforces the v13 flat button spec', () => {
     const button = read('app/console/components/button.tsx')
 
-    expect(button).toContain('hover:bg-primary-press')
+    // The flat spec lives in the ported prototype stylesheet: solid fill,
+    // hover one stop darker, no gradient, no shadow.
+    const css = read('app/console/styles/console.css')
+    expect(css).toContain('.btn.primary:hover{background:var(--primary-press)}')
+    expect(css).not.toContain('.btn.primary{background:linear-gradient')
+
+    expect(button).toContain("'btn'")
     expect(button).not.toContain('bg-gradient')
     expect(button).not.toMatch(/\bshadow-(?!none)/)
 

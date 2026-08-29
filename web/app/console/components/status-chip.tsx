@@ -78,22 +78,14 @@ const STATUS_LABEL_KEY: Record<ConsoleStatus, TranslationKey> = {
   info: 'console.status.info',
 }
 
-const TONE_CHIP_CLASS: Record<StatusTone, string> = {
-  ok: 'bg-success/12 text-success-foreground',
-  warn: 'bg-warning/12 text-warning-foreground',
-  bad: 'bg-danger/12 text-danger-foreground',
-  brand: 'bg-primary-subtle text-primary-subtle-foreground',
-  info: 'bg-info/12 text-info-foreground',
-  neutral: 'border border-border text-muted-foreground',
-}
-
-const TONE_DOT_CLASS: Record<StatusTone, string> = {
-  ok: 'bg-success',
-  warn: 'bg-warning',
-  bad: 'bg-danger',
-  brand: 'bg-primary animate-pulse',
-  info: 'bg-info',
-  neutral: 'bg-muted-foreground/60',
+/** Prototype chip state classes: .chip.st-* (tone → visual). */
+const TONE_CHIP_CLASS: Record<StatusTone, string | undefined> = {
+  ok: 'st-pass',
+  warn: 'st-degraded',
+  bad: 'st-blocked',
+  brand: 'st-running',
+  info: 'st-info',
+  neutral: undefined, // bare .chip: bordered, muted
 }
 
 interface StatusChipProps {
@@ -108,14 +100,8 @@ export function StatusChip({ status, label, className }: StatusChipProps) {
   const tone = CONSOLE_STATUS_TONE[status]
 
   return (
-    <span
-      className={cn(
-        'inline-flex h-5 items-center gap-1.5 whitespace-nowrap rounded-full px-2 font-mono text-[10.5px] tracking-wider',
-        TONE_CHIP_CLASS[tone],
-        className,
-      )}
-    >
-      <i aria-hidden className={cn('size-1.5 flex-none rounded-full', TONE_DOT_CLASS[tone])} />
+    <span className={cn('chip', TONE_CHIP_CLASS[tone], className)}>
+      <i aria-hidden />
       {label ?? t(STATUS_LABEL_KEY[status])}
     </span>
   )

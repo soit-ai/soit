@@ -10,51 +10,29 @@ interface StatTileProps {
   na?: boolean
   sub?: React.ReactNode
   delta?: { direction: StatTileDelta; label: React.ReactNode }
+  /** Optional sparkline or decoration, absolutely positioned bottom-right. */
+  spark?: React.ReactNode
   className?: string
 }
 
-/* Delta colour is status semantics (better/worse), so status tokens apply. */
-const DELTA_CLASS: Record<StatTileDelta, string> = {
-  up: 'bg-success/12 text-success-foreground',
-  down: 'bg-danger/12 text-danger-foreground',
-  flat: 'bg-info/12 text-info-foreground',
-}
-
-export function StatTile({ label, value, na, sub, delta, className }: StatTileProps) {
+/** Prototype .tile — label / mono value / sub row with a status-toned delta. */
+export function StatTile({ label, value, na, sub, delta, spark, className }: StatTileProps) {
   return (
-    <div
-      className={cn(
-        'console-depth relative overflow-hidden rounded-md border border-border bg-panel px-3.5 py-3',
-        className,
-      )}
-    >
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
-        {label}
-      </div>
-      <div
-        className={cn(
-          'mt-1.5 font-mono text-[21px] font-semibold tracking-tight',
-          na && 'text-muted-foreground/70',
-        )}
-      >
-        {value}
-      </div>
+    <div className={cn('tile', className)}>
+      <div className="lbl">{label}</div>
+      <div className={cn('val', na && 'na')}>{value}</div>
       {(sub || delta) && (
-        <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-          {delta && (
-            <span className={cn('rounded-[5px] px-1.5 py-px text-[10.5px]', DELTA_CLASS[delta.direction])}>
-              {delta.label}
-            </span>
-          )}
+        <div className="sub">
+          {delta && <span className={cn('delta', delta.direction)}>{delta.label}</span>}
           {sub}
         </div>
       )}
+      {spark}
     </div>
   )
 }
 
+/** Prototype .tiles — the four-up stat grid above a workbench table. */
 export function StatTileGrid({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn('mb-3 grid grid-cols-2 gap-3 xl:grid-cols-4', className)}>{children}</div>
-  )
+  return <div className={cn('tiles', className)}>{children}</div>
 }

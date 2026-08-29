@@ -35,10 +35,7 @@ export function IdBadge({ id, tone = 'default', maxWidth = 200, className }: IdB
   return (
     <span className={cn('group/id inline-flex min-w-0 items-center gap-1', className)}>
       <span
-        className={cn(
-          'truncate font-mono text-xs',
-          tone === 'contrast' ? 'text-contrast' : 'text-muted-foreground',
-        )}
+        className={cn('truncate', tone === 'contrast' ? 'runid' : 'mono dim')}
         style={{ maxWidth }}
         title={id}
       >
@@ -48,9 +45,9 @@ export function IdBadge({ id, tone = 'default', maxWidth = 200, className }: IdB
         type="button"
         onClick={copy}
         aria-label={t(copied ? 'console.common.copied' : 'console.common.copy')}
-        className="grid size-5 flex-none cursor-pointer place-items-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-hover-wash hover:text-foreground focus-visible:opacity-100 group-hover/id:opacity-100"
+        className="iconbtn h-5! w-5! opacity-0 focus-visible:opacity-100 group-hover/id:opacity-100"
       >
-        {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+        {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
       </button>
     </span>
   )

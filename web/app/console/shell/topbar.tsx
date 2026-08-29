@@ -1,9 +1,14 @@
 import { useLocation } from 'react-router'
 
-import { IconBell, IconChevronRight, IconMoon, IconSun } from '@/console/components/icons'
-
+import {
+  IconBell,
+  IconChevronRight,
+  IconMoon,
+  IconSearch,
+  IconSun,
+} from '@/console/components/icons'
 import { useTranslation } from '@/i18n'
-import { cn } from '@/lib/utils'
+import { useUserStore } from '@/stores/user'
 
 import { useConsoleTheme } from './console-theme'
 import { pillarForPathname } from './panel-config'
@@ -18,57 +23,61 @@ export function Topbar({ panelCollapsed, onExpandPanel, onOpenSearch }: TopbarPr
   const { t } = useTranslation()
   const location = useLocation()
   const { theme, toggleTheme } = useConsoleTheme()
+  const currentUser = useUserStore((state) => state.currentUser)
   const config = pillarForPathname(location.pathname)
 
-  return (
-    <header className="flex h-[52px] flex-none items-center gap-3 border-b border-border bg-background px-5">
-      {panelCollapsed && (
-        <button
-          type="button"
-          onClick={onExpandPanel}
-          title={t('console.shell.expandPanel')}
-          className="grid size-[26px] cursor-pointer place-items-center rounded-[7px] border border-border bg-panel text-muted-foreground hover:border-border-strong hover:text-foreground"
-        >
-          <IconChevronRight />
-        </button>
-      )}
+  const initials = (currentUser?.name || currentUser?.email || 'S')
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part: string) => part[0]?.toUpperCase())
+    .join('')
 
-      <div className="flex min-w-0 items-center gap-2 text-[13px]">
-        <b className="font-semibold">{t(config.labelKey)}</b>
+  return (
+    <header className="topbar">
+      <button
+        type="button"
+        className="subnav-open"
+        onClick={onExpandPanel}
+        title={t('console.shell.expandPanel')}
+        aria-hidden={!panelCollapsed}
+        tabIndex={panelCollapsed ? 0 : -1}
+      >
+        <IconChevronRight />
+      </button>
+
+      <div className="crumb">
+        <b>{t(config.labelKey)}</b>
       </div>
 
-      <span className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          className="flex h-[30px] w-[230px] cursor-pointer items-center gap-2 rounded-[7px] border border-border bg-panel px-2.5 text-xs text-muted-foreground/70 hover:border-border-strong"
-        >
+      <div className="top-actions">
+        <button type="button" className="searchbtn" onClick={onOpenSearch}>
+          <IconSearch />
           {t('console.shell.searchPlaceholder')}
-          <kbd className="ml-auto rounded-[4px] border border-border bg-background px-1.5 py-px font-mono text-[10px] text-muted-foreground">
-            ⌘K
-          </kbd>
+          <kbd>⌘K</kbd>
         </button>
 
         <button
           type="button"
+          className="iconbtn"
           onClick={toggleTheme}
           title={t('console.shell.toggleTheme')}
-          className="grid size-[30px] cursor-pointer place-items-center rounded-[7px] text-muted-foreground hover:bg-hover-wash hover:text-foreground"
         >
           {theme === 'dark' ? <IconSun /> : <IconMoon />}
         </button>
 
-        <button
-          type="button"
-          title={t('console.shell.notifications')}
-          className={cn(
-            'relative grid size-[30px] cursor-pointer place-items-center rounded-[7px] text-muted-foreground',
-            'hover:bg-hover-wash hover:text-foreground',
-          )}
-        >
+        <button type="button" className="iconbtn" title={t('console.shell.notifications')}>
           <IconBell />
         </button>
-      </span>
+
+        <span
+          className="avatar"
+          style={{ width: 28, height: 28 }}
+          title={currentUser?.name || undefined}
+        >
+          {initials || 'S'}
+        </span>
+      </div>
     </header>
   )
 }
