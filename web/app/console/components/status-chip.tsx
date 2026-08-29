@@ -30,6 +30,7 @@ export type ConsoleStatus =
   | 'staged'
   | 'published'
   | 'rolled_back'
+  | 'paused'
   | 'enabled'
   | 'disabled'
   | 'info'
@@ -52,6 +53,7 @@ export const CONSOLE_STATUS_TONE: Record<ConsoleStatus, StatusTone> = {
   staged: 'warn',
   published: 'ok',
   rolled_back: 'bad',
+  paused: 'warn',
   enabled: 'ok',
   disabled: 'neutral',
   info: 'info',
@@ -73,6 +75,7 @@ const STATUS_LABEL_KEY: Record<ConsoleStatus, TranslationKey> = {
   staged: 'console.status.staged',
   published: 'console.status.published',
   rolled_back: 'console.status.rolledBack',
+  paused: 'console.status.paused',
   enabled: 'console.status.enabled',
   disabled: 'console.status.disabled',
   info: 'console.status.info',
@@ -86,6 +89,30 @@ const TONE_CHIP_CLASS: Record<StatusTone, string | undefined> = {
   brand: 'st-running',
   info: 'st-info',
   neutral: undefined, // bare .chip: bordered, muted
+}
+
+/**
+ * Maps a backend run/task status string onto the console vocabulary so every
+ * module renders the same chip for the same state.
+ */
+export function runStatusToConsole(status: string): ConsoleStatus {
+  switch (status) {
+    case 'succeeded':
+      return 'succeeded'
+    case 'failed':
+      return 'failed'
+    case 'running':
+      return 'running'
+    case 'queued':
+      return 'queued'
+    case 'paused':
+      return 'paused'
+    case 'canceled':
+    case 'cancelled':
+      return 'cancelled'
+    default:
+      return 'info'
+  }
 }
 
 interface StatusChipProps {
