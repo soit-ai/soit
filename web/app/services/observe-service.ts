@@ -322,6 +322,9 @@ export interface RunReplayResponse {
   trace_spec?: Record<string, unknown> | null
 }
 
-export const getRunReplay = (runId: string): Promise<RunReplayResponse> => {
-  return get<RunReplayResponse>(`/observe/runs/${runId}/replay`)
+export const getRunReplay = (
+  runId: string,
+  config?: RequestConfigWithToast,
+): Promise<RunReplayResponse> => {
+  return get<RunReplayResponse>(`/observe/runs/${runId}/replay`, undefined, config)
 }

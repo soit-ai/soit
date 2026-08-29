@@ -1,10 +1,12 @@
 import { useState } from 'react'
 
 import { useParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   Backlink,
   CodeBlock,
+  ConsoleModal,
   IconCopy,
   IconExport,
   IconReplay,
@@ -15,10 +17,12 @@ import {
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { toRunDetailView, formatDurationMs } from '../../adapters/run-detail'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { getRunReplay } from '@/services/observe-service'
 import { getRunDetail } from '@/services/run-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type RunTab = 'ledger' | 'policy' | 'events' | 'artifacts' | 'raw'
 
@@ -27,6 +31,19 @@ export default function ConsoleRunDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<RunTab>('ledger')
+
+  const [replay, setReplay] = useState<unknown>(null)
+
+  // Replay is a read: the endpoint returns the bundle a re-run would execute
+  // against, so showing it is safe and does not start anything.
+  const replayMutation = useMutation({
+    mutationKey: ['console', 'run-detail', 'replay', id],
+    mutationFn: () => getRunReplay(id as string, { suppressErrorToast: true }),
+    onSuccess: (bundle) => setReplay(bundle),
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to load the replay bundle'))
+    },
+  })
 
   const detailQuery = useQuery({
     queryKey: ['console', 'run-detail', id],
@@ -57,6 +74,22 @@ export default function ConsoleRunDetail() {
 
   const run = toRunDetailView(detailQuery.data)
 
+  // The evidence bundle is the detail payload itself — the thing an auditor
+  // needs — written client-side rather than promising a server export that
+  // does not exist.
+  const downloadEvidence = () => {
+    const blob = new Blob([JSON.stringify(detailQuery.data, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${run.id}-evidence.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    toast.success(t('console.runDetail.bundleDownloaded'))
+  }
+
   const copyId = () => {
     void navigator.clipboard?.writeText(run.id).catch(() => undefined)
   }
@@ -72,11 +105,16 @@ export default function ConsoleRunDetail() {
           <IconCopy />
         </button>
         <span className="spacer" />
-        <button type="button" className="btn">
+        <button
+          type="button"
+          className="btn"
+          disabled={replayMutation.isPending}
+          onClick={() => replayMutation.mutate(undefined)}
+        >
           <IconReplay />
           {t('console.runDetail.replay')}
         </button>
-        <button type="button" className="btn">
+        <button type="button" className="btn" onClick={downloadEvidence}>
           <IconExport />
           {t('console.runDetail.evidenceBundle')}
         </button>
@@ -316,6 +354,27 @@ export default function ConsoleRunDetail() {
           </WorkbenchPanel>
         </div>
       </div>
+
+      <ConsoleModal
+        open={replay != null}
+        onOpenChange={(open) => !open && setReplay(null)}
+        title={t('console.runDetail.replayTitle')}
+        note={t('console.runDetail.replayNote')}
+        confirmLabel={t('console.common.export')}
+        onConfirm={() => {
+          const blob = new Blob([JSON.stringify(replay, null, 2)], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = `${run.id}-replay.json`
+          anchor.click()
+          URL.revokeObjectURL(url)
+        }}
+      >
+        <CodeBlock style={{ border: 'none', borderRadius: 0 }}>
+          {replay ? JSON.stringify(replay, null, 2) : t('console.runDetail.replayEmpty')}
+        </CodeBlock>
+      </ConsoleModal>
     </>
   )
 }
