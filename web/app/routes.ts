@@ -5,6 +5,38 @@ export default [
   ...prefix('/v2', [
     layout('./console/shell/console-layout.tsx', [
       index('./console/routes/overview.tsx'),
+      route('chat/:agentId?/:threadId?', './console/routes/chat.tsx'),
+      ...prefix('build', [
+        route('agents', './console/routes/build/agents.tsx'),
+        route('agents/:id', './console/routes/build/agent-detail.tsx'),
+        route('workflows', './console/routes/build/workflows.tsx'),
+        route('workflows/new', './console/routes/build/workflow-new.tsx'),
+        route('workflows/:id', './console/routes/build/workflow-detail.tsx'),
+        route('knowledge', './console/routes/build/knowledge.tsx'),
+        route('knowledge/new', './console/routes/build/knowledge-new.tsx'),
+        route('knowledge/:id', './console/routes/build/knowledge-detail.tsx'),
+        route('plugins', './console/routes/build/plugins.tsx'),
+        route('models', './console/routes/build/models.tsx'),
+      ]),
+      ...prefix('execute', [
+        route('tasks', './console/routes/execute/tasks.tsx'),
+        route('tasks/:id', './console/routes/execute/task-detail.tsx'),
+        route('schedules', './console/routes/execute/schedules.tsx'),
+        route('events', './console/routes/execute/events.tsx'),
+      ]),
+      ...prefix('observe', [
+        route('runs', './console/routes/observe/runs.tsx'),
+        route('runs/:id', './console/routes/observe/run-detail.tsx'),
+        route('traces', './console/routes/observe/traces.tsx'),
+        route('traces/:traceId', './console/routes/observe/trace-detail.tsx'),
+      ]),
+      ...prefix('govern', [
+        route('approvals', './console/routes/govern/approvals.tsx'),
+        route('policies', './console/routes/govern/policies.tsx'),
+        route('audit', './console/routes/govern/audit.tsx'),
+        route('secrets', './console/routes/govern/secrets.tsx'),
+      ]),
+      route('settings/:section?', './console/routes/settings.tsx'),
     ]),
   ]),
 
