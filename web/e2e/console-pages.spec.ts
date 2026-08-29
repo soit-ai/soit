@@ -437,6 +437,20 @@ test('side panel surfaces the execute queue from the task summary', async ({ pag
   await expect(page).toHaveURL(/\/v2\/govern\/approvals/)
 })
 
+test('side panel survives a workbench response with no summary', async ({ page }) => {
+  // A partial body must cost one badge, not the whole console: the side panel
+  // wraps every screen, so an unguarded read here takes the app down.
+  await json(page, '**/api/v1/agents/workbench**', { items: [], page_size: 1 })
+  await json(page, '**/api/v1/workflows/workbench**', { items: [], page_size: 1 })
+
+  await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await expect(page.locator('.subnav .sl', { hasText: 'Agents' }).locator('.ct')).toHaveCount(0)
+  // The pillars whose responses were intact still report.
+  await expect(page.locator('.subnav .sl', { hasText: 'Knowledge' }).locator('.ct')).toHaveText('3')
+})
+
 test('side panel omits a count it could not load rather than guessing', async ({ page }) => {
   await page.route('**/api/v1/agents/workbench**', (route) => route.abort())
   await page.goto('/v2/build/agents', { waitUntil: 'domcontentloaded' })

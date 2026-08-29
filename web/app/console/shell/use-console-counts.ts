@@ -115,19 +115,23 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
     options: { ...SHARED, enabled: isChat },
   })
 
+  // Every read below is optional the whole way down. The response types promise
+  // a `summary` and an `items`, but a real deployment can answer with a partial
+  // body, and the side panel wraps every screen — a missing field here would
+  // take the entire console down rather than drop one badge.
   const counts: Partial<Record<ConsoleCountKey, number>> = {
-    agents: agents.data?.summary.total_agents,
-    workflows: workflows.data?.summary.total_workflows,
-    knowledge: knowledge.data?.summary.total_knowledge_bases,
-    plugins: plugins.data?.items.filter((row) => row.installed).length,
-    models: models.data?.summary.total_models,
-    tasks: tasks.data?.summary.total_tasks,
+    agents: agents.data?.summary?.total_agents,
+    workflows: workflows.data?.summary?.total_workflows,
+    knowledge: knowledge.data?.summary?.total_knowledge_bases,
+    plugins: plugins.data?.items?.filter((row) => row.installed).length,
+    models: models.data?.summary?.total_models,
+    tasks: tasks.data?.summary?.total_tasks,
     // No schedule service exists; the figure matches the fixtures that page shows.
     schedules: isExecute ? mockSchedules.length : undefined,
     events: deadLetters.data?.length,
-    approvals: isGovern ? approvals.data?.items.length : undefined,
+    approvals: isGovern ? approvals.data?.items?.length : undefined,
     secrets: secrets.data?.length,
-    threads: threads.data?.items.length,
+    threads: threads.data?.items?.length,
   }
 
   const recents: PanelRecent[] = isBuild
