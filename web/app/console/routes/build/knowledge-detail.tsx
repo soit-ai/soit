@@ -5,6 +5,7 @@ import { useParams } from 'react-router'
 import {
   Backlink,
   ConsoleButton,
+  DataStateNote,
   FilterChip,
   IconReplay,
   IconSearch,
@@ -13,59 +14,203 @@ import {
   StatusChip,
   TaskProgress,
   WorkbenchPanel,
+  useDataStateLabel,
   type ConsoleStatus,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { catColor, compactNumber, latency, relativeTime } from '../../adapters/palette'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import {
+  getKnowledgeBase,
+  getKnowledgeRunCostSummary,
+  listKnowledgeChunks,
+  listKnowledgeDocuments,
+  listKnowledgeIndexes,
+  listKnowledgeUsages,
+  queryKnowledge,
+  type KnowledgeDocument,
+  type KnowledgeQueryResponse,
+} from '@/services/knowledge-service'
 
 type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'analytics' | 'settings'
 
-const MOCK_DOCS = [
-  { path: '/guides/getting-started.md', status: 'pass' as ConsoleStatus, label: 'INDEXED', chunks: '24', tokens: '11,204', updated: '8h ago', action: 'recrawl' },
-  { path: '/reference/api/runs.md', status: 'pass' as ConsoleStatus, label: 'INDEXED', chunks: '61', tokens: '28,911', updated: '8h ago', action: 'recrawl' },
-  { path: '/reference/policy-bundles.md', status: 'pass' as ConsoleStatus, label: 'INDEXED', chunks: '38', tokens: '17,530', updated: '8h ago', action: 'recrawl' },
-  { path: '/changelog/2026-08.md', status: 'running' as ConsoleStatus, label: 'PENDING', chunks: '—', tokens: '—', updated: 'queued', action: null },
-  { path: '/legacy/diagram-v0.pdf', status: 'failed' as ConsoleStatus, label: 'FAILED', chunks: '0', tokens: '0', updated: '8h ago', action: 'ocr' },
-  { path: '/guides/deploy/helm.md', status: 'pass' as ConsoleStatus, label: 'INDEXED', chunks: '42', tokens: '19,884', updated: '8h ago', action: 'recrawl' },
-]
+const DOCS_PAGE_SIZE = 50
+const CHUNKS_PAGE_SIZE = 50
 
-const MOCK_CHUNKS = [
-  { id: 'ck_4a91#12', doc: '/guides/getting-started.md', preview: 'Every run starts with a policy evaluation. The bundle active at trigger time decides which tools…', tokens: '486', status: 'pass' as ConsoleStatus, label: 'EMBEDDED' },
-  { id: 'ck_4a91#13', doc: '/guides/getting-started.md', preview: 'Secrets are referenced as vault:name and resolved at call time; plaintext never enters the model…', tokens: '502', status: 'pass' as ConsoleStatus, label: 'EMBEDDED' },
-  { id: 'ck_7c02#04', doc: '/reference/api/runs.md', preview: 'GET /api/v1/runs/{id}/evidence returns the machine-readable evidence matrix including gate…', tokens: '511', status: 'pass' as ConsoleStatus, label: 'EMBEDDED' },
-  { id: 'ck_7c02#05', doc: '/reference/api/runs.md', preview: 'Replay executes the recorded step ledger against a policy bundle without re-calling external…', tokens: '478', status: 'running' as ConsoleStatus, label: 'RE-EMBEDDING' },
-  { id: 'ck_b310#01', doc: '/reference/policy-bundles.md', preview: 'A bundle ships like code: draft, staged rollout on a percentage of runs, then active. Promotion…', tokens: '495', status: 'pass' as ConsoleStatus, label: 'EMBEDDED' },
-]
+/** Knowledge base lifecycle → shared console status vocabulary. */
+function baseStatus(status?: string): ConsoleStatus {
+  switch (status) {
+    case 'active':
+      return 'pass'
+    case 'draft':
+      return 'draft'
+    case 'archived':
+    case 'disabled':
+      return 'disabled'
+    case 'failed':
+    case 'error':
+      return 'failed'
+    default:
+      return 'info'
+  }
+}
 
-const MOCK_RESULTS = [
-  { score: 92, chunk: 'ck_4a91#13', doc: '/guides/getting-started.md', latency: '88ms', bold: 'Secrets are referenced as vault:name and resolved at call time', rest: '; rotating a value re-binds every referencing agent automatically — no config change, no restart. Plaintext never enters model context…' },
-  { score: 81, chunk: 'ck_9d20#07', doc: '/guides/deploy/helm.md', latency: null, bold: null, rest: 'The rotation hook notifies bound consumers through the governance event feed; agents pick up the new version on their next secret.resolve span…' },
-  { score: 64, chunk: 'ck_b310#01', doc: '/reference/policy-bundles.md', latency: null, bold: null, rest: 'A bundle ships like code: draft, staged rollout, active. Secret-boundary checks are part of the evidence matrix on every run…' },
-]
+/** Document / chunk pipeline states → shared console status vocabulary. */
+function pipelineStatus(status?: string): ConsoleStatus {
+  switch (status) {
+    case 'indexed':
+    case 'ready':
+    case 'active':
+      return 'pass'
+    case 'failed':
+    case 'error':
+      return 'failed'
+    case 'pending':
+    case 'queued':
+      return 'queued'
+    case 'parsing':
+    case 'chunking':
+    case 'indexing':
+    case 'processing':
+    case 'running':
+      return 'running'
+    case 'disabled':
+      return 'disabled'
+    default:
+      return 'info'
+  }
+}
 
-const MOCK_USAGES = [
-  { id: 'support-triage', color: 'var(--cat-cyan)', kind: 'agent', queries: '1,822', hit: '93%', cited: '406', last: 'just now' },
-  { id: 'ops-copilot', color: 'var(--cat-purple)', kind: 'agent', queries: '344', hit: '86%', cited: '102', last: '4m ago' },
-  { id: 'release-notes', color: 'var(--cat-pink)', kind: 'agent', queries: '96', hit: '81%', cited: '18', last: '1h ago' },
-  { id: 'docs-nightly-sync', color: 'var(--cat-teal)', kind: 'workflow', queries: '119', hit: '—', cited: '96', last: '8h ago' },
-]
+function readNumber(source: Record<string, unknown> | undefined, key: string): number | null {
+  const value = source?.[key]
+  return typeof value === 'number' ? value : null
+}
 
-const MOCK_TOP_QUERIES = [
-  { query: 'reset workspace api key', count: '212', score: '0.88', status: 'pass' as ConsoleStatus, label: 'HIT' },
-  { query: 'rotate secret without downtime', count: '147', score: '0.90', status: 'pass' as ConsoleStatus, label: 'HIT' },
-  { query: 'export evidence bundle for audit', count: '98', score: '0.79', status: 'pass' as ConsoleStatus, label: 'HIT' },
-  { query: 'pricing for enterprise tier', count: '64', score: '0.31', status: 'info' as ConsoleStatus, label: 'ZERO-HIT' },
-  { query: 'sso scim provisioning steps', count: '41', score: '0.28', status: 'info' as ConsoleStatus, label: 'ZERO-HIT' },
-]
+function readString(source: Record<string, unknown> | undefined, key: string): string | null {
+  const value = source?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
+}
 
-// BACKEND-PENDING: knowledge-service detail (query endpoint powers testing).
+function documentLabel(doc: KnowledgeDocument): string {
+  return doc.source_uri || doc.title || doc.filename || doc.doc_key
+}
+
 export default function ConsoleKnowledgeDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<KdTab>('documents')
-  const name = id || 'product-docs'
+  const [docOffset, setDocOffset] = useState(0)
+  const [docFilter, setDocFilter] = useState('')
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [testQuery, setTestQuery] = useState('')
+
+  const knowledgeId = id || ''
+  const enabled = Boolean(knowledgeId)
+
+  const baseQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'base', knowledgeId],
+    queryFn: () => getKnowledgeBase(knowledgeId),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const documentsQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'documents', knowledgeId, docOffset],
+    queryFn: () => listKnowledgeDocuments(knowledgeId, { limit: DOCS_PAGE_SIZE, offset: docOffset }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const indexesQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'indexes', knowledgeId],
+    queryFn: () => listKnowledgeIndexes(knowledgeId),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const usagesQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'usages', knowledgeId],
+    queryFn: () => listKnowledgeUsages(knowledgeId),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const costQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'cost-summary', knowledgeId],
+    queryFn: () => getKnowledgeRunCostSummary(knowledgeId),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+
+  const base = baseQuery.data
+  const documents = documentsQuery.data || []
+  const indexes = indexesQuery.data || []
+  const usages = usagesQuery.data || []
+  const cost = costQuery.data
+
+  // Chunks hang off a document, so the first document of the current page is
+  // the default selection until a row is picked.
+  const activeDocId = selectedDocId || documents[0]?.id || ''
+  const chunksQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'chunks', knowledgeId, activeDocId],
+    queryFn: () => listKnowledgeChunks(knowledgeId, activeDocId, { limit: CHUNKS_PAGE_SIZE }),
+    options: {
+      enabled: enabled && Boolean(activeDocId),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+  const chunks = chunksQuery.data || []
+
+  const retrieval = base?.retrieval_json
+  const topK = readNumber(retrieval, 'top_k') ?? 5
+  const useRerank = retrieval?.use_rerank === true
+
+  const queryMutation = useMutation<KnowledgeQueryResponse, unknown, void>({
+    mutationKey: ['console', 'knowledge', 'query', knowledgeId],
+    mutationFn: () =>
+      queryKnowledge(knowledgeId, {
+        query: testQuery.trim(),
+        top_k: topK,
+        use_rerank: useRerank,
+      }),
+  })
+  const results = queryMutation.data?.results || []
+
+  const docsState = useDataStateLabel({
+    isPending: documentsQuery.isPending,
+    isError: documentsQuery.isError,
+  })
+  const chunksState = useDataStateLabel({
+    isPending: Boolean(activeDocId) && chunksQuery.isPending,
+    isError: chunksQuery.isError,
+  })
+  const usagesState = useDataStateLabel({
+    isPending: usagesQuery.isPending,
+    isError: usagesQuery.isError,
+  })
+
+  const name = base?.name || knowledgeId
+  const primaryIndex = indexes.find((index) => index.is_primary) || indexes[0]
+  const chunkSize = readNumber(base?.chunking_json, 'chunk_size')
+  const chunkOverlap = readNumber(base?.chunking_json, 'chunk_overlap')
+  const sourceUri =
+    readString(base?.settings_json, 'source_uri') || readString(base?.settings_json, 'source_kind')
+  const embeddingRef = primaryIndex?.embedding_model_ref || base?.default_embedding_model_ref
+  const lastSyncAt = primaryIndex?.last_build_at || base?.last_indexed_at || base?.last_ingested_at
+  const lastSyncRunId = primaryIndex?.last_run_id
+  const agentUsages = usages.filter((usage) => usage.resource_kind === 'agent').length
+  const workflowUsages = usages.filter((usage) => usage.resource_kind === 'workflow').length
+
+  const visibleDocuments = documents.filter((doc) => {
+    const query = docFilter.trim().toLowerCase()
+    if (!query) return true
+    return documentLabel(doc).toLowerCase().includes(query)
+  })
+  const activeDoc = documents.find((doc) => doc.id === activeDocId)
+
+  const tabItems: [KdTab, string, React.ReactNode][] = [
+    ['documents', t('console.knowDetail.tabs.documents'), base ? compactNumber(base.doc_count) : null],
+    ['chunks', t('console.knowDetail.tabs.chunks'), base ? compactNumber(base.chunk_count) : null],
+    ['testing', t('console.knowDetail.tabs.testing'), null],
+    ['usages', t('console.knowDetail.tabs.usages'), usages.length ? String(usages.length) : null],
+    ['analytics', t('console.knowDetail.tabs.analytics'), null],
+    ['settings', t('console.knowDetail.tabs.settings'), null],
+  ]
 
   return (
     <>
@@ -73,10 +218,13 @@ export default function ConsoleKnowledgeDetail() {
 
       <div className="rd-head">
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
-        <StatusChip status="pass" label="SYNCED" />
+        <StatusChip
+          status={baseStatus(base?.status)}
+          label={base ? base.status.toUpperCase() : '—'}
+        />
         <span className="chip">
-          <i style={{ background: 'var(--cat-blue)' }} />
-          web crawl
+          <i style={{ background: catColor(knowledgeId) }} />
+          {base?.knowledge_type || '—'}
         </span>
         <span className="spacer" />
         <ConsoleButton>
@@ -87,40 +235,45 @@ export default function ConsoleKnowledgeDetail() {
       </div>
 
       <div className="rd-meta">
-        <span>Source<b>https://docs.acme.io · depth 3</b></span>
-        <span>Embedding<b>bge-m3 · self-hosted</b></span>
-        <span>Chunking<b>auto · 512 tok / 64 overlap</b></span>
-        <span>Sync<b>nightly 02:00Z</b></span>
+        <span>Source<b>{sourceUri || '—'}</b></span>
+        <span>Embedding<b>{embeddingRef || '—'}</b></span>
+        <span>
+          Chunking
+          <b>
+            {chunkSize != null
+              ? `${chunkSize} tok${chunkOverlap != null ? ` / ${chunkOverlap} overlap` : ''}`
+              : '—'}
+          </b>
+        </span>
+        {/* No sync-schedule field exists on the knowledge record; ingest is
+            triggered per document or per ingest task. */}
+        <span>Sync<b>—</b></span>
         <span>
           Last sync
           <b>
-            8h ago ·{' '}
-            <a
-              className="runid"
-              href="/v2/observe/runs/run_01J9KCXK3B"
-              onClick={(event) => {
-                event.preventDefault()
-                navigate('/v2/observe/runs/run_01J9KCXK3B')
-              }}
-            >
-              run_01J9KCXK3B
-            </a>
+            {relativeTime(lastSyncAt)}
+            {lastSyncRunId && (
+              <>
+                {' · '}
+                <a
+                  className="runid"
+                  href={`/v2/observe/runs/${lastSyncRunId}`}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate(`/v2/observe/runs/${lastSyncRunId}`)
+                  }}
+                >
+                  {lastSyncRunId}
+                </a>
+              </>
+            )}
           </b>
         </span>
-        <span>Bound to<b>3 agents · 1 workflow</b></span>
+        <span>Bound to<b>{`${agentUsages} agents · ${workflowUsages} workflows`}</b></span>
       </div>
 
       <div className="tabs">
-        {(
-          [
-            ['documents', t('console.knowDetail.tabs.documents'), '1,204'],
-            ['chunks', t('console.knowDetail.tabs.chunks'), '18,392'],
-            ['testing', t('console.knowDetail.tabs.testing'), null],
-            ['usages', t('console.knowDetail.tabs.usages'), '4'],
-            ['analytics', t('console.knowDetail.tabs.analytics'), null],
-            ['settings', t('console.knowDetail.tabs.settings'), null],
-          ] as const
-        ).map(([value, label, count]) => (
+        {tabItems.map(([value, label, count]) => (
           <button key={value} type="button" className={cn(tab === value && 'on')} onClick={() => setTab(value)}>
             {label}
             {count && <span className="mono">{count}</span>}
@@ -135,7 +288,11 @@ export default function ConsoleKnowledgeDetail() {
           actions={
             <div className="fsearch" style={{ maxWidth: 240, height: 26 }}>
               <IconSearch size={12} style={{ color: 'var(--faint)' }} />
-              <input placeholder={t('console.knowDetail.filterDocs')} />
+              <input
+                placeholder={t('console.knowDetail.filterDocs')}
+                value={docFilter}
+                onChange={(event) => setDocFilter(event.target.value)}
+              />
             </div>
           }
         >
@@ -151,38 +308,69 @@ export default function ConsoleKnowledgeDetail() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_DOCS.map((doc) => (
-                <tr key={doc.path} className="rowlink">
-                  <td>
-                    <span className="mono">{doc.path}</span>
-                  </td>
-                  <td>
-                    <StatusChip status={doc.status} label={doc.label} />
-                  </td>
-                  <td className="num dim">{doc.chunks}</td>
-                  <td className="num dim">{doc.tokens}</td>
-                  <td className="num dimmer">{doc.updated}</td>
-                  <td className="num">
-                    {doc.action === 'recrawl' && (
-                      <ConsoleButton variant="ghost" size="sm">
-                        {t('console.knowDetail.recrawl')}
-                      </ConsoleButton>
-                    )}
-                    {doc.action === 'ocr' && (
-                      <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
-                    )}
+              {visibleDocuments.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <div className="empty-note">{docsState}</div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                visibleDocuments.map((doc) => (
+                  <tr
+                    key={doc.id}
+                    className="rowlink"
+                    onClick={() => {
+                      setSelectedDocId(doc.id)
+                      setTab('chunks')
+                    }}
+                  >
+                    <td>
+                      <span className="mono">{documentLabel(doc)}</span>
+                    </td>
+                    <td>
+                      <StatusChip status={pipelineStatus(doc.status)} label={doc.status.toUpperCase()} />
+                    </td>
+                    <td className="num dim">
+                      {readNumber(doc.index_meta_json, 'chunk_count') ?? '—'}
+                    </td>
+                    {/* Documents store no aggregate token count — only chunks
+                        carry token_count, and they are not joined here. */}
+                    <td className="num dim">—</td>
+                    <td className="num dimmer">{relativeTime(doc.updated_at)}</td>
+                    <td className="num">
+                      {doc.status !== 'failed' && (
+                        <ConsoleButton variant="ghost" size="sm">
+                          {t('console.knowDetail.recrawl')}
+                        </ConsoleButton>
+                      )}
+                      {doc.status === 'failed' && (
+                        <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
           <div className="pager">
-            <span>{t('console.knowDetail.docsPager')}</span>
+            <span className="mono">
+              {`${documents.length} / ${base ? compactNumber(base.doc_count) : '—'}`}
+            </span>
             <span className="spacer" />
-            <ConsoleButton size="sm" disabled>
+            <ConsoleButton
+              size="sm"
+              disabled={docOffset === 0}
+              onClick={() => setDocOffset((offset) => Math.max(0, offset - DOCS_PAGE_SIZE))}
+            >
               {t('console.runs.prev')}
             </ConsoleButton>
-            <ConsoleButton size="sm">{t('console.runs.next')}</ConsoleButton>
+            <ConsoleButton
+              size="sm"
+              disabled={documents.length < DOCS_PAGE_SIZE}
+              onClick={() => setDocOffset((offset) => offset + DOCS_PAGE_SIZE)}
+            >
+              {t('console.runs.next')}
+            </ConsoleButton>
           </div>
         </WorkbenchPanel>
       )}
@@ -200,21 +388,32 @@ export default function ConsoleKnowledgeDetail() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_CHUNKS.map((chunk) => (
-                <tr key={chunk.id} className="rowlink">
-                  <td>
-                    <span className="mono">{chunk.id}</span>
-                  </td>
-                  <td className="mono dim">{chunk.doc}</td>
-                  <td className="dim" style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {chunk.preview}
-                  </td>
-                  <td className="num dim">{chunk.tokens}</td>
-                  <td>
-                    <StatusChip status={chunk.status} label={chunk.label} />
+              {chunks.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    <div className="empty-note">{chunksState}</div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                chunks.map((chunk) => (
+                  <tr key={chunk.id} className="rowlink">
+                    <td>
+                      <span className="mono">{chunk.chunk_key || `${chunk.id}#${chunk.chunk_no}`}</span>
+                    </td>
+                    <td className="mono dim">{activeDoc ? documentLabel(activeDoc) : '—'}</td>
+                    <td className="dim" style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {chunk.text_preview || '—'}
+                    </td>
+                    <td className="num dim">{chunk.token_count ?? '—'}</td>
+                    <td>
+                      <StatusChip
+                        status={pipelineStatus(chunk.index_status)}
+                        label={chunk.index_status.toUpperCase()}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
           <div className="pager">
@@ -228,33 +427,47 @@ export default function ConsoleKnowledgeDetail() {
           <div style={{ display: 'flex', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
             <div className="fsearch" style={{ maxWidth: 'none', flex: 1, height: 30 }}>
               <IconSearch size={12} style={{ color: 'var(--faint)' }} />
-              <input defaultValue="how do I rotate a secret without breaking bound agents?" />
+              <input
+                value={testQuery}
+                onChange={(event) => setTestQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && testQuery.trim()) queryMutation.mutate()
+                }}
+              />
             </div>
-            <FilterChip>top_k: 5</FilterChip>
-            <FilterChip>rerank: on</FilterChip>
-            <ConsoleButton variant="primary" style={{ height: 28 }}>
+            <FilterChip>top_k: {topK}</FilterChip>
+            <FilterChip>rerank: {useRerank ? 'on' : 'off'}</FilterChip>
+            <ConsoleButton
+              variant="primary"
+              style={{ height: 28 }}
+              disabled={!testQuery.trim() || queryMutation.isPending}
+              onClick={() => queryMutation.mutate()}
+            >
               {t('console.knowDetail.runQuery')}
             </ConsoleButton>
           </div>
-          {MOCK_RESULTS.map((result) => (
-            <div key={result.chunk} className="tres">
-              <div className="tres-h">
-                <TaskProgress pct={result.score} label={(result.score / 100).toFixed(2)} />
-                <span className="mono">{result.chunk}</span>
-                <span className="mono">{result.doc}</span>
-                <span className="spacer" style={{ flex: 1 }} />
-                {result.latency && (
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--faint)' }}>
-                    {result.latency}
-                  </span>
-                )}
-              </div>
-              <p>
-                {result.bold && <b>{result.bold}</b>}
-                {result.rest}
-              </p>
-            </div>
-          ))}
+          {results.length === 0 ? (
+            <DataStateNote isPending={queryMutation.isPending} isError={queryMutation.isError} />
+          ) : (
+            results.map((result) => {
+              const score = result.score <= 1 ? result.score * 100 : result.score
+              return (
+                <div key={result.chunk_id} className="tres">
+                  <div className="tres-h">
+                    <TaskProgress
+                      pct={Math.max(0, Math.min(100, Math.round(score)))}
+                      label={result.score.toFixed(2)}
+                    />
+                    <span className="mono">{result.chunk_id}</span>
+                    <span className="mono">{result.document_id}</span>
+                    <span className="spacer" style={{ flex: 1 }} />
+                    {/* The query response carries no per-result timing. */}
+                  </div>
+                  <p>{result.text}</p>
+                </div>
+              )
+            })
+          )}
           <div className="pager">
             <span>{t('console.knowDetail.testingNote')}</span>
           </div>
@@ -275,21 +488,34 @@ export default function ConsoleKnowledgeDetail() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_USAGES.map((usage) => (
-                <tr key={usage.id} className="rowlink">
-                  <td>
-                    <span className="idm" style={{ '--c': usage.color } as React.CSSProperties}>
-                      <i />
-                      {usage.id}
-                    </span>
+              {usages.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <div className="empty-note">{usagesState}</div>
                   </td>
-                  <td className="dim">{usage.kind}</td>
-                  <td className="num dim">{usage.queries}</td>
-                  <td className="num dim">{usage.hit}</td>
-                  <td className="num dim">{usage.cited}</td>
-                  <td className="num dimmer">{usage.last}</td>
                 </tr>
-              ))}
+              ) : (
+                usages.map((usage) => (
+                  <tr key={usage.resource_version_id} className="rowlink">
+                    <td>
+                      <span
+                        className="idm"
+                        style={{ '--c': catColor(usage.resource_id) } as React.CSSProperties}
+                      >
+                        <i />
+                        {usage.resource_name}
+                      </span>
+                    </td>
+                    <td className="dim">{usage.resource_kind}</td>
+                    <td className="num dim">{compactNumber(usage.run_count)}</td>
+                    {/* The usage projection counts runs only — it carries no
+                        retrieval hit rate and no citation count. */}
+                    <td className="num dim">—</td>
+                    <td className="num dim">—</td>
+                    <td className="num dimmer">{relativeTime(usage.last_run_at)}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
           <div className="pager">
@@ -301,10 +527,31 @@ export default function ConsoleKnowledgeDetail() {
       {tab === 'analytics' && (
         <>
           <StatTileGrid>
-            <StatTile label="Queries · 24h" value="2,381" delta={{ direction: 'up', label: '+11.4%' }} sub="vs prev 24h" />
-            <StatTile label="Hit rate" value="91%" sub={<span className="mono dimmer">score ≥ 0.6 threshold</span>} />
-            <StatTile label="P95 retrieval" value="212ms" sub={<span className="mono dimmer">embed 41 · search 96 · rerank 75</span>} />
-            <StatTile label="Zero-hit queries" value="7.1%" sub={<span className="mono dimmer">169 queries · gap candidates</span>} />
+            <StatTile
+              label="Queries · 24h"
+              value={cost ? compactNumber(cost.request_count) : '—'}
+              na={!cost || cost.request_count == null}
+              sub="all retrieval runs"
+            />
+            {/* Retrieval hit rate and zero-hit share have no aggregation
+                endpoint; the run cost summary only reports volume and spend. */}
+            <StatTile label="Hit rate" value="—" na sub={<span className="mono dimmer">no aggregation endpoint</span>} />
+            <StatTile
+              label="P95 retrieval"
+              value={cost && cost.request_count ? latency(cost.ms_total / cost.request_count) : '—'}
+              na={!cost || !cost.request_count}
+              sub={
+                <span className="mono dimmer">
+                  {cost ? `embed ${cost.embedding_count} · rerank ${cost.rerank_count}` : '—'}
+                </span>
+              }
+            />
+            <StatTile
+              label="Zero-hit queries"
+              value="—"
+              na
+              sub={<span className="mono dimmer">no aggregation endpoint</span>}
+            />
           </StatTileGrid>
           <WorkbenchPanel title={t('console.knowDetail.topQueries')} hint={t('console.knowDetail.topQueriesHint')}>
             <table>
@@ -317,16 +564,13 @@ export default function ConsoleKnowledgeDetail() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_TOP_QUERIES.map((row) => (
-                  <tr key={row.query}>
-                    <td className="dim">{row.query}</td>
-                    <td className="num dim">{row.count}</td>
-                    <td className="num dim">{row.score}</td>
-                    <td>
-                      <StatusChip status={row.status} label={row.label} />
-                    </td>
-                  </tr>
-                ))}
+                {/* BACKEND-PENDING: query-text analytics are not persisted —
+                    there is no top-queries endpoint on knowledge. */}
+                <tr>
+                  <td colSpan={4}>
+                    <div className="empty-note">{t('console.common.empty')}</div>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </WorkbenchPanel>
@@ -337,18 +581,27 @@ export default function ConsoleKnowledgeDetail() {
         <WorkbenchPanel title={t('console.knowDetail.settingsTitle')}>
           <div className="frow">
             <label>{t('console.knowDetail.fields.name')}</label>
-            <input className="input" defaultValue={name} />
+            <input key={`name-${base?.id ?? 'pending'}`} className="input" defaultValue={base?.name ?? ''} />
           </div>
           <div className="frow">
             <label>
               {t('console.knowDetail.fields.source')}
               <small>{t('console.knowDetail.fields.sourceHint')}</small>
             </label>
-            <input className="input" defaultValue="https://docs.acme.io" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }} />
+            <input
+              key={`source-${base?.id ?? 'pending'}`}
+              className="input"
+              defaultValue={sourceUri ?? ''}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+            />
           </div>
+          {/* BACKEND-PENDING: sync schedule, chunking preset and embedding
+              choice are not yet bound — the knowledge record stores free-form
+              chunking_json / default_embedding_model_ref rather than the
+              preset enums these controls offer. */}
           <div className="frow">
             <label>{t('console.knowDetail.fields.schedule')}</label>
-            <select className="input" defaultValue="nightly 02:00Z">
+            <select className="input" defaultValue="manual only">
               <option>nightly 02:00Z</option>
               <option>hourly</option>
               <option>manual only</option>
@@ -374,7 +627,16 @@ export default function ConsoleKnowledgeDetail() {
           </div>
           <div className="frow">
             <label>{t('console.knowDetail.fields.threshold')}</label>
-            <input className="input" defaultValue="score ≥ 0.60" style={{ maxWidth: 140 }} />
+            <input
+              key={`threshold-${base?.id ?? 'pending'}`}
+              className="input"
+              defaultValue={
+                readNumber(retrieval, 'keyword_min_score') != null
+                  ? `score ≥ ${readNumber(retrieval, 'keyword_min_score')}`
+                  : ''
+              }
+              style={{ maxWidth: 140 }}
+            />
           </div>
           <div className="frow">
             <label style={{ color: 'var(--danger-foreground)' }}>

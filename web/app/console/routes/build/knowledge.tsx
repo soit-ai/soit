@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   ConsoleButton,
   ConsoleTabs,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconPlus,
@@ -10,7 +11,6 @@ import {
   StatTile,
   StatTileGrid,
   StatusChip,
-  TaskProgress,
   Workbench,
   WorkbenchPanel,
   type ConsoleStatus,
@@ -24,31 +24,33 @@ import {
   TableRow,
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import {
+  getKnowledgeWorkbench,
+  listKnowledgeIngestTasks,
+  type KnowledgeIngestTask,
+  type KnowledgeWorkbenchRow,
+} from '@/services/knowledge-service'
 
 type KnTab = 'libraries' | 'ingest' | 'exceptions' | 'recycle'
 type KindFilter = 'all' | 'web crawl' | 'upload' | 'git sync'
 
-interface MockLibrary {
-  id: string
-  color: string
-  kind: Exclude<KindFilter, 'all'>
-  status: ConsoleStatus
-  status_label: string
-  documents: string
-  chunks: string
-  queries: string
-  hit_rate: string
-  last_sync: string
+const PAGE_SIZE = 50
+
+/** Workbench row states map onto the shared console status vocabulary. */
+const ROW_STATUS: Record<KnowledgeWorkbenchRow['status'], ConsoleStatus> = {
+  ready: 'pass',
+  indexing: 'running',
+  error: 'failed',
+  unconfigured: 'warn',
 }
 
-// BACKEND-PENDING: knowledge-service list replaces the fixtures.
-const MOCK_LIBRARIES: MockLibrary[] = [
-  { id: 'product-docs', color: 'var(--cat-blue)', kind: 'web crawl', status: 'pass', status_label: 'SYNCED', documents: '1,204', chunks: '18,392', queries: '2,381', hit_rate: '91%', last_sync: '8h ago' },
-  { id: 'support-macros', color: 'var(--cat-indigo)', kind: 'upload', status: 'pass', status_label: 'SYNCED', documents: '86', chunks: '1,022', queries: '944', hit_rate: '88%', last_sync: '3d ago' },
-  { id: 'runbooks', color: 'var(--cat-teal)', kind: 'git sync', status: 'running', status_label: 'INGESTING', documents: '312', chunks: '4,410', queries: '512', hit_rate: '83%', last_sync: 'now' },
-  { id: 'billing-policies', color: 'var(--cat-pink)', kind: 'upload', status: 'warn', status_label: 'DEGRADED', documents: '24', chunks: '388', queries: '207', hit_rate: '61%', last_sync: '14d ago' },
-]
+interface IngestEntry {
+  task: KnowledgeIngestTask
+  library: KnowledgeWorkbenchRow
+}
 
 export default function ConsoleKnowledge() {
   const { t } = useTranslation()
@@ -57,12 +59,64 @@ export default function ConsoleKnowledge() {
   const [filter, setFilter] = useState<KindFilter>('all')
   const [search, setSearch] = useState('')
 
-  const rows = MOCK_LIBRARIES.filter((row) => {
-    if (filter !== 'all' && row.kind !== filter) return false
+  const workbenchQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'workbench'],
+    queryFn: () => getKnowledgeWorkbench({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const summary = workbenchQuery.data?.summary
+  const libraries = workbenchQuery.data?.items || []
+
+  // Ingest tasks are only exposed per knowledge base
+  // (GET /knowledge/{id}/ingest-tasks); there is no workspace-wide queue
+  // endpoint yet, so the console fans out across the loaded libraries.
+  const libraryIds = libraries.map((row) => row.id)
+  const ingestQuery = useQuery<IngestEntry[]>({
+    queryKey: ['console', 'knowledge', 'ingest-tasks', libraryIds],
+    queryFn: async () => {
+      const perLibrary = await Promise.all(
+        libraries.map((library) =>
+          listKnowledgeIngestTasks(library.id, { limit: 20 })
+            .then((tasks) => tasks.map((task) => ({ task, library })))
+            .catch(() => [] as IngestEntry[]),
+        ),
+      )
+      return perLibrary
+        .flat()
+        .sort(
+          (a, b) =>
+            new Date(b.task.created_at).getTime() - new Date(a.task.created_at).getTime(),
+        )
+    },
+    options: {
+      enabled: libraryIds.length > 0,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const ingestTasks = ingestQuery.data || []
+  const ingestPending =
+    workbenchQuery.isPending || (libraryIds.length > 0 && ingestQuery.isPending)
+
+  const matchesKind = (row: KnowledgeWorkbenchRow, kind: Exclude<KindFilter, 'all'>) =>
+    (row.content_source || '').toLowerCase().includes(kind)
+
+  const matchesSearch = (row: KnowledgeWorkbenchRow) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return row.id.toLowerCase().includes(query)
+    return [row.name, row.description, row.content_source, row.owner]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  }
+
+  const rows = libraries.filter((row) => {
+    if (filter !== 'all' && !matchesKind(row, filter)) return false
+    return matchesSearch(row)
   })
+
+  const exceptions = libraries.filter((row) => row.recent_exception_count > 0)
 
   return (
     <Workbench
@@ -76,18 +130,58 @@ export default function ConsoleKnowledge() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.knowledge.tiles.libraries')} value="4" sub={<span className="mono dimmer">3 synced · 1 degraded</span>} />
-          <StatTile label={t('console.knowledge.tiles.documents')} value="1,626" sub={<span className="mono dimmer">24,212 chunks</span>} />
-          <StatTile label={t('console.knowledge.tiles.queries')} value="4,044" delta={{ direction: 'up', label: '+9.2%' }} sub="hit rate 87%" />
-          <StatTile label={t('console.knowledge.tiles.p95')} value="240ms" sub={<span className="mono dimmer">bge-m3 · self-hosted</span>} />
+          <StatTile
+            label={t('console.knowledge.tiles.libraries')}
+            value={summary ? compactNumber(summary.total_knowledge_bases) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                {summary
+                  ? `${summary.ready_knowledge_bases} ready · ${summary.recent_exceptions} exceptions`
+                  : t('console.common.loading')}
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.knowledge.tiles.documents')}
+            value={summary ? compactNumber(summary.total_documents) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                {summary ? `${compactNumber(summary.total_chunks)} chunks` : '—'}
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.knowledge.tiles.queries')}
+            value={summary ? compactNumber(summary.today_calls) : '—'}
+            na={!summary}
+            sub={summary ? `hit rate ${percent(summary.hit_rate)}` : '—'}
+          />
+          {/* The workbench summary reports mean retrieval latency; there is no
+              percentile aggregation endpoint, so no p95 figure is available. */}
+          <StatTile
+            label={t('console.knowledge.tiles.p95')}
+            value={summary ? latency(summary.avg_latency_ms) : '—'}
+            na={!summary || summary.avg_latency_ms == null}
+            sub={<span className="mono dimmer">avg · all retrieval runs</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'libraries', label: t('console.knowledge.tabs.libraries'), count: 4 },
-            { id: 'ingest', label: t('console.knowledge.tabs.ingest'), count: 2 },
-            { id: 'exceptions', label: t('console.knowledge.tabs.exceptions'), count: 1 },
+            {
+              id: 'libraries',
+              label: t('console.knowledge.tabs.libraries'),
+              count: libraries.length,
+            },
+            { id: 'ingest', label: t('console.knowledge.tabs.ingest'), count: ingestTasks.length },
+            {
+              id: 'exceptions',
+              label: t('console.knowledge.tabs.exceptions'),
+              count: exceptions.length,
+            },
             { id: 'recycle', label: t('console.knowledge.tabs.recycle') },
           ]}
           value={tab}
@@ -99,10 +193,22 @@ export default function ConsoleKnowledge() {
           <>
             {(
               [
-                ['all', t('console.knowledge.filters.all'), 4],
-                ['web crawl', t('console.knowledge.filters.webCrawl'), 1],
-                ['upload', t('console.knowledge.filters.upload'), 2],
-                ['git sync', t('console.knowledge.filters.gitSync'), 1],
+                ['all', t('console.knowledge.filters.all'), libraries.length],
+                [
+                  'web crawl',
+                  t('console.knowledge.filters.webCrawl'),
+                  libraries.filter((row) => matchesKind(row, 'web crawl')).length,
+                ],
+                [
+                  'upload',
+                  t('console.knowledge.filters.upload'),
+                  libraries.filter((row) => matchesKind(row, 'upload')).length,
+                ],
+                [
+                  'git sync',
+                  t('console.knowledge.filters.gitSync'),
+                  libraries.filter((row) => matchesKind(row, 'git sync')).length,
+                ],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -134,29 +240,37 @@ export default function ConsoleKnowledge() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="rowlink cursor-pointer"
-                  onClick={() => navigate(`/v2/build/knowledge/${row.id}`)}
-                >
-                  <TableCell>
-                    <span className="idm" style={{ '--c': row.color } as React.CSSProperties}>
-                      <i />
-                      {row.id}
-                    </span>
-                  </TableCell>
-                  <TableCell className="dim">{row.kind}</TableCell>
-                  <TableCell>
-                    <StatusChip status={row.status} label={row.status_label} />
-                  </TableCell>
-                  <TableCell className="num dim">{row.documents}</TableCell>
-                  <TableCell className="num dim">{row.chunks}</TableCell>
-                  <TableCell className="num dim">{row.queries}</TableCell>
-                  <TableCell className="num dim">{row.hit_rate}</TableCell>
-                  <TableCell className="num dimmer">{row.last_sync}</TableCell>
-                </TableRow>
-              ))}
+              {rows.length === 0 ? (
+                <DataStateRow
+                  colSpan={8}
+                  isPending={workbenchQuery.isPending}
+                  isError={workbenchQuery.isError}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    className="rowlink cursor-pointer"
+                    onClick={() => navigate(`/v2/build/knowledge/${row.id}`)}
+                  >
+                    <TableCell>
+                      <span className="idm" style={{ '--c': catColor(row.id) } as React.CSSProperties}>
+                        <i />
+                        {row.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="dim">{row.content_source || '—'}</TableCell>
+                    <TableCell>
+                      <StatusChip status={ROW_STATUS[row.status]} label={row.status.toUpperCase()} />
+                    </TableCell>
+                    <TableCell className="num dim">{compactNumber(row.document_count)}</TableCell>
+                    <TableCell className="num dim">{compactNumber(row.chunk_count)}</TableCell>
+                    <TableCell className="num dim">{compactNumber(row.today_calls)}</TableCell>
+                    <TableCell className="num dim">{percent(row.hit_rate)}</TableCell>
+                    <TableCell className="num dimmer">{relativeTime(row.last_sync_at)}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </WorkbenchPanel>
@@ -177,61 +291,56 @@ export default function ConsoleKnowledge() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell className="mono">ingest_7c21</TableCell>
-                <TableCell>
-                  <span className="idm" style={{ '--c': 'var(--cat-teal)' } as React.CSSProperties}>
-                    <i />
-                    runbooks
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <span className="kind" style={{ '--c': 'var(--cat-cyan)' } as React.CSSProperties}>
-                    <i />
-                    embed
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <TaskProgress pct={64} label="198/312" />
-                </TableCell>
-                <TableCell className="num dim">312</TableCell>
-                <TableCell>
-                  <a
-                    className="runid"
-                    href="/v2/observe/runs/run_01J9KD8XM4"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/observe/runs/run_01J9KD8XM4')
-                    }}
-                  >
-                    run_01J9KD8XM4
-                  </a>
-                </TableCell>
-                <TableCell className="num dimmer">2m ago</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell className="mono">ingest_7b9e</TableCell>
-                <TableCell>
-                  <span className="idm" style={{ '--c': 'var(--cat-blue)' } as React.CSSProperties}>
-                    <i />
-                    product-docs
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <span className="kind" style={{ '--c': 'var(--cat-blue)' } as React.CSSProperties}>
-                    <i />
-                    crawl
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <TaskProgress pct={12} label="142/1,204" />
-                </TableCell>
-                <TableCell className="num dim">1,204</TableCell>
-                <TableCell>
-                  <span className="dimmer">queued</span>
-                </TableCell>
-                <TableCell className="num dimmer">just now</TableCell>
-              </TableRow>
+              {ingestTasks.length === 0 ? (
+                <DataStateRow colSpan={7} isPending={ingestPending} isError={ingestQuery.isError} />
+              ) : (
+                ingestTasks.map(({ task, library }) => (
+                  <TableRow key={task.id}>
+                    <TableCell className="mono">{task.id}</TableCell>
+                    <TableCell>
+                      <span
+                        className="idm"
+                        style={{ '--c': catColor(library.id) } as React.CSSProperties}
+                      >
+                        <i />
+                        {library.name}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="kind"
+                        style={{ '--c': catColor(task.status) } as React.CSSProperties}
+                      >
+                        <i />
+                        {task.status}
+                      </span>
+                    </TableCell>
+                    {/* Ingest tasks carry retry counters but no processed/total
+                        counters, so there is no percentage to plot. */}
+                    <TableCell className="dimmer">—</TableCell>
+                    <TableCell className="num dim">{task.document_id ? 1 : '—'}</TableCell>
+                    <TableCell>
+                      {task.run_id ? (
+                        <a
+                          className="runid"
+                          href={`/v2/observe/runs/${task.run_id}`}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            navigate(`/v2/observe/runs/${task.run_id}`)
+                          }}
+                        >
+                          {task.run_id}
+                        </a>
+                      ) : (
+                        <span className="dimmer">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="num dimmer">
+                      {relativeTime(task.started_at || task.created_at)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.knowledge.ingestNote')} />
@@ -251,39 +360,44 @@ export default function ConsoleKnowledge() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell>
-                  <span className="idm" style={{ '--c': 'var(--cat-pink)' } as React.CSSProperties}>
-                    <i />
-                    billing-policies
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <StatusChip status="warn" label="DEGRADED" />{' '}
-                  <span className="dim">3 scanned PDFs failed to parse · hit rate dropped to 61%</span>
-                </TableCell>
-                <TableCell className="num dim">3</TableCell>
-                <TableCell>
-                  <a
-                    className="runid"
-                    href="/v2/observe/runs/run_01J9KCXK3B"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/observe/runs/run_01J9KCXK3B')
-                    }}
-                  >
-                    run_01J9KCXK3B
-                  </a>
-                </TableCell>
-                <TableCell className="num">
-                  <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
-                </TableCell>
-              </TableRow>
+              {exceptions.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={workbenchQuery.isPending}
+                  isError={workbenchQuery.isError}
+                />
+              ) : (
+                exceptions.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <span className="idm" style={{ '--c': catColor(row.id) } as React.CSSProperties}>
+                        <i />
+                        {row.name}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={ROW_STATUS[row.status]} label={row.status.toUpperCase()} />{' '}
+                      <span className="dim">{row.description || '—'}</span>
+                    </TableCell>
+                    <TableCell className="num dim">{row.recent_exception_count}</TableCell>
+                    {/* The workbench row aggregates failing runs but does not
+                        return the failing run id, so this is the last sync
+                        stamp rather than a link into the run ledger. */}
+                    <TableCell className="dimmer">{relativeTime(row.last_sync_at)}</TableCell>
+                    <TableCell className="num">
+                      <ConsoleButton size="sm">{t('console.knowledge.reprocess')}</ConsoleButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </WorkbenchPanel>
       )}
 
+      {/* Soft-deleted knowledge bases have no list endpoint; DELETE
+          /knowledge/{id} only flips deleted_at. Show the retention promise
+          rather than fixtures. */}
       {tab === 'recycle' && (
         <WorkbenchPanel className="mt-3.5">
           <div className="empty-note">

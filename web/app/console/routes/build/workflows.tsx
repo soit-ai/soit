@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   ConsoleButton,
   ConsoleTabs,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   Hist,
@@ -25,34 +26,36 @@ import {
   TableRow,
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { getWorkflowWorkbench, type WorkflowWorkbenchRow } from '@/services/workflow-service'
 
 type WfTab = 'all' | 'publish' | 'archived'
 type WfFilter = 'all' | 'published' | 'draft'
 
-interface MockWorkflowRow {
-  id: string
-  name: string
-  note: string
-  version: string
-  draft?: boolean
-  nodes: string
-  last_status: ConsoleStatus
-  last_label: string
-  hist: string
-  success: string
-  updated: string
+const PAGE_SIZE = 50
+
+/**
+ * The workbench row carries a lifecycle status, not a run verdict; map it onto
+ * the shared console vocabulary so the chip reads the same as everywhere else.
+ */
+const STATUS_TO_CONSOLE: Record<WorkflowWorkbenchRow['status'], ConsoleStatus> = {
+  running: 'running',
+  publishing: 'staged',
+  abnormal: 'failed',
+  draft: 'draft',
 }
 
-// BACKEND-PENDING: workflow-service list replaces the fixtures.
-const MOCK_WORKFLOWS: MockWorkflowRow[] = [
-  { id: 'ticket-escalation', name: 'ticket-escalation', note: 'triage → enrich → route → notify', version: 'v14 · published', nodes: '9', last_status: 'pass', last_label: 'PASS', hist: 'ppppppppdppppppppppppfpppppp', success: '99.2%', updated: '2d ago' },
-  { id: 'invoice-reconcile', name: 'invoice-reconcile', note: 'fetch → diff → post journal → report', version: 'v8 · published', nodes: '7', last_status: 'blocked', last_label: 'BLOCKED', hist: 'ppppfppppppppfppppppdpppppfp', success: '96.1%', updated: '5d ago' },
-  { id: 'docs-nightly-sync', name: 'docs-nightly-sync', note: 'crawl → chunk → embed → verify', version: 'v22 · published', nodes: '12', last_status: 'warn', last_label: 'DEGRADED', hist: 'ppdppppdppppppppdppppppdpppp', success: '97.4%', updated: '8h ago' },
-  { id: 'release-digest', name: 'release-digest', note: 'collect PRs → summarize → review gate', version: 'v5 · published', nodes: '5', last_status: 'pass', last_label: 'PASS', hist: 'pppppppppppppppppppppppppppp', success: '100%', updated: '12d ago' },
-  { id: 'churn-signal-scan', name: 'churn-signal-scan', note: 'query → score → draft outreach', version: 'v2 · draft', draft: true, nodes: '6', last_status: 'info', last_label: 'NEVER RUN', hist: 'eeeeeeeeeeeeeeeeeeeeeeeeeeee', success: '—', updated: '1h ago' },
-]
+// The prototype's 28-slot outcome strip has no server-side source: there is no
+// per-workflow run-outcome history endpoint (GET /workflows/{id}/runs/outcomes
+// or equivalent). Render the strip with every slot empty rather than inventing
+// a pass/fail pattern.
+const NO_OUTCOME_HISTORY = 'e'.repeat(28)
 
+// BACKEND-PENDING: outcome history (the .hist strip), the node count per
+// workflow and the archived list have no endpoint yet. Everything else on this
+// page reads /workflows/workbench.
 export default function ConsoleWorkflows() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
@@ -60,13 +63,34 @@ export default function ConsoleWorkflows() {
   const [filter, setFilter] = useState<WfFilter>('all')
   const [search, setSearch] = useState('')
 
-  const rows = MOCK_WORKFLOWS.filter((row) => {
-    if (filter === 'published' && row.draft) return false
-    if (filter === 'draft' && !row.draft) return false
+  const workbenchQuery = useQuery({
+    queryKey: ['console', 'workflows', 'workbench'],
+    queryFn: () => getWorkflowWorkbench({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const summary = workbenchQuery.data?.summary
+  const tabCounts = workbenchQuery.data?.tabs
+  const allRows = workbenchQuery.data?.items || []
+
+  const matchesSearch = (row: WorkflowWorkbenchRow) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [row.name, row.note].some((value) => value.toLowerCase().includes(query))
+    return [row.name, row.summary, row.description]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  }
+
+  const draftCount = allRows.filter((row) => row.status === 'draft').length
+  const publishedCount = allRows.length - draftCount
+
+  const rows = allRows.filter((row) => {
+    if (filter === 'published' && row.status === 'draft') return false
+    if (filter === 'draft' && row.status !== 'draft') return false
+    return matchesSearch(row)
   })
+
+  const publishing = allRows.filter((row) => row.status === 'publishing')
 
   return (
     <Workbench
@@ -86,17 +110,43 @@ export default function ConsoleWorkflows() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.workflows.tiles.workflows')} value="5" sub={<span className="mono dimmer">4 published · 1 draft</span>} />
-          <StatTile label={t('console.workflows.tiles.runs')} value="2,148" delta={{ direction: 'up', label: '+4.7%' }} sub="vs prev 7d" />
-          <StatTile label={t('console.workflows.tiles.success')} value="98.4%" sub={<span className="mono dimmer">2,114 pass · 26 degraded · 8 failed</span>} />
-          <StatTile label={t('console.workflows.tiles.attention')} value="2" sub={<span className="mono dimmer">1 publish pending · 1 legacy node</span>} />
+          <StatTile
+            label={t('console.workflows.tiles.workflows')}
+            value={summary ? compactNumber(summary.total_workflows) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                {summary
+                  ? `${summary.published_workflows} published · ${tabCounts?.draft ?? draftCount} draft`
+                  : t('console.common.loading')}
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.workflows.tiles.runs')}
+            value={summary ? compactNumber(summary.today_runs) : '—'}
+            na={!summary}
+            sub={<span className="mono dimmer">today</span>}
+          />
+          <StatTile
+            label={t('console.workflows.tiles.success')}
+            value={summary ? percent(summary.success_rate) : '—'}
+            na={!summary}
+            sub={<span className="mono dimmer">p50 {latency(summary?.avg_latency_ms)}</span>}
+          />
+          <StatTile
+            label={t('console.workflows.tiles.attention')}
+            value={summary ? String(summary.recent_exceptions) : '—'}
+            na={!summary}
+            sub={<span className="mono dimmer">recent exceptions</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'all', label: t('console.workflows.tabs.all'), count: 5 },
-            { id: 'publish', label: t('console.workflows.tabs.publish'), count: 1 },
+            { id: 'all', label: t('console.workflows.tabs.all'), count: tabCounts?.all ?? allRows.length },
+            { id: 'publish', label: t('console.workflows.tabs.publish'), count: tabCounts?.publishing ?? publishing.length },
             { id: 'archived', label: t('console.workflows.tabs.archived') },
           ]}
           value={tab}
@@ -108,9 +158,9 @@ export default function ConsoleWorkflows() {
           <>
             {(
               [
-                ['all', t('console.workflows.filters.all'), 5],
-                ['published', t('console.workflows.filters.published'), 4],
-                ['draft', t('console.workflows.filters.draft'), 1],
+                ['all', t('console.workflows.filters.all'), allRows.length],
+                ['published', t('console.workflows.filters.published'), publishedCount],
+                ['draft', t('console.workflows.filters.draft'), draftCount],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -142,31 +192,45 @@ export default function ConsoleWorkflows() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="rowlink cursor-pointer"
-                  onClick={() => navigate(`/v2/build/workflows/${row.id}`)}
-                >
-                  <TableCell>
-                    <b style={{ fontWeight: 600 }}>{row.name}</b>
-                    <br />
-                    <span className="dimmer" style={{ fontSize: 11 }}>
-                      {row.note}
-                    </span>
-                  </TableCell>
-                  <TableCell className="mono dim">{row.version}</TableCell>
-                  <TableCell className="num dim">{row.nodes}</TableCell>
-                  <TableCell>
-                    <StatusChip status={row.last_status} label={row.last_label} />
-                  </TableCell>
-                  <TableCell>
-                    <Hist pattern={row.hist} label="last 28 run outcomes" />
-                  </TableCell>
-                  <TableCell className="num dim">{row.success}</TableCell>
-                  <TableCell className="num dimmer">{row.updated}</TableCell>
-                </TableRow>
-              ))}
+              {rows.length === 0 ? (
+                <DataStateRow
+                  colSpan={7}
+                  isPending={workbenchQuery.isPending}
+                  isError={workbenchQuery.isError}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    className="rowlink cursor-pointer"
+                    onClick={() => navigate(`/v2/build/workflows/${row.id}`)}
+                  >
+                    <TableCell>
+                      <b style={{ fontWeight: 600 }}>{row.name}</b>
+                      <br />
+                      <span className="dimmer" style={{ fontSize: 11 }}>
+                        {row.summary || row.description || '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="mono dim">{row.status}</TableCell>
+                    {/* The workbench payload has no node count — the graph only
+                        exists on GET /workflows/{id}/version/current, which the
+                        list cannot fan out to. */}
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell>
+                      <StatusChip
+                        status={STATUS_TO_CONSOLE[row.status]}
+                        label={relativeTime(row.last_run_at)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Hist pattern={NO_OUTCOME_HISTORY} label="last 28 run outcomes" />
+                    </TableCell>
+                    <TableCell className="num dim">{percent(row.success_rate)}</TableCell>
+                    <TableCell className="num dimmer">{relativeTime(row.updated_at)}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </WorkbenchPanel>
@@ -190,36 +254,52 @@ export default function ConsoleWorkflows() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell>
-                  <b style={{ fontWeight: 600 }}>ticket-escalation</b>
-                </TableCell>
-                <TableCell className="mono dim">v15 · draft</TableCell>
-                <TableCell>
-                  <StatusChip status="warn" label="BLOCKED BY LEGACY NODE" />{' '}
-                  <span className="dimmer" style={{ fontSize: 10.5 }}>
-                    set_var_1 must migrate first
-                  </span>
-                </TableCell>
-                <TableCell className="dim">Jude</TableCell>
-                <TableCell className="num dim">2h</TableCell>
-                <TableCell className="num">
-                  <span style={{ display: 'inline-flex', gap: 6 }}>
-                    <ConsoleButton size="sm" onClick={() => navigate('/v2/build/workflows/ticket-escalation')}>
-                      {t('console.workflows.openBuilder')}
-                    </ConsoleButton>
-                    <ConsoleButton variant="ghost" size="sm">
-                      {t('console.workflows.diffVs')}
-                    </ConsoleButton>
-                  </span>
-                </TableCell>
-              </TableRow>
+              {publishing.length === 0 ? (
+                <DataStateRow
+                  colSpan={6}
+                  isPending={workbenchQuery.isPending}
+                  isError={workbenchQuery.isError}
+                />
+              ) : (
+                publishing.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <b style={{ fontWeight: 600 }}>{row.name}</b>
+                    </TableCell>
+                    <TableCell className="mono dim">{row.status}</TableCell>
+                    <TableCell>
+                      {/* No validation-gate endpoint: the workbench only reports
+                          that the workflow is mid-publish, plus its exception
+                          count. Report exactly that. */}
+                      <StatusChip status={row.recent_exception_count > 0 ? 'warn' : 'staged'} />{' '}
+                      <span className="dimmer" style={{ fontSize: 10.5 }}>
+                        {row.summary || row.description || '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="dim">{row.owner || '—'}</TableCell>
+                    <TableCell className="num dim">{relativeTime(row.updated_at)}</TableCell>
+                    <TableCell className="num">
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <ConsoleButton size="sm" onClick={() => navigate(`/v2/build/workflows/${row.id}`)}>
+                          {t('console.workflows.openBuilder')}
+                        </ConsoleButton>
+                        <ConsoleButton variant="ghost" size="sm">
+                          {t('console.workflows.diffVs')}
+                        </ConsoleButton>
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.workflows.publishNote')} />
         </WorkbenchPanel>
       )}
 
+      {/* Archiving a workflow only flips deleted_at (DELETE /workflows/{id});
+          there is no list endpoint for soft-deleted workflows. Show the
+          retention promise rather than fixtures. */}
       {tab === 'archived' && (
         <WorkbenchPanel className="mt-3.5">
           <div className="empty-note">

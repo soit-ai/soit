@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useParams } from 'react-router'
 
@@ -6,65 +6,206 @@ import {
   Backlink,
   CodeBlock,
   ConsoleButton,
+  DataStateNote,
   IconExport,
   StatusChip,
   WorkbenchPanel,
+  runStatusToConsole,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { catColor, relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { listRuns } from '@/services/run-service'
+import {
+  getCurrentWorkflowVersionOrNull,
+  getWorkflow,
+  getWorkflowCapabilities,
+  listWorkflowVersions,
+} from '@/services/workflow-service'
 
 type WfTab = 'build' | 'monitor' | 'publish' | 'settings'
 
-const PALETTE = [
-  { name: 'Trigger', color: 'var(--cat-amber)' },
-  { name: 'Policy gate', color: 'var(--cat-pink)' },
-  { name: 'Model call', color: 'var(--cat-blue)' },
-  { name: 'Tool call', color: 'var(--cat-cyan)' },
-  { name: 'Branch', color: 'var(--cat-indigo)' },
-  { name: 'Human approval', color: 'var(--cat-purple)' },
-  { name: 'Artifact', color: 'var(--cat-teal)' },
-  { name: 'Subflow', color: 'var(--cat-slate)' },
-]
+/** Prototype canvas geometry: a node box is 160 wide and its ports sit 32 down. */
+const NODE_WIDTH = 160
+const PORT_OFFSET_Y = 32
 
-// Static canvas mirroring the prototype ticket-escalation draft.
-// BACKEND-PENDING: the interactive canvas migrates from the legacy
-// routes/workflow/detail/build.tsx in the wiring pass; this mock keeps the
-// shell, tabs and inspector shapes in place.
-const NODES = [
-  { id: 'trigger', kind: 'trigger', color: 'var(--cat-amber)', name: 'ticket.created', note: 'webhook · helpdesk', left: 16, top: 214, ports: ['out'] },
-  { id: 'gate', kind: 'policy·gate', color: 'var(--cat-pink)', name: 'intent-screen', note: 'ops.intents.allowed', left: 208, top: 214, ports: ['in', 'out'] },
-  { id: 'classify', kind: 'model·call', color: 'var(--cat-blue)', name: 'classify', note: 'claude-sonnet-5 · ticket_class.json', left: 400, top: 214, ports: ['in', 'out'], selected: true },
-  { id: 'branch', kind: 'branch', color: 'var(--cat-indigo)', name: 'confidence', note: 'on classify.confidence', left: 592, top: 214, ports: ['in', 'out'] },
-  { id: 'route', kind: 'tool·call', color: 'var(--cat-cyan)', name: 'helpdesk.route', note: 'assign queue + priority', left: 784, top: 110, ports: ['in', 'out'] },
-  { id: 'notify', kind: 'tool·call', color: 'var(--cat-cyan)', name: 'slack.notify', note: '#support-oncall', left: 976, top: 110, ports: ['in'] },
-  { id: 'review', kind: 'approval', color: 'var(--cat-purple)', name: 'human-review', note: 'low confidence → L2 queue', left: 784, top: 330, ports: ['in', 'out'] },
-  { id: 'report', kind: 'artifact', color: 'var(--cat-teal)', name: 'triage-report', note: 'markdown · retained 90d', left: 976, top: 330, ports: ['in'] },
-]
+interface GraphNode {
+  id: string
+  type: string
+  name: string
+  params: Record<string, unknown>
+  x: number
+  y: number
+}
 
-const EDGES = [
-  { d: 'M176 246 C 192 246 192 246 208 246' },
-  { d: 'M368 246 C 384 246 384 246 400 246', hot: true },
-  { d: 'M560 246 C 576 246 576 246 592 246' },
-  { d: 'M752 246 C 770 246 766 142 784 142' },
-  { d: 'M752 246 C 770 246 766 362 784 362' },
-  { d: 'M944 142 C 960 142 960 142 976 142' },
-  { d: 'M944 362 C 960 362 960 362 976 362' },
-]
+interface GraphEdge {
+  id: string
+  from: string
+  to: string
+  condition?: string
+}
 
-const MONITOR_RUNS = [
-  { id: 'run_01J9KD1T4H', trigger: 'webhook', steps: '6', policy: '2/2 gates', warn: false, duration: '3.8s', cost: '$0.015', status: 'pass' as const, label: 'PASS', started: '12:58:03Z' },
-  { id: 'run_01J9KCV8N3', trigger: 'webhook', steps: '6', policy: '2/2 gates', warn: false, duration: '4.0s', cost: '$0.016', status: 'pass' as const, label: 'PASS', started: '11:44:56Z' },
-  { id: 'run_01J9KCP2W8', trigger: 'webhook', steps: '8', policy: '2/2 · retry', warn: true, duration: '11.3s', cost: '$0.041', status: 'warn' as const, label: 'DEGRADED', started: '10:12:40Z' },
-]
+/**
+ * `graph_json` is the soit workflow spec: { name, description, policy, graph:
+ * { nodes, edges } } where each node carries { id, type, name, params, ui:
+ * { position } } and each edge { id, from, to, condition }.
+ */
+function readGraph(graphJson: Record<string, any> | undefined) {
+  const graph = (graphJson?.graph ?? {}) as { nodes?: any[]; edges?: any[] }
+  const nodes: GraphNode[] = (Array.isArray(graph.nodes) ? graph.nodes : []).map(
+    (node: any, index: number) => ({
+      id: String(node?.id ?? `node-${index}`),
+      type: String(node?.type ?? '—'),
+      name: String(node?.name ?? node?.id ?? '—'),
+      params:
+        node?.params && typeof node.params === 'object' ? (node.params as Record<string, unknown>) : {},
+      x: Number(node?.ui?.position?.x) || 0,
+      y: Number(node?.ui?.position?.y) || 0,
+    }),
+  )
+  const edges: GraphEdge[] = (Array.isArray(graph.edges) ? graph.edges : [])
+    .map((edge: any, index: number) => ({
+      id: String(edge?.id ?? `edge-${index}`),
+      from: String(edge?.from ?? ''),
+      to: String(edge?.to ?? ''),
+      condition: typeof edge?.condition === 'string' ? edge.condition : undefined,
+    }))
+    .filter((edge) => edge.from && edge.to)
+  return { nodes, edges }
+}
 
+function nodeNote(node: GraphNode): string {
+  for (const key of ['model', 'tool_ref', 'knowledge_ref', 'condition', 'key', 'select', 'value']) {
+    const value = node.params[key]
+    if (typeof value === 'string' && value) return value
+  }
+  const keys = Object.keys(node.params)
+  return keys.length ? keys.join(' · ') : node.type
+}
+
+function paramString(params: Record<string, unknown>, key: string): string {
+  const value = params[key]
+  if (value == null) return ''
+  return typeof value === 'string' ? value : String(value)
+}
+
+function formatDuration(ms?: number | null): string {
+  if (ms == null) return '—'
+  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function formatStarted(iso?: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(11, 19)}Z`
+}
+
+// BACKEND-PENDING: per-run cost is not on the run record (only aggregate
+// /runs/cost/* endpoints), and there is no publish-validation or legacy-node
+// migration-target endpoint. Everything else on this page reads
+// workflow-service (/workflows/{id}, /version/current, /versions,
+// /capabilities) and run-service (/runs).
 export default function ConsoleWorkflowDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<WfTab>('build')
-  const [selectedNode, setSelectedNode] = useState('classify')
-  const name = id && id !== 'new-draft' ? id : 'ticket-escalation'
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  const workflowId = id && id !== 'new' && id !== 'new-draft' ? id : undefined
+  const enabled = Boolean(workflowId)
+
+  const workflowQuery = useQuery({
+    queryKey: ['console', 'workflow', workflowId],
+    queryFn: () => getWorkflow(workflowId as string),
+    options: { retry: false, refetchOnWindowFocus: false, enabled },
+  })
+  const versionQuery = useQuery({
+    queryKey: ['console', 'workflow', workflowId, 'version', 'current'],
+    queryFn: () => getCurrentWorkflowVersionOrNull(workflowId as string),
+    options: { retry: false, refetchOnWindowFocus: false, enabled },
+  })
+  const versionsQuery = useQuery({
+    queryKey: ['console', 'workflow', workflowId, 'versions'],
+    queryFn: () => listWorkflowVersions(workflowId as string, { page_size: 20 }),
+    options: { retry: false, refetchOnWindowFocus: false, enabled },
+  })
+  const capabilitiesQuery = useQuery({
+    queryKey: ['console', 'workflow', 'capabilities'],
+    queryFn: getWorkflowCapabilities,
+    options: { retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 },
+  })
+  const runsQuery = useQuery({
+    queryKey: ['console', 'workflow', workflowId, 'runs'],
+    queryFn: () =>
+      listRuns({
+        mode: 'workflow',
+        subject_kind: 'workflow',
+        subject_id: workflowId,
+        include_observe_summary: true,
+        page_size: 20,
+      }),
+    options: { retry: false, refetchOnWindowFocus: false, enabled },
+  })
+
+  const workflow = workflowQuery.data
+  const spec = versionQuery.data?.graph_json as Record<string, any> | undefined
+  const { nodes, edges } = useMemo(() => readGraph(spec), [spec])
+
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || nodes[0] || null
+  const inboundIds = useMemo(() => new Set(edges.map((edge) => edge.to)), [edges])
+  const outboundIds = useMemo(() => new Set(edges.map((edge) => edge.from)), [edges])
+
+  const legacyTypes = useMemo(
+    () => new Set(capabilitiesQuery.data?.compatibility_node_types || []),
+    [capabilitiesQuery.data],
+  )
+  const legacyNodes = nodes.filter((node) => legacyTypes.has(node.type))
+
+  // Versions carry no ordinal; derive a stable v1..vN from creation order so the
+  // publish rail reads like the prototype's version ladder.
+  const versions = versionsQuery.data?.items || []
+  const orderedVersions = useMemo(
+    () => [...versions].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)),
+    [versions],
+  )
+  const ordinalById = useMemo(
+    () => new Map(orderedVersions.map((version, index) => [version.id, index + 1])),
+    [orderedVersions],
+  )
+  const versionRail = [...orderedVersions].reverse()
+
+  const publishedVersionId = workflow?.published_version_id || null
+  const currentVersionId = workflow?.current_version_id || null
+  const publishedOrdinal = publishedVersionId ? ordinalById.get(publishedVersionId) : undefined
+  const currentOrdinal = currentVersionId ? ordinalById.get(currentVersionId) : undefined
+  const hasDraftChanges = Boolean(
+    currentVersionId && publishedVersionId && currentVersionId !== publishedVersionId,
+  )
+
+  const name = workflow?.name || workflowId || '—'
+  const runs = runsQuery.data?.items || []
+  const policyBundle =
+    paramString((spec?.policy as Record<string, unknown>) || {}, 'bundle') ||
+    paramString((spec?.policy as Record<string, unknown>) || {}, 'version') ||
+    '—'
+
+  const edgePath = (edge: GraphEdge) => {
+    const from = nodeById.get(edge.from)
+    const to = nodeById.get(edge.to)
+    if (!from || !to) return null
+    const x1 = from.x + NODE_WIDTH
+    const y1 = from.y + PORT_OFFSET_Y
+    const x2 = to.x
+    const y2 = to.y + PORT_OFFSET_Y
+    const curve = Math.max(16, (x2 - x1) / 2)
+    return { d: `M${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`, x1, y1, x2, y2 }
+  }
 
   return (
     <>
@@ -74,14 +215,16 @@ export default function ConsoleWorkflowDetail() {
         <h1 style={{ fontFamily: 'var(--font-sans)' }}>{name}</h1>
         <span className="chip">
           <i style={{ background: 'var(--primary)' }} />
-          v14 published
+          {publishedOrdinal ? `v${publishedOrdinal} published` : 'unpublished'}
         </span>
-        <StatusChip status="warn" label="DRAFT CHANGES" />
+        {hasDraftChanges && <StatusChip status="warn" label="DRAFT CHANGES" />}
         <span className="spacer" />
         <ConsoleButton>{t('console.wfDetail.validate')}</ConsoleButton>
         <ConsoleButton variant="primary">
           <IconExport />
-          {t('console.wfDetail.publish')}
+          {t('console.wfDetail.publish', {
+            version: currentOrdinal ? `v${currentOrdinal}` : '',
+          })}
         </ConsoleButton>
       </div>
 
@@ -103,24 +246,34 @@ export default function ConsoleWorkflowDetail() {
 
       {tab === 'build' && (
         <>
-          <div className="warnbar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 3 2 21h20L12 3ZM12 10v5M12 18.5v.5" />
-            </svg>
-            <span>
-              {t('console.wfDetail.warnbarPrefix')} <span className="mono">set_var_1</span>{' '}
-              {t('console.wfDetail.warnbar')} <span className="mono">variable-assign@v2</span>{' '}
-              {t('console.wfDetail.warnbarSuffix')}
-            </span>
-            <ConsoleButton>{t('console.wfDetail.migrate')}</ConsoleButton>
-          </div>
+          {/* Only shown when the current graph really does contain a node whose
+              type is in /workflows/capabilities → compatibility_node_types. The
+              migration target ("variable-assign@v2") has no endpoint. */}
+          {legacyNodes.length > 0 && (
+            <div className="warnbar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3 2 21h20L12 3ZM12 10v5M12 18.5v.5" />
+              </svg>
+              <span>
+                {t('console.wfDetail.warnbarPrefix', { count: legacyNodes.length })}{' '}
+                <span className="mono">{legacyNodes[0].id}</span>{' '}
+                {t('console.wfDetail.warnbar')} <span className="mono">variable-assign@v2</span>{' '}
+                {t('console.wfDetail.warnbarSuffix')}
+              </span>
+              <ConsoleButton>{t('console.wfDetail.migrate')}</ConsoleButton>
+            </div>
+          )}
           <div className="wfshell">
             <div className="panel palette">
               <div className="pcap">{t('console.wfDetail.nodesCap')}</div>
-              {PALETTE.map((item) => (
-                <div key={item.name} className="pitem" style={{ '--c': item.color } as React.CSSProperties}>
+              {(capabilitiesQuery.data?.capabilities || []).map((capability) => (
+                <div
+                  key={capability.type}
+                  className="pitem"
+                  style={{ '--c': catColor(capability.type) } as React.CSSProperties}
+                >
                   <i />
-                  {item.name}
+                  {capability.type}
                 </div>
               ))}
               <div className="phint">{t('console.wfDetail.paletteHint')}</div>
@@ -129,29 +282,46 @@ export default function ConsoleWorkflowDetail() {
             <div className="canvas-wrap">
               <div className="canvas">
                 <svg className="edges" width="1160" height="520" viewBox="0 0 1160 520">
-                  {EDGES.map((edge, index) => (
-                    <path key={index} className={edge.hot ? 'hot' : undefined} d={edge.d} />
-                  ))}
-                  <text x="756" y="186">≥ 0.80</text>
-                  <text x="756" y="326">&lt; 0.80</text>
+                  {edges.map((edge) => {
+                    const path = edgePath(edge)
+                    if (!path) return null
+                    const hot = selectedNode
+                      ? edge.from === selectedNode.id || edge.to === selectedNode.id
+                      : false
+                    return <path key={edge.id} className={hot ? 'hot' : undefined} d={path.d} />
+                  })}
+                  {edges.map((edge) => {
+                    if (!edge.condition) return null
+                    const path = edgePath(edge)
+                    if (!path) return null
+                    return (
+                      <text key={`label-${edge.id}`} x={(path.x1 + path.x2) / 2} y={(path.y1 + path.y2) / 2 - 12}>
+                        {edge.condition}
+                      </text>
+                    )
+                  })}
                 </svg>
-                {NODES.map((node) => (
-                  <div
-                    key={node.id}
-                    className={cn('node', selectedNode === node.id && 'sel')}
-                    style={{ left: node.left, top: node.top }}
-                    onClick={() => setSelectedNode(node.id)}
-                  >
-                    <span className="nk" style={{ '--c': node.color } as React.CSSProperties}>
-                      <i />
-                      {node.kind}
-                    </span>
-                    <b>{node.name}</b>
-                    <small>{node.note}</small>
-                    {node.ports.includes('in') && <span className="port in" />}
-                    {node.ports.includes('out') && <span className="port out" />}
-                  </div>
-                ))}
+                {nodes.length === 0 ? (
+                  <DataStateNote isPending={versionQuery.isPending} isError={versionQuery.isError} />
+                ) : (
+                  nodes.map((node) => (
+                    <div
+                      key={node.id}
+                      className={cn('node', selectedNode?.id === node.id && 'sel')}
+                      style={{ left: node.x, top: node.y }}
+                      onClick={() => setSelectedNodeId(node.id)}
+                    >
+                      <span className="nk" style={{ '--c': catColor(node.type) } as React.CSSProperties}>
+                        <i />
+                        {node.type}
+                      </span>
+                      <b>{node.name}</b>
+                      <small>{nodeNote(node)}</small>
+                      {inboundIds.has(node.id) && <span className="port in" />}
+                      {outboundIds.has(node.id) && <span className="port out" />}
+                    </div>
+                  ))
+                )}
               </div>
               <div className="canvas-tools">
                 <button type="button" title="Zoom out">−</button>
@@ -164,16 +334,22 @@ export default function ConsoleWorkflowDetail() {
 
             <div className="panel inspector">
               <div className="panel-head">
-                <h2>classify</h2>
-                <span className="hint">model·call</span>
+                <h2>{selectedNode?.name || '—'}</h2>
+                <span className="hint">{selectedNode?.type || '—'}</span>
               </div>
               <div className="frow">
                 <label>{t('console.wfDetail.fields.name')}</label>
-                <input className="input" defaultValue="classify" />
+                <input key={`name-${selectedNode?.id}`} className="input" defaultValue={selectedNode?.name || ''} />
               </div>
               <div className="frow">
                 <label>{t('console.wfDetail.fields.model')}</label>
-                <select className="input" defaultValue="claude-sonnet-5">
+                {/* No model-catalogue endpoint yet; the option list stays the
+                    prototype's while the value comes from the node params. */}
+                <select
+                  key={`model-${selectedNode?.id}`}
+                  className="input"
+                  defaultValue={paramString(selectedNode?.params || {}, 'model')}
+                >
                   <option>claude-sonnet-5</option>
                   <option>claude-haiku-4.5</option>
                   <option>qwen3-235b</option>
@@ -182,24 +358,37 @@ export default function ConsoleWorkflowDetail() {
               <div className="frow">
                 <label>{t('console.wfDetail.fields.prompt')}</label>
                 <textarea
+                  key={`prompt-${selectedNode?.id}`}
                   className="input"
-                  defaultValue="Classify the ticket into one of the queues in ticket_class.json. Return confidence 0–1. Cite the fields you used."
+                  defaultValue={
+                    paramString(selectedNode?.params || {}, 'prompt') ||
+                    paramString(selectedNode?.params || {}, 'system')
+                  }
                 />
               </div>
               <div className="frow">
                 <label>{t('console.wfDetail.fields.temperature')}</label>
-                <input className="input" defaultValue="0.2" style={{ maxWidth: 90 }} />
+                <input
+                  key={`temp-${selectedNode?.id}`}
+                  className="input"
+                  defaultValue={paramString(selectedNode?.params || {}, 'temperature')}
+                  style={{ maxWidth: 90 }}
+                />
               </div>
               <div className="frow">
                 <label>{t('console.wfDetail.fields.outputSchema')}</label>
                 <div>
-                  <span className="chip">ticket_class.json</span>
+                  {/* The canonical node spec carries no per-node output schema;
+                      only the workflow-level outputs_schema exists. */}
+                  <span className="chip">
+                    {Object.keys((spec?.outputs_schema as Record<string, unknown>) || {}).join(' · ') || '—'}
+                  </span>
                 </div>
               </div>
               <div className="frow">
                 <label>{t('console.wfDetail.inspectorGovernance')}</label>
                 <div className="dim" style={{ fontSize: 11.5 }}>
-                  {t('console.wfDetail.inspectorGovNote')} <span className="mono">v2026.08.27-2</span>.{' '}
+                  {t('console.wfDetail.inspectorGovNote')} <span className="mono">{policyBundle}</span>.{' '}
                   {t('console.wfDetail.inspectorGovNote2')}
                 </div>
               </div>
@@ -216,7 +405,7 @@ export default function ConsoleWorkflowDetail() {
 
       {tab === 'monitor' && (
         <WorkbenchPanel
-          title={t('console.wfDetail.monitorTitle')}
+          title={t('console.wfDetail.monitorTitle', { name })}
           actions={
             <a
               className="more"
@@ -244,27 +433,42 @@ export default function ConsoleWorkflowDetail() {
               </tr>
             </thead>
             <tbody>
-              {MONITOR_RUNS.map((run) => (
-                <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
-                  <td>
-                    <span className="runid">{run.id}</span>
+              {runs.length === 0 ? (
+                <tr>
+                  <td colSpan={8}>
+                    <DataStateNote isPending={runsQuery.isPending} isError={runsQuery.isError} />
                   </td>
-                  <td className="dim">{run.trigger}</td>
-                  <td className="num dim">{run.steps}</td>
-                  <td>
-                    <span className="mono" style={run.warn ? { color: 'var(--warning-foreground)' } : undefined}>
-                      {run.warn ? run.policy : undefined}
-                    </span>
-                    {!run.warn && <span className="mono dimmer">{run.policy}</span>}
-                  </td>
-                  <td className="num dim">{run.duration}</td>
-                  <td className="num dim">{run.cost}</td>
-                  <td>
-                    <StatusChip status={run.status} label={run.label} />
-                  </td>
-                  <td className="num dimmer">{run.started}</td>
                 </tr>
-              ))}
+              ) : (
+                runs.map((run) => {
+                  const warn = Boolean(run.error_code)
+                  const audits = run.observe_summary?.audit_count
+                  const policy = audits == null ? '—' : `${audits} audits`
+                  return (
+                    <tr key={run.id} className="rowlink" onClick={() => navigate(`/v2/observe/runs/${run.id}`)}>
+                      <td>
+                        <span className="runid">{run.id}</span>
+                      </td>
+                      <td className="dim">{run.mode}</td>
+                      <td className="num dim">{run.observe_summary?.step_count ?? '—'}</td>
+                      <td>
+                        <span className="mono" style={warn ? { color: 'var(--warning-foreground)' } : undefined}>
+                          {warn ? policy : undefined}
+                        </span>
+                        {!warn && <span className="mono dimmer">{policy}</span>}
+                      </td>
+                      <td className="num dim">{formatDuration(run.duration_ms)}</td>
+                      {/* Per-run cost is not on the run record; /runs/cost/* only
+                          aggregates across a filter set. */}
+                      <td className="num dim">—</td>
+                      <td>
+                        <StatusChip status={runStatusToConsole(run.status)} />
+                      </td>
+                      <td className="num dimmer">{formatStarted(run.started_at)}</td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </WorkbenchPanel>
@@ -272,28 +476,29 @@ export default function ConsoleWorkflowDetail() {
 
       {tab === 'publish' && (
         <WorkbenchPanel title={t('console.wfDetail.versions')} hint={t('console.wfDetail.versionsHint')}>
-          <a className="bundle">
-            <b>
-              v15 <StatusChip status="warn" label="DRAFT" />
-            </b>
-            <small>current canvas · validation ✓ 0 errors · 2 nodes changed vs v14</small>
-          </a>
-          <a className="bundle on">
-            <b>
-              v14 <StatusChip status="pass" label="PUBLISHED" />
-            </b>
-            <small>production since 2026-08-26 · 1,822 runs · 99.2% success</small>
-          </a>
-          <a className="bundle">
-            <b>
-              v13 <StatusChip status="info" label="ARCHIVED" />
-            </b>
-            <small>rollback target · one-click revert</small>
-          </a>
+          {versionRail.length === 0 ? (
+            <DataStateNote isPending={versionsQuery.isPending} isError={versionsQuery.isError} />
+          ) : (
+            versionRail.map((version) => {
+              const isPublished = version.id === publishedVersionId
+              const isCurrent = version.id === currentVersionId
+              return (
+                <a key={version.id} className={cn('bundle', isPublished && 'on')}>
+                  <b>
+                    v{ordinalById.get(version.id)}{' '}
+                    <StatusChip status={isPublished ? 'published' : isCurrent ? 'draft' : 'info'} />
+                  </b>
+                  <small>
+                    {version.created_by || '—'} · {relativeTime(version.created_at)} · {version.id}
+                  </small>
+                </a>
+              )
+            })
+          )}
           <CodeBlock
             style={{ borderRadius: '0 0 10px 10px' }}
-            command="soit workflow publish ticket-escalation@v15"
-            output="validating 8 nodes … ✓ · diff vs v14: ~2 nodes · runs switch on next trigger"
+            command={`soit workflow publish ${name}${currentOrdinal ? `@v${currentOrdinal}` : ''}`}
+            output={`${nodes.length} nodes · ${edges.length} edges · runs switch on next trigger`}
           />
         </WorkbenchPanel>
       )}
@@ -302,18 +507,28 @@ export default function ConsoleWorkflowDetail() {
         <WorkbenchPanel title={t('console.wfDetail.settingsTitle')}>
           <div className="frow">
             <label>{t('console.wfDetail.fields.name')}</label>
-            <input className="input" defaultValue={name} />
+            <input key={`wf-name-${workflow?.id}`} className="input" defaultValue={workflow?.name || ''} />
           </div>
           <div className="frow">
             <label>{t('console.wfDetail.fields.description')}</label>
-            <input className="input" defaultValue="triage → enrich → route → notify" />
+            <input
+              key={`wf-desc-${workflow?.id}`}
+              className="input"
+              defaultValue={workflow?.description || workflow?.summary || ''}
+            />
           </div>
           <div className="frow">
             <label>
               {t('console.wfDetail.fields.trigger')}
               <small>{t('console.wfDetail.fields.triggerHint')}</small>
             </label>
-            <select className="input" defaultValue="webhook · ticket.created">
+            {/* Trigger, concurrency, retry and policy bundle are not columns on
+                the workflow record; they round-trip through metadata_json. */}
+            <select
+              key={`wf-trigger-${workflow?.id}`}
+              className="input"
+              defaultValue={paramString(workflow?.metadata_json || {}, 'trigger')}
+            >
               <option>webhook · ticket.created</option>
               <option>schedule</option>
               <option>manual</option>
@@ -322,18 +537,28 @@ export default function ConsoleWorkflowDetail() {
           </div>
           <div className="frow">
             <label>{t('console.wfDetail.fields.concurrency')}</label>
-            <input className="input" defaultValue="4 parallel runs max" style={{ maxWidth: 200 }} />
+            <input
+              key={`wf-concurrency-${workflow?.id}`}
+              className="input"
+              defaultValue={paramString(workflow?.metadata_json || {}, 'concurrency')}
+              style={{ maxWidth: 200 }}
+            />
           </div>
           <div className="frow">
             <label>{t('console.wfDetail.fields.retry')}</label>
-            <input className="input" defaultValue="3× · backoff 2ⁿ min" style={{ maxWidth: 200 }} />
+            <input
+              key={`wf-retry-${workflow?.id}`}
+              className="input"
+              defaultValue={paramString(workflow?.metadata_json || {}, 'retry')}
+              style={{ maxWidth: 200 }}
+            />
           </div>
           <div className="frow">
             <label>
               {t('console.wfDetail.fields.bundle')}
               <small>{t('console.wfDetail.fields.bundleHint')}</small>
             </label>
-            <select className="input" defaultValue="workspace default (v2026.08.27-2)">
+            <select key={`wf-bundle-${workflow?.id}`} className="input" defaultValue={policyBundle}>
               <option>workspace default (v2026.08.27-2)</option>
               <option>pin v2026.08.27-2</option>
             </select>

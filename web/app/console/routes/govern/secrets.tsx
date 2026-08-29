@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   ConsoleButton,
   ConsoleTabs,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconPlus,
@@ -20,17 +21,22 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import {
-  mockSecretRotations,
-  mockSecretTiles,
-  mockSecretUsage,
-  mockSecrets,
-} from '../../mocks/govern'
+import { relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { listSecrets } from '@/services/secrets-service'
 
 type SecretsTab = 'vault' | 'rotations' | 'usage'
 type KindFilter = 'all' | 'apiKeys' | 'tokens' | 'configs'
+
+/** The vault stores a name and a value; "kind" is a naming convention. */
+function secretKind(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.includes('kubeconfig') || lower.includes('config')) return 'kubeconfig'
+  if (lower.includes('token')) return 'token'
+  if (lower.includes('key')) return 'API key'
+  return 'secret'
+}
 
 const KIND_MATCH: Record<KindFilter, (kind: string) => boolean> = {
   all: () => true,
@@ -39,21 +45,30 @@ const KIND_MATCH: Record<KindFilter, (kind: string) => boolean> = {
   configs: (kind) => kind === 'kubeconfig',
 }
 
-// BACKEND-PENDING: secrets CRUD + test are live endpoints; rotations
-// degrade to fixtures where the endpoint is absent.
 export default function ConsoleSecrets() {
   const { t } = useTranslation()
-  const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<SecretsTab>('vault')
   const [filter, setFilter] = useState<KindFilter>('all')
   const [search, setSearch] = useState('')
 
-  const rows = mockSecrets.filter((row) => {
-    if (!KIND_MATCH[filter](row.kind)) return false
+  const secretsQuery = useQuery({
+    queryKey: ['console', 'secrets'],
+    queryFn: () => listSecrets({ limit: 200 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const secrets = secretsQuery.data || []
+  const kindOf = (name: string) => secretKind(name)
+
+  const rows = secrets.filter((row) => {
+    if (!KIND_MATCH[filter](kindOf(row.name))) return false
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return row.ref.toLowerCase().includes(query)
+    return row.name.toLowerCase().includes(query)
   })
+
+  const countByKind = (predicate: (kind: string) => boolean) =>
+    secrets.filter((row) => predicate(kindOf(row.name))).length
 
   return (
     <Workbench
@@ -72,17 +87,42 @@ export default function ConsoleSecrets() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.secrets.tiles.secrets')} value={mockSecretTiles.secrets.value} sub={<span className="mono dimmer">{mockSecretTiles.secrets.sub}</span>} />
-          <StatTile label={t('console.secrets.tiles.resolutions')} value={mockSecretTiles.resolutions.value} sub={<span className="mono dimmer">{mockSecretTiles.resolutions.sub}</span>} />
-          <StatTile label={t('console.secrets.tiles.rotation')} value={mockSecretTiles.rotation.value} sub={<span className="mono dimmer">{mockSecretTiles.rotation.sub}</span>} />
-          <StatTile label={t('console.secrets.tiles.attention')} value={mockSecretTiles.attention.value} sub={<span className="mono dimmer">{mockSecretTiles.attention.sub}</span>} />
+          <StatTile
+            label={t('console.secrets.tiles.secrets')}
+            value={secretsQuery.data ? String(secrets.length) : '—'}
+            na={!secretsQuery.data}
+            sub={<span className="mono dimmer">referenced, never inlined</span>}
+          />
+          {/* Resolution counts are not exposed by the secrets API. */}
+          <StatTile label={t('console.secrets.tiles.resolutions')} value="—" na sub={<span className="mono dimmer">not reported</span>} />
+          <StatTile
+            label={t('console.secrets.tiles.rotation')}
+            value={
+              secrets.some((row) => row.last_rotated_at)
+                ? relativeTime(
+                    secrets
+                      .map((row) => row.last_rotated_at)
+                      .filter(Boolean)
+                      .sort()
+                      .reverse()[0],
+                  )
+                : '—'
+            }
+            na={!secrets.some((row) => row.last_rotated_at)}
+            sub={<span className="mono dimmer">most recent rotation</span>}
+          />
+          <StatTile
+            label={t('console.secrets.tiles.attention')}
+            value={String(secrets.filter((row) => !row.last_rotated_at).length)}
+            sub={<span className="mono dimmer">never rotated</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'vault', label: t('console.secrets.tabs.vault'), count: 4 },
-            { id: 'rotations', label: t('console.secrets.tabs.rotations'), count: 3 },
+            { id: 'vault', label: t('console.secrets.tabs.vault'), count: secrets.length },
+            { id: 'rotations', label: t('console.secrets.tabs.rotations') },
             { id: 'usage', label: t('console.secrets.tabs.usage') },
           ]}
           value={tab}
@@ -94,10 +134,10 @@ export default function ConsoleSecrets() {
           <>
             {(
               [
-                ['all', t('console.secrets.filters.all'), 4],
-                ['apiKeys', t('console.secrets.filters.apiKeys'), 1],
-                ['tokens', t('console.secrets.filters.tokens'), 2],
-                ['configs', t('console.secrets.filters.configs'), 1],
+                ['all', t('console.secrets.filters.all'), secrets.length],
+                ['apiKeys', t('console.secrets.filters.apiKeys'), countByKind((k) => k === 'API key')],
+                ['tokens', t('console.secrets.filters.tokens'), countByKind((k) => k === 'token')],
+                ['configs', t('console.secrets.filters.configs'), countByKind((k) => k === 'kubeconfig')],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -127,102 +167,49 @@ export default function ConsoleSecrets() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.ref} className="rowlink">
-                  <TableCell className="mono">{row.ref}</TableCell>
-                  <TableCell className="dim">{row.kind}</TableCell>
-                  <TableCell className="num dim">{row.bound}</TableCell>
-                  <TableCell className="num dim">{row.rotated}</TableCell>
-                  <TableCell
-                    className="num"
-                    style={row.due_warn ? { color: 'var(--warning-foreground)' } : undefined}
-                  >
-                    {row.due}
-                  </TableCell>
-                  <TableCell className="num dimmer">{row.last_used}</TableCell>
-                </TableRow>
-              ))}
+              {rows.length === 0 ? (
+                <DataStateRow
+                  colSpan={6}
+                  isPending={secretsQuery.isPending}
+                  isError={secretsQuery.isError}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow key={row.id} className="rowlink">
+                    <TableCell className="mono">vault:{row.name}</TableCell>
+                    <TableCell className="dim">{kindOf(row.name)}</TableCell>
+                    {/* Binding counts, rotation policy and last-use are not
+                        surfaced by the secrets API. */}
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">{relativeTime(row.last_rotated_at)}</TableCell>
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dimmer">—</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.secrets.vaultNote')} />
         </WorkbenchPanel>
       )}
 
+      {/* The vault records only last_rotated_at — there is no rotation history
+          resource and no per-secret resolution counter to read. */}
       {tab === 'rotations' && (
         <WorkbenchPanel className="mt-3.5">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('console.secrets.columns.time')}</TableHead>
-                <TableHead>{t('console.secrets.columns.secret')}</TableHead>
-                <TableHead>{t('console.secrets.columns.rotatedBy')}</TableHead>
-                <TableHead className="num">{t('console.secrets.columns.rebound')}</TableHead>
-                <TableHead>{t('console.secrets.columns.audit')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockSecretRotations.map((row) => (
-                <TableRow key={row.audit}>
-                  <TableCell className="num dimmer">{row.time}</TableCell>
-                  <TableCell className="mono">{row.secret}</TableCell>
-                  <TableCell className="dim">{row.by}</TableCell>
-                  <TableCell className="num dim">{row.rebound}</TableCell>
-                  <TableCell>
-                    <a
-                      className="runid"
-                      href="/v2/govern/audit"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        navigate('/v2/govern/audit')
-                      }}
-                    >
-                      {row.audit}
-                    </a>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <Pager summary={t('console.secrets.rotationsNote')} />
+          <div className="empty-note">
+            {t('console.common.empty')}
+            <span className="mono">{t('console.secrets.rotationsNote')}</span>
+          </div>
         </WorkbenchPanel>
       )}
 
       {tab === 'usage' && (
         <WorkbenchPanel className="mt-3.5">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('console.secrets.columns.secret')}</TableHead>
-                <TableHead>{t('console.secrets.columns.consumers')}</TableHead>
-                <TableHead className="num">{t('console.secrets.columns.resolutions')}</TableHead>
-                <TableHead className="num">{t('console.secrets.columns.denied')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockSecretUsage.map((row) => (
-                <TableRow key={row.secret}>
-                  <TableCell className="mono">{row.secret}</TableCell>
-                  <TableCell>
-                    <span className="scopes">
-                      {row.consumers.map((consumer) => (
-                        <span key={consumer} className="chip">
-                          {consumer}
-                        </span>
-                      ))}
-                    </span>
-                  </TableCell>
-                  <TableCell className="num dim">{row.resolutions}</TableCell>
-                  <TableCell
-                    className="num"
-                    style={'denied_bad' in row && row.denied_bad ? { color: 'var(--danger-foreground)' } : undefined}
-                  >
-                    {row.denied}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <Pager summary={t('console.secrets.usageNote')} />
+          <div className="empty-note">
+            {t('console.common.empty')}
+            <span className="mono">{t('console.secrets.usageNote')}</span>
+          </div>
         </WorkbenchPanel>
       )}
     </Workbench>

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import {
   ConsoleButton,
   ConsoleTabs,
+  DataStateNote,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconPlus,
@@ -20,74 +22,41 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
+import { catColor, compactNumber, latency } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import {
+  getModelWorkbenchModels,
+  getModelWorkbenchOverview,
+  getModelWorkbenchProviders,
+  type ModelWorkbenchModelRow,
+} from '@/services/provider-service'
 
 type MdTab = 'providers' | 'library' | 'usage'
 type MdFilter = 'all' | 'chat' | 'embedding' | 'rerank'
 
-interface MockModel {
-  id: string
-  provider: string
-  provider_color: string
-  capabilities: string[]
-  context: string
-  price: string
-  role: React.ReactNode
-  role_default?: boolean
+const PAGE_SIZE = 200
+
+/** The prototype's capability chips map onto workbench `model_type` values. */
+const FILTER_MODEL_TYPE: Record<'chat' | 'embedding' | 'rerank', string> = {
+  chat: 'llm',
+  embedding: 'embedding',
+  rerank: 'rerank',
 }
 
-// BACKEND-PENDING: model-registry list replaces the fixtures.
-const MOCK_PROVIDERS = [
-  {
-    id: 'Anthropic',
-    color: 'var(--cat-blue)',
-    ref: 'key ref · vault:anthropic-prod',
-    stats: [
-      ['4', 'models'],
-      ['1.9M', 'tokens · 24h'],
-      ['$29.11', 'spend · 24h'],
-    ],
-    foot: { default: true, label: 'default · claude-sonnet-5' },
-  },
-  {
-    id: 'Qwen · DashScope',
-    color: 'var(--cat-purple)',
-    ref: 'key ref · vault:dashscope',
-    stats: [
-      ['3', 'models'],
-      ['0.8M', 'tokens · 24h'],
-      ['$6.40', 'spend · 24h'],
-    ],
-    foot: { default: false, label: 'fallback tier' },
-  },
-  {
-    id: 'vLLM · self-hosted',
-    color: 'var(--cat-slate)',
-    ref: 'endpoint · http://gpu-01:8000',
-    stats: [
-      ['2', 'models'],
-      ['2.4M', 'tokens · 24h'],
-      ['$0.00', 'metered'],
-    ],
-    foot: { default: false, label: 'embeddings · bge-m3' },
-  },
-]
+/** "200k" / "8k" — the prototype's context stamp. */
+function contextWindow(tokens?: number | null): string {
+  if (tokens == null) return '—'
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`
+  return String(tokens)
+}
 
-const MOCK_MODELS: MockModel[] = [
-  { id: 'claude-sonnet-5', provider: 'Anthropic', provider_color: 'var(--cat-blue)', capabilities: ['chat', 'tools', 'vision'], context: '200k', price: '3.00 · 15.00', role: 'workspace default', role_default: true },
-  { id: 'claude-haiku-4.5', provider: 'Anthropic', provider_color: 'var(--cat-blue)', capabilities: ['chat', 'tools'], context: '200k', price: '1.00 · 5.00', role: 'light tasks' },
-  { id: 'qwen3-235b', provider: 'DashScope', provider_color: 'var(--cat-purple)', capabilities: ['chat', 'tools'], context: '128k', price: '0.90 · 2.40', role: 'fallback tier' },
-  { id: 'qwen3-30b-local', provider: 'vLLM', provider_color: 'var(--cat-slate)', capabilities: ['chat'], context: '32k', price: 'metered · 0', role: 'offline eval' },
-  { id: 'bge-m3', provider: 'vLLM', provider_color: 'var(--cat-slate)', capabilities: ['embedding'], context: '8k', price: 'metered · 0', role: 'knowledge default' },
-  { id: 'bge-reranker', provider: 'vLLM', provider_color: 'var(--cat-slate)', capabilities: ['rerank'], context: '8k', price: 'metered · 0', role: 'retrieval rerank' },
-]
-
-const MOCK_USAGE = [
-  { id: 'claude-sonnet-5', requests: '1,942', tokens_in: '1.42M', tokens_out: '0.31M', p50: '1.8s', spend: '$24.63' },
-  { id: 'claude-haiku-4.5', requests: '1,204', tokens_in: '0.36M', tokens_out: '0.09M', p50: '0.9s', spend: '$4.48' },
-  { id: 'qwen3-235b', requests: '688', tokens_in: '0.61M', tokens_out: '0.17M', p50: '2.1s', spend: '$6.40' },
-  { id: 'bge-m3', requests: '4,044', tokens_in: '2.10M', tokens_out: '—', p50: '88ms', spend: '$0.00' },
-]
+function money(amount?: number | null, currency?: string | null): string {
+  if (amount == null) return '—'
+  const value = amount.toFixed(2)
+  if (!currency) return value
+  return currency.toUpperCase() === 'USD' ? `$${value}` : `${value} ${currency}`
+}
 
 export default function ConsoleModels() {
   const { t } = useTranslation()
@@ -95,11 +64,43 @@ export default function ConsoleModels() {
   const [filter, setFilter] = useState<MdFilter>('all')
   const [search, setSearch] = useState('')
 
-  const rows = MOCK_MODELS.filter((row) => {
-    if (filter !== 'all' && !row.capabilities.includes(filter)) return false
+  // The overview carries the summary and both tab counters, so it backs the
+  // tiles and the tab bar on every tab; the two list queries only run for the
+  // tab that renders them.
+  const overviewQuery = useQuery({
+    queryKey: ['console', 'models', 'overview'],
+    queryFn: () => getModelWorkbenchOverview(),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const providersQuery = useQuery({
+    queryKey: ['console', 'models', 'providers'],
+    queryFn: () => getModelWorkbenchProviders({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false, enabled: tab === 'providers' },
+  })
+  const modelsQuery = useQuery({
+    queryKey: ['console', 'models', 'library'],
+    queryFn: () => getModelWorkbenchModels({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false, enabled: tab === 'library' },
+  })
+
+  const summary = overviewQuery.data?.summary
+  const modelTabs = overviewQuery.data?.model_tabs
+  const providerTabs = overviewQuery.data?.provider_tabs
+  const providers = providersQuery.data?.items || []
+  const libraryTabs = modelsQuery.data?.tabs
+  const usage = overviewQuery.data?.top_models || []
+
+  const matchesSearch = (row: ModelWorkbenchModelRow) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [row.id, row.provider].some((value) => value.toLowerCase().includes(query))
+    return [row.model_id, row.display_name, row.provider_name, row.provider_slug]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  }
+
+  const rows = (modelsQuery.data?.items || []).filter((row) => {
+    if (filter !== 'all' && row.model_type !== FILTER_MODEL_TYPE[filter]) return false
+    return matchesSearch(row)
   })
 
   return (
@@ -114,17 +115,53 @@ export default function ConsoleModels() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.models.tiles.providers')} value="3" sub={<span className="mono dimmer">all keys by vault reference</span>} />
-          <StatTile label={t('console.models.tiles.models')} value="9" sub={<span className="mono dimmer">4 chat · 3 fallback · 2 embedding</span>} />
-          <StatTile label={t('console.models.tiles.tokens')} value="5.1M" delta={{ direction: 'up', label: '+7.8%' }} sub="vs prev 24h" />
-          <StatTile label={t('console.models.tiles.spend')} value="$35.51" sub={<span className="mono dimmer">self-hosted share 47% of tokens</span>} />
+          <StatTile
+            label={t('console.models.tiles.providers')}
+            value={summary ? String(summary.total_providers) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                {summary ? `${summary.online_providers} online` : t('console.common.loading')}
+              </span>
+            }
+          />
+          <StatTile
+            label={t('console.models.tiles.models')}
+            value={summary ? String(summary.total_models) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                {modelTabs
+                  ? `${modelTabs.text} text · ${modelTabs.embedding} embedding · ${modelTabs.rerank} rerank`
+                  : t('console.common.loading')}
+              </span>
+            }
+          />
+          {/* The workbench aggregates run cost month-to-date; there is no 24h
+              bucket behind it, so the sub row states the real window. */}
+          <StatTile
+            label={t('console.models.tiles.tokens')}
+            value={summary ? compactNumber(summary.month_tokens) : '—'}
+            na={!summary}
+            sub={<span className="mono dimmer">month to date</span>}
+          />
+          <StatTile
+            label={t('console.models.tiles.spend')}
+            value={summary ? money(summary.month_cost_amount, summary.currency) : '—'}
+            na={!summary}
+            sub={
+              <span className="mono dimmer">
+                month to date · p50 {latency(summary?.avg_latency_ms)}
+              </span>
+            }
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'providers', label: t('console.models.tabs.providers'), count: 3 },
-            { id: 'library', label: t('console.models.tabs.library'), count: 9 },
+            { id: 'providers', label: t('console.models.tabs.providers'), count: providerTabs?.all },
+            { id: 'library', label: t('console.models.tabs.library'), count: modelTabs?.all },
             { id: 'usage', label: t('console.models.tabs.usage') },
           ]}
           value={tab}
@@ -136,10 +173,10 @@ export default function ConsoleModels() {
           <>
             {(
               [
-                ['all', t('console.models.filters.all'), 9],
-                ['chat', t('console.models.filters.chat'), 4],
-                ['embedding', t('console.models.filters.embedding'), 2],
-                ['rerank', t('console.models.filters.rerank'), 1],
+                ['all', t('console.models.filters.all'), libraryTabs?.all],
+                ['chat', t('console.models.filters.chat'), libraryTabs?.text],
+                ['embedding', t('console.models.filters.embedding'), libraryTabs?.embedding],
+                ['rerank', t('console.models.filters.rerank'), libraryTabs?.rerank],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -155,35 +192,57 @@ export default function ConsoleModels() {
         ) : undefined
       }
     >
-      {tab === 'providers' && (
-        <div className="cards mt-3.5">
-          {MOCK_PROVIDERS.map((provider) => (
-            <div key={provider.id} className="acard">
-              <div className="acard-top">
-                <span className="aavatar" style={{ '--c': provider.color } as React.CSSProperties} />
-                <span>
-                  <b>{provider.id}</b>
-                  <span className="mono">{provider.ref}</span>
-                </span>
-              </div>
-              <div className="acard-stats">
-                {provider.stats.map(([value, label]) => (
-                  <span key={label}>
-                    <b>{value}</b>
-                    {label}
+      {tab === 'providers' &&
+        (providers.length === 0 ? (
+          <WorkbenchPanel className="mt-3.5">
+            <DataStateNote
+              isPending={providersQuery.isPending}
+              isError={providersQuery.isError}
+            />
+          </WorkbenchPanel>
+        ) : (
+          <div className="cards mt-3.5">
+            {providers.map((provider) => (
+              <div key={provider.id} className="acard">
+                <div className="acard-top">
+                  <span
+                    className="aavatar"
+                    style={{ '--c': catColor(provider.id) } as React.CSSProperties}
+                  />
+                  <span>
+                    <b>{provider.name}</b>
+                    {/* Credential references live in Secrets and are not part of
+                        the workbench row; kind + status is what it carries. */}
+                    <span className="mono">
+                      {[provider.kind, provider.status].filter(Boolean).join(' · ')}
+                    </span>
                   </span>
-                ))}
+                </div>
+                <div className="acard-stats">
+                  {(
+                    [
+                      [String(provider.total_models), 'models'],
+                      [compactNumber(provider.month_tokens), 'tokens · mtd'],
+                      [money(provider.month_cost_amount, provider.currency), 'spend · mtd'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <span key={label}>
+                      <b>{value}</b>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <div className="acard-foot">
+                  {/* No "default provider" flag exists; the dot marks online. */}
+                  <span className="chip">
+                    {provider.status === 'online' && <i style={{ background: 'var(--primary)' }} />}
+                    {provider.available_models} / {provider.total_models} available
+                  </span>
+                </div>
               </div>
-              <div className="acard-foot">
-                <span className="chip">
-                  {provider.foot.default && <i style={{ background: 'var(--primary)' }} />}
-                  {provider.foot.label}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        ))}
 
       {tab === 'library' && (
         <WorkbenchPanel>
@@ -199,43 +258,48 @@ export default function ConsoleModels() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id} className="rowlink">
-                  <TableCell>
-                    <span className="mono">{row.id}</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="idm" style={{ '--c': row.provider_color } as React.CSSProperties}>
-                      <i />
-                      {row.provider}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="scopes">
-                      {row.capabilities.map((capability) => (
-                        <span key={capability} className="chip">
-                          {capability}
-                        </span>
-                      ))}
-                    </span>
-                  </TableCell>
-                  <TableCell className="num dim">{row.context}</TableCell>
-                  <TableCell className="num dim">{row.price}</TableCell>
-                  <TableCell className={row.role_default ? undefined : 'dim'}>
-                    {row.role_default ? (
-                      <span className="chip">
-                        <i style={{ background: 'var(--primary)' }} />
-                        {row.role}
+              {rows.length === 0 ? (
+                <DataStateRow
+                  colSpan={6}
+                  isPending={modelsQuery.isPending}
+                  isError={modelsQuery.isError}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow key={row.id} className="rowlink">
+                    <TableCell>
+                      <span className="mono">{row.model_id}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="idm"
+                        style={{ '--c': catColor(row.provider_id) } as React.CSSProperties}
+                      >
+                        <i />
+                        {row.provider_name || row.provider_slug}
                       </span>
-                    ) : (
-                      row.role
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    {/* The workbench row carries no capability list — only the
+                        model's type, which is what the filter chips key on. */}
+                    <TableCell>
+                      <span className="scopes">
+                        <span className="chip">{row.model_type}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="num dim">{contextWindow(row.context_window)}</TableCell>
+                    {/* Only a single `unit_price` is exposed; there is no
+                        input/output split to fill "$/1M in · out". */}
+                    <TableCell className="num dim">
+                      {row.unit_price == null ? '—' : money(row.unit_price, row.currency)}
+                    </TableCell>
+                    {/* No workspace-default / role assignment field exists. */}
+                    <TableCell className="dim">—</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.models.libraryNote')} />
+          <Pager summary={t('console.models.libraryNote', { count: rows.length })} />
         </WorkbenchPanel>
       )}
 
@@ -257,18 +321,31 @@ export default function ConsoleModels() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {MOCK_USAGE.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <span className="mono">{row.id}</span>
-                  </TableCell>
-                  <TableCell className="num dim">{row.requests}</TableCell>
-                  <TableCell className="num dim">{row.tokens_in}</TableCell>
-                  <TableCell className="num dim">{row.tokens_out}</TableCell>
-                  <TableCell className="num dim">{row.p50}</TableCell>
-                  <TableCell className="num dim">{row.spend}</TableCell>
-                </TableRow>
-              ))}
+              {usage.length === 0 ? (
+                <DataStateRow
+                  colSpan={6}
+                  isPending={overviewQuery.isPending}
+                  isError={overviewQuery.isError}
+                />
+              ) : (
+                usage.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <span className="mono">{row.model_id}</span>
+                    </TableCell>
+                    <TableCell className="num dim">{compactNumber(row.month_calls)}</TableCell>
+                    {/* `month_tokens` is a single total — the workbench does not
+                        split prompt vs completion, so neither column has a
+                        source of its own. */}
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">{latency(row.avg_latency_ms)}</TableCell>
+                    <TableCell className="num dim">
+                      {money(row.month_cost_amount, row.currency)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.models.usageNote')} />

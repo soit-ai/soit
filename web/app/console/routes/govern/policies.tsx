@@ -1,16 +1,16 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { NavLink } from 'react-router'
 
 import {
-  CodeBlock,
   ConsoleButton,
   ConsoleTabs,
+  DataStateNote,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconCopy,
   IconPlus,
-  Pager,
   StatTile,
   StatTileGrid,
   StatusChip,
@@ -25,15 +25,15 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import {
-  mockBundles,
-  mockPolicyRuleCounts,
-  mockPolicyRules,
-  mockPolicyTiles,
-  mockStagedDiff,
-} from '../../mocks/govern'
+import { relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import {
+  getWorkspaceEgressPolicy,
+  getWorkspaceUsagePolicy,
+  listEgressPolicyAudits,
+} from '@/services/security-service'
 
 type PolicyTab = 'rules' | 'bundles' | 'staged'
 type RuleFilter = 'all' | 'grants' | 'intents' | 'egress' | 'budget' | 'approval'
@@ -46,15 +46,87 @@ const RULE_KIND: Record<Exclude<RuleFilter, 'all'>, string> = {
   approval: 'approval',
 }
 
-// BACKEND-PENDING: egress/usage rules become real; bundles + staged diff
-// stay mock-first (backend keeps only a policy_ref string today).
+interface PolicyRuleRow {
+  id: string
+  kind: string
+  kind_color: string
+  scope: string
+}
+
+// BACKEND-PENDING: bundles + staged diff have no server-side object — the
+// runtime carries a policy_ref string only. Egress and usage rules are live.
 export default function ConsolePolicies() {
   const { t } = useTranslation()
   const [tab, setTab] = useState<PolicyTab>('rules')
   const [filter, setFilter] = useState<RuleFilter>('all')
   const [search, setSearch] = useState('')
 
-  const rules = mockPolicyRules.filter((rule) => {
+  const egressQuery = useQuery({
+    queryKey: ['console', 'policies', 'egress'],
+    queryFn: () => getWorkspaceEgressPolicy(),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const usageQuery = useQuery({
+    queryKey: ['console', 'policies', 'usage'],
+    queryFn: () => getWorkspaceUsagePolicy(),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const auditsQuery = useQuery({
+    queryKey: ['console', 'policies', 'audits'],
+    queryFn: () => listEgressPolicyAudits({ page_size: 20 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  // The security service stores configuration, not a rule ledger: each
+  // allowlist/blocklist entry and each configured limit is one enforced rule.
+  const allRules = useMemo<PolicyRuleRow[]>(() => {
+    const rows: PolicyRuleRow[] = []
+    const egress = egressQuery.data
+    if (egress) {
+      egress.allowlist.forEach((host) =>
+        rows.push({
+          id: `egress.allow:${host}`,
+          kind: 'egress',
+          kind_color: 'var(--cat-teal)',
+          scope: egress.scope,
+        }),
+      )
+      egress.blocklist.forEach((host) =>
+        rows.push({
+          id: `egress.block:${host}`,
+          kind: 'egress',
+          kind_color: 'var(--cat-pink)',
+          scope: egress.scope,
+        }),
+      )
+    }
+    const usage = usageQuery.data
+    if (usage) {
+      const limits: Array<[string, number | null | undefined]> = [
+        ['limits.llm_rate_per_minute', usage.llm_rate_limit_per_minute],
+        ['limits.tool_rate_per_minute', usage.tool_rate_limit_per_minute],
+        ['limits.llm_daily_quota', usage.llm_daily_quota],
+        ['limits.tool_daily_quota', usage.tool_daily_quota],
+      ]
+      limits.forEach(([id, value]) => {
+        if (value == null) return
+        rows.push({
+          id: `${id} = ${value}`,
+          kind: 'budget',
+          kind_color: 'var(--cat-amber)',
+          scope: 'workspace',
+        })
+      })
+    }
+    return rows
+  }, [egressQuery.data, usageQuery.data])
+
+  const ruleCount = (kind: RuleFilter) =>
+    kind === 'all'
+      ? allRules.length
+      : allRules.filter((rule) => rule.kind === RULE_KIND[kind]).length
+
+  const rules = allRules.filter((rule) => {
     if (filter !== 'all' && rule.kind !== RULE_KIND[filter]) return false
     const query = search.trim().toLowerCase()
     if (!query) return true
@@ -79,18 +151,39 @@ export default function ConsolePolicies() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.policies.tiles.active')} value={<span style={{ fontSize: 15 }}>{mockPolicyTiles.active.value}</span>} sub={<span className="mono dimmer">{mockPolicyTiles.active.sub}</span>} />
-          <StatTile label={t('console.policies.tiles.rules')} value={mockPolicyTiles.rules.value} sub={<span className="mono dimmer">{mockPolicyTiles.rules.sub}</span>} />
-          <StatTile label={t('console.policies.tiles.evaluations')} value={mockPolicyTiles.evaluations.value} sub={<span className="mono dimmer">{mockPolicyTiles.evaluations.sub}</span>} />
-          <StatTile label={t('console.policies.tiles.attention')} value={mockPolicyTiles.attention.value} sub={<span className="mono dimmer">{mockPolicyTiles.attention.sub}</span>} />
+          {/* Bundle identity has no backend object; the scope of the live
+              policy is the closest honest equivalent. */}
+          <StatTile
+            label={t('console.policies.tiles.active')}
+            value={<span style={{ fontSize: 15 }}>{egressQuery.data?.scope || '—'}</span>}
+            na={!egressQuery.data}
+            sub={<span className="mono dimmer">policy scope in force</span>}
+          />
+          <StatTile
+            label={t('console.policies.tiles.rules')}
+            value={egressQuery.data || usageQuery.data ? String(allRules.length) : '—'}
+            na={!egressQuery.data && !usageQuery.data}
+            sub={
+              <span className="mono dimmer">
+                {ruleCount('egress')} egress · {ruleCount('budget')} limits
+              </span>
+            }
+          />
+          {/* Per-rule evaluation counters are not reported by the API. */}
+          <StatTile label={t('console.policies.tiles.evaluations')} value="—" na sub={<span className="mono dimmer">not reported</span>} />
+          <StatTile
+            label={t('console.policies.tiles.attention')}
+            value={String(egressQuery.data?.blocklist.length ?? 0)}
+            sub={<span className="mono dimmer">blocked destinations</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'rules', label: t('console.policies.tabs.rules'), count: 7 },
-            { id: 'bundles', label: t('console.policies.tabs.bundles'), count: 4 },
-            { id: 'staged', label: t('console.policies.tabs.staged'), count: 1 },
+            { id: 'rules', label: t('console.policies.tabs.rules'), count: allRules.length },
+            { id: 'bundles', label: t('console.policies.tabs.bundles') },
+            { id: 'staged', label: t('console.policies.tabs.staged') },
           ]}
           value={tab}
           onChange={setTab}
@@ -101,12 +194,12 @@ export default function ConsolePolicies() {
           <>
             {(
               [
-                ['all', t('console.policies.filters.all'), mockPolicyRuleCounts.all],
-                ['grants', t('console.policies.filters.grants'), mockPolicyRuleCounts.grants],
-                ['intents', t('console.policies.filters.intents'), mockPolicyRuleCounts.intents],
-                ['egress', t('console.policies.filters.egress'), mockPolicyRuleCounts.egress],
-                ['budget', t('console.policies.filters.budget'), mockPolicyRuleCounts.budget],
-                ['approval', t('console.policies.filters.approval'), mockPolicyRuleCounts.approval],
+                ['all', t('console.policies.filters.all'), ruleCount('all')],
+                ['grants', t('console.policies.filters.grants'), ruleCount('grants')],
+                ['intents', t('console.policies.filters.intents'), ruleCount('intents')],
+                ['egress', t('console.policies.filters.egress'), ruleCount('egress')],
+                ['budget', t('console.policies.filters.budget'), ruleCount('budget')],
+                ['approval', t('console.policies.filters.approval'), ruleCount('approval')],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -143,77 +236,75 @@ export default function ConsolePolicies() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.id} className="rowlink">
-                  <TableCell className="mono">{rule.id}</TableCell>
-                  <TableCell>
-                    <span className="kind" style={{ '--c': rule.kind_color } as React.CSSProperties}>
-                      <i />
-                      {rule.kind}
-                    </span>
-                  </TableCell>
-                  <TableCell className="dim">{rule.scope}</TableCell>
-                  <TableCell className="num dim">{rule.evaluations}</TableCell>
-                  <TableCell className="num dim">{rule.blocked}</TableCell>
-                </TableRow>
-              ))}
+              {rules.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={egressQuery.isPending || usageQuery.isPending}
+                  isError={egressQuery.isError && usageQuery.isError}
+                />
+              ) : (
+                rules.map((rule) => (
+                  <TableRow key={rule.id} className="rowlink">
+                    <TableCell className="mono">{rule.id}</TableCell>
+                    <TableCell>
+                      <span className="kind" style={{ '--c': rule.kind_color } as React.CSSProperties}>
+                        <i />
+                        {rule.kind}
+                      </span>
+                    </TableCell>
+                    <TableCell className="dim">{rule.scope}</TableCell>
+                    {/* No per-rule counters in the security API. */}
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">—</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </WorkbenchPanel>
       )}
 
+      {/* Versioned bundles do not exist server-side. The egress audit trail is
+          the real record of how the policy in force has changed over time. */}
       {tab === 'bundles' && (
         <WorkbenchPanel
           className="mt-3.5"
           title={t('console.policies.bundlesTitle')}
           hint={t('console.policies.bundlesHint')}
         >
-          {mockBundles.map((bundle) => (
-            <a key={bundle.id} className={cn('bundle', bundle.active && 'on')}>
-              <b>
-                {bundle.id} <StatusChip status={bundle.status} label={bundle.status_label} />
-              </b>
-              <small>{bundle.note}</small>
-            </a>
-          ))}
-          <CodeBlock
-            style={{ borderRadius: '0 0 10px 10px' }}
-            command="soit policy promote v2026.08.28-1 --to 50%"
-            output="gate: zero blocked-regressions in staged cohort ✓"
-          />
+          {auditsQuery.data?.items?.length ? (
+            auditsQuery.data.items.map((entry, index) => (
+              <a key={entry.id} className={cn('bundle', index === 0 && 'on')}>
+                <b>
+                  {entry.scope}{' '}
+                  <StatusChip
+                    status={index === 0 ? 'published' : 'info'}
+                    label={index === 0 ? 'IN FORCE' : 'SUPERSEDED'}
+                  />
+                </b>
+                <small>
+                  {relativeTime(entry.created_at)} · {entry.created_by || 'system'} ·{' '}
+                  {entry.allowlist.length} allowed · {entry.blocklist.length} blocked
+                </small>
+              </a>
+            ))
+          ) : (
+            <DataStateNote
+              isPending={auditsQuery.isPending}
+              isError={auditsQuery.isError}
+            />
+          )}
         </WorkbenchPanel>
       )}
 
+      {/* Staged rollout is a bundle concept; without bundles there is nothing
+          to diff. Kept as a labelled empty state rather than a fake diff. */}
       {tab === 'staged' && (
-        <WorkbenchPanel
-          className="mt-3.5"
-          title={t('console.policies.stagedTitle')}
-          actions={
-            <>
-              <ConsoleButton size="sm" style={{ color: 'var(--danger-foreground)' }}>
-                {t('console.policies.discard')}
-              </ConsoleButton>
-              <ConsoleButton size="sm" variant="primary">
-                {t('console.policies.promote')}
-              </ConsoleButton>
-            </>
-          }
-        >
-          <div className="diff">
-            {mockStagedDiff.map((line, index) => (
-              <span key={index}>
-                <span className={line.kind}>{line.text}</span>
-                {'comment' in line && line.comment && (
-                  <>
-                    {'    '}
-                    <span className="cm">{line.comment}</span>
-                  </>
-                )}
-                {'\n'}
-              </span>
-            ))}
+        <WorkbenchPanel className="mt-3.5" title={t('console.policies.stagedTitle')}>
+          <div className="empty-note">
+            {t('console.common.empty')}
+            <span className="mono">{t('console.policies.stagedNote')}</span>
           </div>
-          <Pager summary={t('console.policies.stagedNote')} style={{ borderTop: '1px solid var(--border)' }} />
         </WorkbenchPanel>
       )}
     </Workbench>

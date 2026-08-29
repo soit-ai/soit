@@ -1,6 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+
+import { toast } from 'sonner'
 
 import {
+  ConsoleButton,
+  DataStateRow,
   FilterChip,
   Pager,
   Seg,
@@ -19,26 +23,76 @@ import {
   TableRow,
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { mockEventCounts, mockEventTiles, mockEvents } from '../../mocks/execute'
+import { catColor, relativeTime } from '../../adapters/palette'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import {
+  listDeadLetters,
+  redriveDeadLetter,
+  type DeadLetterKind,
+  type DeadLetterResponse,
+} from '@/services/observe-service'
+import { requestErrorMessage } from '@/utils/request'
 
 const RANGES = ['1h', '24h', '7d'] as const
-type SourceFilter = 'all' | 'webhook' | 'schedule' | 'api' | 'chat'
 
-// BACKEND-PENDING: inbound events are mock-first; dead-letters + redrive
-// have real endpoints and join in the service wiring pass.
+const KINDS: Array<DeadLetterKind | 'all'> = [
+  'all',
+  'response_interaction',
+  'workflow_run',
+  'task',
+  'knowledge_ingest',
+  'outbox_event',
+]
+
+/**
+ * The runtime exposes no generic inbound-event feed; what it does record is the
+ * dead-letter queue — every event that reached a terminal failure, with the
+ * redrive path back into its original pipeline. That is what this screen shows.
+ */
 export default function ConsoleEvents() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [range, setRange] = useState<(typeof RANGES)[number]>('24h')
-  const [source, setSource] = useState<SourceFilter>('all')
-  const [rejectedOnly, setRejectedOnly] = useState(false)
+  const [kind, setKind] = useState<DeadLetterKind | 'all'>('all')
+  const [redrivableOnly, setRedrivableOnly] = useState(false)
+  const [redriven, setRedriven] = useState<Record<string, boolean>>({})
 
-  const rows = mockEvents.filter((row) => {
-    if (source !== 'all' && row.source !== source) return false
-    if (rejectedOnly && row.decision_label !== 'REJECTED') return false
+  const deadLettersQuery = useQuery({
+    queryKey: ['console', 'dead-letters'],
+    queryFn: () => listDeadLetters({ limit: 100 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const all = useMemo(() => deadLettersQuery.data || [], [deadLettersQuery.data])
+
+  const redriveMutation = useMutation({
+    mutationKey: ['console', 'dead-letters', 'redrive'],
+    mutationFn: (entry: DeadLetterResponse) =>
+      redriveDeadLetter(entry.kind, entry.id, { suppressErrorToast: true }),
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Redrive failed'))
+    },
+  })
+
+  const rows = all.filter((row) => {
+    if (kind !== 'all' && row.kind !== kind) return false
+    if (redrivableOnly && !row.redrivable) return false
     return true
   })
+
+  const countFor = (value: DeadLetterKind | 'all') =>
+    value === 'all' ? all.length : all.filter((row) => row.kind === value).length
+
+  const newest = useMemo(
+    () =>
+      all
+        .map((row) => row.failed_at)
+        .filter(Boolean)
+        .sort()
+        .reverse()[0],
+    [all],
+  )
 
   return (
     <Workbench
@@ -47,29 +101,53 @@ export default function ConsoleEvents() {
       actions={<Seg options={RANGES} value={range} onChange={setRange} />}
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.events.tiles.total')} value={mockEventTiles.total.value} sub={<span className="mono dimmer">{mockEventTiles.total.sub}</span>} />
-          <StatTile label={t('console.events.tiles.accepted')} value={mockEventTiles.accepted.value} sub={<span className="mono dimmer">{mockEventTiles.accepted.sub}</span>} />
-          <StatTile label={t('console.events.tiles.deduped')} value={mockEventTiles.deduped.value} sub={<span className="mono dimmer">{mockEventTiles.deduped.sub}</span>} />
-          <StatTile label={t('console.events.tiles.rejected')} value={mockEventTiles.rejected.value} sub={<span className="mono dimmer">{mockEventTiles.rejected.sub}</span>} />
+          <StatTile
+            label={t('console.deadLetters.tiles.total')}
+            value={deadLettersQuery.data ? String(all.length) : '—'}
+            na={!deadLettersQuery.data}
+            sub={<span className="mono dimmer">after retry policy exhausted</span>}
+          />
+          <StatTile
+            label={t('console.deadLetters.tiles.redrivable')}
+            value={
+              deadLettersQuery.data ? String(all.filter((row) => row.redrivable).length) : '—'
+            }
+            na={!deadLettersQuery.data}
+            sub={<span className="mono dimmer">can re-enter the pipeline</span>}
+          />
+          <StatTile
+            label={t('console.deadLetters.tiles.kinds')}
+            value={
+              deadLettersQuery.data ? String(new Set(all.map((row) => row.kind)).size) : '—'
+            }
+            na={!deadLettersQuery.data}
+            sub={<span className="mono dimmer">distinct failure sources</span>}
+          />
+          <StatTile
+            label={t('console.deadLetters.tiles.newest')}
+            value={newest ? relativeTime(newest) : '—'}
+            na={!newest}
+            sub={<span className="mono dimmer">most recent terminal failure</span>}
+          />
         </StatTileGrid>
       }
       filters={
         <>
-          {(
-            [
-              ['all', t('console.events.filters.all'), mockEventCounts.all],
-              ['webhook', t('console.events.filters.webhook'), mockEventCounts.webhook],
-              ['schedule', t('console.events.filters.schedule'), mockEventCounts.schedule],
-              ['api', t('console.events.filters.api'), mockEventCounts.api],
-              ['chat', t('console.events.filters.chat'), mockEventCounts.chat],
-            ] as const
-          ).map(([value, label, count]) => (
-            <FilterChip key={value} active={source === value} count={count} onClick={() => setSource(value)}>
-              {label}
+          {KINDS.map((value) => (
+            <FilterChip
+              key={value}
+              active={kind === value}
+              count={countFor(value)}
+              onClick={() => setKind(value)}
+            >
+              {t(`console.deadLetters.kinds.${value}` as 'console.deadLetters.kinds.all')}
             </FilterChip>
           ))}
-          <FilterChip active={rejectedOnly} onClick={() => setRejectedOnly((value) => !value)}>
-            {t('console.events.filters.rejectedOnly')}
+          <FilterChip
+            active={redrivableOnly}
+            onClick={() => setRedrivableOnly((value) => !value)}
+          >
+            {t('console.deadLetters.redrivableOnly')}
           </FilterChip>
         </>
       }
@@ -88,69 +166,85 @@ export default function ConsoleEvents() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id} className="rowlink">
-                <TableCell>
-                  <span className="mono">{row.id}</span>
-                </TableCell>
-                <TableCell>
-                  <span className="kind" style={{ '--c': row.source_color } as React.CSSProperties}>
-                    <i />
-                    {row.source}
-                  </span>
-                </TableCell>
-                <TableCell className="mono dim">{row.type}</TableCell>
-                <TableCell>
-                  {row.target ? (
-                    <span className="idm" style={{ '--c': row.target_color } as React.CSSProperties}>
+            {rows.length === 0 ? (
+              <DataStateRow
+                colSpan={7}
+                isPending={deadLettersQuery.isPending}
+                isError={deadLettersQuery.isError}
+                emptyLabel={t('console.deadLetters.empty')}
+              />
+            ) : (
+              rows.map((row) => (
+                <TableRow key={`${row.kind}:${row.id}`} className="rowlink">
+                  <TableCell>
+                    <span className="mono">{row.id}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="kind" style={{ '--c': catColor(row.kind) } as React.CSSProperties}>
                       <i />
-                      {row.target}
+                      {row.kind}
                     </span>
-                  ) : (
-                    <span className="dimmer">{t('console.events.unresolved')}</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <StatusChip status={row.decision_status} label={row.decision_label} />
-                  {row.decision_note && (
-                    <>
-                      {' '}
-                      <span className="dimmer" style={{ fontSize: 10.5 }}>
-                        {row.decision_note}
+                  </TableCell>
+                  <TableCell className="mono dim">{row.error_code || '—'}</TableCell>
+                  <TableCell>
+                    {row.subject ? (
+                      <span className="idm" style={{ '--c': catColor(row.subject) } as React.CSSProperties}>
+                        <i />
+                        {row.subject}
                       </span>
-                    </>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {row.run_id ? (
-                    <a
-                      className="runid"
-                      href={`/v2/observe/runs/${row.run_id}`}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        navigate(`/v2/observe/runs/${row.run_id}`)
-                      }}
-                    >
-                      {row.run_id}
-                    </a>
-                  ) : (
-                    <span className="dimmer">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="num dimmer">{row.received}</TableCell>
-              </TableRow>
-            ))}
+                    ) : (
+                      <span className="dimmer">{t('console.events.unresolved')}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <StatusChip status="failed" label="FAILED" />
+                    {row.error_message && (
+                      <>
+                        {' '}
+                        <span className="dimmer" style={{ fontSize: 10.5 }}>
+                          {row.error_message}
+                        </span>
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {row.run_id ? (
+                      <a
+                        className="runid"
+                        href={`/v2/observe/runs/${row.run_id}`}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          navigate(`/v2/observe/runs/${row.run_id}`)
+                        }}
+                      >
+                        {row.run_id}
+                      </a>
+                    ) : row.redrivable ? (
+                      <ConsoleButton
+                        size="sm"
+                        disabled={redriveMutation.isPending || redriven[row.id]}
+                        onClick={() =>
+                          redriveMutation.mutate(row, {
+                            onSuccess: () =>
+                              setRedriven((state) => ({ ...state, [row.id]: true })),
+                          })
+                        }
+                      >
+                        {redriven[row.id]
+                          ? t('console.deadLetters.redriven')
+                          : t('console.deadLetters.redrive')}
+                      </ConsoleButton>
+                    ) : (
+                      <span className="dimmer">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="num dimmer">{relativeTime(row.failed_at)}</TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
-        <Pager
-          summary={t('console.events.pageSummary', { count: rows.length })}
-          onPrev={() => {}}
-          onNext={() => {}}
-          prevDisabled
-          nextDisabled
-          prevLabel={t('console.runs.prev')}
-          nextLabel={t('console.runs.next')}
-        />
+        <Pager summary={t('console.deadLetters.note')} />
       </WorkbenchPanel>
     </Workbench>
   )

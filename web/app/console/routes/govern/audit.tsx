@@ -1,10 +1,9 @@
-import { useState } from 'react'
-
-import { NavLink } from 'react-router'
+import { useMemo, useState } from 'react'
 
 import {
   ConsoleButton,
   ConsoleTabs,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconExport,
@@ -25,19 +24,36 @@ import {
   TableRow,
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import {
-  mockAuditAll,
-  mockAuditBlocks,
-  mockAuditChanges,
-  mockAuditTiles,
-  mockApprovalsDecided,
-} from '../../mocks/govern'
+import { relativeTime } from '../../adapters/palette'
+import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { listApprovals } from '@/services/observe-service'
+import { listRunAudits, type RunAuditLogResponse } from '@/services/run-service'
+import { listEgressPolicyAudits } from '@/services/security-service'
 
 const RANGES = ['1h', '24h', '7d', '30d'] as const
 type AuditTab = 'all' | 'blocks' | 'changes' | 'decisions'
 
-// BACKEND-PENDING: security-service audit endpoints replace the fixtures.
+const PAGE_SIZE = 50
+
+function clockTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(11, 19)}Z`
+}
+
+/** A gateway audit is a block when its recorded outcome is not a success. */
+function isBlock(entry: RunAuditLogResponse): boolean {
+  const outcome = (entry.outcome || '').toLowerCase()
+  return outcome !== '' && outcome !== 'succeeded' && outcome !== 'ok' && outcome !== 'pass'
+}
+
+function outcomeChip(entry: RunAuditLogResponse) {
+  if (isBlock(entry)) return { status: 'blocked' as const, label: (entry.outcome || 'BLOCKED').toUpperCase() }
+  return { status: 'pass' as const, label: 'PASS' }
+}
+
 export default function ConsoleAudit() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
@@ -45,11 +61,62 @@ export default function ConsoleAudit() {
   const [range, setRange] = useState<(typeof RANGES)[number]>('24h')
   const [search, setSearch] = useState('')
 
-  const allRows = mockAuditAll.filter((row) => {
+  // Gateway audits derived from run steps — the platform's append-only record
+  // of every governed call.
+  const auditsQuery = useQuery({
+    queryKey: ['console', 'audit', 'runs'],
+    queryFn: () => listRunAudits({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  // Policy configuration changes.
+  const changesQuery = useQuery({
+    queryKey: ['console', 'audit', 'changes'],
+    queryFn: () => listEgressPolicyAudits({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  // Human decisions on approval gates.
+  const decisionsQuery = useQuery({
+    queryKey: ['console', 'audit', 'decisions'],
+    queryFn: async () => {
+      const [approved, rejected] = await Promise.all([
+        listApprovals({ status: 'approved', page_size: PAGE_SIZE }),
+        listApprovals({ status: 'rejected', page_size: PAGE_SIZE }),
+      ])
+      return [...approved.items, ...rejected.items].sort((a, b) =>
+        String(b.resolved_at || b.created_at).localeCompare(String(a.resolved_at || a.created_at)),
+      )
+    },
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const audits = useMemo(() => auditsQuery.data?.items || [], [auditsQuery.data])
+  const changes = changesQuery.data?.items || []
+  const decisions = decisionsQuery.data || []
+  const blocks = useMemo(() => audits.filter(isBlock), [audits])
+
+  const allRows = audits.filter((row) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [row.actor, row.action, row.object].some((value) => value.toLowerCase().includes(query))
+    return [row.gateway_type, row.step_type, row.run_id, row.preview]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
   })
+
+  const runLink = (runId?: string | null) =>
+    runId ? (
+      <a
+        className="runid"
+        href={`/v2/observe/runs/${runId}`}
+        onClick={(event) => {
+          event.preventDefault()
+          navigate(`/v2/observe/runs/${runId}`)
+        }}
+      >
+        {runId}
+      </a>
+    ) : (
+      <span className="dimmer">—</span>
+    )
 
   return (
     <Workbench
@@ -63,19 +130,39 @@ export default function ConsoleAudit() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.audit.tiles.entries')} value={mockAuditTiles.entries.value} sub={<span className="mono dimmer">{mockAuditTiles.entries.sub}</span>} />
-          <StatTile label={t('console.audit.tiles.blocks')} value={mockAuditTiles.blocks.value} sub={<span className="mono dimmer">{mockAuditTiles.blocks.sub}</span>} />
-          <StatTile label={t('console.audit.tiles.changes')} value={mockAuditTiles.changes.value} sub={<span className="mono dimmer">{mockAuditTiles.changes.sub}</span>} />
-          <StatTile label={t('console.audit.tiles.review')} value={mockAuditTiles.review.value} sub={<span className="mono dimmer">{mockAuditTiles.review.sub}</span>} />
+          <StatTile
+            label={t('console.audit.tiles.entries')}
+            value={auditsQuery.data ? String(audits.length) : '—'}
+            na={!auditsQuery.data}
+            sub={<span className="mono dimmer">gateway audits on record</span>}
+          />
+          <StatTile
+            label={t('console.audit.tiles.blocks')}
+            value={auditsQuery.data ? String(blocks.length) : '—'}
+            na={!auditsQuery.data}
+            sub={<span className="mono dimmer">non-success outcomes</span>}
+          />
+          <StatTile
+            label={t('console.audit.tiles.changes')}
+            value={changesQuery.data ? String(changes.length) : '—'}
+            na={!changesQuery.data}
+            sub={<span className="mono dimmer">policy edits</span>}
+          />
+          <StatTile
+            label={t('console.audit.tiles.review')}
+            value={decisionsQuery.data ? String(decisions.length) : '—'}
+            na={!decisionsQuery.data}
+            sub={<span className="mono dimmer">human decisions</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'all', label: t('console.audit.tabs.all'), count: 47 },
-            { id: 'blocks', label: t('console.audit.tabs.blocks'), count: 15 },
-            { id: 'changes', label: t('console.audit.tabs.changes'), count: 6 },
-            { id: 'decisions', label: t('console.audit.tabs.decisions'), count: 3 },
+            { id: 'all', label: t('console.audit.tabs.all'), count: audits.length },
+            { id: 'blocks', label: t('console.audit.tabs.blocks'), count: blocks.length },
+            { id: 'changes', label: t('console.audit.tabs.changes'), count: changes.length },
+            { id: 'decisions', label: t('console.audit.tabs.decisions'), count: decisions.length },
           ]}
           value={tab}
           onChange={setTab}
@@ -109,20 +196,32 @@ export default function ConsoleAudit() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {allRows.map((row, index) => (
-                <TableRow key={index}>
-                  <TableCell className="num dimmer">{row.time}</TableCell>
-                  <TableCell className="dim">{row.actor}</TableCell>
-                  <TableCell>{row.action}</TableCell>
-                  <TableCell className="mono dim">{row.object}</TableCell>
-                  <TableCell>
-                    <StatusChip status={row.status} label={row.status_label} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {allRows.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={auditsQuery.isPending}
+                  isError={auditsQuery.isError}
+                />
+              ) : (
+                allRows.map((row, index) => {
+                  const chip = outcomeChip(row)
+                  return (
+                    <TableRow key={row.audit_id || `${row.run_id}:${row.step_id}:${index}`}>
+                      <TableCell className="num dimmer">{clockTime(row.timestamp)}</TableCell>
+                      {/* Gateway audits record the gateway, not a human actor. */}
+                      <TableCell className="dim">{row.gateway_type || 'gateway'}</TableCell>
+                      <TableCell>{row.step_type}</TableCell>
+                      <TableCell className="mono dim">{row.run_id}</TableCell>
+                      <TableCell>
+                        <StatusChip status={chip.status} label={chip.label} />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.audit.allNote')} onNext={() => {}} nextLabel={t('console.audit.older')} />
+          <Pager summary={t('console.audit.allNote')} />
         </WorkbenchPanel>
       )}
 
@@ -139,28 +238,30 @@ export default function ConsoleAudit() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockAuditBlocks.map((row) => (
-                <TableRow key={row.time}>
-                  <TableCell className="num dimmer">{row.time}</TableCell>
-                  <TableCell className="mono dim">{row.rule}</TableCell>
-                  <TableCell className="dim">{row.blocked}</TableCell>
-                  <TableCell>
-                    <a
-                      className="runid"
-                      href={`/v2/observe/runs/${row.run_id}`}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        navigate(`/v2/observe/runs/${row.run_id}`)
-                      }}
-                    >
-                      {row.run_id}
-                    </a>
-                  </TableCell>
-                  <TableCell className="num">
-                    <ConsoleButton size="sm">{t('console.audit.acknowledge')}</ConsoleButton>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {blocks.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={auditsQuery.isPending}
+                  isError={auditsQuery.isError}
+                />
+              ) : (
+                blocks.map((row, index) => (
+                  <TableRow key={row.audit_id || `${row.run_id}:${index}`}>
+                    <TableCell className="num dimmer">{clockTime(row.timestamp)}</TableCell>
+                    <TableCell className="mono dim">{row.gateway_type || row.step_type}</TableCell>
+                    <TableCell className="dim">{row.preview || row.step_type}</TableCell>
+                    <TableCell>{runLink(row.run_id)}</TableCell>
+                    <TableCell className="num">
+                      <ConsoleButton
+                        size="sm"
+                        onClick={() => row.run_id && navigate(`/v2/observe/runs/${row.run_id}`)}
+                      >
+                        {t('console.audit.acknowledge')}
+                      </ConsoleButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.audit.blocksNote')} />
@@ -179,29 +280,26 @@ export default function ConsoleAudit() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockAuditChanges.map((row) => (
-                <TableRow key={row.time}>
-                  <TableCell className="num dimmer">{row.time}</TableCell>
-                  <TableCell className="dim">{row.actor}</TableCell>
-                  <TableCell className="dim">{row.change}</TableCell>
-                  <TableCell>
-                    {row.diff_to ? (
-                      <a
-                        className="runid"
-                        href={row.diff_to}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          navigate(row.diff_to as string)
-                        }}
-                      >
-                        {row.diff}
-                      </a>
-                    ) : (
-                      <span className="dimmer">{row.diff}</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {changes.length === 0 ? (
+                <DataStateRow
+                  colSpan={4}
+                  isPending={changesQuery.isPending}
+                  isError={changesQuery.isError}
+                />
+              ) : (
+                changes.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="num dimmer">{relativeTime(row.created_at)}</TableCell>
+                    <TableCell className="dim">{row.created_by || 'system'}</TableCell>
+                    <TableCell className="dim">egress policy · {row.scope}</TableCell>
+                    <TableCell>
+                      <span className="dimmer">
+                        {row.allowlist.length} allowed · {row.blocklist.length} blocked
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </WorkbenchPanel>
@@ -220,29 +318,32 @@ export default function ConsoleAudit() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockApprovalsDecided.map((row) => (
-                <TableRow key={row.time}>
-                  <TableCell className="num dimmer">{row.time}</TableCell>
-                  <TableCell className="dim">{row.decided_by}</TableCell>
-                  <TableCell className="dim">{row.request}</TableCell>
-                  <TableCell className="mono dim">{row.gate}</TableCell>
-                  <TableCell>
-                    <StatusChip status={row.status} label={row.status_label} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {decisions.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={decisionsQuery.isPending}
+                  isError={decisionsQuery.isError}
+                />
+              ) : (
+                decisions.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="num dimmer">
+                      {relativeTime(row.resolved_at || row.created_at)}
+                    </TableCell>
+                    <TableCell className="dim">{row.resolved_by || '—'}</TableCell>
+                    <TableCell className="dim">{row.title || row.id}</TableCell>
+                    <TableCell className="mono dim">{row.policy_ref || '—'}</TableCell>
+                    <TableCell>
+                      <StatusChip
+                        status={row.status === 'approved' ? 'pass' : 'blocked'}
+                        label={row.status.toUpperCase()}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-          <Pager
-            summary={
-              <>
-                {t('console.audit.decisionsNote')}{' '}
-                <NavLink className="more" to="/v2/govern/approvals">
-                  {t('console.audit.approvalsLink')}
-                </NavLink>
-              </>
-            }
-          />
         </WorkbenchPanel>
       )}
     </Workbench>

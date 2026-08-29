@@ -1,9 +1,13 @@
 import { useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
   ConsoleTabs,
   ConsoleToggle,
+  DataStateNote,
+  DataStateRow,
   FilterChip,
   FilterSearch,
   IconExport,
@@ -11,7 +15,6 @@ import {
   Pager,
   StatTile,
   StatTileGrid,
-  StatusChip,
   Workbench,
   WorkbenchPanel,
 } from '../../components'
@@ -23,70 +26,89 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { catColor } from '../../adapters/palette'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
+import { listPlugins, setPluginEnabled, type Plugin } from '@/services/plugin-service'
+import { requestErrorMessage } from '@/utils/request'
 
 type PlTab = 'installed' | 'market' | 'incidents' | 'recycle'
 type PlFilter = 'all' | 'mcp' | 'tools' | 'skills' | 'disabled'
 
-type PluginKind = 'mcp' | 'tools' | 'skills'
-type RiskLevel = 'lo' | 'md' | 'hi'
+const PAGE_SIZE = 100
 
-interface MockPlugin {
-  id: string
-  color: string
-  kind: PluginKind
-  kind_label: string
-  source: string
-  version: string
-  version_note?: string
-  risk: RiskLevel
-  risk_label: string
-  scopes: string[]
-  agents: string
-  calls: string
-  enabled: boolean
+/** The prototype's kind chips map onto the registry's `plugin_type` values. */
+const FILTER_TYPE: Record<'mcp' | 'tools' | 'skills', Plugin['plugin_type']> = {
+  mcp: 'mcp',
+  tools: 'tool',
+  skills: 'skill',
 }
 
-// BACKEND-PENDING: plugin-registry list replaces the fixtures.
-const MOCK_PLUGINS: MockPlugin[] = [
-  { id: 'k8s-toolkit', color: 'var(--cat-cyan)', kind: 'mcp', kind_label: 'MCP server · soit-labs', source: 'marketplace', version: 'v1.4.2 · pinned', version_note: '1.5.0 available', risk: 'md', risk_label: 'MEDIUM', scopes: ['k8s.read', 'k8s.rollout', 'k8s.logs'], agents: '2', calls: '1,204', enabled: true },
-  { id: 'helpdesk-api', color: 'var(--cat-indigo)', kind: 'tools', kind_label: 'tool pack · builtin', source: 'builtin', version: 'v2.0.1', risk: 'lo', risk_label: 'LOW', scopes: ['tickets.read', 'tickets.write'], agents: '1', calls: '3,411', enabled: true },
-  { id: 'vault-secrets', color: 'var(--cat-slate)', kind: 'mcp', kind_label: 'MCP server · builtin', source: 'builtin', version: 'v0.9.8', risk: 'lo', risk_label: 'LOW', scopes: ['secrets.ref'], agents: '5', calls: '2,880', enabled: true },
-  { id: 'web-fetch', color: 'var(--cat-blue)', kind: 'tools', kind_label: 'tool pack · soit-labs', source: 'marketplace', version: 'v1.1.0 · pinned', risk: 'md', risk_label: 'MEDIUM', scopes: ['net.egress · allowlist'], agents: '3', calls: '866', enabled: true },
-  { id: 'erp-connector', color: 'var(--cat-pink)', kind: 'mcp', kind_label: 'MCP server · finance team', source: 'upload', version: 'v3.2.0 · pinned', risk: 'hi', risk_label: 'HIGH', scopes: ['finance.journal.post · approval'], agents: '1', calls: '14', enabled: true },
-  { id: 'cdn-tools', color: 'var(--cat-amber)', kind: 'tools', kind_label: 'tool pack · community', source: 'marketplace', version: 'v0.3.1', risk: 'md', risk_label: 'MEDIUM', scopes: ['cdn.purge · no grant'], agents: '0', calls: '0', enabled: false },
-  { id: 'incident-writeup', color: 'var(--cat-teal)', kind: 'skills', kind_label: 'skill · soit-labs', source: 'marketplace', version: 'v1.2.0 · pinned', risk: 'lo', risk_label: 'LOW', scopes: ['prompt pack · no tool scopes'], agents: '2', calls: '37', enabled: true },
-  { id: 'runbook-triage', color: 'var(--cat-purple)', kind: 'skills', kind_label: 'skill · community', source: 'marketplace', version: 'v0.4.1 · pinned', risk: 'md', risk_label: 'MEDIUM', scopes: ['uses k8s.read · via k8s-toolkit'], agents: '1', calls: '18', enabled: true },
-]
-
+// BACKEND-PENDING: the marketplace is the one fixture left on this page —
+// there is no marketplace/catalogue endpoint at all (plugin-service only lists
+// the workspace registry), so browsing and installing remote packages cannot be
+// wired until that API exists.
 const MOCK_MARKET = [
-  { id: 's3-tools', color: 'var(--cat-cyan)', meta: 'tool pack · soit-labs · v2.1.0', description: 'Object storage read/write with per-bucket scopes and size caps.', risk: 'lo' as RiskLevel, risk_label: 'LOW', scopes: ['s3.read', 's3.write'] },
-  { id: 'jira-connector', color: 'var(--cat-indigo)', meta: 'MCP server · community · v1.8.4', description: 'Issue create/update/search. Writes are idempotent and audited.', risk: 'md' as RiskLevel, risk_label: 'MEDIUM', scopes: ['jira.read', 'jira.write'] },
-  { id: 'pagerduty-tools', color: 'var(--cat-amber)', meta: 'tool pack · community · v0.9.2', description: 'Trigger, acknowledge and resolve incidents from governed runs.', risk: 'hi' as RiskLevel, risk_label: 'HIGH', scopes: ['pd.incidents · approval'] },
-  { id: 'postmortem-writer', color: 'var(--cat-cyan)', meta: 'skill · soit-labs · v2.0.3', description: 'Structured incident postmortems drafted from run evidence, timeline and citations included.', risk: 'lo' as RiskLevel, risk_label: 'LOW', scopes: ['prompt pack · no tool scopes'] },
+  { id: 's3-tools', color: 'var(--cat-cyan)', meta: 'tool pack · soit-labs · v2.1.0', description: 'Object storage read/write with per-bucket scopes and size caps.', risk: 'lo', risk_label: 'LOW', scopes: ['s3.read', 's3.write'] },
+  { id: 'jira-connector', color: 'var(--cat-indigo)', meta: 'MCP server · community · v1.8.4', description: 'Issue create/update/search. Writes are idempotent and audited.', risk: 'md', risk_label: 'MEDIUM', scopes: ['jira.read', 'jira.write'] },
+  { id: 'pagerduty-tools', color: 'var(--cat-amber)', meta: 'tool pack · community · v0.9.2', description: 'Trigger, acknowledge and resolve incidents from governed runs.', risk: 'hi', risk_label: 'HIGH', scopes: ['pd.incidents · approval'] },
+  { id: 'postmortem-writer', color: 'var(--cat-cyan)', meta: 'skill · soit-labs · v2.0.3', description: 'Structured incident postmortems drafted from run evidence, timeline and citations included.', risk: 'lo', risk_label: 'LOW', scopes: ['prompt pack · no tool scopes'] },
 ]
 
 export default function ConsolePlugins() {
   const { t } = useTranslation()
-  const navigate = useConsoleNavigate()
   const [tab, setTab] = useState<PlTab>('installed')
   const [filter, setFilter] = useState<PlFilter>('all')
   const [search, setSearch] = useState('')
-  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(MOCK_PLUGINS.map((plugin) => [plugin.id, plugin.enabled])),
-  )
+  const [enabledOverride, setEnabledOverride] = useState<Record<string, boolean>>({})
 
-  const rows = MOCK_PLUGINS.filter((row) => {
+  const pluginsQuery = useQuery({
+    queryKey: ['console', 'plugins', 'list'],
+    queryFn: () => listPlugins({ page_size: PAGE_SIZE }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const enabledMutation = useMutation({
+    mutationKey: ['console', 'plugins', 'enabled'],
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setPluginEnabled(id, enabled),
+  })
+
+  // The registry lists every plugin; this tab is the installed subset.
+  const installed = (pluginsQuery.data?.items || []).filter((row) => row.installed)
+  const isEnabled = (row: Plugin) => enabledOverride[row.id] ?? row.enabled === true
+
+  const countOfType = (kind: 'mcp' | 'tools' | 'skills') =>
+    installed.filter((row) => row.plugin_type === FILTER_TYPE[kind]).length
+  const disabledCount = installed.filter((row) => !isEnabled(row)).length
+
+  const rows = installed.filter((row) => {
     if (filter === 'disabled') {
-      if (enabled[row.id]) return false
-    } else if (filter !== 'all' && row.kind !== filter) {
+      if (isEnabled(row)) return false
+    } else if (filter !== 'all' && row.plugin_type !== FILTER_TYPE[filter]) {
       return false
     }
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [row.id, ...row.scopes].some((value) => value.toLowerCase().includes(query))
+    return [row.name, row.id, row.publisher]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
   })
+
+  const toggle = (row: Plugin, next: boolean) => {
+    const previous = isEnabled(row)
+    setEnabledOverride((state) => ({ ...state, [row.id]: next }))
+    enabledMutation.mutate(
+      { id: row.id, enabled: next },
+      {
+        onError: (error) => {
+          setEnabledOverride((state) => ({ ...state, [row.id]: previous }))
+          toast.error(requestErrorMessage(error, 'Failed to update plugin'))
+        },
+      },
+    )
+  }
+
+  const listed = !pluginsQuery.isPending && !pluginsQuery.isError
 
   return (
     <Workbench
@@ -106,18 +128,47 @@ export default function ConsolePlugins() {
       }
       tiles={
         <StatTileGrid>
-          <StatTile label={t('console.plugins.tiles.plugins')} value="8" sub={<span className="mono dimmer">3 MCP · 3 tools · 2 skills · 1 disabled</span>} />
-          <StatTile label={t('console.plugins.tiles.invocations')} value="8,430" delta={{ direction: 'up', label: '+6.4%' }} sub="tool calls + skill uses" />
-          <StatTile label={t('console.plugins.tiles.updates')} value="1" sub={<span className="mono dimmer">k8s-toolkit 1.4.2 → 1.5.0</span>} />
-          <StatTile label={t('console.plugins.tiles.highRisk')} value="1" sub={<span className="mono dimmer">finance.journal.post · approval-gated</span>} />
+          <StatTile
+            label={t('console.plugins.tiles.plugins')}
+            value={listed ? String(installed.length) : '—'}
+            na={!listed}
+            sub={
+              <span className="mono dimmer">
+                {listed
+                  ? `${countOfType('mcp')} MCP · ${countOfType('tools')} tools · ${countOfType('skills')} skills · ${disabledCount} disabled`
+                  : t('console.common.loading')}
+              </span>
+            }
+          />
+          {/* BACKEND-PENDING: no per-plugin invocation counters are exposed. */}
+          <StatTile
+            label={t('console.plugins.tiles.invocations')}
+            value="—"
+            na
+            sub={<span className="mono dimmer">no invocation metrics endpoint</span>}
+          />
+          {/* BACKEND-PENDING: no version-check / available-upgrade endpoint. */}
+          <StatTile
+            label={t('console.plugins.tiles.updates')}
+            value="—"
+            na
+            sub={<span className="mono dimmer">no upgrade-check endpoint</span>}
+          />
+          {/* BACKEND-PENDING: the plugin record carries no risk classification. */}
+          <StatTile
+            label={t('console.plugins.tiles.highRisk')}
+            value="—"
+            na
+            sub={<span className="mono dimmer">no risk field on plugin records</span>}
+          />
         </StatTileGrid>
       }
       tabs={
         <ConsoleTabs
           items={[
-            { id: 'installed', label: t('console.plugins.tabs.installed'), count: 8 },
+            { id: 'installed', label: t('console.plugins.tabs.installed'), count: installed.length },
             { id: 'market', label: t('console.plugins.tabs.market') },
-            { id: 'incidents', label: t('console.plugins.tabs.incidents'), count: 1 },
+            { id: 'incidents', label: t('console.plugins.tabs.incidents') },
             { id: 'recycle', label: t('console.plugins.tabs.recycle') },
           ]}
           value={tab}
@@ -129,11 +180,11 @@ export default function ConsolePlugins() {
           <>
             {(
               [
-                ['all', t('console.plugins.filters.all'), 8],
-                ['mcp', t('console.plugins.filters.mcp'), 3],
-                ['tools', t('console.plugins.filters.tools'), 3],
-                ['skills', t('console.plugins.filters.skills'), 2],
-                ['disabled', t('console.plugins.filters.disabled'), 1],
+                ['all', t('console.plugins.filters.all'), installed.length],
+                ['mcp', t('console.plugins.filters.mcp'), countOfType('mcp')],
+                ['tools', t('console.plugins.filters.tools'), countOfType('tools')],
+                ['skills', t('console.plugins.filters.skills'), countOfType('skills')],
+                ['disabled', t('console.plugins.filters.disabled'), disabledCount],
               ] as const
             ).map(([value, label, count]) => (
               <FilterChip key={value} active={filter === value} count={count} onClick={() => setFilter(value)}>
@@ -165,55 +216,56 @@ export default function ConsolePlugins() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id} className="rowlink">
-                  <TableCell>
-                    <span className="idm" style={{ '--c': row.color } as React.CSSProperties}>
-                      <i />
-                      <span>
-                        <b style={{ fontWeight: 600 }}>{row.id}</b>
-                        <br />
-                        <span className="dimmer" style={{ fontSize: 10.5 }}>
-                          {row.kind_label}
+              {rows.length === 0 ? (
+                <DataStateRow
+                  colSpan={8}
+                  isPending={pluginsQuery.isPending}
+                  isError={pluginsQuery.isError}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow key={row.id} className="rowlink">
+                    <TableCell>
+                      <span className="idm" style={{ '--c': catColor(row.id) } as React.CSSProperties}>
+                        <i />
+                        <span>
+                          <b style={{ fontWeight: 600 }}>{row.name}</b>
+                          <br />
+                          <span className="dimmer" style={{ fontSize: 10.5 }}>
+                            {[row.plugin_type, row.publisher].filter(Boolean).join(' · ')}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="dim">{row.source}</TableCell>
-                  <TableCell>
-                    <span className="mono dim">{row.version}</span>
-                    {row.version_note && (
-                      <>
-                        <br />
-                        <span className="mono dimmer" style={{ fontSize: 10 }}>
-                          {row.version_note}
-                        </span>
-                      </>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <span className={`risk ${row.risk}`}>{row.risk_label}</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="scopes">
-                      {row.scopes.map((scope) => (
-                        <span key={scope} className="chip">
-                          {scope}
-                        </span>
-                      ))}
-                    </span>
-                  </TableCell>
-                  <TableCell className="num dim">{row.agents}</TableCell>
-                  <TableCell className="num dim">{row.calls}</TableCell>
-                  <TableCell>
-                    <ConsoleToggle
-                      on={!!enabled[row.id]}
-                      label={row.id}
-                      onChange={(next) => setEnabled((state) => ({ ...state, [row.id]: next }))}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    {/* No install provenance (marketplace / builtin / upload) is
+                        persisted on the plugin record — `publisher` is shown in
+                        the sub-label above instead. */}
+                    <TableCell className="dim">—</TableCell>
+                    <TableCell>
+                      <span className="mono dim">{row.version || '—'}</span>
+                    </TableCell>
+                    {/* `manifest_json` / `spec_json` are free-form dicts with no
+                        risk classification or declared tool scopes in the
+                        schema, so neither column has a source. */}
+                    <TableCell>
+                      <span className="dim">—</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="dim">—</span>
+                    </TableCell>
+                    {/* No agent-usage or invocation counters per plugin. */}
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">—</TableCell>
+                    <TableCell>
+                      <ConsoleToggle
+                        on={isEnabled(row)}
+                        label={row.name}
+                        onChange={(next) => toggle(row, next)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.plugins.installedNote')}>
@@ -256,52 +308,19 @@ export default function ConsolePlugins() {
         </div>
       )}
 
+      {/* Plugin incidents have no server-side object: nothing correlates run
+          failures back to the plugin that degraded them, and there is no
+          incident list/detail endpoint. Show an honest empty state instead of
+          the fixture row. */}
       {tab === 'incidents' && (
         <WorkbenchPanel className="mt-3.5">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('console.plugins.columns.plugin')}</TableHead>
-                <TableHead>{t('console.plugins.columns.incident')}</TableHead>
-                <TableHead className="num">{t('console.plugins.columns.affected')}</TableHead>
-                <TableHead>{t('console.plugins.columns.evidence')}</TableHead>
-                <TableHead className="num">{t('console.plugins.columns.status')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell>
-                  <span className="idm" style={{ '--c': 'var(--cat-pink)' } as React.CSSProperties}>
-                    <i />
-                    erp-connector
-                  </span>
-                </TableCell>
-                <TableCell className="dim">
-                  timeout spike 08-27 14:00–14:40Z · upstream ERP maintenance window
-                </TableCell>
-                <TableCell className="num dim">23</TableCell>
-                <TableCell>
-                  <a
-                    className="runid"
-                    href="/v2/observe/runs/run_01J9KCYW7N"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      navigate('/v2/observe/runs/run_01J9KCYW7N')
-                    }}
-                  >
-                    run_01J9KCYW7N
-                  </a>
-                </TableCell>
-                <TableCell className="num">
-                  <StatusChip status="info" label="RESOLVED" />
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+          <DataStateNote emptyLabel={t('console.plugins.incidentsEmpty')} />
           <Pager summary={t('console.plugins.incidentsNote')} />
         </WorkbenchPanel>
       )}
 
+      {/* Uninstall (DELETE /plugins/{id}/install) removes the installation
+          without a soft-deleted listing, so there is nothing to enumerate. */}
       {tab === 'recycle' && (
         <WorkbenchPanel className="mt-3.5">
           <div className="empty-note">
