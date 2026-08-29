@@ -119,6 +119,22 @@ export const IconChevronRight = makeIcon(<path d="m10 6 6 6-6 6" />, 13)
 
 export const IconChevronLeft = makeIcon(<path d="m14 6-6 6 6 6" />, 13)
 
+export const IconBack = makeIcon(<path d="m15 18-6-6 6-6" />, 13)
+
+export const IconCopy = makeIcon(
+  <>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </>,
+  13
+)
+
+export const IconReplay = makeIcon(<path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />, 13)
+
+export const IconExport = makeIcon(<path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16" />, 13)
+
+export const IconPlus = makeIcon(<path d="M12 5v14M5 12h14" />, 13)
+
 /** The parametric two-slab mark; slab colours come from the brand tokens. */
 export function IconLogo({ size = 24, ...props }: IconProps) {
   return (

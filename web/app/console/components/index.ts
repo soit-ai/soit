@@ -1,3 +1,5 @@
+export { Backlink } from './backlink'
+export { CodeBlock } from './code-block'
 export { ConsoleButton } from './button'
 export { EmptyState } from './empty-state'
 export { FilterChip, FilterSearch, Seg } from './filters'
@@ -9,6 +11,7 @@ export { PagePlaceholder } from './page-placeholder'
 export { StatTile, StatTileGrid, type StatTileDelta } from './stat-tile'
 export { StatusChip, CONSOLE_STATUS_TONE, runStatusToConsole, type ConsoleStatus } from './status-chip'
 export { ConsoleTabs, type ConsoleTabItem } from './tabs'
+export { TBar, TBarLegend } from './tbar'
 export { Workbench, WorkbenchPanel } from './workbench'
 export * from './icons'
 
