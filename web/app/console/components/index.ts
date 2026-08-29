@@ -15,7 +15,13 @@ export { TaskProgress } from './task-progress'
 export { ConsoleToggle } from './toggle'
 export { StatusChip, CONSOLE_STATUS_TONE, runStatusToConsole, type ConsoleStatus } from './status-chip'
 export { ConsoleTabs, type ConsoleTabItem } from './tabs'
-export { TBar, TBarLegend } from './tbar'
+export {
+  TBar,
+  TBarLegend,
+  BREAKDOWN_COLOR,
+  type BreakdownKind,
+  type BreakdownSlice,
+} from './tbar'
 export { Workbench, WorkbenchPanel } from './workbench'
 export * from './icons'
 

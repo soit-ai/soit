@@ -13,11 +13,11 @@ import {
   TBar,
   WorkbenchPanel,
   runStatusToConsole,
+  type BreakdownSlice,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { formatDurationMs } from '../../adapters/run-detail'
-import type { MockBreakdownSlice } from '../../mocks/observe'
 import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -54,7 +54,7 @@ function stepKindColor(stepType: string): string {
 }
 
 /** Step types collapse into the four lanes the breakdown bar renders. */
-function stepLane(stepType: string): MockBreakdownSlice['kind'] {
+function stepLane(stepType: string): BreakdownSlice['kind'] {
   const head = stepHead(stepType)
   if (head === 'policy' || head === 'gate') return 'policy'
   if (head === 'tool') return 'tool'
@@ -149,7 +149,7 @@ export default function ConsoleTraceDetail() {
     const subjectId = rootRun?.subject_id || '—'
 
     // Lane totals for the breakdown bar — real step durations, no estimates.
-    const laneTotals = new Map<MockBreakdownSlice['kind'], number>()
+    const laneTotals = new Map<BreakdownSlice['kind'], number>()
     steps.forEach((step) => {
       const lane = stepLane(step.step_type)
       laneTotals.set(lane, (laneTotals.get(lane) || 0) + Math.max(msBetween(step.started_at, step.ended_at) ?? 0, 1))
@@ -241,7 +241,7 @@ export default function ConsoleTraceDetail() {
       breakdown: laneRows.map(([kind, value]) => ({
         kind,
         pct: (value / laneSum) * 100,
-      })) satisfies MockBreakdownSlice[],
+      })) satisfies BreakdownSlice[],
       breakdown_rows: laneRows.map(([kind, value]) => ({
         key: kind,
         value: `${(value / 1000).toFixed(2)}s · ${Math.round((value / laneSum) * 100)}%`,

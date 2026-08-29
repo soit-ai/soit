@@ -12,6 +12,7 @@ import {
   TBarLegend,
   Workbench,
   WorkbenchPanel,
+  type BreakdownSlice,
 } from '../../components'
 import {
   Table,
@@ -23,7 +24,6 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
-import type { MockBreakdownSlice } from '../../mocks/observe'
 import { useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { listRunSteps, listRuns, type RunStepResponse } from '@/services/run-service'
@@ -54,7 +54,7 @@ function clockTime(iso?: string | null): string {
 }
 
 /** Step types collapse into the four lanes the prototype's bar renders. */
-function stepLane(stepType: string): MockBreakdownSlice['kind'] {
+function stepLane(stepType: string): BreakdownSlice['kind'] {
   const head = stepType.split(/[_.·]/)[0]?.toLowerCase() || ''
   if (head === 'policy' || head === 'gate') return 'policy'
   if (head === 'tool') return 'tool'
@@ -62,9 +62,9 @@ function stepLane(stepType: string): MockBreakdownSlice['kind'] {
   return 'model'
 }
 
-function breakdownFor(steps: RunStepResponse[]): MockBreakdownSlice[] {
+function breakdownFor(steps: RunStepResponse[]): BreakdownSlice[] {
   if (steps.length === 0) return []
-  const totals = new Map<MockBreakdownSlice['kind'], number>()
+  const totals = new Map<BreakdownSlice['kind'], number>()
   steps.forEach((step) => {
     const lane = stepLane(step.step_type)
     const duration =

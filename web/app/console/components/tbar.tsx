@@ -1,7 +1,22 @@
 import type { CSSProperties } from 'react'
 
-import { BREAKDOWN_COLOR, type MockBreakdownSlice } from '../mocks/observe'
 import { cn } from '@/lib/utils'
+
+/** The four lanes a span's duration can fall into on the breakdown bar. */
+export type BreakdownKind = 'policy' | 'model' | 'tool' | 'artifact'
+
+export interface BreakdownSlice {
+  kind: BreakdownKind
+  /** Share of the trace duration, 0–100. */
+  pct: number
+}
+
+export const BREAKDOWN_COLOR: Record<BreakdownKind, string> = {
+  policy: 'var(--cat-pink)',
+  model: 'var(--cat-blue)',
+  tool: 'var(--cat-cyan)',
+  artifact: 'var(--cat-teal)',
+}
 
 /** Prototype .tbar — the categorical span-breakdown bar for traces. */
 export function TBar({
@@ -9,7 +24,7 @@ export function TBar({
   className,
   style,
 }: {
-  slices: readonly MockBreakdownSlice[]
+  slices: readonly BreakdownSlice[]
   className?: string
   style?: CSSProperties
 }) {
@@ -28,7 +43,7 @@ export function TBar({
 }
 
 /** Inline legend square+label, prototype pager legend style. */
-export function TBarLegend({ slices }: { slices: readonly MockBreakdownSlice['kind'][] }) {
+export function TBarLegend({ slices }: { slices: readonly BreakdownKind[] }) {
   return (
     <span style={{ display: 'inline-flex', gap: 12, marginLeft: 14 }}>
       {slices.map((kind) => (
