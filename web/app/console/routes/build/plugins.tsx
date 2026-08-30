@@ -29,6 +29,7 @@ import {
 } from '../../components/ui'
 import { catColor } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import {
   installPlugin,
@@ -219,26 +220,22 @@ export default function ConsolePlugins() {
               </span>
             }
           />
-          {/* BACKEND-PENDING: no per-plugin invocation counters are exposed. */}
+          {/* BACKEND-PENDING: prototype figures — see mocks/tiles.ts for the
+              endpoint each one waits on. */}
           <StatTile
             label={t('console.plugins.tiles.invocations')}
-            value="—"
-            na
-            sub={<span className="mono dimmer">no invocation metrics endpoint</span>}
+            value={mockTiles.pluginInvocations.value}
+            sub={<span className="mono dimmer">{mockTiles.pluginInvocations.sub}</span>}
           />
-          {/* BACKEND-PENDING: no version-check / available-upgrade endpoint. */}
           <StatTile
             label={t('console.plugins.tiles.updates')}
-            value="—"
-            na
-            sub={<span className="mono dimmer">no upgrade-check endpoint</span>}
+            value={mockTiles.pluginUpdates.value}
+            sub={<span className="mono dimmer">{mockTiles.pluginUpdates.sub}</span>}
           />
-          {/* BACKEND-PENDING: the plugin record carries no risk classification. */}
           <StatTile
             label={t('console.plugins.tiles.highRisk')}
-            value="—"
-            na
-            sub={<span className="mono dimmer">no risk field on plugin records</span>}
+            value={mockTiles.pluginHighRisk.value}
+            sub={<span className="mono dimmer">{mockTiles.pluginHighRisk.sub}</span>}
           />
         </StatTileGrid>
       }

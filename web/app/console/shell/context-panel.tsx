@@ -34,11 +34,12 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const config = pillarForPathname(location.pathname)
-  const { counts, groups } = useConsolePanelData(config.pillar)
 
   const workspaceId =
     useUserStore((state) => state.currentUser?.workspace_id) ||
     (typeof window === 'undefined' ? '' : localStorage.getItem('workspace_id') || '')
+
+  const { counts, groups } = useConsolePanelData(config.pillar, workspaceId)
 
   const workspace = useQuery({
     queryKey: ['console', 'panel', 'workspace', workspaceId],

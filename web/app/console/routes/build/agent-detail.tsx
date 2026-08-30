@@ -20,6 +20,7 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -795,9 +796,10 @@ export default function ConsoleAgentDetail() {
                 </span>
               }
             />
-            {/* No per-agent spend total: /runs/costs/* reports token and time
-                counters, and only a run detail carries a currency amount. */}
-            <StatTile label="Spend · 24h" value="—" na sub={<span className="mono dimmer">—</span>} />
+            {/* BACKEND-PENDING: prototype figure — /runs/costs/* reports token
+                and time counters only, with no per-agent currency rollup;
+                see mocks/tiles.ts. */}
+            <StatTile label="Spend · 24h" value={mockTiles.agentSpend.value} sub={<span className="mono dimmer">{mockTiles.agentSpend.sub}</span>} />
             <StatTile
               label="P95 duration"
               value={p95 == null ? '—' : latency(p95)}

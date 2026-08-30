@@ -14,6 +14,7 @@ import {
 import { useConsoleNavigate } from '../shell/use-console-navigate'
 import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import {
   createApiKey,
@@ -1046,9 +1047,9 @@ export default function ConsoleSettings() {
               />
               <StatTile
                 label={t('console.settings.billingPane.seats')}
-                value={membersQuery.data ? String(members.length) : '—'}
+                value={membersQuery.data ? `${members.length} / ${mockTiles.settingsSeats.value}` : '—'}
                 na={!membersQuery.data}
-                sub={<span className="mono dimmer">workspace members</span>}
+                sub={<span className="mono dimmer">{mockTiles.settingsSeats.sub}</span>}
               />
               <StatTile
                 label={t('console.settings.billingPane.spend')}

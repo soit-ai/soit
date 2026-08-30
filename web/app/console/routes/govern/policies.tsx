@@ -29,6 +29,7 @@ import {
 } from '../../components/ui'
 import { relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -241,8 +242,9 @@ export default function ConsolePolicies() {
               </span>
             }
           />
-          {/* Per-rule evaluation counters are not reported by the API. */}
-          <StatTile label={t('console.policies.tiles.evaluations')} value="—" na sub={<span className="mono dimmer">not reported</span>} />
+          {/* BACKEND-PENDING: prototype figure — evaluations are not counted
+              server-side; see mocks/tiles.ts. */}
+          <StatTile label={t('console.policies.tiles.evaluations')} value={mockTiles.policyEvaluations.value} sub={<span className="mono dimmer">{mockTiles.policyEvaluations.sub}</span>} />
           <StatTile
             label={t('console.policies.tiles.attention')}
             value={String(egressQuery.data?.blocklist.length ?? 0)}

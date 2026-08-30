@@ -53,6 +53,13 @@ export type ConsoleCountKey =
   | 'approvals'
   | 'secrets'
   | 'threads'
+  | 'runs'
+  | 'traces'
+  | 'policies'
+  | 'audit'
+  | 'access'
+  | 'team'
+  | 'apiKeys'
 
 /** A caption group whose rows are resolved at render rather than declared. */
 export type PanelSlot =
@@ -187,8 +194,8 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.observe',
         links: [
-          { labelKey: 'console.nav.runs', to: '/observe/runs', icon: IconObserve },
-          { labelKey: 'console.nav.traces', to: '/observe/traces', icon: IconNavTraces },
+          { labelKey: 'console.nav.runs', to: '/observe/runs', count: 'runs', icon: IconObserve },
+          { labelKey: 'console.nav.traces', to: '/observe/traces', count: 'traces', icon: IconNavTraces },
         ],
       },
       { captionKey: 'console.shell.savedViews', slot: 'savedViews' },
@@ -206,9 +213,9 @@ export const PANEL_CONFIG: PillarConfig[] = [
         captionKey: 'console.nav.govern',
         links: [
           { labelKey: 'console.nav.approvals', to: '/govern/approvals', count: 'approvals', icon: IconNavApprovals },
-          { labelKey: 'console.nav.policies', to: '/govern/policies', icon: IconGovern },
-          { labelKey: 'console.nav.audit', to: '/govern/audit', icon: IconNavAudit },
-          { labelKey: 'console.nav.access', to: '/govern/access', icon: IconNavAccess },
+          { labelKey: 'console.nav.policies', to: '/govern/policies', count: 'policies', icon: IconGovern },
+          { labelKey: 'console.nav.audit', to: '/govern/audit', count: 'audit', icon: IconNavAudit },
+          { labelKey: 'console.nav.access', to: '/govern/access', count: 'access', icon: IconNavAccess },
           { labelKey: 'console.nav.secrets', to: '/govern/secrets', count: 'secrets', icon: IconNavSecrets },
         ],
       },
@@ -227,8 +234,8 @@ export const PANEL_CONFIG: PillarConfig[] = [
         captionKey: 'console.settings.groupWorkspace',
         links: [
           { labelKey: 'console.settings.account', to: '/settings/account' },
-          { labelKey: 'console.settings.team', to: '/settings/team' },
-          { labelKey: 'console.settings.api', to: '/settings/api' },
+          { labelKey: 'console.settings.team', to: '/settings/team', count: 'team' },
+          { labelKey: 'console.settings.api', to: '/settings/api', count: 'apiKeys' },
           { labelKey: 'console.settings.security', to: '/settings/security' },
           { labelKey: 'console.settings.secrets', to: '/settings/secrets' },
         ],

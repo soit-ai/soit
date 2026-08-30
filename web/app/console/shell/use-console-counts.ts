@@ -2,6 +2,8 @@ import { useTranslation } from '@/i18n'
 import { useQuery } from '@/hooks/use-query'
 import { getAgentWorkbench } from '@/services/agent-service'
 import { getKnowledgeWorkbench } from '@/services/knowledge-service'
+import { listApiKeys } from '@/services/api-key-service'
+import { listWorkspaceMembers } from '@/services/identity-service'
 import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
@@ -15,6 +17,8 @@ import { catColor, relativeTime } from '../adapters/palette'
 import { mockSchedules } from '../mocks/execute'
 import {
   mockDraftReviews,
+  mockGovernAttention,
+  mockPanelCounts,
   mockPinned,
   mockSavedViews,
   mockTodayStats,
@@ -81,7 +85,8 @@ export interface PanelIdentityRow {
 export type PanelRow = PanelStatRow | PanelMiniRow | PanelNoteRow | PanelIdentityRow
 
 export interface ConsolePanelData {
-  counts: Partial<Record<ConsoleCountKey, number>>
+  /** A figure is a plain count or a formatted fragment ("41k spans", "v08.27-2"). */
+  counts: Partial<Record<ConsoleCountKey, number | string>>
   groups: Partial<Record<PanelSlot, PanelRow[]>>
 }
 
@@ -94,7 +99,10 @@ function newestFirst<T extends { at?: string | null }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
 }
 
-export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
+export function useConsolePanelData(
+  pillar: ConsolePillar,
+  workspaceId = '',
+): ConsolePanelData {
   const { t } = useTranslation()
   const isOverview = pillar === 'overview'
   const isBuild = pillar === 'build'
@@ -102,6 +110,7 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
   const isGovern = pillar === 'govern'
   const isChat = pillar === 'chat'
   const isObserve = pillar === 'observe'
+  const isSettings = pillar === 'settings'
 
   const agents = useQuery({
     queryKey: ['console', 'counts', 'agents'],
@@ -156,6 +165,18 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
     options: { ...SHARED, enabled: isGovern },
   })
 
+  // Team and API keys have real services, so they are read rather than faked.
+  const members = useQuery({
+    queryKey: ['console', 'counts', 'members', workspaceId],
+    queryFn: () => listWorkspaceMembers(workspaceId),
+    options: { ...SHARED, enabled: isSettings && !!workspaceId },
+  })
+  const apiKeys = useQuery({
+    queryKey: ['console', 'counts', 'api-keys'],
+    queryFn: () => listApiKeys({ page_size: 100 }),
+    options: { ...SHARED, enabled: isSettings },
+  })
+
   const threads = useQuery({
     queryKey: ['console', 'counts', 'threads'],
     queryFn: () => listThreads({ page_size: 100 }),
@@ -179,7 +200,7 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
   // a `summary` and an `items`, but a real deployment can answer with a partial
   // body, and the side panel wraps every screen — a missing field here would
   // take the entire console down rather than drop one badge.
-  const counts: Partial<Record<ConsoleCountKey, number>> = {
+  const counts: Partial<Record<ConsoleCountKey, number | string>> = {
     agents: agents.data?.summary?.total_agents,
     workflows: workflows.data?.summary?.total_workflows,
     knowledge: knowledge.data?.summary?.total_knowledge_bases,
@@ -192,6 +213,15 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
     approvals: isGovern ? approvals.data?.items?.length : undefined,
     secrets: secrets.data?.length,
     threads: threads.data?.items?.length,
+    team: members.data?.length,
+    apiKeys: apiKeys.data?.items?.length,
+    // Fixtures, not measurements: these five have no endpoint that can answer
+    // them. Each is a fallback, so shipping the API retires it on its own.
+    runs: isObserve ? mockPanelCounts.runs : undefined,
+    traces: isObserve ? mockPanelCounts.traces : undefined,
+    policies: isGovern ? mockPanelCounts.policies : undefined,
+    audit: isGovern ? mockPanelCounts.audit : undefined,
+    access: isGovern ? mockPanelCounts.access : undefined,
   }
 
   const groups: Partial<Record<PanelSlot, PanelRow[]>> = {}
@@ -343,19 +373,24 @@ export function useConsolePanelData(pillar: ConsolePillar): ConsolePanelData {
   }
 
   if (isGovern) {
-    const pending = approvals.data?.items?.length
-    groups.governAttention = pending
-      ? [
-          {
-            kind: 'note',
-            id: 'approvals',
-            label: t('console.shell.approvalsPending'),
-            tone: 'warn',
-            value: String(pending),
-            to: '/govern/approvals',
-          },
-        ]
-      : []
+    // The prototype puts the number in the sentence and the age of the oldest
+    // request in the figure — that pairing is what makes the row actionable.
+    const pendingRows = approvals.data?.items || []
+    const oldest = pendingRows
+      .map((row) => row.created_at)
+      .filter(Boolean)
+      .sort()[0]
+    groups.governAttention = compact([
+      pendingRows.length > 0 && {
+        kind: 'note' as const,
+        id: 'approvals',
+        label: t('console.shell.approvalsPending', { count: pendingRows.length }),
+        tone: 'warn' as const,
+        value: oldest ? relativeTime(oldest) : undefined,
+        to: '/govern/approvals',
+      },
+      ...mockGovernAttention.map((row) => ({ kind: 'note' as const, ...row })),
+    ])
 
     groups.governRecent = (audits.data?.items || []).slice(0, 2).map((row) => ({
       kind: 'mini',

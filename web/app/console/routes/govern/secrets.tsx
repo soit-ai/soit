@@ -26,6 +26,7 @@ import {
 } from '../../components/ui'
 import { relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import {
   createSecret,
@@ -171,8 +172,9 @@ export default function ConsoleSecrets() {
             na={!secretsQuery.data}
             sub={<span className="mono dimmer">referenced, never inlined</span>}
           />
-          {/* Resolution counts are not exposed by the secrets API. */}
-          <StatTile label={t('console.secrets.tiles.resolutions')} value="—" na sub={<span className="mono dimmer">not reported</span>} />
+          {/* BACKEND-PENDING: prototype figure — resolutions are not counted
+              server-side; see mocks/tiles.ts. */}
+          <StatTile label={t('console.secrets.tiles.resolutions')} value={mockTiles.secretResolutions.value} sub={<span className="mono dimmer">{mockTiles.secretResolutions.sub}</span>} />
           <StatTile
             label={t('console.secrets.tiles.rotation')}
             value={

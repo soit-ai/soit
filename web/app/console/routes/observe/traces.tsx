@@ -25,6 +25,7 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { listRunSteps, listRuns, type RunStepResponse } from '@/services/run-service'
 
@@ -193,12 +194,12 @@ export default function ConsoleTraces() {
               </span>
             }
           />
-          {/* Error rate needs a status breakdown the trace view does not fetch. */}
+          {/* BACKEND-PENDING: prototype figure — no span-level error
+              aggregation endpoint; see mocks/tiles.ts. */}
           <StatTile
             label={t('console.traces.tiles.errors')}
-            value="—"
-            na
-            sub={<span className="mono dimmer">see Runs for status filters</span>}
+            value={mockTiles.traceErrorSpans.value}
+            sub={<span className="mono dimmer">{mockTiles.traceErrorSpans.sub}</span>}
           />
         </StatTileGrid>
       }

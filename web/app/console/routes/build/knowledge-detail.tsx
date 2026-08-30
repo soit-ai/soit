@@ -22,6 +22,7 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -999,9 +1000,9 @@ export default function ConsoleKnowledgeDetail() {
               na={!cost || cost.request_count == null}
               sub="all retrieval runs"
             />
-            {/* Retrieval hit rate and zero-hit share have no aggregation
-                endpoint; the run cost summary only reports volume and spend. */}
-            <StatTile label="Hit rate" value="—" na sub={<span className="mono dimmer">no aggregation endpoint</span>} />
+            {/* BACKEND-PENDING: prototype figures — retrieval quality has no
+                aggregation endpoint; see mocks/tiles.ts. */}
+            <StatTile label="Hit rate" value={mockTiles.knowledgeHitRate.value} sub={<span className="mono dimmer">{mockTiles.knowledgeHitRate.sub}</span>} />
             <StatTile
               label="P95 retrieval"
               value={cost && cost.request_count ? latency(cost.ms_total / cost.request_count) : '—'}
@@ -1014,9 +1015,8 @@ export default function ConsoleKnowledgeDetail() {
             />
             <StatTile
               label="Zero-hit queries"
-              value="—"
-              na
-              sub={<span className="mono dimmer">no aggregation endpoint</span>}
+              value={mockTiles.knowledgeZeroHit.value}
+              sub={<span className="mono dimmer">{mockTiles.knowledgeZeroHit.sub}</span>}
             />
           </StatTileGrid>
           <WorkbenchPanel title={t('console.knowDetail.topQueries')} hint={t('console.knowDetail.topQueriesHint')}>

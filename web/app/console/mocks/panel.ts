@@ -65,3 +65,44 @@ export const mockSavedViews: MockPanelStat[] = [
 export const mockDraftReviews: MockPanelNote[] = [
   { id: 'release-notes', label: 'release-notes v6 · scope change', tone: 'warn', value: '3h', to: '/build/agents' },
 ]
+
+/* ---------------------------------------------------------------------------
+ * Figures the prototype shows that no endpoint can answer yet.
+ *
+ * // BACKEND-PENDING: each entry below names an API that has to exist before it
+ * // can go live. They are fallbacks, never overrides — `use-console-counts`
+ * // prefers a real figure wherever a service answers, so shipping the endpoint
+ * // is enough to retire the fixture without touching the panel.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Side-panel link figures with no service behind them.
+ *
+ * - `runs` / `traces`: the list endpoints paginate without reporting a total,
+ *   so there is no way to show a workspace-wide count or span volume.
+ * - `policies`: policy bundles are not versioned server-side; there is no
+ *   active-bundle identifier to read.
+ * - `audit`: /runs/audits paginates without a total and takes no time window.
+ * - `access`: /resource-grants requires resource_type + resource_id, so a
+ *   workspace-wide grant count cannot be asked for in one call.
+ */
+export const mockPanelCounts = {
+  runs: '1,284',
+  traces: '41k spans',
+  policies: 'v08.27-2',
+  audit: '47 · 24h',
+  access: '14',
+} as const
+
+/**
+ * Govern › Needs attention — the two rows below the live approvals row.
+ *
+ * // BACKEND-PENDING: staged rollout needs policy-bundle versioning with a
+ * // rollout percentage and a regression count; egress blocks need a windowed
+ * // count of denied egress attempts. /security/egress/audits records changes
+ * // to the policy, not the requests it stopped.
+ */
+export const mockGovernAttention: MockPanelNote[] = [
+  { id: 'rollout', label: 'Staged rollout at 10%', tone: 'primary', value: '0 regressions', to: '/govern/policies' },
+  { id: 'egress', label: '12 egress blocks · 24h', tone: 'bad', value: '1 agent', to: '/govern/audit' },
+]

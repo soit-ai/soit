@@ -27,6 +27,7 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { compactNumber, relativeTime } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
+import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { getTaskWorkbench, getTaskWorkbenchItems, type TaskWorkbenchRow } from '@/services/task-service'
 
@@ -161,9 +162,9 @@ export default function ConsoleTasks() {
       }
       tiles={
         <StatTileGrid>
-          {/* The workbench summary counts waiting/running/failed but has no
-              queued counter, so the tile stays N/A rather than guessing one. */}
-          <StatTile label={t('console.tasks.tiles.queued')} value="—" na sub={<span className="mono dimmer">{summary ? `${summary.today_created} created today` : t('console.common.loading')}</span>} />
+          {/* BACKEND-PENDING: prototype figure — the workbench summary reports
+              no queue depth or queue age; see mocks/tiles.ts. */}
+          <StatTile label={t('console.tasks.tiles.queued')} value={mockTiles.taskQueued.value} sub={<span className="mono dimmer">{mockTiles.taskQueued.sub}</span>} />
           <StatTile label={t('console.tasks.tiles.processing')} value={summary ? compactNumber(summary.running) : '—'} na={!summary} sub={<span className="mono dimmer">{summary ? `${summary.long_running} long-running` : t('console.common.loading')}</span>} />
           <StatTile label={t('console.tasks.tiles.awaiting')} value={summary ? compactNumber(summary.waiting_approval) : '—'} na={!summary} sub={<span className="mono dimmer">{summary ? `${summary.waiting_input} waiting on input` : t('console.common.loading')}</span>} />
           {/* The server counts every open failure; it is not windowed to 24h. */}

@@ -96,7 +96,9 @@ const translation = {
     processing: 'Processing',
     awaitingApproval: 'Awaiting approval',
     failed: 'Failed',
-    approvalsPending: 'Approvals pending',
+    approvalsPending: '{{count}} approvals pending',
+    approvalsPending_one: '{{count}} approval pending',
+    approvalsPending_other: '{{count}} approvals pending',
     // i18next resolves the suffixed forms; the base key is what the strict
     // TranslationKey union is built from, so all three have to exist.
     runsInFlight: '{{count}} runs in flight',

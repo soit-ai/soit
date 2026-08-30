@@ -168,8 +168,8 @@ test('govern panel raises pending approvals in the attention group', async ({ pa
 
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  const attention = page.locator('.subnav .sub-note', { hasText: 'Approvals pending' })
-  await expect(attention.locator('.ct')).toHaveText('2')
+  const attention = page.locator('.subnav .sub-note', { hasText: '2 approvals pending' })
+  await expect(attention).toBeVisible()
   await attention.click()
   await expect(page).toHaveURL(/\/govern\/approvals/)
 })
@@ -185,9 +185,42 @@ test('govern panel omits the attention group when nothing is pending', async ({ 
 
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  // The pillar's own links are there, so the panel rendered; only the group is gone.
+  // The pillar's own links are there, so the panel rendered.
   await expect(page.locator('.subnav .sl', { hasText: 'Approvals' })).toBeVisible()
-  await expect(page.locator('.subnav .sub-cap', { hasText: 'Needs attention' })).toHaveCount(0)
+  // The group survives on its fixture rows, but nothing claims a pending count.
+  await expect(page.locator('.subnav .sub-note', { hasText: 'approvals pending' })).toHaveCount(0)
+})
+
+test('side panel counts team and API keys from their real services', async ({ page }) => {
+  await json(page, '**/api/v1/workspaces/workspace-1/members', [
+    { user_id: 'u1', email: 'a@x.io', role: 'Owner', status: 'active' },
+    { user_id: 'u2', email: 'b@x.io', role: 'Admin', status: 'active' },
+    { user_id: 'u3', email: 'c@x.io', role: 'Dev', status: 'active' },
+    { user_id: 'u4', email: 'd@x.io', role: 'Dev', status: 'active' },
+  ])
+  await json(page, '**/api/v1/api-keys**', {
+    items: [{ id: 'k1' }, { id: 'k2' }, { id: 'k3' }],
+    next_page_token: null,
+    page_size: 100,
+  })
+
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' })
+
+  // Both have services, so they are read rather than filled from a fixture.
+  await expect(page.locator('.subnav .sl', { hasText: 'Team' }).locator('.ct')).toHaveText('4')
+  await expect(page.locator('.subnav .sl', { hasText: 'API keys' }).locator('.ct')).toHaveText('3')
+})
+
+test('side panel shows the prototype figures that have no endpoint yet', async ({ page }) => {
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+
+  // Fixtures until the APIs exist: no bundle versioning, no windowed audit
+  // count, and no workspace-wide grant count to ask for.
+  const figure = (label: string) =>
+    page.locator('.subnav .sl', { hasText: label }).locator('.ct')
+  await expect(figure('Policies')).toHaveText('v08.27-2')
+  await expect(figure('Audit log')).toHaveText('47 · 24h')
+  await expect(figure('Access')).toHaveText('14')
 })
 
 test('saved views do not claim to be the page they filter', async ({ page }) => {
@@ -235,4 +268,31 @@ test('caption spacing follows the prototype after the first group', async ({ pag
   // silently collapses the spacing down the whole panel.
   expect(await padding(0)).toBe('2px')
   expect(await padding(1)).toBe('12px')
+})
+
+test('seats keeps a live numerator against the fixture cap', async ({ page }) => {
+  // The only tile that mixes a measurement with a fixture. If a later change
+  // swaps the whole value for the prototype's "4 / 25", the real member count
+  // stops being reported and nobody notices — so assert the numerator moves.
+  await json(page, '**/api/v1/workspaces/workspace-1/members', [
+    { user_id: 'u1', email: 'a@x.io', role: 'Owner', status: 'active' },
+    { user_id: 'u2', email: 'b@x.io', role: 'Admin', status: 'active' },
+  ])
+  await json(page, '**/api/v1/billing/credits/balance', {
+    currency: 'USD',
+    balance: '3600.00',
+    granted_total: '4212.40',
+    consumed_total: '612.40',
+    updated_at: NOW,
+  })
+  await json(page, '**/api/v1/billing/credits/entries**', {
+    items: [],
+    next_page_token: null,
+    page_size: 20,
+  })
+
+  await page.goto('/settings/billing', { waitUntil: 'domcontentloaded' })
+
+  // Two real members, not the prototype's four; the cap stays the fixture.
+  await expect(page.locator('.tile', { hasText: 'Seats' })).toContainText('2 / 25')
 })
