@@ -4,7 +4,13 @@ import axios, { type AxiosRequestConfig } from 'axios'
 import { debugLog } from './debug'
 import { uuidv4 } from './uuid'
 import type { ApiEnvelope } from '@/types/api'
-import { clearAuthSessionStorage, currentLocalRoute, signInRouteFor } from '@/utils/auth-session'
+import {
+  clearAuthSessionStorage,
+  currentLocalRoute,
+  signInRouteFor,
+  storeAuthTokens,
+  storedRefreshToken,
+} from '@/utils/auth-session'
 
 const TIME_OUT = 100000
 const BASE_URL = (import.meta.env.VITE_BASE_URL || '/api/v1').replace(/\/$/, '')
@@ -31,6 +37,8 @@ const request = axios.create({
 
 export type RequestConfigWithToast = AxiosRequestConfig & {
   suppressErrorToast?: boolean
+  /** Set on the refresh call itself so a failed renewal cannot re-enter it. */
+  skipAuthRefresh?: boolean
 }
 
 export function requestErrorMessage(error: unknown, fallback: string): string {
@@ -117,8 +125,10 @@ request.interceptors.response.use(
     }
     return Promise.resolve(response)
   },
-  function (error) {
+  async function (error) {
     debugLog('Response ErrorHandler error:', error, error?.response?.data)
+    const retried = await retryWithRefreshedToken(error)
+    if (retried) return retried
     let _key = uuidv4()
     let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
     isUnauthorizedError(error?.response?.data?.code, error?.response?.status) && (_key = 'nologin_notice')
@@ -130,6 +140,48 @@ request.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+/**
+ * One refresh at a time.
+ *
+ * A page loads a dozen requests at once, and an expired token fails all of
+ * them together. Without this, each failure would spend the same refresh
+ * token, and every attempt after the first would look like a replay -- which
+ * the server answers by ending the session. So the first failure refreshes and
+ * the rest wait on it.
+ */
+let refreshInFlight: Promise<string | null> | null = null
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = storedRefreshToken()
+  if (!refreshToken) return null
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = (async () => {
+    try {
+      // Posted directly rather than through the wrapper: the wrapper's own
+      // interceptor is what called us, and re-entering it would recurse.
+      const response = await request.post(
+        '/refresh',
+        { refresh_token: refreshToken },
+        { suppressErrorToast: true, skipAuthRefresh: true } as RequestConfigWithToast,
+      )
+      const data = (response?.data?.data || {}) as {
+        access_token?: string
+        refresh_token?: string | null
+      }
+      if (!data.access_token) return null
+      storeAuthTokens(data.access_token, data.refresh_token)
+      return data.access_token
+    } catch {
+      return null
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+
+  return refreshInFlight
+}
 
 function isUnauthorizedError(code: number | string | null | undefined, status?: number): boolean {
   const unauthorized = status === 401 || (
@@ -148,6 +200,28 @@ function isUnauthorizedError(code: number | string | null | undefined, status?: 
     return true
   }
   return false
+}
+
+/**
+ * Renew once and replay the request, or give up and let the 401 through.
+ *
+ * Returning a response here means the caller never learns the token expired,
+ * which is the point: an expiry in the middle of a session is not something a
+ * person should have to notice.
+ */
+async function retryWithRefreshedToken(error: any): Promise<any | null> {
+  const config = error?.config as (RequestConfigWithToast & { _retriedAfterRefresh?: boolean }) | undefined
+  if (!config || error?.response?.status !== 401) return null
+  // The refresh call itself, and anything already retried, must not loop.
+  if (config.skipAuthRefresh || config._retriedAfterRefresh) return null
+  if (!storedRefreshToken()) return null
+
+  const token = await refreshAccessToken()
+  if (!token) return null
+
+  config._retriedAfterRefresh = true
+  config.headers = { ...(config.headers || {}), Authorization: `Bearer ${token}` }
+  return request.request(config)
 }
 
 export default request

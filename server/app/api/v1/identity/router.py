@@ -28,6 +28,38 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/refresh",
+    handlers.refresh_token,
+    methods=["POST"],
+    summary="Exchange a refresh token for a new access token",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/sessions",
+    handlers.list_sessions,
+    methods=["GET"],
+    summary="List the caller's sessions",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/sessions/revoke-all",
+    handlers.revoke_all_sessions,
+    methods=["POST"],
+    summary="Sign out of every session",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/sessions/{session_id}",
+    handlers.revoke_session,
+    methods=["DELETE"],
+    summary="End one session",
+    tags=["identity"],
+)
+
+router.add_api_route(
     "/me",
     handlers.get_current_user,
     methods=["GET"],

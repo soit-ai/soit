@@ -156,6 +156,8 @@ class WorkspaceMemberResponse(BaseModel):
     role: str
     status: str
     created_at: datetime
+    last_active_at: datetime | None = None
+    """Most recent activity across the member's sessions; None if never seen."""
 
 
 class TokenResponse(BaseModel):
@@ -165,6 +167,37 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     workspace_id: str | None = None
+    refresh_token: str | None = None
+    """Renews the access token without re-entering a password. Shown once."""
+
+
+class RefreshRequest(BaseModel):
+    """Schema for exchanging a refresh token."""
+
+    refresh_token: str = Field(min_length=1)
+
+
+class UserSessionResponse(BaseModel):
+    """One sign-in the user can see and end."""
+
+    id: str
+    workspace_id: str | None = None
+    status: str
+    user_agent: str | None = None
+    ip_address: str | None = None
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    current: bool = False
+    """True for the session making this request."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SessionRevokeAllResponse(BaseModel):
+    """How many sessions an all-devices sign-out ended."""
+
+    revoked: int
 
 
 class ApiKeyCreate(BaseModel):

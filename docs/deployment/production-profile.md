@@ -43,9 +43,16 @@ A dev-mode Vault keeps its data in memory and unseals itself with a fixed root
 token, so it loses every secret on restart. The profile cannot detect that for
 you; point `VAULT_URL` at a real server.
 
-`ACCESS_TOKEN_EXPIRE_MINUTES` (default 480) is the hard session length: there
-is no token refresh flow yet, so users are logged out when it expires. Tighten
-it if your threat model calls for shorter exposure windows.
+`ACCESS_TOKEN_EXPIRE_MINUTES` (default 30) is not the session length. Clients
+renew silently against `POST /refresh`, so this value is the worst case delay
+before a revoked session stops working: an access token already issued keeps
+working until it expires, even after the session behind it was ended. Shorten
+it if that window matters to your threat model.
+
+`REFRESH_TOKEN_EXPIRE_DAYS` (default 14) is the session length — how long a
+client can keep renewing before signing in again. Refresh tokens rotate on
+every use, and presenting a spent one ends the session, so a stolen token is
+usable at most until the real client next renews.
 
 ## What the runtime refuses in production
 

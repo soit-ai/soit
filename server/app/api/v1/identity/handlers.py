@@ -6,7 +6,7 @@ Identity entrypoint handlers.
 
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 
 from app.api.v1.identity.dependencies import get_identity_service
 from app.api.v1.permissions import (
@@ -26,8 +26,10 @@ from app.modules.identity.application.schemas import (
     MembershipResponse,
     MembershipUpdate,
     PasswordChange,
+    RefreshRequest,
     ResourceGrantCreate,
     ResourceGrantResponse,
+    SessionRevokeAllResponse,
     TenantCreate,
     TenantResponse,
     TokenResponse,
@@ -35,6 +37,7 @@ from app.modules.identity.application.schemas import (
     UserLogin,
     UserProfileUpdate,
     UserResponse,
+    UserSessionResponse,
     WorkspaceCreate,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -43,8 +46,24 @@ from app.modules.identity.application.schemas import (
 from app.modules.identity.application.service import IdentityService
 
 
+def _client_ip(request: Request | None) -> str | None:
+    """Best-effort client address for the session list.
+
+    Behind a proxy the socket address is the proxy, so the forwarded header is
+    preferred when present. It is display-only: nothing is authorized by it,
+    which is why a spoofable header is acceptable here.
+    """
+    if request is None:
+        return None
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 async def register(
     user_data: UserCreate,
+    request: Request,
     tenant_name: str | None = None,
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
@@ -57,15 +76,18 @@ async def register(
             detail="Public registration is disabled",
         )
     try:
-        _, _, access_token, workspace_id = service.register_user(
+        _, _, access_token, workspace_id, refresh_token = service.register_user(
             user_data,
             tenant_name=tenant_name,
+            user_agent=request.headers.get("User-Agent") if request else None,
+            ip_address=_client_ip(request),
         )
         from app.settings.settings import settings
         return TokenResponse(
             access_token=access_token,
             expires_in=settings.access_token_expire_minutes * 60,
             workspace_id=workspace_id,
+            refresh_token=refresh_token,
         )
     except ValidationError as e:
         raise HTTPException(
@@ -75,6 +97,7 @@ async def register(
 
 async def login(
     login_data: UserLogin,
+    request: Request,
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
     """Login user.
@@ -87,21 +110,110 @@ async def login(
         Token response.
     """
     try:
-        user, access_token, workspace_id = service.authenticate_user(
+        user, access_token, workspace_id, refresh_token = service.authenticate_user(
             login_data.email,
             login_data.password,
+            user_agent=request.headers.get("User-Agent") if request else None,
+            ip_address=_client_ip(request),
         )
         from app.settings.settings import settings
         return TokenResponse(
             access_token=access_token,
             expires_in=settings.access_token_expire_minutes * 60,
             workspace_id=workspace_id,
+            refresh_token=refresh_token,
         )
     except UnauthorizedError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
         )
+
+
+async def refresh_token(
+    payload: RefreshRequest,
+    request: Request,
+    service: IdentityService = Depends(get_identity_service),
+) -> TokenResponse:
+    """Exchange a refresh token for a new access token.
+
+    Public by design: the refresh token is the credential, and the caller's
+    access token has usually expired by the time this is needed.
+    """
+    from app.settings.settings import settings
+
+    try:
+        access_token, rotated, workspace_id = service.refresh_session(
+            payload.refresh_token,
+            user_agent=request.headers.get("User-Agent"),
+            ip_address=_client_ip(request),
+        )
+    except UnauthorizedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+    return TokenResponse(
+        access_token=access_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        workspace_id=workspace_id,
+        refresh_token=rotated,
+    )
+
+
+async def list_sessions(
+    request: Request,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> list[UserSessionResponse]:
+    """List the caller's own active sessions."""
+    current_id = _current_session_id(request)
+    return [
+        UserSessionResponse.model_validate(session).model_copy(
+            update={"current": session.id == current_id}
+        )
+        for session in service.list_sessions(ctx)
+    ]
+
+
+async def revoke_session(
+    session_id: str,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> UserSessionResponse:
+    """End one of the caller's own sessions."""
+    try:
+        return UserSessionResponse.model_validate(service.revoke_session(ctx, session_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def revoke_all_sessions(
+    request: Request,
+    keep_current: bool = True,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> SessionRevokeAllResponse:
+    """Sign out everywhere, optionally leaving this device signed in."""
+    except_id = _current_session_id(request) if keep_current else None
+    return SessionRevokeAllResponse(
+        revoked=service.revoke_all_sessions(ctx, except_session_id=except_id)
+    )
+
+
+def _current_session_id(request: Request) -> str | None:
+    """Read the session id the caller's own access token names."""
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer "):
+        return None
+    from app.kernel.identity.auth import decode_jwt_token
+
+    try:
+        payload = decode_jwt_token(auth[7:])
+    except Exception:
+        return None
+    session_id = payload.get("sid")
+    return str(session_id) if session_id else None
 
 
 async def get_current_user(
@@ -284,6 +396,10 @@ async def list_workspace_members(
     """List workspace members."""
     try:
         memberships = service.list_workspace_members(workspace_id, ctx)
+        # One read for everyone's last activity rather than a query per member.
+        last_active = service.session_repo.last_seen_for_users(
+            [membership.user_id for membership in memberships]
+        )
         members = []
         for membership in memberships:
             user = service.get_user(membership.user_id)
@@ -295,6 +411,7 @@ async def list_workspace_members(
                     role=membership.role,
                     status="active" if user.is_active else "inactive",
                     created_at=membership.created_at,
+                    last_active_at=last_active.get(membership.user_id),
                 )
             )
         return members

@@ -70,7 +70,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     """JWT algorithm."""
     access_token_expire_minutes: int = 30
-    """Access token expiration in minutes."""
+    """Access token expiration in minutes.
+
+    Short by design: a revoked session keeps working until the access token it
+    issued expires, so this value is the worst-case delay on a sign-out. The
+    refresh flow renews silently, so shortening it costs the user nothing.
+    """
+
+    refresh_token_expire_days: int = 14
+    """How long a session can be renewed before the user signs in again."""
 
     # Milvus
     milvus_host: str = "localhost"

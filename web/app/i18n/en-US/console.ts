@@ -210,8 +210,13 @@ const translation = {
       ipAllowlistHint: 'Outbound destinations agents may reach. Empty = no restriction.',
       auditAccess: 'Audit log access',
       sessions: 'Sessions',
-      sessionsHint: 'Forces re-authentication everywhere.',
-      signOutAll: 'Sign out all sessions…',
+      sessionsHint: 'Every device signed in to this account. Ending one takes effect immediately.',
+      signOutAll: 'Sign out other sessions',
+      device: 'Device',
+      lastSeen: 'Last seen',
+      endSession: 'End',
+      thisDevice: 'this device',
+      unknownDevice: 'Unknown device',
     },
     secretsPane: {
       body:

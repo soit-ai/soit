@@ -24,5 +24,11 @@ class WorkspaceAccessResolver(Protocol):
         tenant_id: str,
         workspace_id: str,
         user_id: str,
+        session_id: str | None = None,
     ) -> WorkspaceAccess | None:
-        """Return effective access or None when membership is absent."""
+        """Return effective access or None when membership is absent.
+
+        ``session_id`` names the sign-in the caller's token belongs to, when it
+        has one. An implementation that tracks sessions rejects a token whose
+        session has ended.
+        """

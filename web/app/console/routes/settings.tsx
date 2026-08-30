@@ -11,6 +11,14 @@ import {
   StatTile,
   StatusChip,
 } from '../components'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
 import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
@@ -25,6 +33,7 @@ import {
   type ApiKeyScope,
 } from '@/services/api-key-service'
 import { getCreditBalance, listCreditEntries } from '@/services/billing-service'
+import { listSessions, revokeAllSessions, revokeSession } from '@/services/auth-service'
 import { getDiagnosticsSnapshot } from '@/services/diagnostics-service'
 import {
   addWorkspaceMember,
@@ -255,6 +264,40 @@ export default function ConsoleSettings() {
   const onWriteError = (fallback: string) => (error: unknown) => {
     toast.error(requestErrorMessage(error, fallback))
   }
+
+  // Sessions are only read on the security pane; ending one takes effect
+  // immediately, including the one making this request.
+  const sessionsQuery = useQuery({
+    queryKey: ['console', 'settings', 'sessions'],
+    queryFn: () => listSessions(),
+    options: { enabled: active === 'security', retry: false, refetchOnWindowFocus: false },
+  })
+  const sessions = sessionsQuery.data || []
+
+  const revokeOne = useMutation<unknown, unknown, string>({
+    mutationKey: ['console', 'settings', 'revoke-session'],
+    mutationFn: (sessionId: string) => revokeSession(sessionId, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void sessionsQuery.refetch()
+      toast.success('Session ended')
+    },
+    onError: onWriteError('Failed to end that session'),
+  })
+
+  const revokeAll = useMutation<unknown, unknown, void>({
+    mutationKey: ['console', 'settings', 'revoke-all-sessions'],
+    mutationFn: () => revokeAllSessions(true, { suppressErrorToast: true }),
+    onSuccess: (result) => {
+      void sessionsQuery.refetch()
+      const count = (result as { revoked: number }).revoked
+      toast.success(
+        count
+          ? `Signed out of ${count} other ${count === 1 ? 'session' : 'sessions'}`
+          : 'No other sessions were signed in',
+      )
+    },
+    onError: onWriteError('Failed to sign out everywhere'),
+  })
 
   const passwordMutation = useMutation({
     mutationKey: ['console', 'settings', 'change-password'],
@@ -622,8 +665,9 @@ export default function ConsoleSettings() {
                         {/* BACKEND-PENDING: membership carries no MFA state. */}
                         <StatusChip status="na" label="—" />
                       </td>
-                      {/* BACKEND-PENDING: no last-active timestamp on a member. */}
-                      <td className="num dimmer">—</td>
+                      <td className="num dimmer">
+                        {member.last_active_at ? relativeTime(member.last_active_at) : '—'}
+                      </td>
                       <td className="num">
                         {/* The server refuses to remove the caller from their own
                             workspace, so self rows carry no actions at all. */}
@@ -824,11 +868,51 @@ export default function ConsoleSettings() {
                 {t('console.settings.securityPane.sessions')}
                 <small>{t('console.settings.securityPane.sessionsHint')}</small>
               </label>
-              <div>
-                {/* BACKEND-PENDING: no global session-revocation endpoint. */}
-                <ConsoleButton style={{ color: 'var(--danger-foreground)' }}>
-                  {t('console.settings.securityPane.signOutAll')}
-                </ConsoleButton>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {sessions.length > 0 && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('console.settings.securityPane.device')}</TableHead>
+                        <TableHead>{t('console.settings.securityPane.lastSeen')}</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sessions.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>
+                            <div className="nm">{row.user_agent || t('console.settings.securityPane.unknownDevice')}</div>
+                            <div className="sub mono">
+                              {row.ip_address || '—'}
+                              {row.current && ` · ${t('console.settings.securityPane.thisDevice')}`}
+                            </div>
+                          </TableCell>
+                          <TableCell className="dim">{relativeTime(row.last_seen_at)}</TableCell>
+                          <TableCell className="num">
+                            {!row.current && (
+                              <ConsoleButton
+                                onClick={() => revokeOne.mutate(row.id)}
+                                disabled={revokeOne.isPending}
+                              >
+                                {t('console.settings.securityPane.endSession')}
+                              </ConsoleButton>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                <div>
+                  <ConsoleButton
+                    style={{ color: 'var(--danger-foreground)' }}
+                    onClick={() => revokeAll.mutate(undefined)}
+                    disabled={revokeAll.isPending}
+                  >
+                    {t('console.settings.securityPane.signOutAll')}
+                  </ConsoleButton>
+                </div>
               </div>
             </div>
           </div>

@@ -34,7 +34,7 @@ def main() -> int:
             print("User already exists. Skipping bootstrap.")
             return 0
 
-        user, tenant, access_token, workspace_id = service.register_user(
+        user, tenant, access_token, workspace_id, _refresh = service.register_user(
             UserCreate(email=args.email, password=args.password, name=args.name),
             tenant_name=args.tenant_name,
         )

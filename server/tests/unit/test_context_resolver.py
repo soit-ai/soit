@@ -37,7 +37,7 @@ class _WorkspaceAccessResolver:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
 
-    def resolve(self, tenant_id: str, workspace_id: str, user_id: str):
+    def resolve(self, tenant_id: str, workspace_id: str, user_id: str, session_id=None):
         self.calls.append((tenant_id, workspace_id, user_id))
         return SimpleNamespace(
             tenant_role="Viewer",
@@ -89,7 +89,7 @@ async def test_header_workspace_uses_authoritative_membership_role() -> None:
 @pytest.mark.asyncio
 async def test_missing_workspace_membership_is_forbidden() -> None:
     access_resolver = _WorkspaceAccessResolver()
-    access_resolver.resolve = lambda tenant_id, workspace_id, user_id: None
+    access_resolver.resolve = lambda tenant_id, workspace_id, user_id, session_id=None: None
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,

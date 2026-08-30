@@ -132,7 +132,7 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
     if not user:
         tenant = identity.tenant_repo.get_by_name(args.tenant_name)
         if tenant is None:
-            user, tenant, _, workspace_id = identity.register_user(
+            user, tenant, _, workspace_id, _refresh = identity.register_user(
                 UserCreate(email=args.email, password=args.password, name=args.name),
                 tenant_name=args.tenant_name,
             )

@@ -4,9 +4,11 @@ Identity domain business logic.
 """
 
 import asyncio
+import hashlib
+import secrets
 import threading
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -34,6 +36,7 @@ from app.modules.identity.application.ports import (
     TenantMembershipRepositoryPort,
     TenantRepositoryPort,
     UserRepositoryPort,
+    UserSessionRepositoryPort,
     WorkspaceMembershipRepositoryPort,
     WorkspaceRepositoryPort,
 )
@@ -54,6 +57,7 @@ from app.modules.identity.domain.models import (
     Tenant,
     TenantMembership,
     User,
+    UserSession,
     Workspace,
     WorkspaceMembership,
 )
@@ -76,6 +80,7 @@ class IdentityService:
         workspace_membership_repo_factory: Callable[[RequestContext], WorkspaceMembershipRepositoryPort],
         api_key_repo: ApiKeyRepositoryPort,
         resource_grant_repo_factory: Callable[[RequestContext], ResourceGrantRepositoryPort],
+        session_repo: UserSessionRepositoryPort,
     ):
         """Initialize identity service.
 
@@ -92,6 +97,7 @@ class IdentityService:
         self.workspace_membership_repo_factory = workspace_membership_repo_factory
         self.api_key_repo = api_key_repo
         self.resource_grant_repo_factory = resource_grant_repo_factory
+        self.session_repo = session_repo
 
     def _run_async(self, coro):
         """Run coroutine to completion from sync contexts."""
@@ -184,7 +190,10 @@ class IdentityService:
         self,
         user_data: UserCreate,
         tenant_name: str | None = None,
-    ) -> tuple[User, Tenant, str, str]:
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> tuple[User, Tenant, str, str, str]:
         """Register a new user and create a tenant.
 
         Args:
@@ -192,7 +201,7 @@ class IdentityService:
             tenant_name: Optional tenant name (creates tenant if provided).
 
         Returns:
-            Tuple of (User, Tenant, access_token, workspace_id).
+            Tuple of (User, Tenant, access_token, workspace_id, refresh_token).
 
         Raises:
             ValidationError: If user already exists or validation fails.
@@ -232,22 +241,32 @@ class IdentityService:
             tenant_role=TENANT_ROLE_OWNER,
         )
 
-        # Generate access token
+        session, refresh_token = self._issue_session(
+            user_id=user.id,
+            tenant_id=tenant.id,
+            workspace_id=workspace_id,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
         access_token = self.jwt_manager.create_access_token(
             user_id=user.id,
             tenant_id=tenant.id,
             workspace_id=workspace_id,
             tenant_role=TENANT_ROLE_OWNER,
             workspace_role=workspace_role,
+            session_id=session.id,
         )
 
-        return user, tenant, access_token, workspace_id
+        return user, tenant, access_token, workspace_id, refresh_token
 
     def authenticate_user(
         self,
         email: str,
         password: str,
-    ) -> tuple[User, str, str]:
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> tuple[User, str, str, str]:
         """Authenticate a user.
 
         Args:
@@ -255,7 +274,7 @@ class IdentityService:
             password: User password.
 
         Returns:
-            Tuple of (User, access_token, workspace_id).
+            Tuple of (User, access_token, workspace_id, refresh_token).
 
         Raises:
             UnauthorizedError: If authentication fails.
@@ -284,16 +303,207 @@ class IdentityService:
             tenant_role=tenant_role,
         )
 
-        # Generate access token
+        session, refresh_token = self._issue_session(
+            user_id=user.id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
         access_token = self.jwt_manager.create_access_token(
             user_id=user.id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             tenant_role=tenant_role,
             workspace_role=workspace_role,
+            session_id=session.id,
         )
 
-        return user, access_token, workspace_id
+        return user, access_token, workspace_id, refresh_token
+
+    # ------------------------------------------------------------------
+    # Sessions
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hash_refresh_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _issue_session(
+        self,
+        *,
+        user_id: str,
+        tenant_id: str,
+        workspace_id: str | None,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> tuple[UserSession, str]:
+        """Open a session and mint the refresh token that renews it.
+
+        The token is returned once; only its hash is kept, so a leaked database
+        cannot be replayed as a sign-in.
+        """
+        refresh_token = secrets.token_urlsafe(48)
+        session = UserSession(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            refresh_token_hash=self._hash_refresh_token(refresh_token),
+            user_agent=(user_agent or "")[:512] or None,
+            ip_address=(ip_address or "")[:64] or None,
+            expires_at=utc_now() + timedelta(days=self._refresh_token_days()),
+        )
+        return self.session_repo.create(session), refresh_token
+
+    @staticmethod
+    def _refresh_token_days() -> int:
+        from app.settings.settings import settings
+
+        return max(1, int(settings.refresh_token_expire_days))
+
+    def _session_is_live(self, session: UserSession) -> bool:
+        if session.status != "active":
+            return False
+        expires_at = session.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at is None or expires_at > utc_now()
+
+    def refresh_session(
+        self,
+        refresh_token: str,
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> tuple[str, str, str | None]:
+        """Exchange a refresh token for a new access token.
+
+        The refresh token is rotated on every use, and presenting a rotated-out
+        token ends the session: either it was replayed by someone who should
+        not have it, or the real client lost the race and needs to sign in
+        again. Both are safer resolved by ending the session than by guessing.
+
+        Returns:
+            (access_token, new_refresh_token, workspace_id)
+        """
+        session = self.session_repo.get_by_refresh_hash(
+            self._hash_refresh_token(refresh_token)
+        )
+        if session is None:
+            raise UnauthorizedError("Invalid refresh token")
+        if not self._session_is_live(session):
+            raise UnauthorizedError("Session has ended")
+
+        user = self.user_repo.get_by_id(session.user_id)
+        if user is None or not user.is_active:
+            self._end_session(session, revoked_by="system")
+            raise UnauthorizedError("User account is inactive")
+
+        memberships = self.tenant_membership_repo.get_by_user(user.id)
+        membership = next(
+            (item for item in memberships if item.tenant_id == session.tenant_id),
+            None,
+        )
+        if membership is None:
+            self._end_session(session, revoked_by="system")
+            raise UnauthorizedError("User is no longer a member of this tenant")
+
+        workspace_id, workspace_role = self._ensure_workspace_membership(
+            tenant_id=session.tenant_id,
+            user_id=user.id,
+            tenant_role=membership.role,
+        )
+
+        rotated = secrets.token_urlsafe(48)
+        session.refresh_token_hash = self._hash_refresh_token(rotated)
+        session.last_seen_at = utc_now()
+        session.workspace_id = workspace_id
+        if user_agent:
+            session.user_agent = user_agent[:512]
+        if ip_address:
+            session.ip_address = ip_address[:64]
+        self.session_repo.save(session)
+
+        access_token = self.jwt_manager.create_access_token(
+            user_id=user.id,
+            tenant_id=session.tenant_id,
+            workspace_id=workspace_id,
+            tenant_role=membership.role,
+            workspace_role=workspace_role,
+            session_id=session.id,
+        )
+        return access_token, rotated, workspace_id
+
+    def list_sessions(self, ctx: RequestContext) -> list[UserSession]:
+        """List the caller's own sessions, most recently active first."""
+        return self.session_repo.list_by_user(ctx.user_id)
+
+    def _end_session(self, session: UserSession, *, revoked_by: str) -> UserSession:
+        session.status = "revoked"
+        session.revoked_at = utc_now()
+        session.revoked_by = revoked_by
+        # Rotating the hash to an unmatchable value means a refresh token in
+        # flight cannot be presented again even if the status check is missed.
+        session.refresh_token_hash = f"revoked:{session.id}:{secrets.token_hex(8)}"
+        return self.session_repo.save(session)
+
+    def revoke_session(self, ctx: RequestContext, session_id: str) -> UserSession:
+        """End one of the caller's own sessions."""
+        session = self.session_repo.get_by_id(session_id)
+        if session is None or session.user_id != ctx.user_id:
+            # Not found and not yours are the same answer: a caller must not be
+            # able to probe for other people's session ids.
+            raise NotFoundError("Session not found")
+        if session.status != "active":
+            return session
+        ended = self._end_session(session, revoked_by=ctx.user_id)
+        self._log_session_audit(ctx, ended, operation="revoke")
+        return ended
+
+    def revoke_all_sessions(
+        self,
+        ctx: RequestContext,
+        *,
+        except_session_id: str | None = None,
+    ) -> int:
+        """End every session the caller has, optionally sparing the current one."""
+        ended = 0
+        for session in self.session_repo.list_by_user(ctx.user_id):
+            if except_session_id and session.id == except_session_id:
+                continue
+            self._end_session(session, revoked_by=ctx.user_id)
+            ended += 1
+        if ended:
+            self._log_session_audit(ctx, None, operation="revoke_all", count=ended)
+        return ended
+
+    def _log_session_audit(
+        self,
+        ctx: RequestContext,
+        session: UserSession | None,
+        *,
+        operation: str,
+        count: int | None = None,
+    ) -> None:
+        payload: dict = {"operation": operation}
+        if count is not None:
+            payload["count"] = count
+        self.db.add(
+            AuditEvent(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                event_type="identity.session.revoked",
+                resource_type="user_session",
+                resource_id=session.id if session else None,
+                operation=operation,
+                actor_user_id=ctx.user_id,
+                subject_user_id=session.user_id if session else ctx.user_id,
+                outcome="revoked",
+                scope="tenant",
+                payload_json=payload,
+            )
+        )
+        self.db.commit()
 
     def create_tenant(
         self,

@@ -25,7 +25,7 @@ def test_identity_register_and_authenticate(db):
         name="Alice",
     )
 
-    user, tenant, token, workspace_id = service.register_user(user_data, tenant_name="acme")
+    user, tenant, token, workspace_id, refresh_token = service.register_user(user_data, tenant_name="acme")
 
     assert user.id
     assert tenant is not None
@@ -36,7 +36,7 @@ def test_identity_register_and_authenticate(db):
     role = service.get_user_tenant_role(tenant.id, user.id)
     assert role == TENANT_ROLE_OWNER
 
-    authed_user, authed_token, authed_workspace_id = service.authenticate_user(
+    authed_user, authed_token, authed_workspace_id, authed_refresh = service.authenticate_user(
         user_data.email,
         user_data.password,
     )
@@ -53,7 +53,7 @@ def test_identity_create_workspace_adds_owner_membership(db):
         password="password456",
         name="Bob",
     )
-    user, tenant, _token, _workspace_id = service.register_user(user_data, tenant_name="acme-2")
+    user, tenant, _token, _workspace_id, _refresh = service.register_user(user_data, tenant_name="acme-2")
 
     ctx = RequestContext(
         tenant_id=tenant.id,
@@ -82,7 +82,7 @@ def test_identity_update_workspace_quota_fields(db):
         password="password123",
         name="Dora",
     )
-    user, tenant, _token, _workspace_id = service.register_user(user_data, tenant_name="acme-quota")
+    user, tenant, _token, _workspace_id, _refresh = service.register_user(user_data, tenant_name="acme-quota")
 
     ctx = RequestContext(
         tenant_id=tenant.id,
@@ -139,7 +139,7 @@ def test_identity_api_key_lifecycle(db):
         password="password789",
         name="Carol",
     )
-    user, tenant, _token, _workspace_id = service.register_user(user_data, tenant_name="acme-3")
+    user, tenant, _token, _workspace_id, _refresh = service.register_user(user_data, tenant_name="acme-3")
 
     seed_ctx = RequestContext(
         tenant_id=tenant.id,
@@ -201,14 +201,14 @@ def test_identity_rejects_legacy_roles(db):
         password="password123",
         name="Owner",
     )
-    owner, tenant, _token, _workspace_id = service.register_user(owner_data, tenant_name="acme-legacy")
+    owner, tenant, _token, _workspace_id, _refresh = service.register_user(owner_data, tenant_name="acme-legacy")
 
     user_data = UserCreate(
         email="member@example.com",
         password="password123",
         name="Member",
     )
-    member, _tenant, _token, _workspace_id = service.register_user(user_data, tenant_name=None)
+    member, _tenant, _token, _workspace_id, _refresh = service.register_user(user_data, tenant_name=None)
 
     ctx = RequestContext(
         tenant_id=tenant.id,

@@ -7,7 +7,7 @@ import { useNavigate } from '@/hooks/use-navigate'
 import { authLogin, type LoginRequest, type TokenResponse } from '@/services/auth-service'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
-import { resolveSafeAuthRedirect } from '@/utils/auth-session'
+import { resolveSafeAuthRedirect, storeAuthTokens } from '@/utils/auth-session'
 import { storage } from '@/utils/storage'
 
 import { AuthError, AuthSubmit, FieldError } from './auth-controls'
@@ -33,7 +33,7 @@ export const LoginForm = () => {
     mutationKey: ['login'],
     mutationFn: (data) => authLogin(data),
     onSuccess: async (data) => {
-      storage.set('token', data.access_token)
+      storeAuthTokens(data.access_token, data.refresh_token)
       if (data.workspace_id) {
         storage.set('workspace_id', data.workspace_id)
       } else {

@@ -99,6 +99,15 @@ def generate_notification_id() -> str:
     return f"ntf_{uuid.uuid4().hex}"
 
 
+def generate_session_id() -> str:
+    """Generate a user session ID.
+
+    Returns:
+        A session ID string (e.g., "ses_01H...").
+    """
+    return f"ses_{uuid.uuid4().hex}"
+
+
 def generate_secret_id() -> str:
     """Generate a secret ID.
 

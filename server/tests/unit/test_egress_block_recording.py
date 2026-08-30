@@ -55,7 +55,8 @@ def egress_enabled():
         reset_egress_block_recorder()
 
 
-def test_a_request_outside_the_allowlist_is_recorded(ctx, egress_enabled):
+@pytest.mark.usefixtures("egress_enabled")
+def test_a_request_outside_the_allowlist_is_recorded(ctx):
     sink = _RecordingSink()
     register_egress_block_recorder(sink)
 
@@ -68,7 +69,8 @@ def test_a_request_outside_the_allowlist_is_recorded(ctx, egress_enabled):
     assert sink.calls[0]["reason"] == "not_allowlisted"
 
 
-def test_a_failing_recorder_never_turns_a_refusal_into_a_crash(ctx, egress_enabled):
+@pytest.mark.usefixtures("egress_enabled")
+def test_a_failing_recorder_never_turns_a_refusal_into_a_crash(ctx):
     """The policy already decided; losing the evidence must not change that."""
     register_egress_block_recorder(_ExplodingSink())
 

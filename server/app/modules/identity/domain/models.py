@@ -32,6 +32,11 @@ def generate_resource_grant_id() -> str:
     return f"rg_{generate_ulid()}"
 
 
+def generate_user_session_id() -> str:
+    """Generate user session ID."""
+    return f"ses_{generate_ulid()}"
+
+
 class User(SQLModel, table=True):
     """User model - global user account."""
 
@@ -310,3 +315,53 @@ class ResourceGrant(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
+
+
+class UserSession(SQLModel, table=True):
+    """One sign-in, and the refresh credential that keeps it alive.
+
+    A session is what a person can see and end. The access token names it, so
+    ending the session ends the access it granted rather than waiting for a
+    token nobody can find to expire.
+
+    Only the hash of the refresh token is stored: the credential itself is
+    handed to the client once and never again, the same rule API keys follow.
+    """
+
+    __tablename__ = "user_sessions"
+    __table_args__ = (
+        Index("ix_user_sessions_user_status", "user_id", "status"),
+        Index("ix_user_sessions_expiry", "status", "expires_at"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_user_session_id)
+    tenant_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    workspace_id: str | None = Field(default=None, nullable=True, index=True)
+    """Workspace the session signed in to; a switch does not start a new one."""
+
+    refresh_token_hash: str = Field(unique=True, index=True)
+    """SHA-256 of the current refresh token. Rotated on every refresh."""
+
+    status: str = Field(default="active", index=True)
+    """active, revoked or expired."""
+
+    user_agent: str | None = Field(default=None, nullable=True, max_length=512)
+    ip_address: str | None = Field(default=None, nullable=True, max_length=64)
+
+    created_at: datetime = Field(default_factory=utc_now)
+    last_seen_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    """Updated on refresh, which is the only moment the server hears from it."""
+
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    revoked_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    revoked_by: str | None = Field(default=None, nullable=True)
+    """Who ended it: the user themselves, or an admin."""

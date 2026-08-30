@@ -344,3 +344,74 @@ test('notification endpoints can be created, edited, tested and deleted', async 
   await modal(page).getByRole('button', { name: 'Delete', exact: true }).click()
   await expect.poll(() => deletedMethod).toBe('DELETE')
 })
+
+test('the security pane lists sessions and ends the ones that are not this device', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/me/sessions', [
+    {
+      id: 'ses_here',
+      workspace_id: 'workspace-1',
+      status: 'active',
+      user_agent: 'Chrome on macOS',
+      ip_address: '203.0.113.9',
+      created_at: NOW,
+      last_seen_at: NOW,
+      expires_at: NOW,
+      current: true,
+    },
+    {
+      id: 'ses_phone',
+      workspace_id: 'workspace-1',
+      status: 'active',
+      user_agent: 'Safari on iOS',
+      ip_address: '198.51.100.4',
+      created_at: NOW,
+      last_seen_at: NOW,
+      expires_at: NOW,
+      current: false,
+    },
+  ])
+
+  const revoked: string[] = []
+  await page.route('**/api/v1/me/sessions/ses_phone', (route) => {
+    revoked.push(route.request().method())
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ id: 'ses_phone', status: 'revoked', current: false }),
+    })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+
+  // The current device is named as such and offers no End button: a person
+  // ending their own session from this table would be signing themselves out
+  // with no way back to it.
+  const here = page.locator('tr', { hasText: 'Chrome on macOS' })
+  await expect(here).toContainText('this device')
+  await expect(here.getByRole('button', { name: 'End' })).toHaveCount(0)
+
+  await page.locator('tr', { hasText: 'Safari on iOS' }).getByRole('button', { name: 'End' }).click()
+
+  await expect.poll(() => revoked).toEqual(['DELETE'])
+})
+
+test('signing out everywhere keeps the calling device signed in', async ({ page }) => {
+  await json(page, '**/api/v1/me/sessions', [])
+
+  let keepCurrent: string | null = null
+  await page.route('**/api/v1/me/sessions/revoke-all**', (route) => {
+    keepCurrent = new URL(route.request().url()).searchParams.get('keep_current')
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ revoked: 2 }),
+    })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Sign out other sessions' }).click()
+
+  await expect.poll(() => keepCurrent).toBe('true')
+})

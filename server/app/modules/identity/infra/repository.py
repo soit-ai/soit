@@ -4,7 +4,9 @@ Identity repositories using scope-aware base.
 """
 
 
-from sqlalchemy import and_, select
+from datetime import datetime
+
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.infra.db.repository import Repository
@@ -15,6 +17,7 @@ from app.modules.identity.domain.models import (
     Tenant,
     TenantMembership,
     User,
+    UserSession,
     Workspace,
     WorkspaceMembership,
 )
@@ -419,6 +422,59 @@ class WorkspaceMembershipRepository:
         self.db.delete(membership)
         self.db.commit()
         return True
+
+
+class UserSessionRepository:
+    """Repository for sign-in sessions."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, session: UserSession) -> UserSession:
+        self.db.add(session)
+        self.db.commit()
+        self.db.refresh(session)
+        return session
+
+    def get_by_id(self, session_id: str) -> UserSession | None:
+        return self.db.get(UserSession, session_id)
+
+    def get_by_refresh_hash(self, refresh_hash: str) -> UserSession | None:
+        query = select(UserSession).where(UserSession.refresh_token_hash == refresh_hash)
+        return _unwrap_result(self.db.exec(query).first())
+
+    def list_by_user(self, user_id: str, *, include_ended: bool = False) -> list[UserSession]:
+        clauses = [UserSession.user_id == user_id]
+        if not include_ended:
+            clauses.append(UserSession.status == "active")
+        query = (
+            select(UserSession)
+            .where(and_(*clauses))
+            .order_by(UserSession.last_seen_at.desc())
+        )
+        return _unwrap_all(list(self.db.exec(query).all()))
+
+    def save(self, session: UserSession) -> UserSession:
+        self.db.add(session)
+        self.db.commit()
+        self.db.refresh(session)
+        return session
+
+    def last_seen_for_users(self, user_ids: list[str]) -> dict[str, datetime]:
+        """Return the most recent activity per user across their sessions."""
+        if not user_ids:
+            return {}
+        query = (
+            select(UserSession.user_id, func.max(UserSession.last_seen_at))
+            .where(UserSession.user_id.in_(user_ids))
+            .group_by(UserSession.user_id)
+        )
+        seen: dict[str, datetime] = {}
+        for row in self.db.exec(query).all():
+            user_id, last_seen = row[0], row[1]
+            if user_id and last_seen:
+                seen[str(user_id)] = last_seen
+        return seen
 
 
 class ApiKeyRepository:

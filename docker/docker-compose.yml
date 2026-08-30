@@ -162,7 +162,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me}
       # Self-hosted default: one workday. There is no token refresh flow yet,
       # so a short lifetime silently logs users out mid-session.
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
       PLATFORM_VERSION: ${PLATFORM_VERSION:-1.0.0}
       PLATFORM_EDITION: ${PLATFORM_EDITION:-community}
       PLATFORM_ENTITLEMENTS: ${PLATFORM_ENTITLEMENTS:-[]}

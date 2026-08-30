@@ -64,6 +64,8 @@ export interface WorkspaceMember {
   role: string
   status: string
   created_at: string
+  /** Most recent activity across their sessions; null if never seen. */
+  last_active_at?: string | null
 }
 
 export const getWorkspace = (workspaceId: string): Promise<WorkspaceInfo> => {

@@ -39,6 +39,7 @@ class JWTManager:
         tenant_role: str | None = None,
         workspace_role: str | None = None,
         expires_delta: timedelta | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Create JWT access token.
 
@@ -49,6 +50,10 @@ class JWTManager:
             tenant_role: Optional tenant role.
             workspace_role: Optional workspace role.
             expires_delta: Optional custom expiration delta.
+            session_id: Session this token belongs to. Naming it lets a
+                sign-out end the access it granted; a token without one is
+                accepted until it expires, so upgrading does not sign
+                everybody out.
 
         Returns:
             Encoded JWT token string.
@@ -73,6 +78,8 @@ class JWTManager:
             payload["tenant_role"] = tenant_role
         if workspace_role:
             payload["workspace_role"] = workspace_role
+        if session_id:
+            payload["sid"] = session_id
 
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 

@@ -23,7 +23,8 @@ x-server-environment: &server_environment
   # There is no token refresh flow yet, so this is the hard session length.
   # 480 (one workday) trades shorter exposure windows for not logging users
   # out mid-session; tighten it if your threat model calls for it.
-  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
 
   # Vault must not be a dev-mode server: a dev server keeps its data in memory
   # and unseals itself with a fixed root token.

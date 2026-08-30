@@ -98,6 +98,7 @@ class ContextResolver:
             str(tenant_id),
             str(workspace_id),
             str(user_id),
+            session_id=payload.get("sid"),
         )
         if access is None:
             raise ForbiddenError("User is not a member of the requested workspace")
@@ -244,6 +245,7 @@ class ContextResolver:
             str(tenant_id),
             str(resolved_workspace_id),
             str(user_id),
+            session_id=payload.get("sid"),
         )
         if access is None:
             raise ForbiddenError("User is not a member of the requested workspace")
