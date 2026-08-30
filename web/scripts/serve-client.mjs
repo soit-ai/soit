@@ -19,7 +19,16 @@ const mimeTypes = {
 };
 
 function resolveFile(urlPath) {
-  const cleanPath = decodeURIComponent(urlPath.split("?")[0] || "/");
+  // A malformed percent-escape makes decodeURIComponent throw. Unhandled
+  // that escaped the request listener, and an escaping throw takes the
+  // whole server down -- which turns every test still to run into a
+  // connection failure rather than one bad request.
+  let cleanPath;
+  try {
+    cleanPath = decodeURIComponent(urlPath.split("?")[0] || "/");
+  } catch {
+    return indexFile;
+  }
   const relativePath = normalize(cleanPath).replace(/^(\.\.(\/|\\|$))+/, "");
   const candidate = resolve(root, `.${sep}${relativePath}`);
 
@@ -36,6 +45,15 @@ function resolveFile(urlPath) {
 }
 
 const server = createServer((request, response) => {
+  try {
+    serve(request, response);
+  } catch (error) {
+    console.error("[serve-client] request failed:", error);
+    response.destroy();
+  }
+});
+
+function serve(request, response) {
   const file = resolveFile(request.url || "/");
   const contentType = mimeTypes[extname(file)] || "application/octet-stream";
 
@@ -60,7 +78,7 @@ const server = createServer((request, response) => {
   });
 
   stream.pipe(response);
-});
+}
 
 // Client-socket resets surface here too, and are never worth exiting over.
 server.on("clientError", (_error, socket) => {
