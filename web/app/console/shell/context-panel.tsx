@@ -147,8 +147,14 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
       <div className="subnav-head">
         <span className="min-w-0">
           <b>{t(config.labelKey)}</b>
+          {/* Which workspace, which environment. The name needs a fetch, but
+              the id is already in hand — it stands in rather than leaving the
+              line blank. The environment shows only when diagnostics reports
+              it, since guessing it would misname where the operator is. */}
           <span className="mono block truncate">
-            {[workspace.data?.name, health?.environment].filter(Boolean).join(' · ')}
+            {[workspace.data?.name || workspaceId, health?.environment]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </span>
         <button

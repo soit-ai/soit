@@ -296,3 +296,25 @@ test('seats keeps a live numerator against the fixture cap', async ({ page }) =>
   // Two real members, not the prototype's four; the cap stays the fixture.
   await expect(page.locator('.tile', { hasText: 'Seats' })).toContainText('2 / 25')
 })
+
+test('head sub-line still identifies the workspace when the name cannot load', async ({
+  page,
+}) => {
+  // Both lookups failing left the line empty, so the panel head said only
+  // which pillar was open -- not which workspace the operator was acting on.
+  await page.route('**/api/v1/workspaces/**', (route) => route.abort())
+  await page.route('**/api/v1/diagnostics', (route) => route.abort())
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+
+  // The id is already in hand; the environment stays off rather than guessed.
+  await expect(page.locator('.subnav-head .mono')).toHaveText('workspace-1')
+})
+
+test('head sub-line prefers the workspace name over its id', async ({ page }) => {
+  await json(page, '**/api/v1/diagnostics', healthy)
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('.subnav-head .mono')).toHaveText('acme-robotics · production')
+})
