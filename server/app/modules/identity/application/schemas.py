@@ -177,6 +177,64 @@ class MyWorkspaceResponse(BaseModel):
     created_at: datetime
 
 
+class PasswordResetRequest(BaseModel):
+    """Ask for a reset link."""
+
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    """Set a new password from a link."""
+
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
+class EmailVerificationConfirm(BaseModel):
+    """Confirm an address from a link."""
+
+    token: str = Field(min_length=1)
+
+
+class InvitationCreate(BaseModel):
+    """Offer membership to an address."""
+
+    email: EmailStr
+    role: str = Field(min_length=1, max_length=32)
+
+
+class InvitationAccept(BaseModel):
+    """Redeem an invitation as the signed-in account."""
+
+    token: str = Field(min_length=1)
+
+
+class InvitationResponse(BaseModel):
+    """A pending or closed offer of membership."""
+
+    id: str
+    workspace_id: str
+    email: str
+    role: str
+    status: str
+    invited_by: str | None = None
+    expires_at: datetime
+    accepted_at: datetime | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MailCapabilityResponse(BaseModel):
+    """Whether this deployment can send its own mail.
+
+    The console asks before offering a reset or an invitation, so it can say
+    the feature is unavailable rather than take a request nothing will act on.
+    """
+
+    mail_enabled: bool
+
+
 class AccountDeletionRequestCreate(BaseModel):
     """Why the account is being closed. Optional, and kept for the audit."""
 

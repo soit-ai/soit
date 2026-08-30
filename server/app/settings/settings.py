@@ -80,6 +80,23 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 14
     """How long a session can be renewed before the user signs in again."""
 
+    system_mail_enabled: bool = False
+    """Whether the instance can send its own mail.
+
+    Off by default. Password resets, invitations and address verification each
+    report that they are unavailable rather than accepting a request and
+    dropping it, which is what a silent no-op would do.
+    """
+
+    system_mail_url: str = ""
+    """Apprise URL for instance mail, e.g. mailto://user:pass@smtp.host.
+
+    Carries credentials, so it is never logged or returned by an endpoint.
+    """
+
+    system_mail_link_base_url: str = ""
+    """Public base URL used to build links in mail. Falls back to the request."""
+
     account_deletion_grace_days: int = 7
     """How long a closure request can be withdrawn before it takes effect."""
 

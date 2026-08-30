@@ -34,12 +34,99 @@ test('sign-in renders inside the application query client', async ({ page }) => 
 
 test('community sign-in does not advertise unavailable identity or legal flows', async ({ page }) => {
   await page.addInitScript(() => localStorage.clear())
+  // A deployment with no mail outlet cannot send a reset link, so it must not
+  // offer one. This is the same rule as before; what changed is that the
+  // answer now comes from the server rather than being fixed.
+  await page.route('**/api/v1/auth/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { mail_enabled: false },
+      }),
+    }),
+  )
   await page.goto('/sign-in', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: /forgot your password/i })).toHaveCount(0)
   await expect(page.locator('a[href="#"]')).toHaveCount(0)
+})
+
+test('sign-in offers a reset only where the deployment can send mail', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+  await page.route('**/api/v1/auth/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { mail_enabled: true },
+      }),
+    }),
+  )
+
+  await page.goto('/sign-in', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('link', { name: /forgot your password/i })).toBeVisible()
+})
+
+test('the reset page answers the same way whether or not the address is known', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.clear())
+  await page.route('**/api/v1/auth/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { mail_enabled: true },
+      }),
+    }),
+  )
+  await page.route('**/api/v1/auth/password-reset', (route) =>
+    route.fulfill({ status: 204, body: '' }),
+  )
+
+  await page.goto('/forgot-password', { waitUntil: 'domcontentloaded' })
+  await page.getByLabel('Email').fill('nobody@example.com')
+  await page.getByRole('button', { name: 'Send reset link' }).click()
+
+  // No confirmation that the address exists — that would make this form a way
+  // to find out who has an account.
+  await expect(page.getByRole('heading', { name: 'If that address has an account' })).toBeVisible()
+})
+
+test('a reset page with no mail outlet says so instead of collecting an address', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.clear())
+  await page.route('**/api/v1/auth/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        code: 'OK',
+        message: 'OK',
+        data: { mail_enabled: false },
+      }),
+    }),
+  )
+
+  await page.goto('/forgot-password', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByText('no mail outlet configured')).toBeVisible()
+  await expect(page.getByLabel('Email')).toHaveCount(0)
 })
 
 test('protected routes redirect unauthenticated users with a local return target', async ({ page }) => {

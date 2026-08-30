@@ -78,6 +78,24 @@ record for operators.
   are refused access to that workspace with a distinguishable reason, so they
   can be sent to enrol rather than shown an error they cannot act on.
 - Workspace member listings report `mfa_enabled`.
+- The instance can send its own mail (`SYSTEM_MAIL_ENABLED`,
+  `SYSTEM_MAIL_URL`), which unlocks three flows that previously had nothing
+  behind them. `GET /auth/capabilities` reports whether it can, so the console
+  offers a reset or an email invitation only where one would actually arrive.
+- Password reset: `POST /auth/password-reset` mails a single-use link that
+  expires in 30 minutes, and `POST /auth/password-reset/confirm` sets the new
+  password and ends every other session. The request answers the same way for
+  an unknown address, so the form cannot be used to find out who has an
+  account, and asking again retires the earlier link.
+- Members can be invited by email address rather than by user id:
+  `/workspaces/{id}/invitations`. An invitation names one address and is
+  refused for anyone else, so a forwarded link cannot move the membership.
+  Withdrawing one stops its link immediately.
+- Address confirmation: `POST /me/email-verification` mails a link, and
+  `/auth/email-verification/confirm` records when it was confirmed.
+- A failed run now reaches the notification centre, not just Observe. It goes
+  to the members who can act on it, respects the recipient's category
+  preference, and stays quiet for rehearsal runs.
 - An account can be closed on request. `/me/deletion-request` records the ask
   with a withdrawal period (`ACCOUNT_DELETION_GRACE_DAYS`, default 7); closing
   ends sessions, revokes API keys, drops the second factor and deactivates the

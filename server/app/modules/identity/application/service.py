@@ -5,6 +5,7 @@ Identity domain business logic.
 
 import asyncio
 import hashlib
+import logging
 import secrets
 import threading
 from collections.abc import Callable
@@ -13,7 +14,12 @@ from datetime import UTC, timedelta
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
+from app.kernel.commons.errors import (
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
+)
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity import sealing, totp
@@ -30,10 +36,12 @@ from app.kernel.identity.rbac import (
     WORKSPACE_ROLE_VIEWER,
     WORKSPACE_ROLES,
 )
+from app.kernel.ports.mail.interface import MailMessage, MailPort
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.identity.application.ports import (
     AccountDeletionRequestRepositoryPort,
     ApiKeyRepositoryPort,
+    IdentityTokenRepositoryPort,
     PinnedObjectRepositoryPort,
     ResourceGrantRepositoryPort,
     SavedViewRepositoryPort,
@@ -42,6 +50,7 @@ from app.modules.identity.application.ports import (
     UserMfaRepositoryPort,
     UserRepositoryPort,
     UserSessionRepositoryPort,
+    WorkspaceInvitationRepositoryPort,
     WorkspaceMembershipRepositoryPort,
     WorkspaceRepositoryPort,
 )
@@ -62,6 +71,7 @@ from app.modules.identity.application.schemas import (
 from app.modules.identity.domain.models import (
     AccountDeletionRequest,
     ApiKey,
+    IdentityToken,
     PinnedObject,
     ResourceGrant,
     SavedView,
@@ -71,6 +81,7 @@ from app.modules.identity.domain.models import (
     UserMfa,
     UserSession,
     Workspace,
+    WorkspaceInvitation,
     WorkspaceMembership,
 )
 
@@ -82,6 +93,17 @@ MFA_CHALLENGE_PURPOSE = "mfa_challenge"
 
 MFA_CHALLENGE_MINUTES = 5
 """How long the gap between password and code may stay open."""
+
+PASSWORD_RESET_MINUTES = 30
+"""A reset link is short-lived: it is a password in the recipient's mailbox."""
+
+EMAIL_VERIFICATION_MINUTES = 60 * 24
+"""Confirming an address is not urgent, so the link lasts a day."""
+
+INVITATION_DAYS = 14
+"""How long an offer of membership stays open."""
+
+logger = logging.getLogger(__name__)
 
 
 class MfaRequired(Exception):
@@ -116,6 +138,9 @@ class IdentityService:
         pin_repo_factory: Callable[[RequestContext], PinnedObjectRepositoryPort],
         mfa_repo: UserMfaRepositoryPort,
         deletion_repo: AccountDeletionRequestRepositoryPort,
+        token_repo: IdentityTokenRepositoryPort,
+        invitation_repo: WorkspaceInvitationRepositoryPort,
+        mail_port: MailPort | None = None,
     ):
         """Initialize identity service.
 
@@ -137,6 +162,9 @@ class IdentityService:
         self.pin_repo_factory = pin_repo_factory
         self.mfa_repo = mfa_repo
         self.deletion_repo = deletion_repo
+        self.token_repo = token_repo
+        self.invitation_repo = invitation_repo
+        self.mail_port = mail_port
 
     def _run_async(self, coro):
         """Run coroutine to completion from sync contexts."""
@@ -690,6 +718,259 @@ class IdentityService:
             )
         )
         self.db.commit()
+
+    # ------------------------------------------------------------------
+    # Mail-backed flows: reset, verification, invitations
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def mail_is_available(self) -> bool:
+        """Whether the instance can send its own mail at all."""
+        return self.mail_port is not None
+
+    async def _send_mail(self, *, to: str, subject: str, body: str, kind: str) -> None:
+        if self.mail_port is None:
+            raise ValidationError("This deployment cannot send mail")
+        await self.mail_port.send(
+            MailMessage(to=to, subject=subject, body=body, kind=kind)
+        )
+
+    def _issue_identity_token(self, user_id: str, purpose: str, ttl_minutes: int) -> str:
+        """Mint a single-use link secret, retiring any earlier one."""
+        self.token_repo.supersede_pending(user_id, purpose)
+        raw = secrets.token_urlsafe(32)
+        self.token_repo.save(
+            IdentityToken(
+                user_id=user_id,
+                purpose=purpose,
+                token_hash=self._hash_token(raw),
+                expires_at=utc_now() + timedelta(minutes=ttl_minutes),
+            )
+        )
+        return raw
+
+    def _consume_identity_token(self, token: str, purpose: str) -> User:
+        """Spend a link secret and return whose it was."""
+        record = self.token_repo.get_by_hash(self._hash_token(token))
+        if record is None or record.purpose != purpose or record.status != "pending":
+            raise UnauthorizedError("That link is not valid")
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= utc_now():
+            raise UnauthorizedError("That link has expired")
+
+        user = self.user_repo.get_by_id(record.user_id)
+        if user is None or not user.is_active:
+            raise UnauthorizedError("That link is not valid")
+
+        record.status = "used"
+        record.used_at = utc_now()
+        self.token_repo.save(record)
+        return user
+
+    async def request_password_reset(self, email: str, link_base: str) -> None:
+        """Mail a reset link, if that address belongs to an active account.
+
+        Returns nothing either way. Telling the caller whether the address is
+        registered turns this endpoint into a way to enumerate accounts, and a
+        reset form is exactly where someone would try.
+        """
+        if self.mail_port is None:
+            raise ValidationError("This deployment cannot send mail")
+
+        user = self.user_repo.get_by_email(email)
+        if user is None or not user.is_active:
+            return
+
+        token = self._issue_identity_token(user.id, "password_reset", PASSWORD_RESET_MINUTES)
+        link = f"{link_base.rstrip('/')}/reset-password?token={token}"
+        try:
+            await self._send_mail(
+                to=user.email,
+                subject="Reset your SOIT password",
+                body=(
+                    "Someone asked to reset the password for this SOIT account.\n\n"
+                    f"{link}\n\n"
+                    f"The link works once and expires in {PASSWORD_RESET_MINUTES} minutes. "
+                    "If this was not you, nothing has changed and you can ignore it."
+                ),
+                kind="password_reset",
+            )
+        except Exception:
+            # Recorded, not raised: the caller must not learn from a failure
+            # that the address exists.
+            logger.exception("Failed to send a password reset mail")
+
+    def complete_password_reset(self, token: str, new_password: str) -> User:
+        """Set a new password from a reset link, and end every open session.
+
+        Sessions end because a reset is what someone does when they think the
+        account is compromised; leaving the intruder's session alive would make
+        the reset pointless.
+        """
+        user = self._consume_identity_token(token, "password_reset")
+        user.password_hash = pwd_context.hash(new_password)
+        user.updated_at = utc_now()
+        self.user_repo.update(user)
+        for session in self.session_repo.list_by_user(user.id):
+            self._end_session(session, revoked_by="password_reset")
+        return user
+
+    async def request_email_verification(self, ctx: RequestContext, link_base: str) -> None:
+        """Mail the caller a link proving they control their address."""
+        user = self.user_repo.get_by_id(ctx.user_id)
+        if user is None:
+            raise NotFoundError("User not found")
+        token = self._issue_identity_token(
+            user.id, "email_verification", EMAIL_VERIFICATION_MINUTES
+        )
+        link = f"{link_base.rstrip('/')}/verify-email?token={token}"
+        await self._send_mail(
+            to=user.email,
+            subject="Confirm your SOIT email address",
+            body=(
+                "Confirm this address so SOIT can reach you about your account.\n\n"
+                f"{link}\n\n"
+                "The link works once."
+            ),
+            kind="email_verification",
+        )
+
+    def confirm_email_verification(self, token: str) -> User:
+        """Mark an address confirmed."""
+        user = self._consume_identity_token(token, "email_verification")
+        profile = dict(user.profile_json or {})
+        profile["email_verified_at"] = utc_now().isoformat()
+        user.profile_json = profile
+        user.updated_at = utc_now()
+        return self.user_repo.update(user)
+
+    async def invite_member(
+        self,
+        ctx: RequestContext,
+        workspace_id: str,
+        email: str,
+        role: str,
+        link_base: str,
+    ) -> WorkspaceInvitation:
+        """Offer membership to an address, whether or not it has an account."""
+        if role not in WORKSPACE_ROLES:
+            raise ValidationError("Invalid workspace role")
+        if self.mail_port is None:
+            raise ValidationError("This deployment cannot send mail")
+
+        normalized = (email or "").strip().lower()
+        if not normalized:
+            raise ValidationError("An email address is required")
+
+        existing = self.invitation_repo.get_pending_for_email(workspace_id, normalized)
+        if existing is not None:
+            # Re-inviting resends rather than stacking pending offers, so a
+            # second click does not leave two live links.
+            invitation = existing
+            raw = secrets.token_urlsafe(32)
+            invitation.token_hash = self._hash_token(raw)
+            invitation.role = role
+            invitation.expires_at = utc_now() + timedelta(days=INVITATION_DAYS)
+            invitation.updated_at = utc_now()
+            self.invitation_repo.save(invitation)
+        else:
+            raw = secrets.token_urlsafe(32)
+            invitation = self.invitation_repo.save(
+                WorkspaceInvitation(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=workspace_id,
+                    email=normalized,
+                    role=role,
+                    token_hash=self._hash_token(raw),
+                    invited_by=ctx.user_id,
+                    expires_at=utc_now() + timedelta(days=INVITATION_DAYS),
+                )
+            )
+
+        link = f"{link_base.rstrip('/')}/accept-invitation?token={raw}"
+        await self._send_mail(
+            to=normalized,
+            subject="You have been invited to a SOIT workspace",
+            body=(
+                "You have been invited to join a workspace in SOIT.\n\n"
+                f"{link}\n\n"
+                f"The invitation expires in {INVITATION_DAYS} days."
+            ),
+            kind="invitation",
+        )
+        return invitation
+
+    def list_invitations(self, workspace_id: str) -> list[WorkspaceInvitation]:
+        """Pending offers for a workspace."""
+        return self.invitation_repo.list_for_workspace(workspace_id)
+
+    def revoke_invitation(self, ctx: RequestContext, invitation_id: str) -> WorkspaceInvitation:
+        """Withdraw an offer before it is accepted."""
+        invitation = self.invitation_repo.get_by_id(invitation_id)
+        if invitation is None or invitation.workspace_id != ctx.workspace_id:
+            raise NotFoundError("Invitation not found")
+        if invitation.status != "pending":
+            return invitation
+        invitation.status = "revoked"
+        invitation.revoked_at = utc_now()
+        invitation.updated_at = utc_now()
+        # The link stops working immediately, not when it expires.
+        invitation.token_hash = f"revoked:{invitation.id}:{secrets.token_hex(8)}"
+        return self.invitation_repo.save(invitation)
+
+    def accept_invitation(self, token: str, user_id: str) -> WorkspaceInvitation:
+        """Redeem an invitation for an existing account."""
+        invitation = self.invitation_repo.get_by_hash(self._hash_token(token))
+        if invitation is None or invitation.status != "pending":
+            raise UnauthorizedError("That invitation is not valid")
+        expires_at = invitation.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= utc_now():
+            raise UnauthorizedError("That invitation has expired")
+
+        user = self.user_repo.get_by_id(user_id)
+        if user is None or not user.is_active:
+            raise UnauthorizedError("That invitation is not valid")
+        if (user.email or "").strip().lower() != invitation.email:
+            # The offer was addressed to one person. Redeeming it as another
+            # would let a forwarded link move membership to whoever opened it.
+            raise ForbiddenError("This invitation was sent to a different address")
+
+        ctx = RequestContext(
+            tenant_id=invitation.tenant_id,
+            workspace_id=invitation.workspace_id,
+            user_id=user_id,
+        )
+        if self.tenant_membership_repo.get(invitation.tenant_id, user_id) is None:
+            self.tenant_membership_repo.create(
+                TenantMembership(
+                    tenant_id=invitation.tenant_id,
+                    user_id=user_id,
+                    role=TENANT_ROLE_DEV,
+                )
+            )
+        membership_repo = self.workspace_membership_repo_factory(ctx)
+        if membership_repo.get(invitation.workspace_id, user_id) is None:
+            membership_repo.create(
+                WorkspaceMembership(
+                    workspace_id=invitation.workspace_id,
+                    user_id=user_id,
+                    role=invitation.role,
+                )
+            )
+
+        invitation.status = "accepted"
+        invitation.accepted_at = utc_now()
+        invitation.accepted_user_id = user_id
+        invitation.updated_at = utc_now()
+        invitation.token_hash = f"accepted:{invitation.id}:{secrets.token_hex(8)}"
+        return self.invitation_repo.save(invitation)
 
     # ------------------------------------------------------------------
     # Second factor

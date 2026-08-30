@@ -548,3 +548,61 @@ test('closing an account is a request with a pause, not a delete button', async 
   await row.getByRole('button', { name: 'Keep my account' }).click()
   await expect(row.getByRole('button', { name: 'Request deletion…' })).toBeVisible()
 })
+
+test('members are invited by email where the deployment can send mail', async ({ page }) => {
+  await json(page, '**/api/v1/auth/capabilities', { mail_enabled: true })
+  await json(page, '**/api/v1/workspaces/workspace-1/invitations', [])
+
+  let invited: unknown = null
+  await page.route('**/api/v1/workspaces/workspace-1/invitations', async (route) => {
+    if (route.request().method() === 'POST') {
+      invited = JSON.parse(route.request().postData() || '{}')
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: ok({
+          id: 'inv_1',
+          workspace_id: 'workspace-1',
+          email: (invited as { email: string }).email,
+          role: 'Dev',
+          status: 'pending',
+          expires_at: '2026-09-13T13:00:00Z',
+          created_at: NOW,
+        }),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok([]) })
+  })
+
+  await page.goto('/settings/team', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Invite member' }).click()
+  await page.locator('#invite-email').fill('new.person@acme.io')
+  await page.getByRole('button', { name: 'Create' }).click()
+
+  await expect.poll(() => invited).toEqual({ email: 'new.person@acme.io', role: 'Dev' })
+})
+
+test('a deployment with no mail outlet still adds an existing account by id', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/auth/capabilities', { mail_enabled: false })
+
+  let added: unknown = null
+  await page.route('**/api/v1/workspaces/workspace-1/members', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    added = JSON.parse(route.request().postData() || '{}')
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ workspace_id: 'workspace-1', user_id: 'u_9', role: 'Dev', created_at: NOW }),
+    })
+  })
+
+  await page.goto('/settings/team', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Invite member' }).click()
+
+  // No email field: inviting an address needs a mail outlet, and offering it
+  // would be a form whose message nothing sends.
+  await expect(page.locator('#invite-email')).toHaveCount(0)
+  await expect(page.locator('.console-modal')).toContainText('must already belong')
+})

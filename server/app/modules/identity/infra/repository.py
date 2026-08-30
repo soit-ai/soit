@@ -14,6 +14,7 @@ from app.kernel.contracts.context import RequestContext
 from app.modules.identity.domain.models import (
     AccountDeletionRequest,
     ApiKey,
+    IdentityToken,
     PinnedObject,
     ResourceGrant,
     SavedView,
@@ -23,6 +24,7 @@ from app.modules.identity.domain.models import (
     UserMfa,
     UserSession,
     Workspace,
+    WorkspaceInvitation,
     WorkspaceMembership,
 )
 
@@ -479,6 +481,94 @@ class UserSessionRepository:
             if user_id and last_seen:
                 seen[str(user_id)] = last_seen
         return seen
+
+
+class IdentityTokenRepository:
+    """Repository for single-use links the instance mails out."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_hash(self, token_hash: str) -> IdentityToken | None:
+        query = select(IdentityToken).where(IdentityToken.token_hash == token_hash)
+        return _unwrap_result(self.db.exec(query).first())
+
+    def supersede_pending(self, user_id: str, purpose: str) -> None:
+        """Retire earlier links of the same kind.
+
+        Issuing a second reset link must invalidate the first: otherwise a link
+        someone was tricked into requesting stays live alongside the real one.
+        """
+        query = select(IdentityToken).where(
+            and_(
+                IdentityToken.user_id == user_id,
+                IdentityToken.purpose == purpose,
+                IdentityToken.status == "pending",
+            )
+        )
+        for row in _unwrap_all(list(self.db.exec(query).all())):
+            row.status = "superseded"
+            self.db.add(row)
+        self.db.commit()
+
+    def save(self, token: IdentityToken) -> IdentityToken:
+        self.db.add(token)
+        self.db.commit()
+        self.db.refresh(token)
+        return token
+
+
+class WorkspaceInvitationRepository:
+    """Repository for offers of workspace membership."""
+
+    def __init__(self, db: Session, ctx: RequestContext | None = None):
+        self.db = db
+        self.ctx = ctx
+
+    def get_by_hash(self, token_hash: str) -> WorkspaceInvitation | None:
+        query = select(WorkspaceInvitation).where(
+            WorkspaceInvitation.token_hash == token_hash
+        )
+        return _unwrap_result(self.db.exec(query).first())
+
+    def get_by_id(self, invitation_id: str) -> WorkspaceInvitation | None:
+        return self.db.get(WorkspaceInvitation, invitation_id)
+
+    def list_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        include_closed: bool = False,
+    ) -> list[WorkspaceInvitation]:
+        clauses = [WorkspaceInvitation.workspace_id == workspace_id]
+        if not include_closed:
+            clauses.append(WorkspaceInvitation.status == "pending")
+        query = (
+            select(WorkspaceInvitation)
+            .where(and_(*clauses))
+            .order_by(WorkspaceInvitation.created_at.desc())
+        )
+        return _unwrap_all(list(self.db.exec(query).all()))
+
+    def get_pending_for_email(
+        self,
+        workspace_id: str,
+        email: str,
+    ) -> WorkspaceInvitation | None:
+        query = select(WorkspaceInvitation).where(
+            and_(
+                WorkspaceInvitation.workspace_id == workspace_id,
+                WorkspaceInvitation.email == email,
+                WorkspaceInvitation.status == "pending",
+            )
+        )
+        return _unwrap_result(self.db.exec(query).first())
+
+    def save(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        self.db.add(invitation)
+        self.db.commit()
+        self.db.refresh(invitation)
+        return invitation
 
 
 class AccountDeletionRequestRepository:

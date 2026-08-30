@@ -27,6 +27,41 @@ export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
   return (result as MfaChallenge).mfa_required === true
 }
 
+export interface AuthCapabilities {
+  /** Whether this deployment can send its own mail. */
+  mail_enabled: boolean
+}
+
+/**
+ * What this deployment can actually do. The console asks before offering a
+ * password reset or an invitation, so it never advertises a flow that has no
+ * mail outlet behind it.
+ */
+export const getAuthCapabilities = (
+  config?: RequestConfigWithToast,
+): Promise<AuthCapabilities> => {
+  return get<AuthCapabilities>(`/auth/capabilities`, undefined, config)
+}
+
+export const requestPasswordReset = (
+  email: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return post<void>(`/auth/password-reset`, { email }, { ...quiet, ...config })
+}
+
+export const confirmPasswordReset = (
+  token: string,
+  newPassword: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return post<void>(
+    `/auth/password-reset/confirm`,
+    { token, new_password: newPassword },
+    { ...quiet, ...config },
+  )
+}
+
 export interface MfaStatus {
   enabled: boolean
   pending: boolean

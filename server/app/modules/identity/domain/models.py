@@ -37,6 +37,16 @@ def generate_user_session_id() -> str:
     return f"ses_{generate_ulid()}"
 
 
+def generate_identity_token_id() -> str:
+    """Generate identity token ID."""
+    return f"itk_{generate_ulid()}"
+
+
+def generate_invitation_id() -> str:
+    """Generate workspace invitation ID."""
+    return f"inv_{generate_ulid()}"
+
+
 def generate_deletion_request_id() -> str:
     """Generate account deletion request ID."""
     return f"adr_{generate_ulid()}"
@@ -547,6 +557,83 @@ class AccountDeletionRequest(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
     executed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class IdentityToken(SQLModel, table=True):
+    """A single-use link the instance mailed to someone.
+
+    Password resets and address verification are the same shape: a secret that
+    arrives by mail, works once, and expires. One table with a purpose keeps
+    the expiry, single-use and hashing rules in one place instead of copied per
+    flow, where one copy eventually forgets one of them.
+
+    Only the hash is stored. A database dump must not yield a working reset
+    link, and the person who requested it already has the real one.
+    """
+
+    __tablename__ = "identity_tokens"
+    __table_args__ = (
+        Index("ix_identity_tokens_user_purpose", "user_id", "purpose", "status"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_identity_token_id)
+    user_id: str = Field(index=True)
+    purpose: str = Field(index=True, max_length=32)
+    """password_reset or email_verification."""
+
+    token_hash: str = Field(unique=True, index=True)
+    status: str = Field(default="pending", index=True)
+    """pending, used or superseded."""
+
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    used_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkspaceInvitation(SQLModel, table=True):
+    """An offer of membership, addressed to an email rather than a user id.
+
+    Adding someone by user id only works for people who already have an
+    account, which is why the console could not invite anyone. An invitation
+    names the address, the role and who offered it, and is redeemed by whoever
+    proves control of that address by following the link.
+    """
+
+    __tablename__ = "workspace_invitations"
+    __table_args__ = (
+        Index("ix_workspace_invitations_scope", "workspace_id", "status"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_invitation_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    email: str = Field(index=True, max_length=320)
+    role: str = Field(max_length=32)
+
+    token_hash: str = Field(unique=True, index=True)
+    status: str = Field(default="pending", index=True)
+    """pending, accepted, revoked or expired."""
+
+    invited_by: str | None = Field(default=None, nullable=True)
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    accepted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    accepted_user_id: str | None = Field(default=None, nullable=True)
+    revoked_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )

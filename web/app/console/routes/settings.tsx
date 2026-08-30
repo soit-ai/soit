@@ -36,6 +36,7 @@ import { getCreditBalance, listCreditEntries } from '@/services/billing-service'
 import {
   cancelAccountDeletion,
   confirmMfaEnrolment,
+  getAuthCapabilities,
   disableMfa,
   getAccountDeletionRequest,
   getMfaStatus,
@@ -49,9 +50,12 @@ import { getDiagnosticsSnapshot } from '@/services/diagnostics-service'
 import {
   addWorkspaceMember,
   changePassword,
+  createInvitation,
   getCurrentUser,
+  listInvitations,
   listWorkspaceMembers,
   removeWorkspaceMember,
+  revokeInvitation,
   updateCurrentUser,
   getWorkspace,
   updateWorkspace,
@@ -138,7 +142,7 @@ export default function ConsoleSettings() {
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' })
 
   const [inviting, setInviting] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ userId: '', role: 'Dev' })
+  const [inviteForm, setInviteForm] = useState({ userId: '', email: '', role: 'Dev' })
   const [roleTarget, setRoleTarget] = useState<WorkspaceMember | null>(null)
   const [roleDraft, setRoleDraft] = useState('Dev')
   const [removalTarget, setRemovalTarget] = useState<WorkspaceMember | null>(null)
@@ -414,6 +418,54 @@ export default function ConsoleSettings() {
     onError: onWriteError('Failed to withdraw the request'),
   })
 
+  // Inviting by address needs a mail outlet; the console asks rather than
+  // offering a flow that would end in a dropped message.
+  const capabilities = useQuery({
+    queryKey: ['console', 'settings', 'auth-capabilities'],
+    queryFn: () => getAuthCapabilities({ suppressErrorToast: true }),
+    options: { enabled: on('team'), retry: false, refetchOnWindowFocus: false },
+  })
+  const canMail = capabilities.data?.mail_enabled === true
+
+  const invitationsQuery = useQuery({
+    queryKey: ['console', 'settings', 'invitations', workspaceId],
+    queryFn: () => listInvitations(workspaceId, { suppressErrorToast: true }),
+    options: {
+      enabled: on('team') && Boolean(workspaceId) && canMail,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+  const invitations = invitationsQuery.data || []
+
+  const emailInvite = useMutation<unknown, unknown, void>({
+    mutationKey: ['console', 'settings', 'invite-by-email'],
+    mutationFn: () =>
+      createInvitation(
+        workspaceId,
+        { email: inviteForm.email.trim(), role: inviteForm.role },
+        { suppressErrorToast: true },
+      ),
+    onSuccess: () => {
+      void invitationsQuery.refetch()
+      setInviting(false)
+      setInviteForm({ userId: '', email: '', role: 'Dev' })
+      toast.success('Invitation sent')
+    },
+    onError: onWriteError('Failed to send the invitation'),
+  })
+
+  const revokeInvite = useMutation<unknown, unknown, string>({
+    mutationKey: ['console', 'settings', 'revoke-invitation'],
+    mutationFn: (invitationId: string) =>
+      revokeInvitation(invitationId, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void invitationsQuery.refetch()
+      toast.success('Invitation withdrawn')
+    },
+    onError: onWriteError('Failed to withdraw the invitation'),
+  })
+
   const passwordMutation = useMutation({
     mutationKey: ['console', 'settings', 'change-password'],
     mutationFn: () =>
@@ -440,7 +492,7 @@ export default function ConsoleSettings() {
     onSuccess: () => {
       void membersQuery.refetch()
       setInviting(false)
-      setInviteForm({ userId: '', role: 'Dev' })
+      setInviteForm({ userId: '', email: '', role: 'Dev' })
     },
     onError: onWriteError('Failed to add the member'),
   })
@@ -775,14 +827,12 @@ export default function ConsoleSettings() {
                 {t('console.settings.teamPane.hint', { count: members.length })}
               </span>
               <span className="more">
-                {/* addWorkspaceMember takes an existing tenant user id — there is
-                    no invite-by-email endpoint, so the dialog asks for the id. */}
                 <ConsoleButton
                   variant="primary"
                   style={{ height: 24, fontSize: 11 }}
                   disabled={!workspaceId}
                   onClick={() => {
-                    setInviteForm({ userId: '', role: 'Dev' })
+                    setInviteForm({ userId: '', email: '', role: 'Dev' })
                     setInviting(true)
                   }}
                 >
@@ -876,6 +926,40 @@ export default function ConsoleSettings() {
                 )}
               </tbody>
             </table>
+            {invitations.length > 0 && (
+              <>
+                <div className="panel-head" style={{ borderTop: '1px solid var(--border)' }}>
+                  <h2 style={{ fontSize: 12 }}>
+                    {t('console.settings.teamPane.pendingInvites')}
+                  </h2>
+                </div>
+                <table>
+                  <tbody>
+                    {invitations.map((invitation) => (
+                      <tr key={invitation.id}>
+                        <td>
+                          <b style={{ fontWeight: 600 }}>{invitation.email}</b>
+                          <br />
+                          <span className="dimmer" style={{ fontSize: 10.5 }}>
+                            {invitation.role} · expires {relativeTime(invitation.expires_at)}
+                          </span>
+                        </td>
+                        <td className="num">
+                          <ConsoleButton
+                            variant="ghost"
+                            style={{ height: 22, fontSize: 10.5 }}
+                            onClick={() => revokeInvite.mutate(invitation.id)}
+                            disabled={revokeInvite.isPending}
+                          >
+                            {t('console.settings.teamPane.withdrawInvite')}
+                          </ConsoleButton>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
             <div className="pager">
               <span>{t('console.settings.teamPane.note')}</span>
             </div>
@@ -1660,26 +1744,55 @@ export default function ConsoleSettings() {
         open={inviting}
         onOpenChange={setInviting}
         title={t('console.settings.teamPane.inviteTitle')}
-        note={t('console.settings.teamPane.inviteNote')}
+        note={
+          canMail
+            ? t('console.settings.teamPane.inviteNoteMail')
+            : t('console.settings.teamPane.inviteNote')
+        }
         confirmLabel={t('console.common.create')}
-        confirmDisabled={!inviteForm.userId.trim()}
-        busy={inviteMutation.isPending}
-        onConfirm={() => inviteMutation.mutate(undefined)}
+        confirmDisabled={
+          canMail ? !inviteForm.email.trim() : !inviteForm.userId.trim()
+        }
+        busy={inviteMutation.isPending || emailInvite.isPending}
+        onConfirm={() =>
+          canMail ? emailInvite.mutate(undefined) : inviteMutation.mutate(undefined)
+        }
       >
-        <div className="mrow">
-          <label>
-            {t('console.settings.teamPane.memberId')}
-            <small>{t('console.settings.teamPane.memberIdHint')}</small>
-          </label>
-          <input
-            className="input"
-            value={inviteForm.userId}
-            onChange={(event) =>
-              setInviteForm((state) => ({ ...state, userId: event.target.value }))
-            }
-            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
-          />
-        </div>
+        {/* Inviting by address needs a mail outlet. Without one the dialog
+            keeps asking for a user id, because adding someone who already has
+            an account is the only thing the deployment can actually do. */}
+        {canMail ? (
+          <div className="mrow">
+            <label htmlFor="invite-email">
+              {t('console.settings.teamPane.memberEmail')}
+              <small>{t('console.settings.teamPane.memberEmailHint')}</small>
+            </label>
+            <input
+              id="invite-email"
+              className="input"
+              type="email"
+              value={inviteForm.email}
+              onChange={(event) =>
+                setInviteForm((state) => ({ ...state, email: event.target.value }))
+              }
+            />
+          </div>
+        ) : (
+          <div className="mrow">
+            <label>
+              {t('console.settings.teamPane.memberId')}
+              <small>{t('console.settings.teamPane.memberIdHint')}</small>
+            </label>
+            <input
+              className="input"
+              value={inviteForm.userId}
+              onChange={(event) =>
+                setInviteForm((state) => ({ ...state, userId: event.target.value }))
+              }
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+            />
+          </div>
+        )}
         <div className="mrow">
           <label>{t('console.settings.teamPane.columns.role')}</label>
           <select

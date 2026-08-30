@@ -16,6 +16,7 @@ export default [
   route('/sign-in', './auth/sign-in.tsx'),
   route('/sign-up', './auth/sign-up.tsx'),
   route('/forgot-password', './auth/forgot-password.tsx'),
+  route('/reset-password', './auth/reset-password.tsx'),
 
   layout('./console/shell/console-layout.tsx', [
     index('./console/routes/overview.tsx'),

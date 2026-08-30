@@ -44,6 +44,82 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/auth/capabilities",
+    handlers.get_mail_capability,
+    methods=["GET"],
+    summary="Report whether this deployment can send mail",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/auth/password-reset",
+    handlers.request_password_reset,
+    methods=["POST"],
+    status_code=204,
+    summary="Mail a password reset link",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/auth/password-reset/confirm",
+    handlers.confirm_password_reset,
+    methods=["POST"],
+    status_code=204,
+    summary="Set a new password from a reset link",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/email-verification",
+    handlers.request_email_verification,
+    methods=["POST"],
+    status_code=204,
+    summary="Mail an address confirmation link",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/auth/email-verification/confirm",
+    handlers.confirm_email_verification,
+    methods=["POST"],
+    status_code=204,
+    summary="Confirm an address from a link",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/workspaces/{workspace_id}/invitations",
+    handlers.list_invitations,
+    methods=["GET"],
+    summary="List pending workspace invitations",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
+    "/workspaces/{workspace_id}/invitations",
+    handlers.create_invitation,
+    methods=["POST"],
+    summary="Invite an email address to a workspace",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
+    "/invitations/{invitation_id}",
+    handlers.revoke_invitation,
+    methods=["DELETE"],
+    summary="Withdraw a workspace invitation",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
+    "/invitations/accept",
+    handlers.accept_invitation,
+    methods=["POST"],
+    summary="Accept a workspace invitation",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
     "/me/deletion-request",
     handlers.get_account_deletion_request,
     methods=["GET"],

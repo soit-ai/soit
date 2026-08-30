@@ -14,7 +14,12 @@ from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
-from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
+from app.kernel.commons.errors import (
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
+)
 from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
 from app.modules.identity.application.schemas import (
@@ -24,6 +29,11 @@ from app.modules.identity.application.schemas import (
     ApiKeyCreateResponse,
     ApiKeyResponse,
     ApiKeyRotateResponse,
+    EmailVerificationConfirm,
+    InvitationAccept,
+    InvitationCreate,
+    InvitationResponse,
+    MailCapabilityResponse,
     MembershipCreate,
     MembershipResponse,
     MembershipUpdate,
@@ -36,6 +46,8 @@ from app.modules.identity.application.schemas import (
     MfaStatusResponse,
     MyWorkspaceResponse,
     PasswordChange,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     PinCreate,
     PinResponse,
     RefreshRequest,
@@ -390,6 +402,151 @@ async def list_workspaces(
         return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+def _link_base(request: Request) -> str:
+    """Where a mailed link should point.
+
+    The configured public URL wins, because the request's own host is whatever
+    reached the server -- behind a proxy that is an internal name, and a reset
+    link nobody outside can open is worse than no link.
+    """
+    from app.settings.settings import settings
+
+    configured = (settings.system_mail_link_base_url or "").strip()
+    if configured:
+        return configured
+    return str(request.base_url).rstrip("/")
+
+
+async def get_mail_capability(
+    service: IdentityService = Depends(get_identity_service),
+) -> MailCapabilityResponse:
+    """Report whether this deployment can send mail."""
+    return MailCapabilityResponse(mail_enabled=service.mail_is_available())
+
+
+async def request_password_reset(
+    payload: PasswordResetRequest,
+    request: Request,
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Mail a reset link if that address has an active account.
+
+    Answers the same way either way. Reporting whether the address is
+    registered would make this a way to enumerate accounts.
+    """
+    try:
+        await service.request_password_reset(payload.email, _link_base(request))
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+async def confirm_password_reset(
+    payload: PasswordResetConfirm,
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Set a new password from a reset link."""
+    try:
+        service.complete_password_reset(payload.token, payload.new_password)
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+
+async def request_email_verification(
+    request: Request,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Mail the caller a link confirming their address."""
+    try:
+        await service.request_email_verification(ctx, _link_base(request))
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def confirm_email_verification(
+    payload: EmailVerificationConfirm,
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Confirm an address from a link."""
+    try:
+        service.confirm_email_verification(payload.token)
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+
+async def list_invitations(
+    workspace_id: str,
+    _ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> list[InvitationResponse]:
+    """Pending offers of membership for a workspace.
+
+    The dependency is the read guard; the listing is scoped by the path.
+    """
+    return [
+        InvitationResponse.model_validate(item)
+        for item in service.list_invitations(workspace_id)
+    ]
+
+
+async def create_invitation(
+    workspace_id: str,
+    payload: InvitationCreate,
+    request: Request,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> InvitationResponse:
+    """Invite an address to a workspace, whether or not it has an account."""
+    try:
+        invitation = await service.invite_member(
+            ctx,
+            workspace_id,
+            payload.email,
+            payload.role,
+            _link_base(request),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return InvitationResponse.model_validate(invitation)
+
+
+async def revoke_invitation(
+    invitation_id: str,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> InvitationResponse:
+    """Withdraw an offer before it is accepted.
+
+    The workspace comes from the caller's context, which the service checks the
+    invitation against: taking it from the path as well would invite the two to
+    disagree.
+    """
+    try:
+        return InvitationResponse.model_validate(
+            service.revoke_invitation(ctx, invitation_id)
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def accept_invitation(
+    payload: InvitationAccept,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> InvitationResponse:
+    """Redeem an invitation as the signed-in account."""
+    try:
+        return InvitationResponse.model_validate(
+            service.accept_invitation(payload.token, ctx.user_id)
+        )
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
 
 async def get_account_deletion_request(
     ctx: RequestContext = Depends(get_current_context),

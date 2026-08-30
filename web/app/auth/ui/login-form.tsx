@@ -4,11 +4,12 @@ import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router'
 
 import { Link } from '@/components/ui/link'
-import { useMutation } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
 import {
   authCompleteMfaLogin,
   authLogin,
+  getAuthCapabilities,
   isMfaChallenge,
   type LoginRequest,
   type LoginResult,
@@ -24,9 +25,10 @@ import { AuthError, AuthSubmit, FieldError } from './auth-controls'
 /**
  * Sign-in (v13 prototype: signin.html).
  *
- * Password reset is deliberately not offered here. There is no reset flow
- * behind it, and advertising one is what the truthful-journeys work removed;
- * `/forgot-password` stays reachable by URL and says so itself.
+ * The reset link appears only where the deployment can send mail. That keeps
+ * the rule the truthful-journeys work established -- never advertise a flow
+ * that cannot complete here -- without withholding the feature from
+ * deployments where it works.
  */
 export const LoginForm = () => {
   const navigate = useNavigate()
@@ -59,6 +61,12 @@ export const LoginForm = () => {
     }
     navigate(resolveSafeAuthRedirect(searchParams.get('redirect')))
   }
+
+  const capabilities = useQuery({
+    queryKey: ['auth', 'capabilities'],
+    queryFn: () => getAuthCapabilities({ suppressErrorToast: true }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
 
   const loginMutation = useMutation<LoginResult, Error, LoginRequest>({
     mutationKey: ['login'],
@@ -197,6 +205,16 @@ export const LoginForm = () => {
       <AuthSubmit pending={loginMutation.isPending} pendingLabel="Opening workspace">
         Open workspace
       </AuthSubmit>
+
+      {/* Offered only when this deployment can send mail. A reset link nobody
+          can deliver is the kind of advertised-but-broken flow the truthful
+          journeys work removed; asking first keeps that guarantee while
+          letting the feature exist where it works. */}
+      {capabilities.data?.mail_enabled && (
+        <div className="auth-alt">
+          <Link to="/forgot-password">Forgot your password?</Link>
+        </div>
+      )}
 
       <div className="auth-alt">
         New to SOIT? <Link to="/sign-up">Create an account</Link>

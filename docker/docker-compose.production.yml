@@ -25,6 +25,9 @@ x-server-environment: &server_environment
   # out mid-session; tighten it if your threat model calls for it.
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
   REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+  SYSTEM_MAIL_ENABLED: ${SYSTEM_MAIL_ENABLED:-false}
+  SYSTEM_MAIL_URL: ${SYSTEM_MAIL_URL:-}
+  SYSTEM_MAIL_LINK_BASE_URL: ${SYSTEM_MAIL_LINK_BASE_URL:-}
 
   # Vault must not be a dev-mode server: a dev server keeps its data in memory
   # and unseals itself with a fixed root token.

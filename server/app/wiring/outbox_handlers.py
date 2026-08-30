@@ -118,6 +118,14 @@ def register_outbox_handlers() -> None:
         "observe.run_status.trace_metrics",
         handle_run_status_updated_observe,
     )
+
+    from app.modules.notification.handlers.on_run_failed import handle_run_failed
+
+    reg.register(
+        ObserveEventType.RUN_STATUS_UPDATED,
+        "notification.run.failed",
+        handle_run_failed,
+    )
     reg.register(
         ObserveEventType.STEP_CREATED,
         "observe.step_created.trace_metrics",

@@ -329,6 +329,22 @@ class Container:
             api_key=settings.content_safety_api_key,
         )
 
+    def get_mail_port(self):
+        """Return the instance mail adapter, or None when none is configured.
+
+        None means the deployment cannot send mail. Callers must report that
+        as unavailable rather than pretending a message went out.
+        """
+        if not settings.system_mail_enabled:
+            return None
+        url = (settings.system_mail_url or "").strip()
+        if not url:
+            return None
+
+        from app.adapters.mail.apprise_mail import AppriseMailPort
+
+        return AppriseMailPort(url)
+
     def get_tool_port(
         self,
         ctx: RequestContext,

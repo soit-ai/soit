@@ -138,6 +138,48 @@ export const deletePin = (pinId: string, config?: RequestConfigWithToast): Promi
   return del<void>(`/me/pins/${pinId}`, undefined, config)
 }
 
+export interface WorkspaceInvitation {
+  id: string
+  workspace_id: string
+  email: string
+  role: string
+  status: string
+  invited_by?: string | null
+  expires_at: string
+  accepted_at?: string | null
+  created_at: string
+}
+
+export const listInvitations = (
+  workspaceId: string,
+  config?: RequestConfigWithToast,
+): Promise<WorkspaceInvitation[]> => {
+  return get<WorkspaceInvitation[]>(`/workspaces/${workspaceId}/invitations`, undefined, config)
+}
+
+/** Re-inviting the same address resends rather than stacking a second offer. */
+export const createInvitation = (
+  workspaceId: string,
+  data: { email: string; role: string },
+  config?: RequestConfigWithToast,
+): Promise<WorkspaceInvitation> => {
+  return post<WorkspaceInvitation>(`/workspaces/${workspaceId}/invitations`, data, config)
+}
+
+export const revokeInvitation = (
+  invitationId: string,
+  config?: RequestConfigWithToast,
+): Promise<WorkspaceInvitation> => {
+  return del<WorkspaceInvitation>(`/invitations/${invitationId}`, undefined, config)
+}
+
+export const acceptInvitation = (
+  token: string,
+  config?: RequestConfigWithToast,
+): Promise<WorkspaceInvitation> => {
+  return post<WorkspaceInvitation>(`/invitations/accept`, { token }, config)
+}
+
 export interface MyWorkspace {
   id: string
   name: string

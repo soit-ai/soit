@@ -42,6 +42,7 @@ from app.modules.identity.application.service import IdentityService
 from app.modules.identity.infra.repository import (
     AccountDeletionRequestRepository,
     ApiKeyRepository,
+    IdentityTokenRepository,
     PinnedObjectRepository,
     ResourceGrantRepository,
     SavedViewRepository,
@@ -50,6 +51,7 @@ from app.modules.identity.infra.repository import (
     UserMfaRepository,
     UserRepository,
     UserSessionRepository,
+    WorkspaceInvitationRepository,
     WorkspaceMembershipRepository,
     WorkspaceRepository,
 )
@@ -216,6 +218,11 @@ def build_identity_service(*, db: Session) -> IdentityService:
     session_repo = UserSessionRepository(db)
     mfa_repo = UserMfaRepository(db)
     deletion_repo = AccountDeletionRequestRepository(db)
+    token_repo = IdentityTokenRepository(db)
+    invitation_repo = WorkspaceInvitationRepository(db)
+    # None when the deployment has no mail outlet: the flows that need one
+    # report unavailable rather than accepting a request and dropping it.
+    mail_port = get_container().get_mail_port()
 
     def workspace_repo_factory(ctx: RequestContext) -> WorkspaceRepository:
         return WorkspaceRepository(db, ctx)
@@ -239,6 +246,9 @@ def build_identity_service(*, db: Session) -> IdentityService:
         pin_repo_factory=pin_repo_factory,
         mfa_repo=mfa_repo,
         deletion_repo=deletion_repo,
+        token_repo=token_repo,
+        invitation_repo=invitation_repo,
+        mail_port=mail_port,
         jwt_manager=jwt_manager,
         user_repo=user_repo,
         tenant_repo=tenant_repo,
