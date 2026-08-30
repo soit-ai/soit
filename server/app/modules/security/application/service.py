@@ -4,6 +4,8 @@ Security domain service.
 """
 
 
+from datetime import datetime
+
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
@@ -11,8 +13,11 @@ from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
+from app.kernel.security.egress import EGRESS_BLOCK_EVENT_TYPE
 from app.modules.identity.application.contracts import IdentityPolicyScopePort
 from app.modules.security.application.schemas import (
+    EgressBlockRow,
+    EgressBlockSummaryResponse,
     EgressPolicyUpdate,
     UsagePolicyUpdate,
 )
@@ -109,6 +114,68 @@ class SecurityService:
         )
         rows = list(self.db.exec(query).all())
         return self._unwrap_all(rows)
+
+    def summarize_egress_blocks(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        recent_limit: int = 20,
+    ) -> EgressBlockSummaryResponse:
+        """Count refused outbound requests, and return the most recent ones.
+
+        The count and the evidence come from the same audit rows, so a figure
+        on the governance panel can always be opened and read.
+        """
+        clauses = [
+            AuditEvent.tenant_id == self.ctx.tenant_id,
+            AuditEvent.workspace_id == self.ctx.workspace_id,
+            AuditEvent.event_type == EGRESS_BLOCK_EVENT_TYPE,
+        ]
+        if since:
+            clauses.append(AuditEvent.created_at >= since)
+        if until:
+            clauses.append(AuditEvent.created_at <= until)
+
+        query = (
+            select(AuditEvent)
+            .where(and_(*clauses))
+            .order_by(desc(AuditEvent.created_at))
+        )
+        rows = self._unwrap_all(list(self.db.exec(query).all()))
+
+        subjects: set[str] = set()
+        domains: set[str] = set()
+        recent: list[EgressBlockRow] = []
+        for row in rows:
+            payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+            resource_ref = payload.get("resource_ref")
+            if resource_ref:
+                subjects.add(str(resource_ref))
+            if row.resource_id:
+                domains.add(str(row.resource_id))
+            if len(recent) < recent_limit:
+                recent.append(
+                    EgressBlockRow(
+                        id=row.id,
+                        domain=row.resource_id,
+                        resource_ref=resource_ref,
+                        reason=payload.get("reason"),
+                        url=payload.get("url"),
+                        actor_user_id=row.actor_user_id,
+                        trace_id=row.trace_id,
+                        created_at=row.created_at,
+                    )
+                )
+
+        return EgressBlockSummaryResponse(
+            since=since,
+            until=until,
+            total=len(rows),
+            subjects=len(subjects),
+            domains=len(domains),
+            recent=recent,
+        )
 
     def _log_audit(
         self,

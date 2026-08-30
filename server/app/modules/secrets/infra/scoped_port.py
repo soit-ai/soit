@@ -16,7 +16,10 @@ from app.kernel.ports.secrets.interface import (
     require_opaque_secret_id,
 )
 from app.kernel.runtime.db.models.audit import AuditEvent
-from app.modules.secrets.infra.repository import SecretRepository
+from app.modules.secrets.infra.repository import (
+    SECRET_RESOLVED_EVENT_TYPE,
+    SecretRepository,
+)
 
 
 class ScopedSecretsPort(SecretsPort):
@@ -56,13 +59,41 @@ class ScopedSecretsPort(SecretsPort):
                     db.commit()
                 raise NotFoundError("Secret not found")
 
-            return await self.value_store.get_secret_value(
+            value = await self.value_store.get_secret_value(
                 locator=SecretLocator(secret.secret_ref),
                 **kwargs,
             )
+            self._record_resolution(db, resource_id=normalized_id)
+            if owns_session:
+                db.commit()
+            return value
         finally:
             if owns_session:
                 db.close()
+
+    def _record_resolution(self, db: Session, *, resource_id: str) -> None:
+        """Record that a secret was resolved, never what it resolved to.
+
+        The value is deliberately absent: the evidence a reviewer needs is that
+        this workspace resolved this secret at this time, which is also what
+        makes the resolution count on the secrets surface a measurement rather
+        than an estimate.
+        """
+        audit = AuditEvent(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            event_type=SECRET_RESOLVED_EVENT_TYPE,
+            resource_type="secret",
+            resource_id=resource_id,
+            operation="resolve",
+            actor_user_id=self.ctx.user_id,
+            trace_id=self.ctx.trace_id,
+            outcome="allowed",
+            scope="workspace",
+            payload_json={},
+        )
+        db.add(audit)
+        db.flush()
 
     def _record_denial(
         self,

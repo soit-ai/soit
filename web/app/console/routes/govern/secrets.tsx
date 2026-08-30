@@ -24,13 +24,13 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { relativeTime } from '../../adapters/palette'
+import { compactNumber, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import {
   createSecret,
   deleteSecret,
+  getSecretResolutionSummary,
   listSecrets,
   testSecret,
   updateSecret,
@@ -73,6 +73,18 @@ export default function ConsoleSecrets() {
     queryFn: () => listSecrets({ limit: 200 }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+
+  // Resolutions are read from the audit ledger, which records that a secret was
+  // handed over and never what it resolved to.
+  const resolutionsQuery = useQuery({
+    queryKey: ['console', 'secrets', 'resolutions'],
+    queryFn: () =>
+      getSecretResolutionSummary({
+        since: new Date(Date.now() - 86_400_000).toISOString(),
+      }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const resolutions = resolutionsQuery.data
 
   const afterWrite = () => {
     void secretsQuery.refetch()
@@ -172,9 +184,18 @@ export default function ConsoleSecrets() {
             na={!secretsQuery.data}
             sub={<span className="mono dimmer">referenced, never inlined</span>}
           />
-          {/* BACKEND-PENDING: prototype figure — resolutions are not counted
-              server-side; see mocks/tiles.ts. */}
-          <StatTile label={t('console.secrets.tiles.resolutions')} value={mockTiles.secretResolutions.value} sub={<span className="mono dimmer">{mockTiles.secretResolutions.sub}</span>} />
+          <StatTile
+            label={t('console.secrets.tiles.resolutions')}
+            value={resolutions ? compactNumber(resolutions.total) : '—'}
+            na={!resolutions}
+            sub={
+              <span className="mono dimmer">
+                {resolutions
+                  ? t('console.secrets.tiles.resolutionsSub', { count: resolutions.secrets })
+                  : '—'}
+              </span>
+            }
+          />
           <StatTile
             label={t('console.secrets.tiles.rotation')}
             value={

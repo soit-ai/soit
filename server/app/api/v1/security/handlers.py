@@ -3,10 +3,12 @@
 Security request handlers (thin orchestration).
 """
 
+from datetime import datetime
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.modules.security.application.schemas import (
+    EgressBlockSummaryResponse,
     EgressPolicyAuditResponse,
     EgressPolicyResponse,
     EgressPolicyUpdate,
@@ -21,6 +23,16 @@ class SecurityHandlers:
 
     def __init__(self, service: SecurityService):
         self.service = service
+
+    async def summarize_egress_blocks(
+        self,
+        ctx: RequestContext,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> EgressBlockSummaryResponse:
+        """Summarize refused outbound requests inside a window."""
+        return self.service.summarize_egress_blocks(since=since, until=until)
 
     async def get_tenant_policy(
         self,

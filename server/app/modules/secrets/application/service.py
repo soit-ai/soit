@@ -5,11 +5,17 @@ Secrets application service.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.kernel.commons.errors import KernelError, NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.secrets.interface import SecretLocator, SecretValueStore
-from app.modules.secrets.application.schemas import SecretCreate, SecretUpdate
+from app.modules.secrets.application.schemas import (
+    SecretCreate,
+    SecretResolutionSummary,
+    SecretUpdate,
+)
 from app.modules.secrets.domain.models import Secret
 from app.modules.secrets.infra.repository import SecretRepository
 
@@ -31,6 +37,22 @@ class SecretsService:
     async def list_secrets(self, limit: int = 50, offset: int = 0) -> list[Secret]:
         """List secrets for workspace."""
         return self.repo.list(limit=limit, offset=offset)
+
+    @workspace_guard("read")
+    async def summarize_resolutions(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> SecretResolutionSummary:
+        """Report how often secrets were resolved inside a window."""
+        total, secrets = self.repo.resolution_counts(since=since, until=until)
+        return SecretResolutionSummary(
+            since=since,
+            until=until,
+            total=total,
+            secrets=secrets,
+        )
 
     @workspace_guard("read")
     async def get_secret(self, secret_id: str) -> Secret:

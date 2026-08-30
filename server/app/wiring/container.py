@@ -72,6 +72,58 @@ class IdentityEgressScopePolicyProvider:
             db.close()
 
 
+class AuditEgressBlockRecorder:
+    """Write refused outbound requests into the audit ledger.
+
+    A refusal is governance evidence, not a metric: it says which subject tried
+    to reach which host and why the policy said no. Keeping it in the audit
+    ledger means the same query surface answers "how many blocks today" and
+    "what exactly was blocked".
+
+    The rows carry no run_id, so they stay out of the run-scoped audit listing
+    and cannot drown the per-run evidence a reviewer is reading.
+    """
+
+    def record_block(
+        self,
+        ctx: RequestContext,
+        *,
+        resource_ref: str,
+        url: str | None,
+        domain: str | None,
+        reason: str,
+    ) -> None:
+        from app.infra.db.session import get_db_sync
+        from app.kernel.runtime.db.models.audit import AuditEvent
+        from app.kernel.security.egress import EGRESS_BLOCK_EVENT_TYPE
+
+        db = get_db_sync()
+        try:
+            db.add(
+                AuditEvent(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    event_type=EGRESS_BLOCK_EVENT_TYPE,
+                    resource_type="egress",
+                    resource_id=domain,
+                    operation="egress",
+                    actor_user_id=ctx.user_id,
+                    trace_id=ctx.trace_id,
+                    outcome="denied",
+                    scope="workspace",
+                    payload_json={
+                        "resource_ref": resource_ref,
+                        "url": url,
+                        "domain": domain,
+                        "reason": reason,
+                    },
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+
 class Container:
     """Dependency injection container."""
 
@@ -167,10 +219,14 @@ class Container:
         """Register concrete providers for kernel extension points."""
 
         from app.kernel.identity.permissions import register_resource_grant_provider
-        from app.kernel.security.egress import register_egress_scope_policy_provider
+        from app.kernel.security.egress import (
+            register_egress_block_recorder,
+            register_egress_scope_policy_provider,
+        )
 
         register_resource_grant_provider(IdentityResourceGrantProvider())
         register_egress_scope_policy_provider(IdentityEgressScopePolicyProvider())
+        register_egress_block_recorder(AuditEgressBlockRecorder())
 
     def register_singleton(self, name: str, instance: Any) -> None:
         """Register a singleton instance.
@@ -597,8 +653,12 @@ def reset_container() -> None:
     """
     global _container
     from app.kernel.identity.permissions import reset_resource_grant_provider
-    from app.kernel.security.egress import reset_egress_scope_policy_provider
+    from app.kernel.security.egress import (
+        reset_egress_block_recorder,
+        reset_egress_scope_policy_provider,
+    )
 
     reset_resource_grant_provider()
     reset_egress_scope_policy_provider()
+    reset_egress_block_recorder()
     _container = None

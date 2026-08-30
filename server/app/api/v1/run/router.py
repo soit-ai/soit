@@ -30,6 +30,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
     RunStepMetricsSummaryResponse,
     RunStepResponse,
+    RunToolInvocationResponse,
     RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.service import RunService
@@ -71,6 +72,24 @@ async def summarize_run_window(
     """Summarize run outcomes and spend for a window in one call."""
     handlers = RunHandlers(service)
     return await handlers.summarize_run_window(
+        ctx,
+        since=since,
+        until=until,
+        include_sandbox=include_sandbox,
+    )
+
+
+@router.get("/tools/invocations", response_model=list[RunToolInvocationResponse])
+async def summarize_tool_invocations(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    include_sandbox: bool = False,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RunService = Depends(get_run_service),
+):
+    """Count governed tool invocations per tool inside a window."""
+    handlers = RunHandlers(service)
+    return await handlers.summarize_tool_invocations(
         ctx,
         since=since,
         until=until,

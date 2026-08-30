@@ -16,7 +16,7 @@ from app.kernel.commons.ids import generate_run_id
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.api import PaginatedResponse
 from app.kernel.runtime.db.models.audit import AuditEvent
-from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.runs.service import RunService
 from app.kernel.runtime.tasks.query_service import TaskQueryService
@@ -256,3 +256,63 @@ async def test_run_window_pass_rate_is_absent_before_anything_settles(db, ctx):
 
     assert summary.total == 1
     assert summary.pass_rate is None
+
+
+@pytest.mark.asyncio
+async def test_tool_invocations_are_counted_from_the_cost_ledger(db, ctx):
+    """Per-tool invocation counts come from entries the tool path already writes."""
+    run = _make_run(ctx)
+    db.add(run)
+    db.commit()
+    for tool_ref, count in (("plugin:pagerduty.page", 2), ("plugin:jira.create", 1)):
+        for index in range(count):
+            db.add(
+                RunCostEntry(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    run_id=run.id,
+                    source_ref=f"{tool_ref}:{index}",
+                    billing_basis="requests",
+                    billed_quantity=1,
+                    source_port="tools",
+                    operation="invoke",
+                    tool_ref=tool_ref,
+                    request_count=1,
+                    latency_ms=10,
+                )
+            )
+    db.commit()
+
+    handlers = RunHandlers(RunService(db, ctx))
+    rows = await handlers.summarize_tool_invocations(ctx)
+
+    counts = {row.tool_ref: row.invocations for row in rows}
+    assert counts == {"plugin:pagerduty.page": 2, "plugin:jira.create": 1}
+    # Busiest first, so a caller taking the head gets the top tools.
+    assert rows[0].tool_ref == "plugin:pagerduty.page"
+
+
+@pytest.mark.asyncio
+async def test_tool_invocations_ignore_non_tool_usage(db, ctx):
+    """Model usage is priced through the same ledger and must not be counted."""
+    run = _make_run(ctx)
+    db.add(run)
+    db.commit()
+    db.add(
+        RunCostEntry(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            run_id=run.id,
+            source_ref="llm:1",
+            billing_basis="tokens",
+            billed_quantity=100,
+            source_port="llm",
+            operation="chat",
+            model_ref="model:test:echo",
+            request_count=1,
+        )
+    )
+    db.commit()
+
+    handlers = RunHandlers(RunService(db, ctx))
+    assert await handlers.summarize_tool_invocations(ctx) == []

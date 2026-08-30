@@ -6,12 +6,16 @@ Secrets repository.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.secrets.domain.models import Secret
+
+SECRET_RESOLVED_EVENT_TYPE = "security.secret.resolved"
+"""Audit event type for a secret handed to a governed caller."""
 
 
 class SecretRepository(Repository[Secret]):
@@ -20,6 +24,35 @@ class SecretRepository(Repository[Secret]):
     def __init__(self, db: Session, ctx: RequestContext):
         """Initialize secret repository."""
         super().__init__(Secret, db, ctx)
+
+    def resolution_counts(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> tuple[int, int]:
+        """Return (resolutions, distinct secrets resolved) inside a window.
+
+        Read from the audit ledger rather than a counter, so the figure and the
+        evidence behind it are the same rows.
+        """
+        clauses = [
+            AuditEvent.tenant_id == self.ctx.tenant_id,
+            AuditEvent.workspace_id == self.ctx.workspace_id,
+            AuditEvent.event_type == SECRET_RESOLVED_EVENT_TYPE,
+        ]
+        if since:
+            clauses.append(AuditEvent.created_at >= since)
+        if until:
+            clauses.append(AuditEvent.created_at <= until)
+        query = select(
+            func.count(),
+            func.count(func.distinct(AuditEvent.resource_id)),
+        ).select_from(AuditEvent).where(and_(*clauses))
+        row = self.db.exec(query).first()
+        if row is None:
+            return 0, 0
+        return int(row[0] or 0), int(row[1] or 0)
 
     def create(self, secret: Secret) -> Secret:
         """Create a secret metadata record."""

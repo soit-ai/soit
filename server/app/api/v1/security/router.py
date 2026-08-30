@@ -4,6 +4,8 @@ Security API routes (FastAPI).
 """
 
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends
 
 from app.api.v1.permissions import (
@@ -16,6 +18,7 @@ from app.api.v1.security.handlers import SecurityHandlers
 from app.infra.db.pagination import PaginatedResponse
 from app.kernel.contracts.context import RequestContext
 from app.modules.security.application.schemas import (
+    EgressBlockSummaryResponse,
     EgressPolicyAuditResponse,
     EgressPolicyResponse,
     EgressPolicyUpdate,
@@ -80,6 +83,21 @@ async def list_egress_audits(
     """List egress policy audits."""
     handlers = SecurityHandlers(service)
     return await handlers.list_audits(ctx, scope, page_token, page_size)
+
+
+@router.get("/egress/blocks", response_model=EgressBlockSummaryResponse)
+async def summarize_egress_blocks(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SecurityService = Depends(get_security_service),
+):
+    """Summarize outbound requests the policy refused inside a window.
+
+    Distinct from /egress/audits, which records changes to the policy itself.
+    """
+    handlers = SecurityHandlers(service)
+    return await handlers.summarize_egress_blocks(ctx, since=since, until=until)
 
 
 @router.get("/limits/tenant", response_model=UsagePolicyResponse)

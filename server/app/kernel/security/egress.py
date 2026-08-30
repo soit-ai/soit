@@ -5,6 +5,7 @@ Egress policy (deny-by-default for external calls).
 
 import asyncio
 import ipaddress
+import logging
 import re
 import socket
 from dataclasses import dataclass, field
@@ -14,6 +15,15 @@ from urllib.parse import urlparse
 from app.kernel.commons.errors import ForbiddenError, KernelError
 from app.kernel.contracts.context import RequestContext
 from app.settings.settings import settings
+
+logger = logging.getLogger(__name__)
+
+EGRESS_BLOCK_EVENT_TYPE = "security.egress.blocked"
+"""Audit event type for an outbound request the policy refused.
+
+Shared by the recorder that writes it and the surfaces that count it, so the
+two cannot drift apart on a string literal.
+"""
 
 
 @dataclass(frozen=True)
@@ -54,7 +64,66 @@ class SocketAddressResolver:
         return sorted({str(record[4][0]) for record in records})
 
 
+class EgressBlockRecorder(Protocol):
+    """Sink for outbound requests the policy refused."""
+
+    def record_block(
+        self,
+        ctx: RequestContext,
+        *,
+        resource_ref: str,
+        url: str | None,
+        domain: str | None,
+        reason: str,
+    ) -> None:
+        """Persist one refusal. Must not raise: the refusal itself is the point."""
+
+
 _egress_scope_policy_provider: EgressScopePolicyProvider | None = None
+_egress_block_recorder: EgressBlockRecorder | None = None
+
+
+def register_egress_block_recorder(recorder: EgressBlockRecorder) -> None:
+    """Register the process-wide sink for refused outbound requests."""
+
+    global _egress_block_recorder
+    _egress_block_recorder = recorder
+
+
+def reset_egress_block_recorder() -> None:
+    """Clear the process-wide egress block recorder."""
+
+    global _egress_block_recorder
+    _egress_block_recorder = None
+
+
+def record_egress_block(
+    ctx: RequestContext,
+    *,
+    resource_ref: str,
+    url: str | None,
+    domain: str | None,
+    reason: str,
+) -> None:
+    """Record a refused outbound request, if a sink is registered.
+
+    Recording must never change the outcome: a policy that fails closed has
+    already decided, and losing the evidence is better than turning a refusal
+    into a crash. Failures are logged and swallowed.
+    """
+    recorder = _egress_block_recorder
+    if recorder is None:
+        return
+    try:
+        recorder.record_block(
+            ctx,
+            resource_ref=resource_ref,
+            url=url,
+            domain=domain,
+            reason=reason,
+        )
+    except Exception:
+        logger.warning("Failed to record an egress block", exc_info=True)
 
 
 def register_egress_scope_policy_provider(provider: EgressScopePolicyProvider) -> None:
@@ -293,6 +362,13 @@ def check_egress_policy(
             workspace_allowlist = list(scope_policy.workspace_allowlist or [])
             workspace_blocklist = list(scope_policy.workspace_blocklist or [])
         except Exception as exc:
+            record_egress_block(
+                ctx,
+                resource_ref=resource_ref,
+                url=str(url),
+                domain=None,
+                reason="policy_lookup_failed",
+            )
             raise ForbiddenError(
                 "Egress policy lookup failed; request denied",
                 {"resource_ref": resource_ref},
@@ -303,6 +379,13 @@ def check_egress_policy(
         if tenant_blocklist:
             tenant_patterns = [policy._compile_pattern(p) for p in tenant_blocklist]
             if policy._matches_pattern(domain, tenant_patterns):
+                record_egress_block(
+                    ctx,
+                    resource_ref=resource_ref,
+                    url=str(url),
+                    domain=domain,
+                    reason="tenant_blocklist",
+                )
                 raise ForbiddenError(
                     f"Egress to {domain} is blocked by tenant policy",
                     {
@@ -314,6 +397,13 @@ def check_egress_policy(
         if workspace_blocklist:
             workspace_patterns = [policy._compile_pattern(p) for p in workspace_blocklist]
             if policy._matches_pattern(domain, workspace_patterns):
+                record_egress_block(
+                    ctx,
+                    resource_ref=resource_ref,
+                    url=str(url),
+                    domain=domain,
+                    reason="workspace_blocklist",
+                )
                 raise ForbiddenError(
                     f"Egress to {domain} is blocked by workspace policy",
                     {
@@ -332,6 +422,13 @@ def check_egress_policy(
 
     if not is_allowed:
         domain = policy._extract_domain(url)
+        record_egress_block(
+            ctx,
+            resource_ref=resource_ref,
+            url=str(url),
+            domain=domain,
+            reason="not_allowlisted",
+        )
         raise ForbiddenError(
             f"Egress to {domain} is not allowed by policy",
             {
@@ -482,6 +579,13 @@ class GovernedEgressGuard:
                     {"resource_ref": resource_ref, "hostname": hostname},
                 ) from exc
             if not is_public:
+                record_egress_block(
+                    ctx,
+                    resource_ref=resource_ref,
+                    url=policy_url,
+                    domain=hostname,
+                    reason="non_public_address",
+                )
                 raise ForbiddenError(
                     "Outbound target resolves to a private or non-public address",
                     {

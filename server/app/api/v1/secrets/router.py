@@ -4,6 +4,8 @@ Secrets API routes.
 """
 
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, status
 
 from app.api.v1.permissions import (
@@ -15,6 +17,7 @@ from app.api.v1.secrets.handlers import SecretHandlers
 from app.kernel.contracts.context import RequestContext
 from app.modules.secrets.application.schemas import (
     SecretCreate,
+    SecretResolutionSummary,
     SecretResponse,
     SecretTestResponse,
     SecretUpdate,
@@ -34,6 +37,21 @@ async def list_secrets(
     """List secrets in workspace."""
     handlers = SecretHandlers(service)
     return await handlers.list_secrets(ctx, limit=limit, offset=offset)
+
+
+@router.get("/resolutions/summary", response_model=SecretResolutionSummary)
+async def summarize_secret_resolutions(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SecretsService = Depends(get_secrets_service),
+):
+    """Report how often secrets were resolved inside a window.
+
+    Registered before /{secret_id} so the literal path is not read as an id.
+    """
+    handlers = SecretHandlers(service)
+    return await handlers.summarize_resolutions(ctx, since=since, until=until)
 
 
 @router.get("/{secret_id}", response_model=SecretResponse)

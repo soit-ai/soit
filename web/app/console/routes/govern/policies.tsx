@@ -27,18 +27,20 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { relativeTime } from '../../adapters/palette'
+import { compactNumber, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  getEgressBlockSummary,
   getWorkspaceEgressPolicy,
   getWorkspaceUsagePolicy,
   listEgressPolicyAudits,
   updateWorkspaceEgressPolicy,
   updateWorkspaceUsagePolicy,
 } from '@/services/security-service'
+import { listRunAudits } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
 
 type PolicyTab = 'rules' | 'bundles' | 'staged'
@@ -77,6 +79,24 @@ export default function ConsolePolicies() {
     queryFn: () => getWorkspaceUsagePolicy(),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+  // "Evaluations" is the number of governed gateway requests the policy path
+  // ran over in the window; each leaves an audit row. Blocks are counted from
+  // the same ledger, so the tile's two figures are the same measurement seen
+  // from both sides.
+  const since = new Date(Date.now() - 86_400_000).toISOString()
+  const evaluationsQuery = useQuery({
+    queryKey: ['console', 'policies', 'evaluations', since],
+    queryFn: () => listRunAudits({ since, page_size: 1, with_total: true }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const blocksQuery = useQuery({
+    queryKey: ['console', 'policies', 'blocks', since],
+    queryFn: () => getEgressBlockSummary({ since }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const evaluations = evaluationsQuery.data?.total ?? null
+  const blocks = blocksQuery.data
+
   const auditsQuery = useQuery({
     queryKey: ['console', 'policies', 'audits'],
     queryFn: () => listEgressPolicyAudits({ page_size: 20 }),
@@ -242,9 +262,18 @@ export default function ConsolePolicies() {
               </span>
             }
           />
-          {/* BACKEND-PENDING: prototype figure — evaluations are not counted
-              server-side; see mocks/tiles.ts. */}
-          <StatTile label={t('console.policies.tiles.evaluations')} value={mockTiles.policyEvaluations.value} sub={<span className="mono dimmer">{mockTiles.policyEvaluations.sub}</span>} />
+          <StatTile
+            label={t('console.policies.tiles.evaluations')}
+            value={evaluations == null ? '—' : compactNumber(evaluations)}
+            na={evaluations == null}
+            sub={
+              <span className="mono dimmer">
+                {t('console.policies.tiles.evaluationsSub', {
+                  count: blocks?.total ?? 0,
+                })}
+              </span>
+            }
+          />
           <StatTile
             label={t('console.policies.tiles.attention')}
             value={String(egressQuery.data?.blocklist.length ?? 0)}

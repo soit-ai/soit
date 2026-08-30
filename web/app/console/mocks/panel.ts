@@ -87,14 +87,14 @@ export const mockPanelCounts = {
 } as const
 
 /**
- * Govern › Needs attention — the two rows below the live approvals row.
+ * Govern › Needs attention — the row below the live approvals row.
  *
  * // BACKEND-PENDING: staged rollout needs policy-bundle versioning with a
- * // rollout percentage and a regression count; egress blocks need a windowed
- * // count of denied egress attempts. /security/egress/audits records changes
- * // to the policy, not the requests it stopped.
+ * // rollout percentage and a regression count.
+ *
+ * Egress blocks used to sit here. They are now counted from the audit ledger,
+ * which records every refused outbound request.
  */
 export const mockGovernAttention: MockPanelNote[] = [
   { id: 'rollout', label: 'Staged rollout at 10%', tone: 'primary', value: '0 regressions', to: '/govern/policies' },
-  { id: 'egress', label: '12 egress blocks · 24h', tone: 'bad', value: '1 agent', to: '/govern/audit' },
 ]

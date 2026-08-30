@@ -105,6 +105,19 @@ class RunChargeSummaryResponse(BaseModel):
     amounts: dict[str, Decimal] = Field(default_factory=dict)
 
 
+class RunToolInvocationResponse(BaseModel):
+    """How often one tool was invoked inside a window.
+
+    Counted from the cost ledger, which records one entry per governed tool
+    invocation. A tool with no entries in the window is simply absent.
+    """
+
+    tool_ref: str | None = None
+    provider: str | None = None
+    invocations: int = 0
+    ms_total: int = 0
+
+
 class RunWindowSummaryResponse(BaseModel):
     """What a workspace did inside one time window.
 

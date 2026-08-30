@@ -31,6 +31,15 @@ record for operators.
   two that can disagree.
 - The task workbench summary reports queue depth and how long the oldest
   waiting task has waited.
+- Outbound requests the egress policy refuses are now recorded in the audit
+  ledger, and `GET /security/egress/blocks` reports them for a window with the
+  refusals behind the count. This is distinct from `/security/egress/audits`,
+  which records changes to the policy rather than the requests it stopped.
+- Resolving a secret is recorded in the audit ledger — that it happened, never
+  what it resolved to — and `GET /secrets/resolutions/summary` counts those
+  resolutions for a window.
+- `GET /runs/tools/invocations` counts governed tool invocations per tool from
+  the cost ledger, busiest first.
 - `GET /resource-grants` can be asked for a whole workspace: `resource_type` and
   `resource_id` are optional, and omitting the id lists every grant in scope.
   The access surface previously had to fan out one request per object.

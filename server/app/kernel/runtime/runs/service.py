@@ -28,6 +28,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
     RunStepMetricsSummaryResponse,
     RunStepResponse,
+    RunToolInvocationResponse,
     RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
@@ -1803,6 +1804,58 @@ class RunService:
                 **_dimension_row_values(row, offset=1),
             )
             for row in rows
+        ]
+
+    def summarize_tool_invocations(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        include_sandbox: bool = False,
+    ) -> list[RunToolInvocationResponse]:
+        """Count governed tool invocations per tool inside a window.
+
+        The tool policy path writes one cost entry per invocation, so the
+        ledger already knows how often each tool ran; nothing new has to be
+        counted at call time.
+        """
+        clauses = [
+            RunCostEntry.tenant_id == self.ctx.tenant_id,
+            RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.run_id == Run.id,
+            RunCostEntry.source_port == "tools",
+            RunCostEntry.tool_ref.is_not(None),
+            Run.tenant_id == self.ctx.tenant_id,
+            Run.workspace_id == self.ctx.workspace_id,
+        ]
+        if not include_sandbox:
+            clauses.append(Run.sandbox.is_(False))
+        if since:
+            clauses.append(Run.started_at >= since)
+        if until:
+            clauses.append(Run.started_at <= until)
+
+        query = (
+            select(
+                RunCostEntry.tool_ref,
+                RunCostEntry.provider,
+                func.coalesce(func.sum(RunCostEntry.request_count), 0),
+                func.coalesce(func.sum(RunCostEntry.latency_ms), 0),
+            )
+            .select_from(RunCostEntry)
+            .join(Run, RunCostEntry.run_id == Run.id)
+            .where(and_(*clauses))
+            .group_by(RunCostEntry.tool_ref, RunCostEntry.provider)
+            .order_by(desc(func.coalesce(func.sum(RunCostEntry.request_count), 0)))
+        )
+        return [
+            RunToolInvocationResponse(
+                tool_ref=row[0],
+                provider=row[1],
+                invocations=int(row[2] or 0),
+                ms_total=int(row[3] or 0),
+            )
+            for row in self.db.exec(query).all()
         ]
 
     def summarize_costs_by_provider(

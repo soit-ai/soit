@@ -300,6 +300,26 @@ export const getRunWindowSummary = (params?: {
   return get<RunWindowSummary>('/runs/summary/window', params)
 }
 
+export interface RunToolInvocation {
+  tool_ref?: string | null
+  provider?: string | null
+  invocations: number
+  ms_total: number
+}
+
+/**
+ * Governed tool invocations per tool inside a window, busiest first. Counted
+ * from the cost ledger the tool path already writes, so a tool with no calls
+ * in the window is absent rather than reported as zero.
+ */
+export const listToolInvocations = (params?: {
+  since?: string
+  until?: string
+  include_sandbox?: boolean
+}): Promise<RunToolInvocation[]> => {
+  return get<RunToolInvocation[]>('/runs/tools/invocations', params)
+}
+
 export const getRunCostSummary = (params?: {
   mode?: string
   kind?: string

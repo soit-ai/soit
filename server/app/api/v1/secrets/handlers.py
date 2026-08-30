@@ -4,9 +4,12 @@ Secrets request handlers.
 """
 
 
+from datetime import datetime
+
 from app.kernel.contracts.context import RequestContext
 from app.modules.secrets.application.schemas import (
     SecretCreate,
+    SecretResolutionSummary,
     SecretResponse,
     SecretTestResponse,
     SecretUpdate,
@@ -29,6 +32,15 @@ class SecretHandlers:
     ) -> list[SecretResponse]:
         secrets = await self.service.list_secrets(limit=limit, offset=offset)
         return [SecretResponse.model_validate(item) for item in secrets]
+
+    async def summarize_resolutions(
+        self,
+        ctx: RequestContext,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> SecretResolutionSummary:
+        return await self.service.summarize_resolutions(since=since, until=until)
 
     async def get_secret(
         self,

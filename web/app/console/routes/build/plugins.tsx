@@ -27,10 +27,11 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { catColor } from '../../adapters/palette'
+import { catColor, compactNumber } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
+import { listToolInvocations } from '@/services/run-service'
 import {
   installPlugin,
   listPlugins,
@@ -89,6 +90,21 @@ export default function ConsolePlugins() {
     queryFn: () => listPlugins({ page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+
+  // Invocations come from the cost ledger the tool path already writes, so the
+  // figure counts what actually ran rather than what is installed.
+  const invocationsQuery = useQuery({
+    queryKey: ['console', 'plugins', 'invocations'],
+    queryFn: () =>
+      listToolInvocations({ since: new Date(Date.now() - 86_400_000).toISOString() }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const invocations = invocationsQuery.data
+    ? {
+        total: invocationsQuery.data.reduce((sum, row) => sum + row.invocations, 0),
+        tools: invocationsQuery.data.length,
+      }
+    : null
 
   const enabledMutation = useMutation({
     mutationKey: ['console', 'plugins', 'enabled'],
@@ -220,13 +236,20 @@ export default function ConsolePlugins() {
               </span>
             }
           />
-          {/* BACKEND-PENDING: prototype figures — see mocks/tiles.ts for the
-              endpoint each one waits on. */}
           <StatTile
             label={t('console.plugins.tiles.invocations')}
-            value={mockTiles.pluginInvocations.value}
-            sub={<span className="mono dimmer">{mockTiles.pluginInvocations.sub}</span>}
+            value={invocations == null ? '—' : compactNumber(invocations.total)}
+            na={invocations == null}
+            sub={
+              <span className="mono dimmer">
+                {invocations
+                  ? t('console.plugins.tiles.invocationsSub', { count: invocations.tools })
+                  : '—'}
+              </span>
+            }
           />
+          {/* BACKEND-PENDING: prototype figures — see mocks/tiles.ts for the
+              endpoint each one waits on. */}
           <StatTile
             label={t('console.plugins.tiles.updates')}
             value={mockTiles.pluginUpdates.value}

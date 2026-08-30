@@ -8,6 +8,7 @@ import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
 import { getRunWindowSummary, listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
+import { getEgressBlockSummary } from '@/services/security-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
 import { listThreads } from '@/services/thread-service'
@@ -221,6 +222,12 @@ export function useConsolePanelData(
     queryKey: ['console', 'panel', 'span-count'],
     queryFn: () => listRunSteps({ page_size: 1, with_total: true }),
     options: { ...SHARED, enabled: isObserve },
+  })
+  const egressBlocks = useQuery({
+    queryKey: ['console', 'counts', 'egress-blocks'],
+    queryFn: () =>
+      getEgressBlockSummary({ since: new Date(Date.now() - DAY_MS).toISOString() }),
+    options: { ...SHARED, enabled: isGovern },
   })
   const grants = useQuery({
     queryKey: ['console', 'counts', 'grants'],
@@ -491,6 +498,18 @@ export function useConsolePanelData(
         to: '/govern/approvals',
       },
       ...mockGovernAttention.map((row) => ({ kind: 'note' as const, ...row })),
+      // Only shown once something was actually refused: a "0 blocks" row would
+      // take a slot to say nothing happened.
+      !!egressBlocks.data?.total && {
+        kind: 'note' as const,
+        id: 'egress',
+        label: t('console.shell.egressBlocks', { count: egressBlocks.data.total }),
+        tone: 'bad' as const,
+        value: t('console.shell.egressSubjects', {
+          count: egressBlocks.data.subjects,
+        }),
+        to: '/govern/policies',
+      },
     ])
 
     groups.governRecent = (audits.data?.items || []).slice(0, 2).map((row) => ({

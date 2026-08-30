@@ -15,6 +15,25 @@ export const listSecrets = (params?: { limit?: number; offset?: number }): Promi
   return get<Secret[]>('/secrets', params)
 }
 
+export interface SecretResolutionSummary {
+  since?: string | null
+  until?: string | null
+  total: number
+  /** Distinct secrets resolved at least once in the window. */
+  secrets: number
+}
+
+/**
+ * How often secrets were handed to governed callers. Counted from the audit
+ * ledger, which records that a resolution happened and never its value.
+ */
+export const getSecretResolutionSummary = (params?: {
+  since?: string
+  until?: string
+}): Promise<SecretResolutionSummary> => {
+  return get<SecretResolutionSummary>('/secrets/resolutions/summary', params)
+}
+
 export const getSecret = (secretId: string): Promise<Secret> => {
   return get<Secret>(`/secrets/${secretId}`)
 }

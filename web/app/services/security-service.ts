@@ -43,6 +43,38 @@ export const listEgressPolicyAudits = (params?: {
   return get<PaginatedResponse<EgressPolicyAudit>>('/security/egress/audits', params)
 }
 
+export interface EgressBlockRow {
+  id: string
+  domain?: string | null
+  resource_ref?: string | null
+  reason?: string | null
+  url?: string | null
+  actor_user_id?: string | null
+  trace_id?: string | null
+  created_at: string
+}
+
+export interface EgressBlockSummary {
+  since?: string | null
+  until?: string | null
+  total: number
+  /** Distinct callers refused: what the governance panel calls agents. */
+  subjects: number
+  domains: number
+  recent: EgressBlockRow[]
+}
+
+/**
+ * Outbound requests the policy refused. Distinct from
+ * `listEgressPolicyAudits`, which records changes to the policy itself.
+ */
+export const getEgressBlockSummary = (params?: {
+  since?: string
+  until?: string
+}): Promise<EgressBlockSummary> => {
+  return get<EgressBlockSummary>('/security/egress/blocks', params)
+}
+
 export const getWorkspaceUsagePolicy = (): Promise<UsagePolicy> => {
   return get<UsagePolicy>('/security/limits/workspace')
 }
