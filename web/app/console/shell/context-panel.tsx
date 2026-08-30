@@ -176,15 +176,17 @@ export function ContextPanel({ onCollapse }: ContextPanelProps) {
             no snapshot it stays neutral rather than claiming all is well. */}
         <i
           aria-hidden
-          style={
-            health
-              ? { background: `var(--${healthy ? 'success' : 'warning'})` }
-              : { background: 'var(--faint)' }
-          }
+          style={{
+            background: health
+              ? `var(--${healthy ? 'success' : 'warning'})`
+              : 'var(--faint)',
+          }}
         />
         {health
           ? `${healthy ? t('console.shell.allSystemsNormal') : t('console.shell.systemsDegraded')} · v${health.version}`
-          : t('console.shell.healthUnknown')}
+          : diagnostics.isPending
+            ? t('console.common.loading')
+            : t('console.shell.healthUnknown')}
         <span className="ml-auto">{t('console.shell.jumpHint')}</span>
       </div>
     </aside>

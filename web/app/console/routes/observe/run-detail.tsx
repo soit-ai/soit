@@ -18,6 +18,7 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { toRunDetailView, formatDurationMs } from '../../adapters/run-detail'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { getRunReplay } from '@/services/observe-service'
@@ -27,6 +28,7 @@ import { requestErrorMessage } from '@/utils/request'
 type RunTab = 'ledger' | 'policy' | 'events' | 'artifacts' | 'raw'
 
 export default function ConsoleRunDetail() {
+  const subjectName = useSubjectNames()
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useConsoleNavigate()
@@ -124,7 +126,7 @@ export default function ConsoleRunDetail() {
         <span>
           Agent
           <b>
-            <KindChip kind={run.subject_kind} label={run.subject_id} className="idm" />
+            <KindChip kind={run.subject_kind} label={subjectName(run.subject_id)} className="idm" />
           </b>
         </span>
         {run.meta.map((item) => (

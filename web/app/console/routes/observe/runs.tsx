@@ -32,6 +32,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { useQuery } from '@/hooks/use-query'
+import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -81,6 +82,7 @@ function subjectKind(run: RunResponse): ConsoleKind {
 }
 
 export default function ConsoleRuns() {
+  const subjectName = useSubjectNames()
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -401,7 +403,7 @@ export default function ConsoleRuns() {
                     <span className="runid">{run.id}</span>
                   </TableCell>
                   <TableCell>
-                    <KindChip kind={subjectKind(run)} label={run.subject_id || '—'} />
+                    <KindChip kind={subjectKind(run)} label={subjectName(run.subject_id)} />
                   </TableCell>
                   <TableCell className="dim">{run.mode}</TableCell>
                   <TableCell className="num dim">

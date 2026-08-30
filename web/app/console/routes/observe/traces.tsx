@@ -26,6 +26,7 @@ import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
 import { mockTiles } from '../../mocks/tiles'
+import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { listRunSteps, listRuns, type RunStepResponse } from '@/services/run-service'
 
@@ -87,6 +88,7 @@ function breakdownFor(steps: RunStepResponse[]): BreakdownSlice[] {
  * both rather than reading a fictional /traces endpoint.
  */
 export default function ConsoleTraces() {
+  const subjectName = useSubjectNames()
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
   const [range, setRange] = useState<(typeof RANGES)[number]>('24h')
@@ -134,14 +136,14 @@ export default function ConsoleTraces() {
         trace_id: run.trace_id as string,
         root_op: run.mode,
         run_id: run.id,
-        subject_id: run.subject_id || '—',
+        subject_id: subjectName(run.subject_id),
         span_count: steps.length || run.observe_summary?.step_count || 0,
         breakdown: breakdownFor(steps),
         duration_ms: run.duration_ms ?? null,
         started_at: run.started_at,
       }
     })
-  }, [runsQuery.data, stepsByRun])
+  }, [runsQuery.data, stepsByRun, subjectName])
 
   const rows = traces.filter((row) => {
     if (slowOnly && (row.duration_ms ?? 0) <= 5000) return false

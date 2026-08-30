@@ -14,6 +14,7 @@ import { listThreads } from '@/services/thread-service'
 import { getWorkflowWorkbench } from '@/services/workflow-service'
 
 import { catColor, relativeTime } from '../adapters/palette'
+import { useSubjectNames } from '../adapters/subject-names'
 import { mockSchedules } from '../mocks/execute'
 import {
   mockDraftReviews,
@@ -104,6 +105,7 @@ export function useConsolePanelData(
   workspaceId = '',
 ): ConsolePanelData {
   const { t } = useTranslation()
+  const subjectName = useSubjectNames()
   const isOverview = pillar === 'overview'
   const isBuild = pillar === 'build'
   const isExecute = pillar === 'execute'
@@ -358,7 +360,7 @@ export function useConsolePanelData(
         id: row.id,
         label: row.id,
         meta: relativeTime(row.started_at),
-        note: [row.subject_id, row.mode].filter(Boolean).join(' · ') || row.status,
+        note: [subjectName(row.subject_id), row.mode].filter(Boolean).join(' · ') || row.status,
         to: `/observe/runs/${row.id}`,
       })),
       running.length > 0 && {

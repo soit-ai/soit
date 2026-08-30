@@ -96,14 +96,11 @@ const translation = {
     processing: 'Processing',
     awaitingApproval: 'Awaiting approval',
     failed: 'Failed',
-    approvalsPending: '{{count}} approvals pending',
-    approvalsPending_one: '{{count}} approval pending',
-    approvalsPending_other: '{{count}} approvals pending',
-    // i18next resolves the suffixed forms; the base key is what the strict
-    // TranslationKey union is built from, so all three have to exist.
-    runsInFlight: '{{count}} runs in flight',
-    runsInFlight_one: '{{count}} run in flight',
-    runsInFlight_other: '{{count}} runs in flight',
+    approvalsPending: '{{count}} awaiting approval',
+    // No plural-suffixed variants: those resolve against the active locale, and
+    // zh-CN has one plural category, so the app renders "1 runs in flight" while
+    // it serves these English strings. These phrasings read for any count.
+    runsInFlight: '{{count}} in flight',
     // The foot is the prototype's one lowercase mono line; it reads as a
     // status strip rather than a sentence, so the casing is deliberate.
     allSystemsNormal: 'all systems normal',

@@ -58,6 +58,7 @@ from app.modules.observe.domain.models import ApprovalRequest
 from app.modules.plugin.domain.models import (
     Plugin,
     PluginInstallation,
+    PluginInstalledArtifact,
     PluginVersion,
 )
 from app.modules.secrets.domain.models import Secret
@@ -190,6 +191,7 @@ def _reset(db, ctx: RequestContext) -> None:
         KnowledgeDocument,
         KnowledgeIndex,
         Knowledge,
+        PluginInstalledArtifact,
         PluginInstallation,
         PluginVersion,
         Plugin,
@@ -634,6 +636,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:anthropic:claude-sonnet-5",
         "knowledge": ["product-docs", "support-macros"],
         "workflows": ["ticket-escalation"],
+        "tools": ["helpdesk-api", "web-fetch", "incident-writeup"],
     },
     {
         "key": "ops-copilot",
@@ -645,6 +648,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:anthropic:claude-sonnet-5",
         "knowledge": ["runbooks"],
         "workflows": [],
+        "tools": ["k8s-toolkit", "vault-secrets"],
     },
     {
         "key": "kb-refresher",
@@ -656,6 +660,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:anthropic:claude-haiku-4.5",
         "knowledge": ["product-docs"],
         "workflows": ["docs-nightly-sync"],
+        "tools": ["web-fetch"],
     },
     {
         "key": "billing-audit",
@@ -667,6 +672,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:dashscope:qwen3-235b",
         "knowledge": ["billing-policies"],
         "workflows": ["invoice-reconcile"],
+        "tools": ["erp-connector"],
     },
     {
         "key": "release-notes",
@@ -678,6 +684,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:anthropic:claude-haiku-4.5",
         "knowledge": [],
         "workflows": ["release-digest"],
+        "tools": ["web-fetch"],
     },
     {
         "key": "quota-sentinel",
@@ -689,6 +696,7 @@ AGENTS: list[dict[str, Any]] = [
         "model": "model:vllm:qwen3-30b-local",
         "knowledge": [],
         "workflows": [],
+        "tools": [],
     },
 ]
 
@@ -698,6 +706,7 @@ def _seed_agents(
     ctx: RequestContext,
     knowledge: dict[str, str],
     workflows: dict[str, str],
+    plugin_refs: dict[str, str],
 ) -> list[Agent]:
     now = utc_now()
     items: list[Agent] = []
@@ -753,16 +762,29 @@ def _seed_agents(
                 "created_by": ctx.user_id,
             },
         )
+        # Every binding addresses its target through target_key, in the
+        # prefixed form the capability catalogue publishes. That is the column
+        # the display name is looked up by and the only one the runtime writes;
+        # putting the bare id in target_id instead rendered every chip as a raw
+        # id, which is what the first version of this seed did.
         bindings: list[tuple[str, str]] = [("model", spec["model"])]
         bindings += [
-            ("knowledge", knowledge[key])
+            ("knowledge", f"knowledge:{knowledge[key]}")
             for key in spec["knowledge"]
             if key in knowledge
         ]
         bindings += [
-            ("workflow", workflows[key])
+            ("workflow", f"wf:{workflows[key]}")
             for key in spec["workflows"]
             if key in workflows
+        ]
+        # BACKEND-PENDING: the capability catalogue publishes skills, MCP servers
+        # and the tools nested inside them, but not a standalone
+        # artifact_kind == "tool". Until it does, a tool-pack chip renders its
+        # ref rather than the plugin's name. Declaring these packs as MCP
+        # servers would make the label resolve by misfiling what they are.
+        bindings += [
+            ("tool", plugin_refs[key]) for key in spec["tools"] if key in plugin_refs
         ]
         for order, (kind, ref) in enumerate(bindings):
             _upsert(
@@ -775,10 +797,7 @@ def _seed_agents(
                     "agent_id": agent_id,
                     "agent_version_id": version_id,
                     "binding_type": kind,
-                    # A model binding points at a ref string, the others at a row
-                    # id; the column pair is target_id / target_key, not one ref.
-                    "target_id": None if kind == "model" else ref,
-                    "target_key": ref if kind == "model" else None,
+                    "target_key": ref,
                     "config_json": _meta(),
                     "sort_order": order,
                 },
@@ -823,6 +842,19 @@ PLUGINS: list[dict[str, Any]] = [
     ("incident-writeup", "skill", "1.2.0", "soit-labs", [], True),
     ("runbook-triage", "skill", "0.4.1", "community", ["k8s.read"], True),
 ]
+
+
+#: The capability ref an installed artifact is published under. Agents bind to
+#: these, and the catalogue resolves each back to a name for the chip label.
+ARTIFACT_PREFIX = {
+    "tool": "plugin_tool",
+    "mcp_server": "mcp_server",
+    "skill": "plugin_skill",
+}
+
+
+def artifact_ref(name: str, plugin_type: str) -> str:
+    return f"{ARTIFACT_PREFIX.get(plugin_type, 'plugin_tool')}:{name}"
 
 
 def _seed_plugins(db, ctx: RequestContext) -> list[str]:
@@ -875,10 +907,11 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
             },
         )
         if installed:
+            installation_id = _sid("inst", ctx, name)
             _upsert(
                 db,
                 PluginInstallation,
-                _sid("inst", ctx, name),
+                installation_id,
                 {
                     "tenant_id": ctx.tenant_id,
                     "workspace_id": ctx.workspace_id,
@@ -888,6 +921,38 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
                     "state": "installed",
                     "installed_by": ctx.user_id,
                     "config_json": _meta(),
+                },
+            )
+            # An installation alone publishes nothing. The capability catalogue
+            # reads installed artifacts, so without one an agent bound to this
+            # plugin shows a raw ref where the tool's name belongs.
+            ref = artifact_ref(name, plugin_type)
+            payload: dict[str, Any] = {"scopes": scopes}
+            if plugin_type == "mcp_server":
+                payload["mcp_server"] = {
+                    "name": name,
+                    "capabilities_json": {"tools": []},
+                }
+            elif plugin_type == "skill":
+                payload["skill"] = {"name": name}
+            else:
+                payload["tool_spec"] = {"name": name}
+            _upsert(
+                db,
+                PluginInstalledArtifact,
+                _sid("plga", ctx, ref),
+                {
+                    "tenant_id": ctx.tenant_id,
+                    "workspace_id": ctx.workspace_id,
+                    "plugin_id": plugin_id,
+                    "plugin_version_id": version_id,
+                    "installation_id": installation_id,
+                    "artifact_kind": plugin_type,
+                    "artifact_ref": ref,
+                    "artifact_id": name,
+                    "state": "enabled",
+                    "enabled": True,
+                    "metadata_json": _meta(**payload),
                 },
             )
         ids.append(plugin_id)
@@ -1607,12 +1672,15 @@ async def seed_console_prototype(db, args: argparse.Namespace) -> PrototypeSeedS
         spec["key"]: item.id for spec, item in zip(WORKFLOWS, workflows, strict=False)
     }
 
-    agents = _seed_agents(db, ctx, knowledge_by_key, workflow_by_key)
+    # Plugins first: agents bind to their installed artifacts.
+    plugin_ids = _seed_plugins(db, ctx)
+    plugin_refs = {row[0]: artifact_ref(row[0], row[1]) for row in PLUGINS if row[5]}
+
+    agents = _seed_agents(db, ctx, knowledge_by_key, workflow_by_key, plugin_refs)
     agent_by_key = {
         spec["key"]: item.id for spec, item in zip(AGENTS, agents, strict=False)
     }
 
-    plugin_ids = _seed_plugins(db, ctx)
     secret_ids = _seed_secrets(db, ctx)
     thread_ids = _seed_threads(db, ctx, agent_by_key)
     run_ids = _seed_runs(db, ctx, agent_by_key, args.runs)

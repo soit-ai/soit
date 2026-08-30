@@ -168,7 +168,7 @@ test('govern panel raises pending approvals in the attention group', async ({ pa
 
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  const attention = page.locator('.subnav .sub-note', { hasText: '2 approvals pending' })
+  const attention = page.locator('.subnav .sub-note', { hasText: '2 awaiting approval' })
   await expect(attention).toBeVisible()
   await attention.click()
   await expect(page).toHaveURL(/\/govern\/approvals/)
@@ -188,7 +188,7 @@ test('govern panel omits the attention group when nothing is pending', async ({ 
   // The pillar's own links are there, so the panel rendered.
   await expect(page.locator('.subnav .sl', { hasText: 'Approvals' })).toBeVisible()
   // The group survives on its fixture rows, but nothing claims a pending count.
-  await expect(page.locator('.subnav .sub-note', { hasText: 'approvals pending' })).toHaveCount(0)
+  await expect(page.locator('.subnav .sub-note', { hasText: 'awaiting approval' })).toHaveCount(0)
 })
 
 test('side panel counts team and API keys from their real services', async ({ page }) => {

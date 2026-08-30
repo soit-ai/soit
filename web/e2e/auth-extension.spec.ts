@@ -49,7 +49,10 @@ test('protected routes redirect unauthenticated users with a local return target
   await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fbuild%2Fknowledge%3Fview%3Dlibrary$/)
 })
 
-test('sign-in resumes a safe local route and ignores an external redirect', async ({ page }) => {
+test('sign-in resumes a safe local route and ignores an external redirect', async ({
+  page,
+  baseURL,
+}) => {
   await page.addInitScript(() => localStorage.clear())
   await page.route('**/api/v1/login', async (route) => {
     await route.fulfill({
@@ -89,7 +92,7 @@ test('sign-in resumes a safe local route and ignores an external redirect', asyn
   await page.getByLabel('Email').fill('user@example.com')
   await page.getByLabel('Password').fill('password123')
   await page.getByRole('button', { name: 'Open workspace' }).click()
-  await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:5000\/$/)
+  await expect(page).toHaveURL(new RegExp(`^${baseURL?.replace(/\/$/, '')}/$`))
 })
 
 test('logout clears authentication, scope, and persisted user state', async ({ page }) => {

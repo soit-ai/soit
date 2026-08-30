@@ -19,6 +19,7 @@ import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { formatDurationMs } from '../../adapters/run-detail'
 import { useQuery } from '@/hooks/use-query'
+import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { listRunSteps, listRunsByTrace, type RunStepResponse } from '@/services/run-service'
@@ -105,6 +106,7 @@ interface TraceSpan {
 }
 
 export default function ConsoleTraceDetail() {
+  const subjectName = useSubjectNames()
   const { t } = useTranslation()
   const { traceId } = useParams<{ traceId: string }>()
   const navigate = useConsoleNavigate()
@@ -146,7 +148,7 @@ export default function ConsoleTraceDetail() {
     const rootRun = runs.find((run) => !run.parent_run_id) || runs[0] || null
     const failedRun = runs.find((run) => run.status === 'failed')
     const statusRun = failedRun || rootRun
-    const subjectId = rootRun?.subject_id || '—'
+    const subjectId = subjectName(rootRun?.subject_id)
 
     // Lane totals for the breakdown bar — real step durations, no estimates.
     const laneTotals = new Map<BreakdownSlice['kind'], number>()
@@ -252,7 +254,7 @@ export default function ConsoleTraceDetail() {
       },
       spans,
     }
-  }, [runs, steps, traceId])
+  }, [runs, steps, traceId, subjectName])
 
   const selected =
     selectedSpanId && trace.spans.some((span) => span.id === selectedSpanId)
