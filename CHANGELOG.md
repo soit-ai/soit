@@ -51,6 +51,17 @@ record for operators.
 - `GET /resource-grants` can be asked for a whole workspace: `resource_type` and
   `resource_id` are optional, and omitting the id lists every grant in scope.
   The access surface previously had to fan out one request per object.
+- Sign-ins are now sessions a person can see and end. `GET /me/sessions` lists
+  them with device, address and last activity; `DELETE /me/sessions/{id}` ends
+  one and `POST /me/sessions/revoke-all` ends the rest. Access tokens name their
+  session, so ending one stops its token immediately rather than whenever the
+  token happens to expire.
+- `POST /refresh` exchanges a refresh token for a new access token. Refresh
+  tokens rotate on every use, and presenting a spent one is treated as a replay:
+  the session ends. The console renews silently, so an expiry mid-session is no
+  longer something the user sees.
+- Workspace member listings report `last_active_at`, derived from the member's
+  own sessions.
 
 ### Changed
 
@@ -58,6 +69,10 @@ record for operators.
   stated in the README (multi-tenant hosting, frontend branding) was
   removed; SOIT Community is licensed under the Apache License 2.0.
 - The web container image moved from Node 20 to the Node 24 LTS line.
+- `ACCESS_TOKEN_EXPIRE_MINUTES` drops from 480 to 30. It is no longer the
+  session length — clients renew against `/refresh` — so it now means the worst
+  case delay before a revoked session stops working. `REFRESH_TOKEN_EXPIRE_DAYS`
+  (default 14) is the session length.
 - Python runtime dependencies refreshed across the lockfile (42 packages,
   minor/patch), verified by the full backend suite, pip-audit, ruff, and
   pyright.
