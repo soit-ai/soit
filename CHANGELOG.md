@@ -78,6 +78,18 @@ record for operators.
   are refused access to that workspace with a distinguishable reason, so they
   can be sent to enrol rather than shown an error they cannot act on.
 - Workspace member listings report `mfa_enabled`.
+- Schedules. A workspace can run an agent or a workflow on a cron expression,
+  in a stated time zone, through `/api/v1/schedules`. Firing hands the work to
+  the same durable path the API uses, so a scheduled run is an ordinary run —
+  same ledger, same evidence, same recovery — and carries the schedule that
+  started it. An expression that cannot fire is refused on save, and the
+  endpoint can preview the next few firings before anything is stored.
+- A missed occurrence is skipped by default: a scheduler down for a day would
+  otherwise wake and fire twenty-four hourly jobs at once. `catch_up` opts a
+  schedule into running late, one occurrence per pass.
+- `SCHEDULE_WORKER_ENABLED` runs the scheduler. It ships as its own container
+  in both compose profiles, for the reason the outbox dispatcher does; several
+  replicas may run it, and the claim ensures each occurrence fires once.
 - The instance can send its own mail (`SYSTEM_MAIL_ENABLED`,
   `SYSTEM_MAIL_URL`), which unlocks three flows that previously had nothing
   behind them. `GET /auth/capabilities` reports whether it can, so the console

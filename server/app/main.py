@@ -124,6 +124,19 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("workflow orphan reaper", exc)
 
+    schedule_worker_coro = None
+    if getattr(app_settings, "schedule_worker_enabled", False):
+        try:
+            from app.infra.db.session import get_db_sync
+            from app.wiring.schedule_worker import ScheduleWorker
+
+            schedule_worker_coro = ScheduleWorker(
+                get_db_sync,
+                lease_seconds=int(app_settings.schedule_worker_lease_seconds),
+            ).run_loop(poll_interval=float(app_settings.schedule_worker_poll_interval))
+        except Exception as exc:
+            _handle_startup_failure("schedule worker", exc)
+
     deletion_sweeper_coro = None
     if getattr(app_settings, "account_deletion_sweeper_enabled", False):
         try:
@@ -189,6 +202,8 @@ async def lifespan(app: FastAPI):
             background_tasks.append(asyncio.create_task(workflow_reaper_coro))
         if deletion_sweeper_coro is not None:
             background_tasks.append(asyncio.create_task(deletion_sweeper_coro))
+        if schedule_worker_coro is not None:
+            background_tasks.append(asyncio.create_task(schedule_worker_coro))
         if knowledge_worker is not None:
             background_tasks.append(
                 asyncio.create_task(
@@ -369,6 +384,7 @@ from app.api.v1.observe.router import router as observe_router  # noqa: E402
 from app.api.v1.plugin.router import router as plugin_router  # noqa: E402
 from app.api.v1.responses.router import router as responses_router  # noqa: E402
 from app.api.v1.run.router import router as run_router  # noqa: E402
+from app.api.v1.schedule.router import router as schedule_router  # noqa: E402
 from app.api.v1.search.router import router as search_router  # noqa: E402
 from app.api.v1.secrets.router import router as secrets_router  # noqa: E402
 from app.api.v1.security.router import router as security_router  # noqa: E402
@@ -389,6 +405,7 @@ app.include_router(secrets_router, prefix="/api/v1/secrets", tags=["secrets"])
 app.include_router(health_router, tags=["health"])
 app.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
 app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
+app.include_router(schedule_router, prefix="/api/v1/schedules", tags=["schedules"])
 app.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
 app.include_router(evaluation_router, prefix="/api/v1/evaluations", tags=["evaluations"])
 app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["feedback"])

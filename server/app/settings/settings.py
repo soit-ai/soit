@@ -80,6 +80,20 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 14
     """How long a session can be renewed before the user signs in again."""
 
+    schedule_worker_enabled: bool = False
+    """Fire due schedules from this process.
+
+    Off by default so a development instance does not start running somebody's
+    hourly jobs. Production turns it on; several replicas may run it, and the
+    claim ensures each occurrence fires once.
+    """
+
+    schedule_worker_poll_interval: float = 15.0
+    """Seconds between sweeps. Cron resolution is a minute, so this is ample."""
+
+    schedule_worker_lease_seconds: int = 60
+    """How long a claimed schedule stays claimed if the worker dies."""
+
     system_mail_enabled: bool = False
     """Whether the instance can send its own mail.
 

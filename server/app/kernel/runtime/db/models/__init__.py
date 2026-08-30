@@ -16,6 +16,7 @@ from app.kernel.runtime.db.models.runs import (
     RunStep,
     RunStepToolCall,
 )
+from app.kernel.runtime.db.models.schedules import Schedule
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
 
@@ -32,6 +33,7 @@ __all__ = [
     "RunArtifact",
     "RunCostEntry",
     "RunStep",
+    "Schedule",
     "Task",
     "TaskCheckpoint",
     "TaskEvent",

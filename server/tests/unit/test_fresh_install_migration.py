@@ -59,6 +59,7 @@ USER_MFA_PATH = VERSIONS_ROOT / "20260830140000_user_mfa.py"
 WORKSPACE_MFA_PATH = VERSIONS_ROOT / "20260830150000_workspace_require_mfa.py"
 ACCOUNT_DELETION_PATH = VERSIONS_ROOT / "20260830160000_account_deletion_requests.py"
 MAIL_IDENTITY_PATH = VERSIONS_ROOT / "20260830170000_identity_tokens_and_invitations.py"
+SCHEDULES_PATH = VERSIONS_ROOT / "20260830180000_schedules.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -115,6 +116,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         WORKSPACE_MFA_PATH.name,
         ACCOUNT_DELETION_PATH.name,
         MAIL_IDENTITY_PATH.name,
+        SCHEDULES_PATH.name,
     ]
 
     module = _load_baseline()

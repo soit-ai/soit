@@ -14,6 +14,7 @@ import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
 import { getRunWindowSummary, listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
 import { getEgressBlockSummary } from '@/services/security-service'
+import { listSchedules } from '@/services/schedule-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
 import { listThreads } from '@/services/thread-service'
@@ -21,7 +22,6 @@ import { getWorkflowWorkbench } from '@/services/workflow-service'
 
 import { catColor, compactNumber, money, percent, relativeTime } from '../adapters/palette'
 import { useSubjectNames } from '../adapters/subject-names'
-import { mockSchedules } from '../mocks/execute'
 import {
   mockDraftReviews,
   mockGovernAttention,
@@ -269,6 +269,11 @@ export function useConsolePanelData(
     options: { ...SHARED, enabled: isOverview },
   })
 
+  const schedules = useQuery({
+    queryKey: ['console', 'counts', 'schedules'],
+    queryFn: () => listSchedules({ limit: 100 }, { suppressErrorToast: true }),
+    options: { ...SHARED, enabled: isExecute },
+  })
   const grants = useQuery({
     queryKey: ['console', 'counts', 'grants'],
     queryFn: () => listWorkspaceResourceGrants({ limit: 500 }),
@@ -327,8 +332,7 @@ export function useConsolePanelData(
     plugins: plugins.data?.items?.filter((row) => row.installed).length,
     models: models.data?.summary?.total_models,
     tasks: tasks.data?.summary?.total_tasks,
-    // No schedule service exists; the figure matches the fixtures that page shows.
-    schedules: isExecute ? mockSchedules.length : undefined,
+    schedules: schedules.data?.length,
     events: deadLetters.data?.length,
     approvals: isGovern ? approvals.data?.items?.length : undefined,
     secrets: secrets.data?.length,
@@ -490,16 +494,18 @@ export function useConsolePanelData(
       },
     ])
 
-    // The schedules page runs on the same fixtures; the panel must agree with it.
-    groups.nextUp = mockSchedules
-      .filter((row) => row.enabled)
+    // Soonest first, and only what is actually going to fire: a paused
+    // schedule has no next occurrence to be next up for.
+    groups.nextUp = (schedules.data || [])
+      .filter((row) => row.enabled && row.next_fire_at)
+      .sort((a, b) => String(a.next_fire_at).localeCompare(String(b.next_fire_at)))
       .slice(0, 2)
       .map((row) => ({
         kind: 'mini',
         id: row.id,
         label: row.name,
-        meta: row.next_fire,
-        note: `${row.target} · ${row.cron}`,
+        meta: relativeTime(row.next_fire_at),
+        note: `${row.target_id} · ${row.cron}`,
         to: '/execute/schedules',
       }))
   }

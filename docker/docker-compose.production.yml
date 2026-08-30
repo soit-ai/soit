@@ -28,6 +28,7 @@ x-server-environment: &server_environment
   SYSTEM_MAIL_ENABLED: ${SYSTEM_MAIL_ENABLED:-false}
   SYSTEM_MAIL_URL: ${SYSTEM_MAIL_URL:-}
   SYSTEM_MAIL_LINK_BASE_URL: ${SYSTEM_MAIL_LINK_BASE_URL:-}
+  SCHEDULE_WORKER_POLL_INTERVAL: ${SCHEDULE_WORKER_POLL_INTERVAL:-15}
 
   # Vault must not be a dev-mode server: a dev server keeps its data in memory
   # and unseals itself with a fixed root token.
@@ -163,6 +164,18 @@ services:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
     command: ["python", "scripts/ingest_worker.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ../server
+    environment:
+      <<: *server_environment
+      SCHEDULE_WORKER_ENABLED: "true"
+    command: ["python", "scripts/schedule_worker.py"]
     depends_on:
       migrate:
         condition: service_completed_successfully
