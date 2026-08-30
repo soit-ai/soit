@@ -536,6 +536,29 @@ export const retryKnowledgeDocumentIngest = (
   })
 }
 
+export interface KnowledgeRetrievalSummary {
+  since?: string | null
+  until?: string | null
+  score_threshold: number
+  queries: number
+  hits: number
+  zero_hits: number
+  /** Hits over queries; null when nothing was queried in the window. */
+  hit_rate?: number | null
+  zero_hit_rate?: number | null
+}
+
+/**
+ * Retrieval quality for one knowledge base, read from the retrieval steps each
+ * query already writes. No query text is stored to produce it.
+ */
+export const getKnowledgeRetrievalSummary = (
+  knowledgeId: string,
+  params?: { since?: string; until?: string; score_threshold?: number },
+): Promise<KnowledgeRetrievalSummary> => {
+  return get<KnowledgeRetrievalSummary>(`/knowledge/${knowledgeId}/retrieval/summary`, params)
+}
+
 export const queryKnowledge = (
   knowledgeId: string,
   data: KnowledgeQueryRequest

@@ -20,15 +20,15 @@ import {
   type ConsoleStatus,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { catColor, compactNumber, latency, relativeTime } from '../../adapters/palette'
+import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
   deleteKnowledgeBase,
   deleteKnowledgeDocument,
   getKnowledgeBase,
+  getKnowledgeRetrievalSummary,
   getKnowledgeRunCostSummary,
   listKnowledgeChunks,
   listKnowledgeDocumentVersions,
@@ -193,11 +193,23 @@ export default function ConsoleKnowledgeDetail() {
     options: { enabled, retry: false, refetchOnWindowFocus: false },
   })
 
+  // Retrieval quality is aggregated from the run ledger, so it covers every
+  // query in the window rather than the page of runs shown below.
+  const retrievalQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'retrieval', knowledgeId],
+    queryFn: () =>
+      getKnowledgeRetrievalSummary(knowledgeId, {
+        since: new Date(Date.now() - 86_400_000).toISOString(),
+      }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+
   const base = baseQuery.data
   const documents = documentsQuery.data || []
   const indexes = indexesQuery.data || []
   const usages = usagesQuery.data || []
   const cost = costQuery.data
+  const retrievalQuality = retrievalQuery.data
 
   // Chunks hang off a document, so the first document of the current page is
   // the default selection until a row is picked.
@@ -1000,9 +1012,16 @@ export default function ConsoleKnowledgeDetail() {
               na={!cost || cost.request_count == null}
               sub="all retrieval runs"
             />
-            {/* BACKEND-PENDING: prototype figures — retrieval quality has no
-                aggregation endpoint; see mocks/tiles.ts. */}
-            <StatTile label="Hit rate" value={mockTiles.knowledgeHitRate.value} sub={<span className="mono dimmer">{mockTiles.knowledgeHitRate.sub}</span>} />
+            <StatTile
+              label="Hit rate"
+              value={retrievalQuality?.hit_rate == null ? '—' : percent(retrievalQuality.hit_rate)}
+              na={retrievalQuality?.hit_rate == null}
+              sub={
+                <span className="mono dimmer">
+                  {retrievalQuality ? `score ≥ ${retrievalQuality.score_threshold} threshold` : '—'}
+                </span>
+              }
+            />
             <StatTile
               label="P95 retrieval"
               value={cost && cost.request_count ? latency(cost.ms_total / cost.request_count) : '—'}
@@ -1015,8 +1034,15 @@ export default function ConsoleKnowledgeDetail() {
             />
             <StatTile
               label="Zero-hit queries"
-              value={mockTiles.knowledgeZeroHit.value}
-              sub={<span className="mono dimmer">{mockTiles.knowledgeZeroHit.sub}</span>}
+              value={retrievalQuality?.zero_hit_rate == null ? '—' : percent(retrievalQuality.zero_hit_rate)}
+              na={retrievalQuality?.zero_hit_rate == null}
+              sub={
+                <span className="mono dimmer">
+                  {retrievalQuality
+                    ? `${retrievalQuality.zero_hits} of ${retrievalQuality.queries} queries`
+                    : '—'}
+                </span>
+              }
             />
           </StatTileGrid>
           <WorkbenchPanel title={t('console.knowDetail.topQueries')} hint={t('console.knowDetail.topQueriesHint')}>

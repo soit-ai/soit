@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PluginCreate(BaseModel):
@@ -89,6 +89,16 @@ class PluginResponse(BaseModel):
     enabled: bool | None = None
     installation_id: str | None = None
     installed_at: datetime | None = None
+    risk_level: str = "low"
+    """Derived from the permissions the plugin declares, never stored."""
+
+    risk_reasons: list[str] = Field(default_factory=list)
+    """The declared scopes that produced the level, for display."""
+
+    update_available: bool = False
+    """True when this installation is pinned behind the published version."""
+
+    installed_version_id: str | None = None
     created_by: str | None = None
     created_at: datetime
     updated_at: datetime

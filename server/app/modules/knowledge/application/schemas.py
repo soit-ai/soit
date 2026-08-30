@@ -185,3 +185,24 @@ class KnowledgeQueryResponse(QueryResponse):
 
 class KnowledgeUsageResponse(KnowledgeConsumerUsageResponse):
     """Knowledge usage response."""
+
+
+class KnowledgeRetrievalSummary(BaseModel):
+    """Retrieval quality for one knowledge base inside a window.
+
+    Read from the retrieval steps every query already writes, so no query text
+    is stored to produce it. `hit_rate` counts queries whose best-scoring
+    result cleared the threshold; scores are whatever the strategy recorded, so
+    the threshold is reported alongside the rate rather than assumed.
+    """
+
+    since: datetime | None = None
+    until: datetime | None = None
+    score_threshold: float = 0.6
+    queries: int = 0
+    hits: int = 0
+    zero_hits: int = 0
+    hit_rate: float | None = None
+    """Hits over queries. None when nothing was queried in the window."""
+
+    zero_hit_rate: float | None = None

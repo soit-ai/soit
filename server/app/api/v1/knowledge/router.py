@@ -1,6 +1,7 @@
 """Knowledge API routes."""
 
 import json
+from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -39,6 +40,7 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryRequest,
     KnowledgeQueryResponse,
     KnowledgeResponse,
+    KnowledgeRetrievalSummary,
     KnowledgeUpdateRequest,
     KnowledgeUsageResponse,
     KnowledgeWorkbenchItemsResponse,
@@ -482,6 +484,26 @@ async def retry_knowledge_document_ingest(
 ):
     handlers = KnowledgeHandlers(service)
     return await handlers.retry_document_ingest(ctx, knowledge_id, document_id, max_retries)
+
+
+@router.get("/{knowledge_id}/retrieval/summary", response_model=KnowledgeRetrievalSummary)
+async def summarize_knowledge_retrieval(
+    knowledge_id: str,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    score_threshold: float = 0.6,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """Report retrieval quality for one knowledge base inside a window."""
+    handlers = KnowledgeHandlers(service)
+    return await handlers.summarize_retrieval(
+        ctx,
+        knowledge_id,
+        since=since,
+        until=until,
+        score_threshold=score_threshold,
+    )
 
 
 @router.post("/{knowledge_id}/query", response_model=KnowledgeQueryResponse)

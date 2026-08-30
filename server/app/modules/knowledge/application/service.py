@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
@@ -15,7 +15,7 @@ from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.http.interface import HttpFetchPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
-from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.kernel.runtime.runs.schemas import (
     RunCostByModeResponse,
     RunCostSummaryResponse,
@@ -47,6 +47,7 @@ from app.modules.knowledge.application.runtime_schemas import (
 )
 from app.modules.knowledge.application.runtime_service import KnowledgeRuntimeService
 from app.modules.knowledge.application.schemas import (
+    KnowledgeRetrievalSummary,
     KnowledgeWorkbenchItemsResponse,
     KnowledgeWorkbenchResponse,
     KnowledgeWorkbenchRow,
@@ -259,6 +260,73 @@ class KnowledgeService:
         )
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, Knowledge) else item[0] for item in results]
+
+    def summarize_retrieval(
+        self,
+        knowledge_id: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        score_threshold: float = 0.6,
+    ) -> KnowledgeRetrievalSummary:
+        """Report retrieval quality from the steps each query already writes.
+
+        Every query creates a run with a retrieval step whose metrics record how
+        many results came back and how they scored, so quality is answered from
+        the run ledger rather than by persisting query text.
+        """
+        clauses = [
+            Run.tenant_id == self.ctx.tenant_id,
+            Run.workspace_id == self.ctx.workspace_id,
+            Run.subject_kind == "knowledge",
+            Run.subject_id == knowledge_id,
+            Run.mode == "knowledge_query",
+            RunStep.run_id == Run.id,
+            RunStep.step_type == "retrieval",
+        ]
+        if since:
+            clauses.append(Run.started_at >= since)
+        if until:
+            clauses.append(Run.started_at <= until)
+
+        query = (
+            select(RunStep.metrics_json)
+            .select_from(RunStep)
+            .join(Run, RunStep.run_id == Run.id)
+            .where(and_(*clauses))
+        )
+
+        queries = 0
+        hits = 0
+        zero_hits = 0
+        for row in self.db.exec(query).all():
+            # A single-column select yields a Row, which is a sequence but not
+            # a tuple, so the value has to be unwrapped by position.
+            metrics = row if isinstance(row, dict) else row[0]
+            if not isinstance(metrics, dict):
+                continue
+            queries += 1
+            result_count = metrics.get("result_count")
+            if isinstance(result_count, int) and result_count == 0:
+                zero_hits += 1
+                continue
+            max_score = metrics.get("max_score")
+            try:
+                if max_score is not None and float(max_score) >= score_threshold:
+                    hits += 1
+            except (TypeError, ValueError):
+                continue
+
+        return KnowledgeRetrievalSummary(
+            since=since,
+            until=until,
+            score_threshold=score_threshold,
+            queries=queries,
+            hits=hits,
+            zero_hits=zero_hits,
+            hit_rate=(hits / queries) if queries else None,
+            zero_hit_rate=(zero_hits / queries) if queries else None,
+        )
 
     def _workbench_runs_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[Run]]:
         if not knowledge_base_ids:

@@ -4,6 +4,7 @@
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.kernel.registry.deps import get_registry
+from app.modules.plugin.application.risk import classify_plugin_risk
 from app.modules.plugin.application.schemas import (
     PluginArtifactResponse,
     PluginCapabilityResponse,
@@ -32,6 +33,7 @@ class PluginHandlers:
         self.service = service
 
     def _as_plugin_response(self, plugin, installation=None) -> PluginResponse:
+        risk_level, risk_reasons = classify_plugin_risk(plugin.spec_json, plugin.manifest_json)
         base = PluginResponse.model_validate(
             {
                 "id": plugin.id,
@@ -52,6 +54,10 @@ class PluginHandlers:
                 "enabled": None,
                 "installation_id": None,
                 "installed_at": None,
+                "risk_level": risk_level,
+                "risk_reasons": risk_reasons,
+                "update_available": False,
+                "installed_version_id": None,
                 "created_by": plugin.created_by,
                 "created_at": plugin.created_at,
                 "updated_at": plugin.updated_at,
@@ -60,11 +66,23 @@ class PluginHandlers:
         if not installation:
             return base
         cfg = installation.config_json or {}
+        # An installation pinned to a version other than the published one is
+        # behind it. Comparing ids rather than version strings avoids guessing
+        # an ordering the publisher never promised.
+        published_version_id = plugin.published_version_id
+        installed_version_id = installation.plugin_version_id
+        update_available = bool(
+            published_version_id
+            and installed_version_id
+            and published_version_id != installed_version_id
+        )
         return base.model_copy(
             update={
                 "enabled": bool(cfg.get("enabled", True)),
                 "installation_id": installation.id,
                 "installed_at": installation.created_at,
+                "installed_version_id": installed_version_id,
+                "update_available": update_available,
             }
         )
 

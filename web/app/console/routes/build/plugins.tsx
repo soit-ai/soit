@@ -29,7 +29,6 @@ import {
 } from '../../components/ui'
 import { catColor, compactNumber } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { listToolInvocations } from '@/services/run-service'
 import {
@@ -171,6 +170,10 @@ export default function ConsolePlugins() {
   const countOfType = (kind: 'mcp' | 'tools' | 'skills') =>
     installed.filter((row) => row.plugin_type === FILTER_TYPE[kind]).length
   const disabledCount = installed.filter((row) => !isEnabled(row)).length
+  // Both derived from what the installed set reports: a pin behind the
+  // published version, and the scopes each plugin declares.
+  const upgradable = installed.filter((row) => row.update_available)
+  const highRisk = installed.filter((row) => row.risk_level === 'high')
 
   const rows = (filter === 'available' ? available : installed).filter((row) => {
     if (filter === 'disabled') {
@@ -248,17 +251,32 @@ export default function ConsolePlugins() {
               </span>
             }
           />
-          {/* BACKEND-PENDING: prototype figures — see mocks/tiles.ts for the
-              endpoint each one waits on. */}
           <StatTile
             label={t('console.plugins.tiles.updates')}
-            value={mockTiles.pluginUpdates.value}
-            sub={<span className="mono dimmer">{mockTiles.pluginUpdates.sub}</span>}
+            value={listed ? String(upgradable.length) : '—'}
+            na={!listed}
+            sub={
+              <span className="mono dimmer">
+                {upgradable.length
+                  ? upgradable
+                      .slice(0, 2)
+                      .map((row) => row.name)
+                      .join(' · ')
+                  : t('console.plugins.tiles.updatesNone')}
+              </span>
+            }
           />
           <StatTile
             label={t('console.plugins.tiles.highRisk')}
-            value={mockTiles.pluginHighRisk.value}
-            sub={<span className="mono dimmer">{mockTiles.pluginHighRisk.sub}</span>}
+            value={listed ? String(highRisk.length) : '—'}
+            na={!listed}
+            sub={
+              <span className="mono dimmer">
+                {highRisk.length
+                  ? highRisk[0].risk_reasons?.join(' · ') || highRisk[0].name
+                  : t('console.plugins.tiles.highRiskNone')}
+              </span>
+            }
           />
         </StatTileGrid>
       }

@@ -42,6 +42,13 @@ export interface Plugin {
   enabled?: boolean | null
   installation_id?: string | null
   installed_at?: string | null
+  /** Derived from the permissions the plugin declares, never stored. */
+  risk_level?: 'low' | 'medium' | 'high'
+  /** The declared scopes that produced the level. */
+  risk_reasons?: string[]
+  /** True when this installation is pinned behind the published version. */
+  update_available?: boolean
+  installed_version_id?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string

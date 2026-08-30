@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.runs.schemas import (
@@ -26,6 +28,7 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeQueryRequest,
     KnowledgeQueryResponse,
     KnowledgeResponse,
+    KnowledgeRetrievalSummary,
     KnowledgeUpdateRequest,
     KnowledgeUsageResponse,
     KnowledgeWorkbenchItemsResponse,
@@ -124,6 +127,22 @@ class KnowledgeHandlers:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
         return await self.service.get_workbench(limit=limit, offset=offset)
+
+    async def summarize_retrieval(
+        self,
+        ctx: RequestContext,
+        knowledge_id: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        score_threshold: float = 0.6,
+    ) -> KnowledgeRetrievalSummary:
+        return self.service.summarize_retrieval(
+            knowledge_id,
+            since=since,
+            until=until,
+            score_threshold=score_threshold,
+        )
 
     async def get_workbench_items(
         self,

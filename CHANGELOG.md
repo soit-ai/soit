@@ -40,6 +40,14 @@ record for operators.
   resolutions for a window.
 - `GET /runs/tools/invocations` counts governed tool invocations per tool from
   the cost ledger, busiest first.
+- `GET /knowledge/{id}/retrieval/summary` reports retrieval quality for a
+  window — hit rate against a stated score threshold, and how many queries
+  returned nothing. It reads the retrieval steps each query already writes, so
+  no query text is stored to produce it.
+- Plugin responses carry a `risk_level` with the declared scopes behind it, and
+  `update_available` when an installation is pinned behind the published
+  version. Both are derived from what the plugin declares and what is
+  installed, so neither can drift from the record it describes.
 - `GET /resource-grants` can be asked for a whole workspace: `resource_type` and
   `resource_id` are optional, and omitting the id lists every grant in scope.
   The access surface previously had to fan out one request per object.
