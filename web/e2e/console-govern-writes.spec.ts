@@ -161,3 +161,126 @@ test('policies can be edited and saved from the console', async ({ page }) => {
     llm_daily_quota: null,
   })
 })
+
+test('a policy revision can be compared and restored', async ({ page }) => {
+  let rollback: string | null = null
+
+  const revisions = [
+    {
+      id: 'pr_2',
+      scope: 'workspace',
+      scope_id: 'w_1',
+      revision: 2,
+      bundle_id: 'pb_2222222222222222',
+      document: {
+        egress_allowlist: ['docs.acme.io', 'api.acme.io'],
+        egress_blocklist: [],
+        llm_rate_limit_per_minute: 60,
+        tool_rate_limit_per_minute: null,
+        llm_daily_quota: null,
+        tool_daily_quota: null,
+      },
+      note: null,
+      restored_from_revision: null,
+      created_by: 'u_1',
+      created_at: NOW,
+      active: true,
+    },
+    {
+      id: 'pr_1',
+      scope: 'workspace',
+      scope_id: 'w_1',
+      revision: 1,
+      bundle_id: 'pb_1111111111111111',
+      document: {
+        egress_allowlist: ['docs.acme.io'],
+        egress_blocklist: [],
+        llm_rate_limit_per_minute: 60,
+        tool_rate_limit_per_minute: null,
+        llm_daily_quota: null,
+        tool_daily_quota: null,
+      },
+      note: null,
+      restored_from_revision: null,
+      created_by: 'u_1',
+      created_at: NOW,
+      active: false,
+    },
+  ]
+
+  await json(page, '**/api/v1/security/egress/workspace', {
+    scope: 'workspace',
+    allowlist: ['docs.acme.io', 'api.acme.io'],
+    blocklist: [],
+  })
+  await json(page, '**/api/v1/security/limits/workspace', {
+    llm_rate_limit_per_minute: 60,
+    tool_rate_limit_per_minute: null,
+    llm_daily_quota: null,
+    tool_daily_quota: null,
+  })
+  await json(page, '**/api/v1/security/policies/bundle**', {
+    scope: 'workspace',
+    scope_id: 'w_1',
+    bundle_id: 'pb_2222222222222222',
+    revision: 2,
+    document: revisions[0].document,
+    activated_at: NOW,
+    activated_by: 'u_1',
+  })
+  await json(page, '**/api/v1/security/policies/revisions?**', {
+    items: revisions,
+    next_page_token: null,
+    page_size: 25,
+  })
+  await json(page, '**/api/v1/security/policies/revisions/diff**', {
+    scope: 'workspace',
+    from_revision: 1,
+    to_revision: 2,
+    from_bundle_id: 'pb_1111111111111111',
+    to_bundle_id: 'pb_2222222222222222',
+    changes: [
+      {
+        field: 'egress_allowlist',
+        before: ['docs.acme.io'],
+        after: ['docs.acme.io', 'api.acme.io'],
+      },
+    ],
+  })
+  await page.route('**/api/v1/security/policies/revisions/pr_1/rollback', (route) => {
+    rollback = route.request().url()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        scope: 'workspace',
+        scope_id: 'w_1',
+        bundle_id: 'pb_1111111111111111',
+        revision: 3,
+        document: revisions[1].document,
+        activated_at: NOW,
+        activated_by: 'u_1',
+      }),
+    })
+  })
+
+  await page.goto('/govern/policies', { waitUntil: 'domcontentloaded' })
+  // The active-bundle tile reads the revision in force, not a fixture.
+  await expect(page.locator('.tile').filter({ hasText: 'Active bundle' })).toContainText('r2')
+
+  await page.getByRole('tab', { name: /^Revisions/ }).click()
+  const superseded = page.locator('.bundle').filter({ hasText: 'SUPERSEDED' })
+  await expect(superseded).toBeVisible()
+
+  // Selecting the newest revision shows what that save changed.
+  await page.locator('.bundle').filter({ hasText: 'r2' }).click()
+  await expect(page.getByText('egress_allowlist: docs.acme.io →')).toBeVisible()
+
+  await superseded.click()
+  await superseded.getByRole('button', { name: 'Restore' }).click()
+  await expect(page.getByRole('heading', { name: 'Restore this revision' })).toBeVisible()
+  await page.locator('.console-modal').getByRole('button', { name: 'Restore' }).click()
+
+  await expect.poll(() => rollback).not.toBeNull()
+  expect(rollback).toContain('/security/policies/revisions/pr_1/rollback')
+})

@@ -33,12 +33,16 @@ import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  diffPolicyRevisions,
   getEgressBlockSummary,
+  getPolicyBundle,
   getWorkspaceEgressPolicy,
   getWorkspaceUsagePolicy,
-  listEgressPolicyAudits,
+  listPolicyRevisions,
+  rollbackPolicyRevision,
   updateWorkspaceEgressPolicy,
   updateWorkspaceUsagePolicy,
+  type PolicyRevision,
 } from '@/services/security-service'
 import { listRunAudits } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
@@ -61,8 +65,23 @@ interface PolicyRuleRow {
   scope: string
 }
 
-// BACKEND-PENDING: bundles + staged diff have no server-side object — the
-// runtime carries a policy_ref string only. Egress and usage rules are live.
+/** How many limits a revision actually sets, which is what the row reports. */
+function limitCount(document: PolicyRevision['document']): number {
+  return [
+    document.llm_rate_limit_per_minute,
+    document.tool_rate_limit_per_minute,
+    document.llm_daily_quota,
+    document.tool_daily_quota,
+  ].filter((value) => value != null).length
+}
+
+/** A policy value as one line: a rule list joins, a limit prints, empty is "none". */
+function policyValue(value: unknown): string {
+  if (value == null) return 'none'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'none'
+  return String(value)
+}
+
 export default function ConsolePolicies() {
   const { t } = useTranslation()
   const [tab, setTab] = useState<PolicyTab>('rules')
@@ -97,10 +116,54 @@ export default function ConsolePolicies() {
   const evaluations = evaluationsQuery.data?.total ?? null
   const blocks = blocksQuery.data
 
-  const auditsQuery = useQuery({
-    queryKey: ['console', 'policies', 'audits'],
-    queryFn: () => listEgressPolicyAudits({ page_size: 20 }),
+  // The revision ledger is the history: every save appends one, and each
+  // carries the policy content, so the list and the diff read the same rows.
+  const revisionsQuery = useQuery({
+    queryKey: ['console', 'policies', 'revisions'],
+    queryFn: () => listPolicyRevisions({ page_size: 25 }),
     options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const bundleQuery = useQuery({
+    queryKey: ['console', 'policies', 'bundle'],
+    queryFn: () => getPolicyBundle(),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const revisions = revisionsQuery.data?.items || []
+
+  const [selected, setSelected] = useState<PolicyRevision | null>(null)
+  const [restoring, setRestoring] = useState<PolicyRevision | null>(null)
+
+  // A revision is compared with the one before it, which is the question a
+  // reviewer is actually asking: what did this save change?
+  const diffQuery = useQuery({
+    queryKey: ['console', 'policies', 'diff', selected?.revision ?? 0],
+    queryFn: () =>
+      diffPolicyRevisions({
+        from_revision: (selected?.revision ?? 1) - 1,
+        to_revision: selected?.revision ?? 1,
+      }),
+    options: {
+      enabled: !!selected && selected.revision > 1,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const rollbackMutation = useMutation<unknown, unknown, string>({
+    mutationKey: ['console', 'policies', 'rollback'],
+    mutationFn: (revisionId) => rollbackPolicyRevision(revisionId),
+    onSuccess: () => {
+      setRestoring(null)
+      setSelected(null)
+      void revisionsQuery.refetch()
+      void bundleQuery.refetch()
+      void egressQuery.refetch()
+      void usageQuery.refetch()
+      toast.success(t('console.policies.history.restored'))
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to restore the policy'))
+    },
   })
 
   const [editing, setEditing] = useState(false)
@@ -157,7 +220,8 @@ export default function ConsolePolicies() {
       setEditing(false)
       void egressQuery.refetch()
       void usageQuery.refetch()
-      void auditsQuery.refetch()
+      void revisionsQuery.refetch()
+      void bundleQuery.refetch()
     },
     onError: (error) => {
       toast.error(requestErrorMessage(error, 'Failed to save the policy'))
@@ -244,13 +308,25 @@ export default function ConsolePolicies() {
       }
       tiles={
         <StatTileGrid>
-          {/* Bundle identity has no backend object; the scope of the live
-              policy is the closest honest equivalent. */}
+          {/* The identifier is derived from the policy content, so it is the
+              same one recorded against every request the policy refuses. */}
           <StatTile
             label={t('console.policies.tiles.active')}
-            value={<span style={{ fontSize: 15 }}>{egressQuery.data?.scope || '—'}</span>}
-            na={!egressQuery.data}
-            sub={<span className="mono dimmer">policy scope in force</span>}
+            value={
+              <span style={{ fontSize: 15 }}>
+                {bundleQuery.data
+                  ? bundleQuery.data.revision > 0
+                    ? `r${bundleQuery.data.revision}`
+                    : bundleQuery.data.bundle_id.slice(3, 11)
+                  : '—'}
+              </span>
+            }
+            na={!bundleQuery.data}
+            sub={
+              <span className="mono dimmer">
+                {bundleQuery.data?.bundle_id || 'policy in force'}
+              </span>
+            }
           />
           <StatTile
             label={t('console.policies.tiles.rules')}
@@ -285,7 +361,11 @@ export default function ConsolePolicies() {
         <ConsoleTabs
           items={[
             { id: 'rules', label: t('console.policies.tabs.rules'), count: allRules.length },
-            { id: 'bundles', label: t('console.policies.tabs.bundles') },
+            {
+              id: 'bundles',
+              label: t('console.policies.tabs.bundles'),
+              count: revisions.length || undefined,
+            },
             { id: 'staged', label: t('console.policies.tabs.staged') },
           ]}
           value={tab}
@@ -367,35 +447,113 @@ export default function ConsolePolicies() {
         </WorkbenchPanel>
       )}
 
-      {/* Versioned bundles do not exist server-side. The egress audit trail is
-          the real record of how the policy in force has changed over time. */}
       {tab === 'bundles' && (
         <WorkbenchPanel
           className="mt-3.5"
           title={t('console.policies.bundlesTitle')}
           hint={t('console.policies.bundlesHint')}
         >
-          {auditsQuery.data?.items?.length ? (
-            auditsQuery.data.items.map((entry, index) => (
-              <a key={entry.id} className={cn('bundle', index === 0 && 'on')}>
+          {revisions.length ? (
+            revisions.map((entry) => (
+              <a
+                key={entry.id}
+                className={cn(
+                  'bundle',
+                  entry.active && 'on',
+                  selected?.id === entry.id && 'sel',
+                )}
+                onClick={() => setSelected(selected?.id === entry.id ? null : entry)}
+              >
                 <b>
-                  {entry.scope}{' '}
+                  r{entry.revision}{' '}
                   <StatusChip
-                    status={index === 0 ? 'published' : 'info'}
-                    label={index === 0 ? 'IN FORCE' : 'SUPERSEDED'}
+                    status={entry.active ? 'published' : 'info'}
+                    label={
+                      entry.active
+                        ? t('console.policies.history.inForce')
+                        : t('console.policies.history.superseded')
+                    }
                   />
+                  {entry.restored_from_revision != null && (
+                    <span className="mono dimmer" style={{ marginLeft: 6, fontSize: 10.5 }}>
+                      {t('console.policies.history.restoredFrom', {
+                        revision: entry.restored_from_revision,
+                      })}
+                    </span>
+                  )}
                 </b>
                 <small>
                   {relativeTime(entry.created_at)} · {entry.created_by || 'system'} ·{' '}
-                  {entry.allowlist.length} allowed · {entry.blocklist.length} blocked
+                  {t('console.policies.history.rules', {
+                    allowed: entry.document.egress_allowlist.length,
+                    blocked: entry.document.egress_blocklist.length,
+                    limits: limitCount(entry.document),
+                  })}{' '}
+                  · <span className="mono dimmer">{entry.bundle_id}</span>
                 </small>
+                {selected?.id === entry.id && (
+                  <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                    {entry.revision === 1 ? (
+                      <span className="mono dimmer" style={{ fontSize: 11 }}>
+                        {t('console.policies.history.firstRevision')}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="dim" style={{ fontSize: 11 }}>
+                          {t('console.policies.history.compare', {
+                            revision: entry.revision - 1,
+                          })}
+                        </span>
+                        {diffQuery.data?.changes.length ? (
+                          diffQuery.data.changes.map((change) => (
+                            <span
+                              key={change.field}
+                              className="mono"
+                              style={{ fontSize: 11 }}
+                            >
+                              {change.field}: {policyValue(change.before)} →{' '}
+                              {policyValue(change.after)}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="mono dimmer" style={{ fontSize: 11 }}>
+                            {t('console.policies.history.noChanges')}
+                          </span>
+                        )}
+                      </>
+                    )}
+                    {!entry.active && (
+                      <span>
+                        <ConsoleButton
+                          variant="ghost"
+                          style={{ height: 22, fontSize: 10.5 }}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setRestoring(entry)
+                          }}
+                        >
+                          {t('console.policies.history.restore')}
+                        </ConsoleButton>
+                      </span>
+                    )}
+                  </div>
+                )}
               </a>
             ))
           ) : (
             <DataStateNote
-              isPending={auditsQuery.isPending}
-              isError={auditsQuery.isError}
+              isPending={revisionsQuery.isPending}
+              isError={revisionsQuery.isError}
             />
+          )}
+          {/* A policy can be in force without matching any recorded revision:
+              a fresh install, or a change made outside the API. Saying so is
+              better than pointing at the newest row and being wrong. */}
+          {!!revisions.length && bundleQuery.data?.revision === 0 && (
+            <div className="empty-note" style={{ marginTop: 8 }}>
+              {t('console.policies.history.unrecorded')}
+              <span className="mono">{bundleQuery.data.bundle_id}</span>
+            </div>
           )}
         </WorkbenchPanel>
       )}
@@ -410,6 +568,24 @@ export default function ConsolePolicies() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <ConsoleModal
+        open={Boolean(restoring)}
+        onOpenChange={(open) => {
+          if (!open) setRestoring(null)
+        }}
+        title={t('console.policies.history.restoreTitle')}
+        note={t('console.policies.history.restoreNote')}
+        confirmLabel={t('console.policies.history.restore')}
+        busy={rollbackMutation.isPending}
+        onConfirm={() => restoring && rollbackMutation.mutate(restoring.id)}
+      >
+        <div className="mrow">
+          <span className="mono dim" style={{ fontSize: 12 }}>
+            r{restoring?.revision} · {restoring?.bundle_id}
+          </span>
+        </div>
+      </ConsoleModal>
 
       <ConsoleModal
         open={editing}

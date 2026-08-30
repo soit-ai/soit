@@ -13,7 +13,7 @@ import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
 import { getRunWindowSummary, listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
-import { getEgressBlockSummary } from '@/services/security-service'
+import { getEgressBlockSummary, getPolicyBundle } from '@/services/security-service'
 import { listSchedules } from '@/services/schedule-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
@@ -22,12 +22,22 @@ import { getWorkflowWorkbench } from '@/services/workflow-service'
 
 import { catColor, compactNumber, money, percent, relativeTime } from '../adapters/palette'
 import { useSubjectNames } from '../adapters/subject-names'
-import {
-  mockDraftReviews,
-  mockGovernAttention,
-  mockPanelCounts,
-} from '../mocks/panel'
+import { mockDraftReviews } from '../mocks/panel'
 import type { ConsoleCountKey, ConsolePillar, PanelSlot } from './panel-config'
+
+/**
+ * The side panel's policy figure.
+ *
+ * A revision number is what an operator recognises, so it wins when the live
+ * policy matches a recorded one. When it does not -- a fresh install, or a
+ * policy changed outside the API -- the content identifier is shown instead,
+ * because that is the identifier refusals are recorded against and it can
+ * still be looked up.
+ */
+function policyLabel(bundle?: { revision: number; bundle_id: string }): string | undefined {
+  if (!bundle) return undefined
+  return bundle.revision > 0 ? `r${bundle.revision}` : bundle.bundle_id.slice(3, 11)
+}
 
 /**
  * The prototype's side panel is not just links: each carries a live figure, and
@@ -256,6 +266,13 @@ export function useConsolePanelData(
       getEgressBlockSummary({ since: new Date(Date.now() - DAY_MS).toISOString() }),
     options: { ...SHARED, enabled: isGovern },
   })
+  // The identifier of the policy in force. Derived from the policy content,
+  // so it is the same identifier recorded on every request the policy refuses.
+  const policyBundle = useQuery({
+    queryKey: ['console', 'counts', 'policy-bundle'],
+    queryFn: () => getPolicyBundle(),
+    options: { ...SHARED, enabled: isGovern },
+  })
   // Personal shortcuts. Both are per-user and per-workspace, so they follow
   // the same cache rules as the rest of the panel.
   const savedViews = useQuery({
@@ -343,10 +360,7 @@ export function useConsolePanelData(
     traces: spanLabel(spanCount.data?.total),
     audit: windowLabel(auditCount.data?.total),
     access: grants.data?.length,
-    // A fixture, not a measurement: policy bundles are not versioned
-    // server-side, so there is no active-bundle identifier to read. It is a
-    // fallback, so shipping the API retires it on its own.
-    policies: isGovern ? mockPanelCounts.policies : undefined,
+    policies: policyLabel(policyBundle.data),
   }
 
   const groups: Partial<Record<PanelSlot, PanelRow[]>> = {}
@@ -560,7 +574,6 @@ export function useConsolePanelData(
         value: oldest ? relativeTime(oldest) : undefined,
         to: '/govern/approvals',
       },
-      ...mockGovernAttention.map((row) => ({ kind: 'note' as const, ...row })),
       // Only shown once something was actually refused: a "0 blocks" row would
       // take a slot to say nothing happened.
       !!egressBlocks.data?.total && {

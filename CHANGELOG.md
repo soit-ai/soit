@@ -115,6 +115,18 @@ record for operators.
   what. The last owner of a tenant is refused: ownership has to be handed over
   first. `ACCOUNT_DELETION_SWEEPER_ENABLED` closes due requests without an
   operator clicking, and is on in the production profile.
+- Governance policy is versioned. Every save of a workspace's or tenant's
+  egress rules and usage limits appends a revision carrying the whole policy,
+  `GET /security/policies/revisions` reads that history,
+  `/security/policies/revisions/diff` reports what one save changed, and
+  `/security/policies/revisions/{id}/rollback` puts an earlier one back by
+  appending it rather than rewinding the record.
+- A policy has a stable identifier derived from its content, read from
+  `GET /security/policies/bundle` and shown in the console. Identical rules
+  always produce the same identifier and reordering a rule list produces no new
+  one, so it can be cited. Outbound requests the policy refuses now record the
+  tenant and workspace identifiers they were refused by, so a refusal stays
+  readable after the rules have moved on.
 
 ### Changed
 

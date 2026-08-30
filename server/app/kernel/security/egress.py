@@ -28,12 +28,20 @@ two cannot drift apart on a string literal.
 
 @dataclass(frozen=True)
 class EgressScopePolicy:
-    """Tenant/workspace scoped egress policy lists."""
+    """Tenant/workspace scoped egress policy lists.
+
+    The bundle identifiers name the exact policy content these lists came from.
+    They are carried alongside the rules so a refusal can cite what refused it,
+    rather than a reader having to guess which version of the policy was live
+    at the time.
+    """
 
     tenant_allowlist: list[str] = field(default_factory=list)
     tenant_blocklist: list[str] = field(default_factory=list)
     workspace_allowlist: list[str] = field(default_factory=list)
     workspace_blocklist: list[str] = field(default_factory=list)
+    tenant_bundle_id: str | None = None
+    workspace_bundle_id: str | None = None
 
 
 class EgressScopePolicyProvider(Protocol):
@@ -75,6 +83,7 @@ class EgressBlockRecorder(Protocol):
         url: str | None,
         domain: str | None,
         reason: str,
+        bundles: dict[str, str | None] | None = None,
     ) -> None:
         """Persist one refusal. Must not raise: the refusal itself is the point."""
 
@@ -104,6 +113,7 @@ def record_egress_block(
     url: str | None,
     domain: str | None,
     reason: str,
+    bundles: dict[str, str | None] | None = None,
 ) -> None:
     """Record a refused outbound request, if a sink is registered.
 
@@ -121,6 +131,7 @@ def record_egress_block(
             url=url,
             domain=domain,
             reason=reason,
+            bundles=bundles,
         )
     except Exception:
         logger.warning("Failed to record an egress block", exc_info=True)
@@ -353,6 +364,13 @@ def check_egress_policy(
     workspace_allowlist: list[str] | None = None
     workspace_blocklist: list[str] | None = None
 
+    # A decision made against no recorded policy still says so, rather than
+    # citing an identifier that does not exist.
+    bundles: dict[str, str | None] = {
+        "tenant_bundle_id": None,
+        "workspace_bundle_id": None,
+    }
+
     provider = get_egress_scope_policy_provider()
     if provider is not None:
         try:
@@ -361,6 +379,10 @@ def check_egress_policy(
             tenant_blocklist = list(scope_policy.tenant_blocklist or [])
             workspace_allowlist = list(scope_policy.workspace_allowlist or [])
             workspace_blocklist = list(scope_policy.workspace_blocklist or [])
+            bundles = {
+                "tenant_bundle_id": scope_policy.tenant_bundle_id,
+                "workspace_bundle_id": scope_policy.workspace_bundle_id,
+            }
         except Exception as exc:
             record_egress_block(
                 ctx,
@@ -385,6 +407,7 @@ def check_egress_policy(
                     url=str(url),
                     domain=domain,
                     reason="tenant_blocklist",
+                    bundles=bundles,
                 )
                 raise ForbiddenError(
                     f"Egress to {domain} is blocked by tenant policy",
@@ -403,6 +426,7 @@ def check_egress_policy(
                     url=str(url),
                     domain=domain,
                     reason="workspace_blocklist",
+                    bundles=bundles,
                 )
                 raise ForbiddenError(
                     f"Egress to {domain} is blocked by workspace policy",
@@ -428,6 +452,7 @@ def check_egress_policy(
             url=str(url),
             domain=domain,
             reason="not_allowlisted",
+            bundles=bundles,
         )
         raise ForbiddenError(
             f"Egress to {domain} is not allowed by policy",

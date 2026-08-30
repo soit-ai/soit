@@ -238,14 +238,42 @@ test('side panel counts team and API keys from their real services', async ({ pa
   await expect(page.locator('.subnav .sl', { hasText: 'API keys' }).locator('.ct')).toHaveText('3')
 })
 
-test('side panel shows the prototype figure that has no endpoint yet', async ({ page }) => {
+test('the policies figure names the revision in force', async ({ page }) => {
+  await json(page, '**/api/v1/security/policies/bundle**', {
+    scope: 'workspace',
+    scope_id: 'w_1',
+    bundle_id: 'pb_abcdef0123456789',
+    revision: 7,
+    document: { egress_allowlist: [], egress_blocklist: [] },
+    activated_at: '2026-08-29T13:00:00Z',
+    activated_by: 'u_1',
+  })
+
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  // A fixture until policy bundles are versioned: there is no active-bundle
-  // identifier to read.
   const figure = (label: string) =>
     page.locator('.subnav .sl', { hasText: label }).locator('.ct')
-  await expect(figure('Policies')).toHaveText('v08.27-2')
+  await expect(figure('Policies')).toHaveText('r7')
+})
+
+test('the policies figure falls back to the content identifier', async ({ page }) => {
+  // A policy in force that matches no recorded revision still has an
+  // identifier, and it is the one refusals are recorded against.
+  await json(page, '**/api/v1/security/policies/bundle**', {
+    scope: 'workspace',
+    scope_id: 'w_1',
+    bundle_id: 'pb_abcdef0123456789',
+    revision: 0,
+    document: { egress_allowlist: [], egress_blocklist: [] },
+    activated_at: null,
+    activated_by: null,
+  })
+
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+
+  await expect(
+    page.locator('.subnav .sl', { hasText: 'Policies' }).locator('.ct'),
+  ).toHaveText('abcdef01')
 })
 
 test('the access figure counts the workspace grants the server returned', async ({ page }) => {

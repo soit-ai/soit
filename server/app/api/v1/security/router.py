@@ -22,6 +22,10 @@ from app.modules.security.application.schemas import (
     EgressPolicyAuditResponse,
     EgressPolicyResponse,
     EgressPolicyUpdate,
+    PolicyBundleResponse,
+    PolicyRevisionDiff,
+    PolicyRevisionResponse,
+    PolicyRollbackRequest,
     UsagePolicyResponse,
     UsagePolicyUpdate,
 )
@@ -98,6 +102,65 @@ async def summarize_egress_blocks(
     """
     handlers = SecurityHandlers(service)
     return await handlers.summarize_egress_blocks(ctx, since=since, until=until)
+
+
+@router.get("/policies/bundle", response_model=PolicyBundleResponse)
+async def get_policy_bundle(
+    scope: str = "workspace",
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SecurityService = Depends(get_security_service),
+):
+    """Return the identifier of the policy a call would be evaluated against.
+
+    The same identifier is recorded on refused outbound requests, so evidence
+    can be matched to the rules that produced it.
+    """
+    handlers = SecurityHandlers(service)
+    return await handlers.get_policy_bundle(ctx, scope)
+
+
+@router.get("/policies/revisions", response_model=PaginatedResponse[PolicyRevisionResponse])
+async def list_policy_revisions(
+    scope: str = "workspace",
+    page_token: str | None = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SecurityService = Depends(get_security_service),
+):
+    """List a scope's policy activation history, newest first."""
+    handlers = SecurityHandlers(service)
+    return await handlers.list_policy_revisions(ctx, scope, page_token, page_size)
+
+
+@router.get("/policies/revisions/diff", response_model=PolicyRevisionDiff)
+async def diff_policy_revisions(
+    from_revision: int,
+    to_revision: int,
+    scope: str = "workspace",
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: SecurityService = Depends(get_security_service),
+):
+    """Report what changed between two revisions of one scope."""
+    handlers = SecurityHandlers(service)
+    return await handlers.diff_policy_revisions(ctx, scope, from_revision, to_revision)
+
+
+@router.post("/policies/revisions/{revision_id}/rollback", response_model=PolicyBundleResponse)
+async def rollback_policy_revision(
+    revision_id: str,
+    data: PolicyRollbackRequest | None = None,
+    ctx: RequestContext = Depends(require_workspace_governance_ctx),
+    service: SecurityService = Depends(get_security_service),
+):
+    """Put an earlier revision's policy back in force.
+
+    Restoring is itself a policy change: it needs the same authority as making
+    one, and it appends to the history rather than rewinding it.
+    """
+    handlers = SecurityHandlers(service)
+    return await handlers.rollback_policy_revision(
+        ctx, revision_id, data.note if data else None
+    )
 
 
 @router.get("/limits/tenant", response_model=UsagePolicyResponse)

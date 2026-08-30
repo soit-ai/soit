@@ -57,6 +57,7 @@ class IdentityEgressScopePolicyProvider:
             TenantRepository,
             WorkspaceRepository,
         )
+        from app.modules.security.application.service import SecurityService
 
         db = get_db_sync()
         try:
@@ -67,6 +68,10 @@ class IdentityEgressScopePolicyProvider:
                 tenant_blocklist=list((tenant.egress_blocklist if tenant else None) or []),
                 workspace_allowlist=list((workspace.egress_allowlist if workspace else None) or []),
                 workspace_blocklist=list((workspace.egress_blocklist if workspace else None) or []),
+                # Derived from the same read that produced the rules, so the
+                # identifier and the rules cannot disagree about what was live.
+                tenant_bundle_id=SecurityService.bundle_id_for(tenant),
+                workspace_bundle_id=SecurityService.bundle_id_for(workspace),
             )
         finally:
             db.close()
@@ -92,6 +97,7 @@ class AuditEgressBlockRecorder:
         url: str | None,
         domain: str | None,
         reason: str,
+        bundles: dict[str, str | None] | None = None,
     ) -> None:
         from app.infra.db.session import get_db_sync
         from app.kernel.runtime.db.models.audit import AuditEvent
@@ -116,6 +122,9 @@ class AuditEgressBlockRecorder:
                         "url": url,
                         "domain": domain,
                         "reason": reason,
+                        # Which policy said no, so the refusal can be read
+                        # again after the policy has moved on.
+                        **(bundles or {}),
                     },
                 )
             )

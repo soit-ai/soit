@@ -12,6 +12,10 @@ from app.modules.security.application.schemas import (
     EgressPolicyAuditResponse,
     EgressPolicyResponse,
     EgressPolicyUpdate,
+    PolicyBundleResponse,
+    PolicyDocument,
+    PolicyRevisionDiff,
+    PolicyRevisionResponse,
     UsagePolicyResponse,
     UsagePolicyUpdate,
 )
@@ -114,6 +118,79 @@ class SecurityHandlers:
             has_next=has_next,
             next_offset=next_offset,
         )
+
+    # ------------------------------------------------------------------
+    # Policy revisions
+    # ------------------------------------------------------------------
+
+    async def get_policy_bundle(
+        self,
+        ctx: RequestContext,
+        scope: str,
+    ) -> PolicyBundleResponse:
+        """Return the identifier of the policy currently in force."""
+        return self.service.active_bundle(scope)
+
+    async def list_policy_revisions(
+        self,
+        ctx: RequestContext,
+        scope: str,
+        page_token: str | None,
+        page_size: int,
+    ) -> PaginatedResponse[PolicyRevisionResponse]:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        revisions, active_bundle_id = self.service.list_revisions(
+            scope, limit=limit + 1, offset=offset
+        )
+        has_next = len(revisions) > limit
+        revisions = revisions[:limit]
+        items = [
+            PolicyRevisionResponse(
+                id=revision.id,
+                scope=revision.scope,
+                scope_id=revision.scope_id,
+                revision=revision.revision,
+                bundle_id=revision.bundle_id,
+                document=PolicyDocument(**(revision.document_json or {})),
+                note=revision.note,
+                restored_from_revision=revision.restored_from_revision,
+                created_by=revision.created_by,
+                created_at=revision.created_at,
+                # Several revisions can carry the same content; the newest of
+                # them is the one in force, and the rest are history.
+                active=(
+                    revision.bundle_id == active_bundle_id
+                    and revision.revision == max(row.revision for row in revisions)
+                ),
+            )
+            for revision in revisions
+        ]
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=offset + len(revisions) if has_next else None,
+        )
+
+    async def diff_policy_revisions(
+        self,
+        ctx: RequestContext,
+        scope: str,
+        from_revision: int,
+        to_revision: int,
+    ) -> PolicyRevisionDiff:
+        return self.service.diff_revisions(
+            scope, from_revision=from_revision, to_revision=to_revision
+        )
+
+    async def rollback_policy_revision(
+        self,
+        ctx: RequestContext,
+        revision_id: str,
+        note: str | None,
+    ) -> PolicyBundleResponse:
+        return self.service.rollback_to_revision(revision_id, note=note)
 
     async def get_tenant_usage_policy(
         self,
