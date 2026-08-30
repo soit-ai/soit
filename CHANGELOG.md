@@ -52,6 +52,12 @@ record for operators.
   builds could not be reached: canonical `model:test:*` references were
   rejected for having no workspace route, which no in-process provider can
   have.
+- The page canvas stayed light under a dark console. The console's theme class
+  is scoped to its own container, and the document element was still owned by
+  the pre-rebuild provider, which defaulted to light. The console shell fills
+  the viewport and hid it; the sign-in and sign-up screens scroll, so a light
+  band showed around them. Native scrollbars and form controls now follow the
+  theme as well.
 
 ## [1.0.0] - 2026-08-05
 

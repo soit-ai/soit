@@ -5,6 +5,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
  * a container-level `.dark` class on the console root (app.css declares the
  * dark variant as an ancestor-class selector, so scoping works). The console
  * defaults to dark.
+ *
+ * The container class alone does not reach the page canvas, which `app.css`
+ * paints from `body` and `.dark body`, so the theme is mirrored onto the
+ * document element as well. This provider is the only writer of that class:
+ * the pre-rebuild `ThemeProvider` that used to own it defaulted to light and
+ * knew nothing about the console's choice.
  */
 export type ConsoleTheme = 'dark' | 'light'
 
@@ -42,6 +48,19 @@ export function ConsoleThemeProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     window.localStorage.setItem(CONSOLE_THEME_STORAGE_KEY, theme)
+  }, [theme])
+
+  // The canvas is everything the page's own boxes do not cover: the area above
+  // and below a scrolling layout, and the browser's overscroll. Leaving it on
+  // the light default put a light band around a dark console -- visible on the
+  // auth screens, which scroll, and never on the shell, which fills the
+  // viewport. `color-scheme` carries the same choice to native scrollbars and
+  // form controls.
+  useEffect(() => {
+    const root = window.document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(theme)
+    root.style.colorScheme = theme
   }, [theme])
 
   const setTheme = useCallback((next: ConsoleTheme) => setThemeState(next), [])
