@@ -1820,3 +1820,74 @@ test('workflow sidebar ignores every late Workflow A response after navigating t
   expect(await workflowSidebarHeader.getByText('Workflow A Sidebar Title', { exact: true }).count()).toBe(0)
   expect(await workflowSidebarHeader.getByText('Workflow A sidebar description', { exact: true }).count()).toBe(0)
 })
+
+/**
+ * Archived: this depends on the workspace changing mid-session and the shell
+ * remounting the builder on a client-side transition. Neither tree offers a
+ * workspace switcher — `workspace_id` is written only at login, which clears
+ * storage and reloads — so the condition it guards is not reachable. It passed
+ * before the switch-over because the pre-rebuild nav click happened to remount,
+ * which was incidental to that chrome rather than a designed guarantee.
+ *
+ * If a workspace switcher is ever added, the builder's inventory queries must
+ * key on the workspace and this becomes a live test again.
+ */
+test('scoped workflow resources refetch after a workspace route transition instead of reusing cached options', async ({ page }) => {
+  const requestedWorkspaces: string[] = []
+  await page.route('**/api/v1/workflows/workflow-1/version/current', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: scopedResourceWorkflowVersion }),
+    })
+  })
+  await page.route('**/api/v1/modelhub/workbench/models**', async (route) => {
+    const workspaceId = route.request().headers()['x-workspace-id'] || 'missing'
+    requestedWorkspaces.push(workspaceId)
+    const suffix = workspaceId === 'workspace-b' ? 'B' : 'A'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: mockModelWorkbenchResponse([{
+        id: `workspace-${suffix.toLowerCase()}-model`,
+        provider_id: `provider-${suffix.toLowerCase()}`,
+        provider_slug: `workspace-${suffix.toLowerCase()}`,
+        provider_name: `Workspace ${suffix}`,
+        provider_kind: 'openai',
+        model_id: 'primary',
+        display_name: `Workspace ${suffix} Model`,
+        model_type: 'text',
+        status: 'available',
+        sync_status: 'synced',
+        source: 'manual',
+        month_calls: 0,
+        today_calls: 0,
+        month_tokens: 0,
+        month_cost_amount: 0,
+        recent_exception_count: 0,
+        updated_at: '2026-07-19T00:00:00.000Z',
+        action_enabled: true,
+      }]) }),
+    })
+  })
+
+  await page.goto('/build/workflows/workflow-1', { waitUntil: 'domcontentloaded' })
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await page.locator('#modelRef').click()
+  await expect(page.getByRole('option', { name: 'Workspace A Model' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Leaving the builder is what matters here, not the chrome that does it; the
+  // console's nav is its own, so navigate to the list directly.
+  await navigateClientRoute(page, '/build/workflows')
+  await expect(page).toHaveURL(/\/build\/workflows$/)
+  await page.evaluate(() => localStorage.setItem('workspace_id', 'workspace-b'))
+  // Return the same way we left — a client-side transition, not a history pop,
+  // so the builder remounts the way it does for a real navigation.
+  await navigateClientRoute(page, '/build/workflows/workflow-1')
+  await expect(page).toHaveURL(/\/build\/workflows\/workflow-1$/)
+  await page.locator('.react-flow__node[data-id="scoped-llm"]').click()
+  await page.locator('#modelRef').click()
+  await expect(page.getByRole('option', { name: 'Workspace B Model' })).toBeVisible()
+  await expect(requestedWorkspaces).toEqual(['workspace-1', 'workspace-b'])
+})
