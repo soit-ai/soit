@@ -70,11 +70,11 @@ export async function signUpFreshWorkspace(page: Page): Promise<{
 
   await page.goto('/sign-up', { waitUntil: 'domcontentloaded' })
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Name', { exact: true }).fill('Real Backend E2E')
-  await page.getByLabel('Tenant Name (optional)').fill(`E2E ${suffix}`)
+  await page.getByLabel('Your name').fill('Real Backend E2E')
+  await page.getByLabel('Organisation').fill(`E2E ${suffix}`)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByLabel('Confirm Password').fill(password)
-  await page.getByRole('button', { name: 'Sign up' }).click()
+  await page.getByRole('button', { name: 'Create workspace' }).click()
   await expect(page).toHaveURL(new URL('/', webBaseURL).toString())
 
   return { suffix, email }

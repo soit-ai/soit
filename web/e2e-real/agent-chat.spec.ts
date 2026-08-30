@@ -25,6 +25,14 @@ test('a chat message streams back and survives a reload from the thread ledger',
 
   await page.goto(`/chat/${agentId}`, { waitUntil: 'domcontentloaded' })
 
+  // A fresh workspace has no threads, and the console mounts the conversation
+  // only once one is open -- so the first turn starts by creating it, the same
+  // way a new user's does. Leaving the agent field blank binds the URL's agent.
+  await page.getByRole('button', { name: 'New thread' }).click()
+  const threadModal = page.locator('.console-modal')
+  await threadModal.locator('input.input').first().fill(`E2E thread ${suffix}`)
+  await threadModal.getByRole('button', { name: 'Create' }).click()
+
   // The deterministic test model echoes the last user message, so a unique
   // marker distinguishes the assistant's reply from any static copy.
   const marker = `Prove the chat surface reaches the real runtime ${suffix}`

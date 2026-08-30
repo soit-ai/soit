@@ -47,8 +47,8 @@ test('an executed agent leaves queryable run evidence', async ({ page, request }
   expect(listed.items.some((item) => item.id === run.run_id)).toBe(true)
 
   await page.goto(`/observe/runs/${run.run_id}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Steps', { exact: true })).toBeVisible()
-  await expect(page.getByText('Cost Summary', { exact: true })).toBeVisible()
+  await expect(page.getByText('Step ledger', { exact: true })).toBeVisible()
+  await expect(page.getByText('Cost breakdown', { exact: true })).toBeVisible()
 })
 
 test('the dead letter view answers on an empty workspace', async ({ page, request }) => {

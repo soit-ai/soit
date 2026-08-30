@@ -49,11 +49,11 @@ test('fresh browser workspace completes real create, publish, execute, and obser
 
   await page.goto('/sign-up', { waitUntil: 'domcontentloaded' })
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Name', { exact: true }).fill('Full Stack Release')
-  await page.getByLabel('Tenant Name (optional)').fill(`Release ${suffix}`)
+  await page.getByLabel('Your name').fill('Full Stack Release')
+  await page.getByLabel('Organisation').fill(`Release ${suffix}`)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByLabel('Confirm Password').fill(password)
-  await page.getByRole('button', { name: 'Sign up' }).click()
+  await page.getByRole('button', { name: 'Create workspace' }).click()
   await expect(page).toHaveURL(new URL('/', webBaseURL).toString())
 
   const headers = await authHeaders(page)
@@ -65,42 +65,42 @@ test('fresh browser workspace completes real create, publish, execute, and obser
   }>
   expect(currentUser.data.email).toBe(email)
 
+  // The console creates a knowledge base from its own page, not a dialog: the
+  // wizard carries source, chunking and schedule choices the create payload
+  // folds into settings_json.
   const knowledgeName = `Release knowledge ${suffix}`
-  await page.goto('/knowledge', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: 'Create Knowledge Base' }).click()
-  await page.getByLabel('Name').fill(knowledgeName)
-  await page.getByLabel('Description').fill('Created through a real browser and PostgreSQL backend')
+  await page.goto('/build/knowledge/new', { waitUntil: 'domcontentloaded' })
+  await page.getByPlaceholder('product-docs').fill(knowledgeName)
   const knowledgeResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/api/v1/knowledge'),
   )
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Create Knowledge Base' })
-    .click()
+  await page.getByRole('button', { name: 'Create library' }).click()
   const knowledgeResponse = await knowledgeResponsePromise
   expect(knowledgeResponse.status()).toBe(201)
   const knowledge = (await knowledgeResponse.json()) as Envelope<{ id: string; name: string }>
-  await expect(page).toHaveURL(new RegExp(`/knowledge/${knowledge.data.id}$`))
-  await expect(page.getByText(knowledgeName, { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/build/knowledge/${knowledge.data.id}$`))
+  await expect(page.getByText(knowledgeName, { exact: true }).first()).toBeVisible()
 
   const agentName = `Release agent ${suffix}`
-  await page.goto('/agents', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: 'Create Agent' }).click()
-  const agentDialog = page.getByRole('dialog', { name: 'Create Agent' })
-  await agentDialog.getByPlaceholder('Agent name').fill(agentName)
-  await agentDialog.getByPlaceholder('Short description').fill('Real full-stack agent')
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'New agent' }).click()
+  const agentModal = page.locator('.console-modal')
+  await expect(agentModal.getByRole('heading', { name: 'New agent' })).toBeVisible()
+  await agentModal.locator('input.input').first().fill(agentName)
+  await agentModal.locator('input.input').nth(1).fill('Real full-stack agent')
   const agentResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/api/v1/agents'),
   )
-  await agentDialog.getByRole('button', { name: 'Create' }).click()
+  await agentModal.getByRole('button', { name: 'Create' }).click()
   const agentResponse = await agentResponsePromise
   expect(agentResponse.status()).toBe(201)
   const agent = (await agentResponse.json()) as Envelope<{ id: string }>
-  await expect(page.getByText(agentName, { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/build/agents/${agent.data.id}$`))
+  await expect(page.getByText(agentName, { exact: true }).first()).toBeVisible()
 
   const version = await postData<{ id: string }>(
     request,
@@ -135,23 +135,24 @@ test('fresh browser workspace completes real create, publish, execute, and obser
   await page.goto(`/observe/runs/${agentRun.run_id}`, {
     waitUntil: 'domcontentloaded',
   })
-  await expect(page.getByText('Steps', { exact: true })).toBeVisible()
-  await expect(page.getByText('Cost Summary', { exact: true })).toBeVisible()
+  await expect(page.getByText('Step ledger', { exact: true })).toBeVisible()
+  await expect(page.getByText('Cost breakdown', { exact: true })).toBeVisible()
 
-  await page.goto('/workflow', { waitUntil: 'domcontentloaded' })
+  // A workflow starts from a named draft and a template, so the builder opens
+  // on a real id rather than on `new`.
+  await page.goto('/build/workflows/new', { waitUntil: 'domcontentloaded' })
+  await page.getByPlaceholder('my-workflow').fill(`release-flow-${suffix}`)
   const workflowResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/api/v1/workflows'),
   )
-  await page.getByRole('button', { name: 'Create Workflow' }).click()
+  await page.getByRole('button', { name: 'Use template' }).first().click()
   const workflowResponse = await workflowResponsePromise
   expect(workflowResponse.status()).toBe(201)
   const workflow = (await workflowResponse.json()) as Envelope<{ id: string }>
-  await expect(page).toHaveURL(
-    new RegExp(`/workflow/${workflow.data.id}/build$`),
-  )
-  await expect(page).not.toHaveURL(/\/workflow\/new\/build$/)
+  await expect(page).toHaveURL(new RegExp(`/build/workflows/${workflow.data.id}$`))
+  await expect(page).not.toHaveURL(/\/build\/workflows\/new$/)
 
   const workflowVersion = await postData<{ id: string }>(
     request,

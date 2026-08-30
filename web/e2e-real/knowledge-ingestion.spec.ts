@@ -16,9 +16,14 @@ test('an uploaded document is ingested by the worker and becomes queryable', asy
   const { suffix } = await signUpFreshWorkspace(page)
   const headers = await authHeaders(page)
 
+  // Binding an embedding model is what gives the base its index. Without one
+  // the upload is still accepted and the worker still runs, but every document
+  // ends at `failed: Knowledge has no index configured` -- so a base created
+  // without it cannot prove ingestion at all.
   const knowledge = await postData<{ id: string }>(request, '/knowledge', headers, {
     name: `E2E knowledge ${suffix}`,
     description: 'Real backend ingestion',
+    default_embedding_model_ref: `model:test:embed-${suffix}`,
   })
 
   const uploaded = await request.post(
@@ -71,9 +76,10 @@ test('an uploaded document is ingested by the worker and becomes queryable', asy
     `/knowledge/${knowledge.id}/documents/${documentId}`,
     headers,
   )
-  // A document stuck in "queued" is the failure this suite exists to catch:
-  // it is what a worker that silently stopped looks like from outside.
-  expect(document.status).not.toBe('queued')
+  // `indexed` is the only outcome that means ingestion worked. Accepting
+  // `failed` as well -- which this once did, to catch a document stuck in
+  // "queued" -- let a pipeline that failed every document pass as green.
+  expect(document.status).toBe('indexed')
 })
 
 test('a knowledge base starts empty and reports no documents', async ({ page, request }) => {
