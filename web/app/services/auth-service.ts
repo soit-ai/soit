@@ -71,6 +71,36 @@ export const authCompleteMfaLogin = (
   return post<TokenResponse>(`/login/mfa`, { mfa_token: mfaToken, code }, quiet)
 }
 
+export interface AccountDeletionRequest {
+  id: string
+  status: string
+  reason?: string | null
+  requested_at: string
+  /** When the pause ends. Until then the request can be withdrawn. */
+  execute_after: string
+  cancelled_at?: string | null
+  executed_at?: string | null
+}
+
+export const getAccountDeletionRequest = (
+  config?: RequestConfigWithToast,
+): Promise<AccountDeletionRequest | null> => {
+  return get<AccountDeletionRequest | null>(`/me/deletion-request`, undefined, config)
+}
+
+export const requestAccountDeletion = (
+  reason: string | undefined,
+  config?: RequestConfigWithToast,
+): Promise<AccountDeletionRequest> => {
+  return post<AccountDeletionRequest>(`/me/deletion-request`, { reason }, config)
+}
+
+export const cancelAccountDeletion = (
+  config?: RequestConfigWithToast,
+): Promise<AccountDeletionRequest> => {
+  return del<AccountDeletionRequest>(`/me/deletion-request`, undefined, config)
+}
+
 export const getMfaStatus = (config?: RequestConfigWithToast): Promise<MfaStatus> => {
   return get<MfaStatus>(`/me/mfa`, undefined, config)
 }

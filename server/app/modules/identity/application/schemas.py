@@ -177,6 +177,26 @@ class MyWorkspaceResponse(BaseModel):
     created_at: datetime
 
 
+class AccountDeletionRequestCreate(BaseModel):
+    """Why the account is being closed. Optional, and kept for the audit."""
+
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class AccountDeletionRequestResponse(BaseModel):
+    """A pending closure and when it takes effect."""
+
+    id: str
+    status: str
+    reason: str | None = None
+    requested_at: datetime
+    execute_after: datetime
+    cancelled_at: datetime | None = None
+    executed_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class MfaStatusResponse(BaseModel):
     """Whether a second factor is set up, and how much of it is left."""
 

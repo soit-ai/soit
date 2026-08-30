@@ -43,6 +43,7 @@ x-server-environment: &server_environment
   RESPONSE_INTERACTION_INLINE_EXECUTION: "false"
   RESPONSE_INTERACTION_WORKER_ENABLED: "true"
   WORKFLOW_ORPHAN_REAPER_ENABLED: "true"
+  ACCOUNT_DELETION_SWEEPER_ENABLED: "true"
   # The dispatcher runs as its own service below, so the API must not also run one.
   OUTBOX_DISPATCHER_ENABLED: "false"
 

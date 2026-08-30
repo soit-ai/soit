@@ -37,6 +37,11 @@ def generate_user_session_id() -> str:
     return f"ses_{generate_ulid()}"
 
 
+def generate_deletion_request_id() -> str:
+    """Generate account deletion request ID."""
+    return f"adr_{generate_ulid()}"
+
+
 def generate_user_mfa_id() -> str:
     """Generate MFA enrolment ID."""
     return f"mfa_{generate_ulid()}"
@@ -497,6 +502,51 @@ class UserMfa(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
     last_used_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AccountDeletionRequest(SQLModel, table=True):
+    """A person asking for their account to be closed, and the pause before it is.
+
+    The pause is the point: a closure asked for in anger or by someone who got
+    hold of a live session can be undone until it is due. Nothing is deleted
+    while a request is pending.
+
+    Closing an account does not erase what it did. Runs, audits and approvals
+    carry the user id because they are evidence of who authorised what, and a
+    platform that let a departing account rewrite that record would be no use
+    as an audit trail. Closure removes access; it does not remove history.
+    """
+
+    __tablename__ = "account_deletion_requests"
+    __table_args__ = (
+        Index("ix_account_deletion_requests_due", "status", "execute_after"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_deletion_request_id)
+    user_id: str = Field(index=True)
+    tenant_id: str = Field(index=True)
+
+    status: str = Field(default="pending", index=True)
+    """pending, cancelled or executed."""
+
+    reason: str | None = Field(default=None, nullable=True, max_length=512)
+
+    requested_at: datetime = Field(default_factory=utc_now)
+    execute_after: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+    )
+    """When the pause ends. Until then the request can be withdrawn."""
+
+    cancelled_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    executed_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )

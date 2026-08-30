@@ -510,3 +510,41 @@ test('the workspace two-factor policy offers only what the server can enforce', 
   await policy.selectOption('required')
   await expect.poll(() => patched).toEqual({ require_mfa: true })
 })
+
+test('closing an account is a request with a pause, not a delete button', async ({ page }) => {
+  let pending: unknown = null
+  let requested: unknown = null
+  await page.route('**/api/v1/me/deletion-request', async (route) => {
+    const method = route.request().method()
+    if (method === 'POST') {
+      requested = JSON.parse(route.request().postData() || '{}')
+      pending = {
+        id: 'adr_1',
+        status: 'pending',
+        reason: (requested as { reason?: string }).reason ?? null,
+        requested_at: NOW,
+        execute_after: '2026-09-06T13:00:00Z',
+      }
+    }
+    if (method === 'DELETE') {
+      pending = null
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok(pending),
+    })
+  })
+
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Request deletion…' }).click()
+  await page.locator('#closure-reason').fill('moving on')
+  await page.getByRole('button', { name: 'Request closure' }).click()
+
+  await expect.poll(() => requested).toEqual({ reason: 'moving on' })
+  // Nothing is gone: the row now says when it takes effect and offers a way back.
+  const row = page.locator('.frow', { hasText: 'Delete account' })
+  await expect(row).toContainText('unless you withdraw it')
+  await row.getByRole('button', { name: 'Keep my account' }).click()
+  await expect(row.getByRole('button', { name: 'Request deletion…' })).toBeVisible()
+})

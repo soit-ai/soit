@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 14
     """How long a session can be renewed before the user signs in again."""
 
+    account_deletion_grace_days: int = 7
+    """How long a closure request can be withdrawn before it takes effect."""
+
+    account_deletion_sweeper_enabled: bool = False
+    """Close accounts whose pause has elapsed, without an operator clicking.
+
+    Off by default so a self-hosted deployment does not start closing accounts
+    on a timer nobody knew was running. Production turns it on.
+    """
+
+    account_deletion_sweeper_interval: float = 3600.0
+    """Seconds between sweeps. A closure is due within a day, not a second."""
+
     # Milvus
     milvus_host: str = "localhost"
     """Milvus host."""

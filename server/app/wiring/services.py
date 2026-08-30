@@ -40,6 +40,7 @@ from app.modules.evaluation.application.service import RegressionEvaluationServi
 # Identity
 from app.modules.identity.application.service import IdentityService
 from app.modules.identity.infra.repository import (
+    AccountDeletionRequestRepository,
     ApiKeyRepository,
     PinnedObjectRepository,
     ResourceGrantRepository,
@@ -214,6 +215,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
     api_key_repo = ApiKeyRepository(db)
     session_repo = UserSessionRepository(db)
     mfa_repo = UserMfaRepository(db)
+    deletion_repo = AccountDeletionRequestRepository(db)
 
     def workspace_repo_factory(ctx: RequestContext) -> WorkspaceRepository:
         return WorkspaceRepository(db, ctx)
@@ -236,6 +238,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
         saved_view_repo_factory=saved_view_repo_factory,
         pin_repo_factory=pin_repo_factory,
         mfa_repo=mfa_repo,
+        deletion_repo=deletion_repo,
         jwt_manager=jwt_manager,
         user_repo=user_repo,
         tenant_repo=tenant_repo,

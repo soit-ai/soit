@@ -32,6 +32,7 @@ from app.kernel.identity.rbac import (
 )
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.identity.application.ports import (
+    AccountDeletionRequestRepositoryPort,
     ApiKeyRepositoryPort,
     PinnedObjectRepositoryPort,
     ResourceGrantRepositoryPort,
@@ -59,6 +60,7 @@ from app.modules.identity.application.schemas import (
     WorkspaceUpdate,
 )
 from app.modules.identity.domain.models import (
+    AccountDeletionRequest,
     ApiKey,
     PinnedObject,
     ResourceGrant,
@@ -113,6 +115,7 @@ class IdentityService:
         saved_view_repo_factory: Callable[[RequestContext], SavedViewRepositoryPort],
         pin_repo_factory: Callable[[RequestContext], PinnedObjectRepositoryPort],
         mfa_repo: UserMfaRepositoryPort,
+        deletion_repo: AccountDeletionRequestRepositoryPort,
     ):
         """Initialize identity service.
 
@@ -133,6 +136,7 @@ class IdentityService:
         self.saved_view_repo_factory = saved_view_repo_factory
         self.pin_repo_factory = pin_repo_factory
         self.mfa_repo = mfa_repo
+        self.deletion_repo = deletion_repo
 
     def _run_async(self, coro):
         """Run coroutine to completion from sync contexts."""
@@ -542,6 +546,147 @@ class IdentityService:
                 outcome="revoked",
                 scope="tenant",
                 payload_json=payload,
+            )
+        )
+        self.db.commit()
+
+    # ------------------------------------------------------------------
+    # Closing an account
+    # ------------------------------------------------------------------
+
+    def get_deletion_request(self, ctx: RequestContext) -> AccountDeletionRequest | None:
+        """The caller's pending closure request, if they have one."""
+        return self.deletion_repo.get_pending_for_user(ctx.user_id)
+
+    def request_account_deletion(
+        self,
+        ctx: RequestContext,
+        reason: str | None = None,
+    ) -> AccountDeletionRequest:
+        """Ask for the account to be closed, after a pause.
+
+        Refused for the last owner of a tenant: closing it would leave the
+        tenant with nobody who can administer it, and every other member locked
+        out of changes only an owner can make. Hand the role over first.
+        """
+        from app.settings.settings import settings
+
+        existing = self.deletion_repo.get_pending_for_user(ctx.user_id)
+        if existing is not None:
+            return existing
+
+        if self._is_last_tenant_owner(ctx.tenant_id, ctx.user_id):
+            raise ValidationError(
+                "Transfer ownership of the tenant before closing this account"
+            )
+
+        grace_days = max(0, int(settings.account_deletion_grace_days))
+        request = self.deletion_repo.save(
+            AccountDeletionRequest(
+                user_id=ctx.user_id,
+                tenant_id=ctx.tenant_id,
+                reason=(reason or "").strip()[:512] or None,
+                execute_after=utc_now() + timedelta(days=grace_days),
+            )
+        )
+        self._log_deletion_audit(ctx, request, operation="request")
+        return request
+
+    def cancel_account_deletion(self, ctx: RequestContext) -> AccountDeletionRequest:
+        """Withdraw a pending closure request."""
+        request = self.deletion_repo.get_pending_for_user(ctx.user_id)
+        if request is None:
+            raise NotFoundError("No closure request is pending")
+        request.status = "cancelled"
+        request.cancelled_at = utc_now()
+        request.updated_at = utc_now()
+        saved = self.deletion_repo.save(request)
+        self._log_deletion_audit(ctx, saved, operation="cancel")
+        return saved
+
+    def _is_last_tenant_owner(self, tenant_id: str, user_id: str) -> bool:
+        memberships = self.tenant_membership_repo.get_by_tenant(tenant_id)
+        owners = [item for item in memberships if item.role == TENANT_ROLE_OWNER]
+        return len(owners) == 1 and owners[0].user_id == user_id
+
+    def execute_account_deletion(self, request: AccountDeletionRequest) -> AccountDeletionRequest:
+        """Close the account: end its access, keep what it did.
+
+        Sessions end, API keys are revoked, the second factor is dropped and
+        the user is deactivated. Runs, audits and approvals are untouched --
+        they record who authorised what, and a closure that rewrote them would
+        make the audit trail worth nothing.
+        """
+        user = self.user_repo.get_by_id(request.user_id)
+        if user is not None:
+            user.is_active = False
+            user.updated_at = utc_now()
+            self.user_repo.update(user)
+
+        for session in self.session_repo.list_by_user(request.user_id):
+            self._end_session(session, revoked_by="account_closure")
+
+        for key in self.api_key_repo.list_by_user(request.user_id):
+            if key.status == "active":
+                key.status = "revoked"
+                key.revoked_at = utc_now()
+                self.api_key_repo.update(key)
+
+        enrolment = self.mfa_repo.get_by_user(request.user_id)
+        if enrolment is not None:
+            self.mfa_repo.delete(enrolment)
+
+        request.status = "executed"
+        request.executed_at = utc_now()
+        request.updated_at = utc_now()
+        saved = self.deletion_repo.save(request)
+        self.db.add(
+            AuditEvent(
+                tenant_id=request.tenant_id,
+                workspace_id=None,
+                event_type="identity.account.closed",
+                resource_type="user",
+                resource_id=request.user_id,
+                operation="execute",
+                subject_user_id=request.user_id,
+                outcome="succeeded",
+                scope="tenant",
+                payload_json={"request_id": request.id},
+            )
+        )
+        self.db.commit()
+        return saved
+
+    def execute_due_account_deletions(self, limit: int = 50) -> int:
+        """Close every account whose pause has elapsed. Returns how many."""
+        due = self.deletion_repo.list_due(utc_now(), limit=limit)
+        for request in due:
+            self.execute_account_deletion(request)
+        return len(due)
+
+    def _log_deletion_audit(
+        self,
+        ctx: RequestContext,
+        request: AccountDeletionRequest,
+        *,
+        operation: str,
+    ) -> None:
+        self.db.add(
+            AuditEvent(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                event_type="identity.account.closure_requested",
+                resource_type="account_deletion_request",
+                resource_id=request.id,
+                operation=operation,
+                actor_user_id=ctx.user_id,
+                subject_user_id=request.user_id,
+                outcome="succeeded",
+                scope="tenant",
+                payload_json={
+                    "operation": operation,
+                    "execute_after": request.execute_after.isoformat(),
+                },
             )
         )
         self.db.commit()

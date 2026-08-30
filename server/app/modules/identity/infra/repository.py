@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
 from app.modules.identity.domain.models import (
+    AccountDeletionRequest,
     ApiKey,
     PinnedObject,
     ResourceGrant,
@@ -480,6 +481,43 @@ class UserSessionRepository:
         return seen
 
 
+class AccountDeletionRequestRepository:
+    """Repository for account closure requests."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_pending_for_user(self, user_id: str) -> AccountDeletionRequest | None:
+        query = select(AccountDeletionRequest).where(
+            and_(
+                AccountDeletionRequest.user_id == user_id,
+                AccountDeletionRequest.status == "pending",
+            )
+        )
+        return _unwrap_result(self.db.exec(query).first())
+
+    def list_due(self, now: datetime, limit: int = 50) -> list[AccountDeletionRequest]:
+        """Requests whose pause has elapsed and which nobody withdrew."""
+        query = (
+            select(AccountDeletionRequest)
+            .where(
+                and_(
+                    AccountDeletionRequest.status == "pending",
+                    AccountDeletionRequest.execute_after <= now,
+                )
+            )
+            .order_by(AccountDeletionRequest.execute_after.asc())
+            .limit(limit)
+        )
+        return _unwrap_all(list(self.db.exec(query).all()))
+
+    def save(self, request: AccountDeletionRequest) -> AccountDeletionRequest:
+        self.db.add(request)
+        self.db.commit()
+        self.db.refresh(request)
+        return request
+
+
 class UserMfaRepository:
     """Repository for second-factor enrolments."""
 
@@ -644,6 +682,15 @@ class ApiKeyRepository:
         )
         results = list(self.db.exec(query).all())
         return _unwrap_all(results)
+
+    def list_by_user(self, user_id: str) -> list[ApiKey]:
+        """Every key this user issued, across workspaces.
+
+        Closing an account has to reach all of them; scoping by workspace would
+        leave keys alive in workspaces the closure never looked at.
+        """
+        query = select(ApiKey).where(ApiKey.user_id == user_id)
+        return _unwrap_all(list(self.db.exec(query).all()))
 
     def create(self, api_key: ApiKey) -> ApiKey:
         self.db.add(api_key)

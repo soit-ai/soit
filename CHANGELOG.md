@@ -78,6 +78,13 @@ record for operators.
   are refused access to that workspace with a distinguishable reason, so they
   can be sent to enrol rather than shown an error they cannot act on.
 - Workspace member listings report `mfa_enabled`.
+- An account can be closed on request. `/me/deletion-request` records the ask
+  with a withdrawal period (`ACCOUNT_DELETION_GRACE_DAYS`, default 7); closing
+  ends sessions, revokes API keys, drops the second factor and deactivates the
+  user. Runs, audits and approvals are untouched — they record who authorised
+  what. The last owner of a tenant is refused: ownership has to be handed over
+  first. `ACCOUNT_DELETION_SWEEPER_ENABLED` closes due requests without an
+  operator clicking, and is on in the production profile.
 
 ### Changed
 

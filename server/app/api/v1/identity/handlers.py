@@ -18,6 +18,8 @@ from app.kernel.commons.errors import NotFoundError, UnauthorizedError, Validati
 from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
 from app.modules.identity.application.schemas import (
+    AccountDeletionRequestCreate,
+    AccountDeletionRequestResponse,
     ApiKeyCreate,
     ApiKeyCreateResponse,
     ApiKeyResponse,
@@ -388,6 +390,41 @@ async def list_workspaces(
         return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+async def get_account_deletion_request(
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> AccountDeletionRequestResponse | None:
+    """The caller's pending closure request, or nothing."""
+    request = service.get_deletion_request(ctx)
+    return AccountDeletionRequestResponse.model_validate(request) if request else None
+
+
+async def request_account_deletion(
+    payload: AccountDeletionRequestCreate,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> AccountDeletionRequestResponse:
+    """Ask for the account to be closed after a pause it can be withdrawn in."""
+    try:
+        request = service.request_account_deletion(ctx, payload.reason)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return AccountDeletionRequestResponse.model_validate(request)
+
+
+async def cancel_account_deletion(
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> AccountDeletionRequestResponse:
+    """Withdraw a pending closure request."""
+    try:
+        return AccountDeletionRequestResponse.model_validate(
+            service.cancel_account_deletion(ctx)
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
 
 async def get_mfa_status(
     ctx: RequestContext = Depends(get_current_context),

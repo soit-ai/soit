@@ -174,6 +174,12 @@ const translation = {
       del: 'Delete account',
       delHint: 'Evidence records are retained per workspace policy even after deletion.',
       delBtn: 'Request deletion…',
+      delTitle: 'Close this account',
+      delNote: 'you can withdraw this until it takes effect',
+      delReason: 'Reason (optional)',
+      delConfirm: 'Request closure',
+      delPending: 'Closing {{when}} unless you withdraw it.',
+      delCancel: 'Keep my account',
     },
     teamPane: {
       hint: '{{count}} members',

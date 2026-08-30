@@ -34,11 +34,14 @@ import {
 } from '@/services/api-key-service'
 import { getCreditBalance, listCreditEntries } from '@/services/billing-service'
 import {
+  cancelAccountDeletion,
   confirmMfaEnrolment,
   disableMfa,
+  getAccountDeletionRequest,
   getMfaStatus,
   listSessions,
   revokeAllSessions,
+  requestAccountDeletion,
   revokeSession,
   startMfaEnrolment,
 } from '@/services/auth-service'
@@ -379,6 +382,38 @@ export default function ConsoleSettings() {
     onError: onWriteError('Failed to change the two-factor requirement'),
   })
 
+  // Closing an account is a request with a pause, not a button that deletes.
+  const [closureOpen, setClosureOpen] = useState(false)
+  const [closureReason, setClosureReason] = useState('')
+
+  const closureQuery = useQuery({
+    queryKey: ['console', 'settings', 'closure'],
+    queryFn: () => getAccountDeletionRequest({ suppressErrorToast: true }),
+    options: { enabled: active === 'account', retry: false, refetchOnWindowFocus: false },
+  })
+  const closureRequest = closureQuery.data
+
+  const requestClosure = useMutation<unknown, unknown, void>({
+    mutationKey: ['console', 'settings', 'request-closure'],
+    mutationFn: () =>
+      requestAccountDeletion(closureReason.trim() || undefined, { suppressErrorToast: true }),
+    onSuccess: () => {
+      setClosureOpen(false)
+      void closureQuery.refetch()
+    },
+    onError: onWriteError('Failed to request closure'),
+  })
+
+  const cancelClosure = useMutation<unknown, unknown, void>({
+    mutationKey: ['console', 'settings', 'cancel-closure'],
+    mutationFn: () => cancelAccountDeletion({ suppressErrorToast: true }),
+    onSuccess: () => {
+      void closureQuery.refetch()
+      toast.success('Your account will not be closed')
+    },
+    onError: onWriteError('Failed to withdraw the request'),
+  })
+
   const passwordMutation = useMutation({
     mutationKey: ['console', 'settings', 'change-password'],
     mutationFn: () =>
@@ -701,11 +736,32 @@ export default function ConsoleSettings() {
                 {t('console.settings.accountPane.del')}
                 <small>{t('console.settings.accountPane.delHint')}</small>
               </label>
-              <div>
-                {/* BACKEND-PENDING: no account-deletion request endpoint. */}
-                <ConsoleButton style={{ color: 'var(--danger-foreground)' }}>
-                  {t('console.settings.accountPane.delBtn')}
-                </ConsoleButton>
+              <div style={{ display: 'grid', gap: 6, justifyItems: 'start' }}>
+                {closureRequest ? (
+                  <>
+                    <span className="mono dim" style={{ fontSize: 11 }}>
+                      {t('console.settings.accountPane.delPending', {
+                        when: relativeTime(closureRequest.execute_after),
+                      })}
+                    </span>
+                    <ConsoleButton
+                      onClick={() => cancelClosure.mutate(undefined)}
+                      disabled={cancelClosure.isPending}
+                    >
+                      {t('console.settings.accountPane.delCancel')}
+                    </ConsoleButton>
+                  </>
+                ) : (
+                  <ConsoleButton
+                    style={{ color: 'var(--danger-foreground)' }}
+                    onClick={() => {
+                      setClosureReason('')
+                      setClosureOpen(true)
+                    }}
+                  >
+                    {t('console.settings.accountPane.delBtn')}
+                  </ConsoleButton>
+                )}
               </div>
             </div>
           </div>
@@ -1432,6 +1488,29 @@ export default function ConsoleSettings() {
           </div>
         )}
       </div>
+
+      <ConsoleModal
+        open={closureOpen}
+        onOpenChange={setClosureOpen}
+        title={t('console.settings.accountPane.delTitle')}
+        note={t('console.settings.accountPane.delNote')}
+        confirmLabel={t('console.settings.accountPane.delConfirm')}
+        destructive
+        busy={requestClosure.isPending}
+        onConfirm={() => requestClosure.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label htmlFor="closure-reason">
+            {t('console.settings.accountPane.delReason')}
+          </label>
+          <input
+            id="closure-reason"
+            className="input"
+            value={closureReason}
+            onChange={(event) => setClosureReason(event.target.value)}
+          />
+        </div>
+      </ConsoleModal>
 
       <ConsoleModal
         open={Boolean(mfaSetup)}

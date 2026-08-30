@@ -124,6 +124,19 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("workflow orphan reaper", exc)
 
+    deletion_sweeper_coro = None
+    if getattr(app_settings, "account_deletion_sweeper_enabled", False):
+        try:
+            from app.modules.identity.runtime.deletion_sweeper import (
+                run_deletion_sweeper,
+            )
+
+            deletion_sweeper_coro = run_deletion_sweeper(
+                interval_seconds=app_settings.account_deletion_sweeper_interval,
+            )
+        except Exception as exc:
+            _handle_startup_failure("account deletion sweeper", exc)
+
     knowledge_worker = None
     if getattr(app_settings, "knowledge_ingest_worker_enabled", False):
         try:
@@ -174,6 +187,8 @@ async def lifespan(app: FastAPI):
     try:
         if workflow_reaper_coro is not None:
             background_tasks.append(asyncio.create_task(workflow_reaper_coro))
+        if deletion_sweeper_coro is not None:
+            background_tasks.append(asyncio.create_task(deletion_sweeper_coro))
         if knowledge_worker is not None:
             background_tasks.append(
                 asyncio.create_task(

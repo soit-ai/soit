@@ -44,6 +44,30 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/me/deletion-request",
+    handlers.get_account_deletion_request,
+    methods=["GET"],
+    summary="Read the caller's pending account closure",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/deletion-request",
+    handlers.request_account_deletion,
+    methods=["POST"],
+    summary="Ask for the account to be closed",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/deletion-request",
+    handlers.cancel_account_deletion,
+    methods=["DELETE"],
+    summary="Withdraw a pending account closure",
+    tags=["identity"],
+)
+
+router.add_api_route(
     "/me/mfa",
     handlers.get_mfa_status,
     methods=["GET"],
