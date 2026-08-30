@@ -939,6 +939,9 @@ def _seed_secrets(db, ctx: RequestContext) -> list[str]:
 # runs -- runs.html
 # --------------------------------------------------------------------------- #
 
+#: Failed runs in the seeded window, matching the "Failed only" saved view.
+FAILED_TARGET = 15
+
 RUNS: list[dict[str, Any]] = [
     ("01J9KD84QF", "support-triage", "webhook", "running", 3100, None),
     ("01J9KD7Z2M", "ops-copilot", "chat", "succeeded", 8900, None),
@@ -1026,11 +1029,24 @@ def _seed_runs(
     # a windowed query sees the same shape the prototype describes.
     agent_keys = [spec["key"] for spec in AGENTS]
     kinds = ("webhook", "chat", "schedule", "api")
+    bulk = max(0, total - len(RUNS))
+    # FAILED_TARGET counts every failure in the window, and one of the named runs
+    # is already failed, so the filler supplies the rest.
+    named_failures = sum(1 for row in RUNS if row[5])
+    filler_failures = max(0, FAILED_TARGET - named_failures)
+    stride = max(1, bulk // filler_failures) if filler_failures else 0
+    failures_placed = 0
     for index in range(len(RUNS), max(len(RUNS), total)):
         suffix = f"bulk{index:05d}"
         run_id = _sid("run", ctx, suffix)
         agent_key = agent_keys[index % len(agent_keys)]
-        failed = index % 85 == 0
+        failed = (
+            failures_placed < filler_failures
+            and stride
+            and (index - len(RUNS)) % stride == 0
+        )
+        if failed:
+            failures_placed += 1
         started = now - timedelta(minutes=(index * 1080) // max(1, total) + 5)
         duration_ms = 900 + (index % 40) * 300
         _upsert(
@@ -1190,6 +1206,7 @@ TASKS: list[dict[str, Any]] = [
     ("docs-nightly-sync", "full re-embed", "wf.batch", "running", 88, 100),
     ("evidence-export", "2026-07 bundle", "evidence.export", "queued", 0, 1),
     ("quota-report", "weekly finance digest", "agent.run", "queued", 0, 1),
+    ("evidence-verify", "2026-07 signature check", "evidence.export", "queued", 0, 1),
     ("release-digest", "week 35 workflow run", "wf.run", "succeeded", 5, 5),
     ("billing-audit", "hourly reconciliation", "agent.run", "failed", 2, 8),
 ]
