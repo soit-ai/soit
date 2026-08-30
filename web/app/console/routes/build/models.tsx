@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
-import { catColor, compactNumber, latency } from '../../adapters/palette'
+import { catColor, compactNumber, latency, money } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
@@ -64,13 +64,6 @@ function contextWindow(tokens?: number | null): string {
   if (tokens == null) return '—'
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`
   return String(tokens)
-}
-
-function money(amount?: number | null, currency?: string | null): string {
-  if (amount == null) return '—'
-  const value = amount.toFixed(2)
-  if (!currency) return value
-  return currency.toUpperCase() === 'USD' ? `$${value}` : `${value} ${currency}`
 }
 
 const EMPTY_PROVIDER_FORM = {

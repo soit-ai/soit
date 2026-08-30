@@ -30,6 +30,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
     RunStepMetricsSummaryResponse,
     RunStepResponse,
+    RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.service import RunService
 from app.modules.workflow.application.service import WorkflowService
@@ -56,6 +57,24 @@ async def list_cost_entries(
         run_id=run_id,
         page_token=page_token,
         page_size=page_size,
+    )
+
+
+@router.get("/summary/window", response_model=RunWindowSummaryResponse)
+async def summarize_run_window(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    include_sandbox: bool = False,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: RunService = Depends(get_run_service),
+):
+    """Summarize run outcomes and spend for a window in one call."""
+    handlers = RunHandlers(service)
+    return await handlers.summarize_run_window(
+        ctx,
+        since=since,
+        until=until,
+        include_sandbox=include_sandbox,
     )
 
 

@@ -98,6 +98,33 @@ class RunArtifactResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RunChargeSummaryResponse(BaseModel):
+    """Aggregated monetary charges grouped by currency."""
+
+    entry_count: int = 0
+    amounts: dict[str, Decimal] = Field(default_factory=dict)
+
+
+class RunWindowSummaryResponse(BaseModel):
+    """What a workspace did inside one time window.
+
+    Every figure is counted server-side rather than derived from a page of
+    runs, so a busy workspace reports the same numbers a quiet one does.
+    """
+
+    since: datetime | None = None
+    until: datetime | None = None
+    total: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    running: int = 0
+    pass_rate: float | None = None
+    """Succeeded over settled runs. None while nothing has settled, because a
+    zero would read as "everything failed"."""
+
+    charges: RunChargeSummaryResponse = Field(default_factory=RunChargeSummaryResponse)
+
+
 class RunCostSummaryResponse(BaseModel):
     """Aggregated cost summary."""
 
@@ -109,13 +136,8 @@ class RunCostSummaryResponse(BaseModel):
     storage_bytes: int
     request_count: int = 0
     vector_count: int = 0
-
-
-class RunChargeSummaryResponse(BaseModel):
-    """Aggregated monetary charges grouped by currency."""
-
-    entry_count: int = 0
-    amounts: dict[str, Decimal] = Field(default_factory=dict)
+    charges: RunChargeSummaryResponse = Field(default_factory=RunChargeSummaryResponse)
+    """Money spent under the same filters. Empty when nothing was priced."""
 
 
 class RunCostDailyResponse(BaseModel):

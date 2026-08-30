@@ -118,6 +118,18 @@ export const listResourceGrants = (
   )
 }
 
+/**
+ * Every grant in the workspace, newest first, optionally narrowed to one
+ * resource type. Answers the access surface in one call instead of a request
+ * per object; `limit` caps what the server will return.
+ */
+export const listWorkspaceResourceGrants = (
+  params?: { resource_type?: string; limit?: number },
+  config?: RequestConfigWithToast,
+): Promise<ResourceGrant[]> => {
+  return get<ResourceGrant[]>('/resource-grants', params, config)
+}
+
 export const createResourceGrant = (data: {
   resource_type: string
   resource_id: string

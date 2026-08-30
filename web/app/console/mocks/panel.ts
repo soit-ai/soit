@@ -76,19 +76,14 @@ export const mockDraftReviews: MockPanelNote[] = [
  * ------------------------------------------------------------------------- */
 
 /**
- * Side-panel link figures with no service behind them.
+ * The one side-panel link figure with no service behind it: policy bundles are
+ * not versioned server-side, so there is no active-bundle identifier to read.
  *
- * - `policies`: policy bundles are not versioned server-side; there is no
- *   active-bundle identifier to read.
- * - `access`: /resource-grants requires resource_type + resource_id, so a
- *   workspace-wide grant count cannot be asked for in one call.
- *
- * Runs, traces and audit used to sit here too. They now read `with_total` on
- * their own list endpoints, so their figures are measurements.
+ * Runs, traces, audit and access used to sit here too. They now read counted
+ * endpoints, so their figures are measurements.
  */
 export const mockPanelCounts = {
   policies: 'v08.27-2',
-  access: '14',
 } as const
 
 /**

@@ -87,6 +87,11 @@ const translation = {
     guarantee: 'Guarantee',
     guaranteeNote: 'Every reply is a governed run',
     untitledThread: 'Untitled thread',
+    todayStats: {
+      runs: 'Runs · 24h',
+      passRate: 'Policy pass rate',
+      spend: 'Spend',
+    },
     draftsAwaitingReview: 'Drafts awaiting review',
     nextUp: 'Next up',
     savedViews: 'Saved views',
@@ -384,6 +389,7 @@ const translation = {
       p95: 'P95 trace duration',
       slowest: 'Slowest operation',
       errors: 'Error spans',
+      errorsSub: '{{failed}} of {{total}} spans',
     },
     filters: {
       kindAny: 'Kind: any',
@@ -420,7 +426,14 @@ const translation = {
     title: 'Tasks',
     description: 'Long-running and scheduled executions in the runtime: progress, retries, approvals, and the run each attempt produced.',
     newTask: 'New task',
-    tiles: { queued: 'Queued', processing: 'Processing', awaiting: 'Awaiting approval', failed: 'Failed' },
+    tiles: {
+      queued: 'Queued',
+      queuedEmpty: 'nothing waiting',
+      queuedOldest: 'oldest {{age}} in queue',
+      processing: 'Processing',
+      awaiting: 'Awaiting approval',
+      failed: 'Failed',
+    },
     filters: { all: 'All', queued: 'Queued', processing: 'Processing', awaiting: 'Awaiting approval', done: 'Done', failed: 'Failed', searchPlaceholder: 'Filter by task, type, owner…' },
     columns: { task: 'Task', type: 'Type', status: 'Status', progress: 'Progress', attempt: 'Attempt', run: 'Run', updated: 'Updated' },
     pageSummary: '1–{{count}} of {{total}}',
@@ -672,6 +685,7 @@ const translation = {
   },
   agentDetail: {
     back: 'Back to agents',
+    spendSub: '{{count}} priced entries',
     saveDraft: 'Save draft',
     runTest: 'Run test input',
     publish: 'Publish {{version}}',

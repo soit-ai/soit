@@ -28,8 +28,10 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
     RunStepMetricsSummaryResponse,
     RunStepResponse,
+    RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
+from app.kernel.runtime.status import ExecutionStatus
 
 _UNBOUNDED_AUDIT_LIMIT = 1_000_000
 """Stand-in for "no limit" when counting audits under a per-row filter.
@@ -1496,7 +1498,92 @@ class RunService:
         query = select(*_dimension_sum_columns()).select_from(RunCostEntry).join(Run, RunCostEntry.run_id == Run.id).where(and_(*clauses))
 
         row = self.db.exec(query).one()
-        return RunCostSummaryResponse(**_dimension_row_values(row))
+        return RunCostSummaryResponse(
+            **_dimension_row_values(row),
+            charges=self._aggregate_charges(clauses),
+        )
+
+    def _aggregate_charges(self, clauses: list) -> RunChargeSummaryResponse:
+        """Sum priced cost entries by currency under the given run filters.
+
+        Usage dimensions and money are reported together because a caller
+        asking "what did this agent cost in the last day" needs both, and
+        splitting them across two endpoints would make the pair inconsistent
+        whenever a run lands between the calls.
+        """
+        query = (
+            select(
+                RunCostEntry.currency,
+                func.count(),
+                func.coalesce(func.sum(RunCostEntry.amount), 0),
+            )
+            .select_from(RunCostEntry)
+            .join(Run, RunCostEntry.run_id == Run.id)
+            .where(and_(*clauses, RunCostEntry.currency.is_not(None), RunCostEntry.amount.is_not(None)))
+            .group_by(RunCostEntry.currency)
+        )
+        amounts: dict[str, Decimal] = {}
+        entry_count = 0
+        for currency, count, total in self.db.exec(query).all():
+            if not currency:
+                continue
+            entry_count += int(count or 0)
+            amounts[str(currency)] = Decimal(str(total or 0))
+        return RunChargeSummaryResponse(entry_count=entry_count, amounts=amounts)
+
+    def summarize_run_window(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        include_sandbox: bool = False,
+    ) -> RunWindowSummaryResponse:
+        """Summarize the workspace's activity inside one window.
+
+        The console shows this next to a list it only samples, so every figure
+        is counted rather than derived from the sample. Rehearsal runs stay out
+        unless asked for, matching how cost is reported.
+        """
+        clauses = [
+            Run.tenant_id == self.ctx.tenant_id,
+            Run.workspace_id == self.ctx.workspace_id,
+        ]
+        if not include_sandbox:
+            clauses.append(Run.sandbox.is_(False))
+        if since:
+            clauses.append(Run.started_at >= since)
+        if until:
+            clauses.append(Run.started_at <= until)
+
+        query = (
+            select(Run.status, func.count())
+            .where(and_(*clauses))
+            .group_by(Run.status)
+        )
+        by_status: dict[str, int] = {}
+        for status_value, count in self.db.exec(query).all():
+            by_status[str(status_value)] = int(count or 0)
+
+        succeeded = by_status.get(ExecutionStatus.SUCCEEDED.value, 0)
+        failed = by_status.get(ExecutionStatus.FAILED.value, 0)
+        running = by_status.get(ExecutionStatus.RUNNING.value, 0)
+        settled = succeeded + failed
+        cost_clauses = [
+            RunCostEntry.tenant_id == self.ctx.tenant_id,
+            RunCostEntry.workspace_id == self.ctx.workspace_id,
+            RunCostEntry.run_id == Run.id,
+            *clauses,
+        ]
+        return RunWindowSummaryResponse(
+            since=since,
+            until=until,
+            total=sum(by_status.values()),
+            succeeded=succeeded,
+            failed=failed,
+            running=running,
+            pass_rate=(succeeded / settled) if settled else None,
+            charges=self._aggregate_charges(cost_clauses),
+        )
 
     def list_cost_entries(
         self,

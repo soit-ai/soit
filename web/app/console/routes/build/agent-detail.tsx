@@ -18,9 +18,8 @@ import {
   runStatusToConsole,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { catColor, compactNumber, latency, money, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -42,7 +41,7 @@ import {
   listAgentCapabilities,
   type AgentCapabilityItem,
 } from '@/services/capability-service'
-import { listRuns } from '@/services/run-service'
+import { getRunCostSummary, listRuns } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
 
 type AgentTab = 'build' | 'monitor' | 'publish' | 'settings'
@@ -241,6 +240,18 @@ export default function ConsoleAgentDetail() {
         subject_id: agentId,
         include_observe_summary: true,
         page_size: 20,
+      }),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  // Spend is asked of the cost summary under this agent's own filter, so the
+  // figure covers every run in the window rather than the page shown above.
+  const spendQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'spend'],
+    queryFn: () =>
+      getRunCostSummary({
+        subject_kind: 'agent',
+        subject_id: agentId,
+        started_after: new Date(Date.now() - 86_400_000).toISOString(),
       }),
     options: { enabled, retry: false, refetchOnWindowFocus: false },
   })
@@ -469,6 +480,23 @@ export default function ConsoleAgentDetail() {
   const durations = runs
     .map((run) => run.duration_ms)
     .filter((value): value is number => typeof value === 'number')
+  // A workspace with no pricing configured reports zero priced entries. That
+  // is not the same as "spent nothing", so the tile stays blank rather than
+  // claiming $0.00.
+  const spend = useMemo(() => {
+    const charges = spendQuery.data?.charges
+    if (!charges || !charges.entry_count) return null
+    const amounts = Object.entries(charges.amounts || {})
+      .map(([currency, value]) => ({ currency, amount: Number(value) }))
+      .filter((row) => Number.isFinite(row.amount))
+      .sort((a, b) => b.amount - a.amount)
+    if (!amounts.length) return null
+    return {
+      label: money(amounts[0].amount, amounts[0].currency),
+      entries: charges.entry_count,
+    }
+  }, [spendQuery.data])
+
   const p95 = percentileMs(durations, 95)
   const p50 = percentileMs(durations, 50)
 
@@ -796,10 +824,16 @@ export default function ConsoleAgentDetail() {
                 </span>
               }
             />
-            {/* BACKEND-PENDING: prototype figure — /runs/costs/* reports token
-                and time counters only, with no per-agent currency rollup;
-                see mocks/tiles.ts. */}
-            <StatTile label="Spend · 24h" value={mockTiles.agentSpend.value} sub={<span className="mono dimmer">{mockTiles.agentSpend.sub}</span>} />
+            <StatTile
+              label="Spend · 24h"
+              value={spend ? spend.label : '—'}
+              na={!spend}
+              sub={
+                <span className="mono dimmer">
+                  {spend ? t('console.agentDetail.spendSub', { count: spend.entries }) : '—'}
+                </span>
+              }
+            />
             <StatTile
               label="P95 duration"
               value={p95 == null ? '—' : latency(p95)}

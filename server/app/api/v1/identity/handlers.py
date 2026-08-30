@@ -493,14 +493,20 @@ async def create_resource_grant(
 
 
 async def list_resource_grants(
-    resource_type: str,
-    resource_id: str,
+    resource_type: str | None = None,
+    resource_id: str | None = None,
+    limit: int = 500,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: IdentityService = Depends(get_identity_service),
 ) -> list[ResourceGrantResponse]:
-    """List resource grants for a resource."""
+    """List resource grants for one resource, or across the workspace."""
     try:
-        grants = service.list_resource_grants(resource_type, resource_id, ctx)
+        grants = service.list_resource_grants(
+            resource_type,
+            resource_id,
+            ctx,
+            limit=max(1, min(limit, 1000)),
+        )
         return [ResourceGrantResponse.model_validate(item) for item in grants]
     except ValidationError as exc:
         raise HTTPException(

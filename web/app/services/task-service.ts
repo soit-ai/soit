@@ -67,6 +67,10 @@ export interface TaskWorkbenchSummary {
   running: number
   today_created: number
   today_completed: number
+  /** Tasks waiting for a worker: queue depth, not lifetime volume. */
+  queued?: number
+  /** How long the oldest waiting task has waited; null when none are. */
+  oldest_queued_seconds?: number | null
   updated_at: string
 }
 

@@ -91,6 +91,12 @@ class TaskWorkbenchSummary(BaseModel):
     running: int
     today_created: int
     today_completed: int
+    queued: int = 0
+    """Tasks waiting to be picked up. Queue depth, not lifetime volume."""
+
+    oldest_queued_seconds: int | None = None
+    """How long the oldest waiting task has been waiting; None when none are."""
+
     updated_at: datetime
 
 

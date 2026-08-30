@@ -22,6 +22,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
     RunStepMetricsSummaryResponse,
     RunStepResponse,
+    RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.service import RunService
 
@@ -249,6 +250,21 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+        )
+
+    async def summarize_run_window(
+        self,
+        ctx: RequestContext,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        include_sandbox: bool = False,
+    ) -> RunWindowSummaryResponse:
+        """Summarize run outcomes and spend inside one window."""
+        return self.service.summarize_run_window(
+            since=since,
+            until=until,
+            include_sandbox=include_sandbox,
         )
 
     async def list_cost_entries(

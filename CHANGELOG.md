@@ -22,6 +22,18 @@ record for operators.
 - Run audits and tasks accept a `since`/`until` creation window, so a caller can
   ask for "the last 24 hours" instead of paging through history. Runs, run steps
   and cost summaries keep their existing `started_after`/`started_before`.
+- `GET /runs/summary/window` reports what a workspace did inside one window:
+  run volume, outcome counts, pass rate and money spent, all counted rather than
+  derived from a page of runs. The pass rate is absent until something settles,
+  because zero would read as "everything failed".
+- The run cost summary now carries `charges` — amounts by currency under the
+  same filters — so "what did this agent cost today" is one question instead of
+  two that can disagree.
+- The task workbench summary reports queue depth and how long the oldest
+  waiting task has waited.
+- `GET /resource-grants` can be asked for a whole workspace: `resource_type` and
+  `resource_id` are optional, and omitting the id lists every grant in scope.
+  The access surface previously had to fan out one request per object.
 
 ### Changed
 

@@ -27,7 +27,6 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { compactNumber, relativeTime } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { getTaskWorkbench, getTaskWorkbenchItems, type TaskWorkbenchRow } from '@/services/task-service'
 
@@ -90,6 +89,15 @@ function rowNote(row: TaskWorkbenchRow): string {
   if (row.error_message) return row.error_message
   const context = [row.owner, row.agent_id].filter(Boolean).join(' · ')
   return context || '—'
+}
+
+/** Queue age in the prototype's shorthand: 45s, 4m, 2h 10m. */
+function queueAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
 }
 
 export default function ConsoleTasks() {
@@ -162,9 +170,20 @@ export default function ConsoleTasks() {
       }
       tiles={
         <StatTileGrid>
-          {/* BACKEND-PENDING: prototype figure — the workbench summary reports
-              no queue depth or queue age; see mocks/tiles.ts. */}
-          <StatTile label={t('console.tasks.tiles.queued')} value={mockTiles.taskQueued.value} sub={<span className="mono dimmer">{mockTiles.taskQueued.sub}</span>} />
+          <StatTile
+            label={t('console.tasks.tiles.queued')}
+            value={summary?.queued == null ? '—' : compactNumber(summary.queued)}
+            na={summary?.queued == null}
+            sub={
+              <span className="mono dimmer">
+                {summary?.oldest_queued_seconds == null
+                  ? t('console.tasks.tiles.queuedEmpty')
+                  : t('console.tasks.tiles.queuedOldest', {
+                      age: queueAge(summary.oldest_queued_seconds),
+                    })}
+              </span>
+            }
+          />
           <StatTile label={t('console.tasks.tiles.processing')} value={summary ? compactNumber(summary.running) : '—'} na={!summary} sub={<span className="mono dimmer">{summary ? `${summary.long_running} long-running` : t('console.common.loading')}</span>} />
           <StatTile label={t('console.tasks.tiles.awaiting')} value={summary ? compactNumber(summary.waiting_approval) : '—'} na={!summary} sub={<span className="mono dimmer">{summary ? `${summary.waiting_input} waiting on input` : t('console.common.loading')}</span>} />
           {/* The server counts every open failure; it is not windowed to 24h. */}

@@ -816,13 +816,23 @@ class IdentityService:
 
     def list_resource_grants(
         self,
-        resource_type: str,
-        resource_id: str,
+        resource_type: str | None,
+        resource_id: str | None,
         ctx: RequestContext,
+        *,
+        limit: int = 500,
     ) -> list[ResourceGrant]:
-        """List resource grants for a resource."""
+        """List resource grants, for one resource or across the workspace.
+
+        Naming a resource returns its grants. Omitting the resource id returns
+        every grant in the workspace, optionally narrowed to one resource type,
+        so the access surface can be answered in a single call instead of a
+        request per object.
+        """
         grant_repo = self.resource_grant_repo_factory(ctx)
-        return grant_repo.list_by_resource(resource_type, resource_id)
+        if resource_type and resource_id:
+            return grant_repo.list_by_resource(resource_type, resource_id)
+        return grant_repo.list_in_scope(resource_type=resource_type, limit=limit)
 
     def _invalidate_permission_cache(
         self,

@@ -211,15 +211,27 @@ test('side panel counts team and API keys from their real services', async ({ pa
   await expect(page.locator('.subnav .sl', { hasText: 'API keys' }).locator('.ct')).toHaveText('3')
 })
 
-test('side panel shows the prototype figures that have no endpoint yet', async ({ page }) => {
+test('side panel shows the prototype figure that has no endpoint yet', async ({ page }) => {
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  // Fixtures until the APIs exist: no bundle versioning, and no workspace-wide
-  // grant count to ask for.
+  // A fixture until policy bundles are versioned: there is no active-bundle
+  // identifier to read.
   const figure = (label: string) =>
     page.locator('.subnav .sl', { hasText: label }).locator('.ct')
   await expect(figure('Policies')).toHaveText('v08.27-2')
-  await expect(figure('Access')).toHaveText('14')
+})
+
+test('the access figure counts the workspace grants the server returned', async ({ page }) => {
+  await json(page, /\/api\/v1\/resource-grants/, [
+    { id: 'g1', resource_type: 'agent', resource_id: 'a1', user_id: 'u1', actions: ['read'] },
+    { id: 'g2', resource_type: 'workflow', resource_id: 'w1', user_id: 'u1', actions: ['write'] },
+  ])
+
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+
+  await expect(
+    page.locator('.subnav .sl').filter({ hasText: /^Access/ }).locator('.ct'),
+  ).toHaveText('2')
 })
 
 test('audit and run figures are counted by the server, not filled in', async ({ page }) => {

@@ -40,6 +40,12 @@ export interface RunObserveSummary {
   cost_entry_count: number
 }
 
+export interface RunChargeSummary {
+  entry_count: number
+  /** Amounts are decimal strings, keyed by currency code. */
+  amounts: Record<string, string>
+}
+
 export interface RunCostSummary {
   tokens_prompt: number
   tokens_completion: number
@@ -49,11 +55,8 @@ export interface RunCostSummary {
   storage_bytes: number
   request_count?: number
   vector_count?: number
-}
-
-export interface RunChargeSummary {
-  entry_count: number
-  amounts: Record<string, string>
+  /** Money spent under the same filters; empty when nothing was priced. */
+  charges?: RunChargeSummary
 }
 
 export interface RunCostByMode {
@@ -275,6 +278,26 @@ export const listRuns = (params?: {
   with_total?: boolean
 }): Promise<PaginatedResponse<RunResponse>> => {
   return get<PaginatedResponse<RunResponse>>('/runs', params)
+}
+
+export interface RunWindowSummary {
+  since?: string | null
+  until?: string | null
+  total: number
+  succeeded: number
+  failed: number
+  running: number
+  /** Succeeded over settled runs; null while nothing has settled. */
+  pass_rate?: number | null
+  charges?: RunChargeSummary
+}
+
+export const getRunWindowSummary = (params?: {
+  since?: string
+  until?: string
+  include_sandbox?: boolean
+}): Promise<RunWindowSummary> => {
+  return get<RunWindowSummary>('/runs/summary/window', params)
 }
 
 export const getRunCostSummary = (params?: {

@@ -224,3 +224,35 @@ async def test_list_tasks_window_filters_and_counts(db, ctx):
     )
     assert last_day.total == 1
     assert len(last_day.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_window_summary_counts_outcomes_and_spend(db, ctx):
+    """The window summary counts every run, not a sampled page."""
+    now = utc_now()
+    for status in ("succeeded", "succeeded", "failed", "running"):
+        db.add(_make_run(ctx, status=status))
+    db.commit()
+
+    handlers = RunHandlers(RunService(db, ctx))
+    summary = await handlers.summarize_run_window(ctx, since=now - timedelta(hours=1))
+
+    assert summary.total == 4
+    assert summary.succeeded == 2
+    assert summary.failed == 1
+    assert summary.running == 1
+    # Two of three settled runs passed; the in-flight one is not counted either way.
+    assert summary.pass_rate == pytest.approx(2 / 3)
+
+
+@pytest.mark.asyncio
+async def test_run_window_pass_rate_is_absent_before_anything_settles(db, ctx):
+    """A window with nothing finished reports no rate rather than zero."""
+    db.add(_make_run(ctx, status="running"))
+    db.commit()
+
+    handlers = RunHandlers(RunService(db, ctx))
+    summary = await handlers.summarize_run_window(ctx)
+
+    assert summary.total == 1
+    assert summary.pass_rate is None

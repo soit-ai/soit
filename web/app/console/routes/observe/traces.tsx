@@ -25,7 +25,6 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { listRunSteps, listRuns, type RunStepResponse } from '@/services/run-service'
@@ -118,6 +117,36 @@ export default function ConsoleTraces() {
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
+  // Two counts rather than a sample: the error rate is the one figure on this
+  // page that a sampled page would misreport, because failures cluster.
+  const spanTotals = useQuery({
+    queryKey: ['console', 'traces', 'span-totals', startedAfter],
+    queryFn: async () => {
+      const [all, failed] = await Promise.all([
+        listRunSteps({ started_after: startedAfter, page_size: 1, with_total: true }),
+        listRunSteps({
+          started_after: startedAfter,
+          status: 'failed',
+          page_size: 1,
+          with_total: true,
+        }),
+      ])
+      return { total: all.total ?? null, failed: failed.total ?? null }
+    },
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+
+  const errorSpans = useMemo(() => {
+    const total = spanTotals.data?.total
+    const failed = spanTotals.data?.failed
+    if (total == null || failed == null) return null
+    return {
+      rate: total === 0 ? 0 : (failed / total) * 100,
+      failed,
+      total,
+    }
+  }, [spanTotals.data])
+
   const stepsByRun = useMemo(() => {
     const map = new Map<string, RunStepResponse[]>()
     ;(stepsQuery.data?.items || []).forEach((step) => {
@@ -196,12 +225,20 @@ export default function ConsoleTraces() {
               </span>
             }
           />
-          {/* BACKEND-PENDING: prototype figure — no span-level error
-              aggregation endpoint; see mocks/tiles.ts. */}
           <StatTile
             label={t('console.traces.tiles.errors')}
-            value={mockTiles.traceErrorSpans.value}
-            sub={<span className="mono dimmer">{mockTiles.traceErrorSpans.sub}</span>}
+            value={errorSpans ? `${errorSpans.rate.toFixed(1)}%` : '—'}
+            na={!errorSpans}
+            sub={
+              <span className="mono dimmer">
+                {errorSpans
+                  ? t('console.traces.tiles.errorsSub', {
+                      failed: errorSpans.failed.toLocaleString('en-US'),
+                      total: errorSpans.total.toLocaleString('en-US'),
+                    })
+                  : '—'}
+              </span>
+            }
           />
         </StatTileGrid>
       }

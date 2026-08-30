@@ -431,6 +431,62 @@ test('side panel surfaces the execute queue from the task summary', async ({ pag
   await expect(page).toHaveURL(/\/govern\/approvals/)
 })
 
+test('the queue tile reports depth and age from the task summary', async ({ page }) => {
+  await json(page, '**/api/v1/tasks/workbench**', {
+    summary: {
+      total_tasks: 14,
+      waiting_approval: 2,
+      failed: 1,
+      waiting_input: 0,
+      long_running: 0,
+      running: 3,
+      today_created: 9,
+      today_completed: 6,
+      queued: 3,
+      oldest_queued_seconds: 260,
+      updated_at: NOW,
+    },
+    tabs: { all: 14, running: 3, waiting_approval: 2, failed: 1 },
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+  })
+
+  await page.goto('/execute/tasks', { waitUntil: 'domcontentloaded' })
+
+  const tile = page.locator('.tile').filter({ hasText: 'Queued' })
+  await expect(tile).toContainText('3')
+  await expect(tile).toContainText('oldest 4m in queue')
+})
+
+test('an empty queue says so rather than reporting an age of zero', async ({ page }) => {
+  await json(page, '**/api/v1/tasks/workbench**', {
+    summary: {
+      total_tasks: 14,
+      waiting_approval: 0,
+      failed: 0,
+      waiting_input: 0,
+      long_running: 0,
+      running: 0,
+      today_created: 0,
+      today_completed: 0,
+      queued: 0,
+      oldest_queued_seconds: null,
+      updated_at: NOW,
+    },
+    tabs: { all: 14 },
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+  })
+
+  await page.goto('/execute/tasks', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('.tile').filter({ hasText: 'Queued' })).toContainText(
+    'nothing waiting',
+  )
+})
+
 test('side panel survives a workbench response with no summary', async ({ page }) => {
   // A partial body must cost one badge, not the whole console: the side panel
   // wraps every screen, so an unguarded read here takes the app down.

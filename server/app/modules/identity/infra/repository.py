@@ -507,6 +507,24 @@ class ResourceGrantRepository(Repository[ResourceGrant]):
         results = list(self.db.exec(query).all())
         return self._unwrap_all(results)
 
+    def list_in_scope(
+        self,
+        *,
+        resource_type: str | None = None,
+        limit: int = 500,
+    ) -> list[ResourceGrant]:
+        """List every grant in the current workspace, newest first.
+
+        Used by the access surface, which shows who holds what across the whole
+        workspace rather than for one named resource.
+        """
+        query = select(ResourceGrant)
+        if resource_type:
+            query = query.where(ResourceGrant.resource_type == resource_type)
+        query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc()).limit(limit)
+        results = list(self.db.exec(query).all())
+        return self._unwrap_all(results)
+
     def list_by_user(self, user_id: str) -> list[ResourceGrant]:
         query = select(ResourceGrant).where(ResourceGrant.user_id == user_id)
         query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc())

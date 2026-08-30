@@ -39,14 +39,11 @@ const members = [
   { user_id: 'u_3', email: 'ming@acme.io', name: 'Ming', role: 'Dev', status: 'active' },
 ]
 
-/** Grants are addressed per resource, so the page fans out; mock per resource. */
-const grantsFor: Record<string, unknown[]> = {
-  'support-triage': [
-    { id: 'g_1', tenant_id: 't1', workspace_id: 'workspace-1', resource_type: 'agent', resource_id: 'support-triage', user_id: 'u_3', actions: ['read', 'run'], created_by: 'u_1', created_at: NOW, updated_at: NOW },
-    { id: 'g_2', tenant_id: 't1', workspace_id: 'workspace-1', resource_type: 'agent', resource_id: 'support-triage', user_id: 'u_2', actions: ['read', 'run', 'update'], created_by: 'u_1', created_at: NOW, updated_at: NOW },
-  ],
-  'ops-copilot': [],
-}
+/** One workspace-scoped read returns every grant, whatever it protects. */
+const workspaceGrants = [
+  { id: 'g_1', tenant_id: 't1', workspace_id: 'workspace-1', resource_type: 'agent', resource_id: 'support-triage', user_id: 'u_3', actions: ['read', 'run'], created_by: 'u_1', created_at: NOW, updated_at: NOW },
+  { id: 'g_2', tenant_id: 't1', workspace_id: 'workspace-1', resource_type: 'agent', resource_id: 'support-triage', user_id: 'u_2', actions: ['read', 'run', 'update'], created_by: 'u_1', created_at: NOW, updated_at: NOW },
+]
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -59,15 +56,7 @@ test.beforeEach(async ({ page }) => {
   await json(page, '**/api/v1/workflows/workbench**', emptyWorkbench('total_workflows'))
   await json(page, '**/api/v1/knowledge/workbench**', emptyWorkbench('total_knowledge_bases'))
   await json(page, '**/api/v1/workspaces/*/members', members)
-  await page.route('**/api/v1/resource-grants?**', (route) => {
-    const url = new URL(route.request().url())
-    const id = url.searchParams.get('resource_id') || ''
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: ok(grantsFor[id] ?? []),
-    })
-  })
+  await json(page, '**/api/v1/resource-grants?**', workspaceGrants)
 })
 
 test('access lists grants joined to the resource they protect', async ({ page }) => {

@@ -206,8 +206,23 @@ class TaskQueryService:
             running=self.task_repo.count_workbench_tasks(tab="running", long_running_before=long_running_before),
             today_created=self.task_repo.count_created_between(today_start, today_end),
             today_completed=self.task_repo.count_completed_between(today_start, today_end),
+            queued=self.task_repo.count_queued(),
+            oldest_queued_seconds=self._queue_age_seconds(now),
             updated_at=now,
         )
+
+    def _queue_age_seconds(self, now: datetime) -> int | None:
+        """How long the oldest waiting task has been waiting, in seconds.
+
+        None when the queue is empty: zero would read as "nothing has waited",
+        which is the same figure a one-second-old queue would show.
+        """
+        oldest = self.task_repo.oldest_queued_at()
+        if oldest is None:
+            return None
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=UTC)
+        return max(0, int((now - oldest).total_seconds()))
 
     def _task_to_workbench_row(self, task: Task) -> TaskWorkbenchRow:
         return TaskWorkbenchRow(

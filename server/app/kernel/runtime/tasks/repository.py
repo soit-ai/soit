@@ -11,11 +11,15 @@ from sqlalchemy.orm import Session
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
+from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.outbox_emit import (
     enqueue_task_checkpoint_outbox,
     enqueue_task_outbox_event,
 )
+
+_WAITING_STATUSES = (TaskStatus.QUEUED.value, TaskStatus.RETRYING.value)
+"""Statuses that mean the task is waiting for a worker rather than running."""
 
 
 class TaskRepository:
@@ -224,6 +228,32 @@ class TaskRepository:
         )
         result = self.db.exec(query).first()
         return self._count_value(result)
+
+    def count_queued(self) -> int:
+        """Count tasks still waiting for a worker to pick them up."""
+        query = select(func.count()).select_from(Task).where(
+            and_(
+                Task.tenant_id == self.ctx.tenant_id,
+                Task.workspace_id == self.ctx.workspace_id,
+                Task.status.in_(_WAITING_STATUSES),
+            )
+        )
+        return self._count_value(self.db.exec(query).first())
+
+    def oldest_queued_at(self) -> datetime | None:
+        """Return when the longest-waiting task entered the queue."""
+        query = select(func.min(Task.created_at)).where(
+            and_(
+                Task.tenant_id == self.ctx.tenant_id,
+                Task.workspace_id == self.ctx.workspace_id,
+                Task.status.in_(_WAITING_STATUSES),
+            )
+        )
+        result = self.db.exec(query).first()
+        if result is None:
+            return None
+        value = result[0] if isinstance(result, tuple) else result
+        return value if isinstance(value, datetime) else None
 
     def count_created_between(self, start_at: datetime, end_at: datetime) -> int:
         query = select(func.count()).select_from(Task).where(

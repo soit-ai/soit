@@ -50,6 +50,14 @@ export function compactNumber(value?: number | null): string {
   return value.toLocaleString('en-US')
 }
 
+/** Currency for tiles and tables: $12.40 for USD, "12.40 EUR" otherwise. */
+export function money(amount?: number | null, currency?: string | null): string {
+  if (amount == null) return '—'
+  const value = amount.toFixed(2)
+  if (!currency) return value
+  return currency.toUpperCase() === 'USD' ? `$${value}` : `${value} ${currency}`
+}
+
 export function percent(value?: number | null, digits = 1): string {
   if (value == null) return '—'
   // Backends report success rates either as 0–1 ratios or 0–100 percentages.

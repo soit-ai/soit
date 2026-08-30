@@ -31,8 +31,8 @@ import { useTranslation } from '@/i18n'
 import { getAgentWorkbench } from '@/services/agent-service'
 import {
   createResourceGrant,
-  listResourceGrants,
   listWorkspaceMembers,
+  listWorkspaceResourceGrants,
   revokeResourceGrant,
   type ResourceGrant,
 } from '@/services/identity-service'
@@ -53,6 +53,9 @@ const WRITE_ACTIONS: string[] = ['update', 'delete']
 
 const RESOURCE_KINDS = ['agent', 'workflow', 'knowledge'] as const
 type ResourceKind = (typeof RESOURCE_KINDS)[number]
+
+/** How many grants one read returns; the server caps at 1000. */
+const GRANT_LIMIT = 500
 
 interface Resource {
   kind: ResourceKind
@@ -116,30 +119,26 @@ export default function ConsoleAccess() {
     return rows
   }, [agentsQuery.data, workflowsQuery.data, knowledgeQuery.data])
 
-  // BACKEND-PENDING: /resource-grants requires resource_type and resource_id,
-  // so there is no way to read a workspace's grants in one call. This fans out
-  // over the resources above; a workspace-scoped listing would replace it.
-  const resourceKey = resources.map((row) => `${row.kind}:${row.id}`).join(',')
+  // One workspace-scoped read. Grants name their resource by type and id, so
+  // the objects loaded above supply the display name; a grant on something not
+  // in those lists still shows, identified by its raw reference.
   const grantsQuery = useQuery({
-    queryKey: ['console', 'access', 'grants', resourceKey],
-    queryFn: async () => {
-      const settled = await Promise.all(
-        resources.map((resource) =>
-          listResourceGrants(resource.kind, resource.id, { suppressErrorToast: true })
-            .then((grants) => grants.map((grant) => ({ ...grant, resource })))
-            .catch(() => [] as GrantRow[]),
-        ),
-      )
-      return settled.flat()
-    },
-    options: {
-      enabled: resources.length > 0,
-      retry: false,
-      refetchOnWindowFocus: false,
-    },
+    queryKey: ['console', 'access', 'grants'],
+    queryFn: () => listWorkspaceResourceGrants({ limit: GRANT_LIMIT }),
+    options: { retry: false, refetchOnWindowFocus: false },
   })
 
-  const grants = useMemo(() => grantsQuery.data || [], [grantsQuery.data])
+  const grants = useMemo<GrantRow[]>(() => {
+    const byRef = new Map(resources.map((row) => [`${row.kind}:${row.id}`, row]))
+    return (grantsQuery.data || []).map((grant) => ({
+      ...grant,
+      resource: byRef.get(`${grant.resource_type}:${grant.resource_id}`) || {
+        kind: grant.resource_type as ResourceKind,
+        id: grant.resource_id,
+        name: grant.resource_id,
+      },
+    }))
+  }, [grantsQuery.data, resources])
   const members = membersQuery.data || []
   const memberLabel = (userId: string) => {
     const member = members.find((row) => row.user_id === userId)

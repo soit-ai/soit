@@ -3,17 +3,17 @@ import { useQuery } from '@/hooks/use-query'
 import { getAgentWorkbench } from '@/services/agent-service'
 import { getKnowledgeWorkbench } from '@/services/knowledge-service'
 import { listApiKeys } from '@/services/api-key-service'
-import { listWorkspaceMembers } from '@/services/identity-service'
+import { listWorkspaceMembers, listWorkspaceResourceGrants } from '@/services/identity-service'
 import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
-import { listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
+import { getRunWindowSummary, listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
 import { listThreads } from '@/services/thread-service'
 import { getWorkflowWorkbench } from '@/services/workflow-service'
 
-import { catColor, compactNumber, relativeTime } from '../adapters/palette'
+import { catColor, compactNumber, money, percent, relativeTime } from '../adapters/palette'
 import { useSubjectNames } from '../adapters/subject-names'
 import { mockSchedules } from '../mocks/execute'
 import {
@@ -22,7 +22,6 @@ import {
   mockPanelCounts,
   mockPinned,
   mockSavedViews,
-  mockTodayStats,
 } from '../mocks/panel'
 import type { ConsoleCountKey, ConsolePillar, PanelSlot } from './panel-config'
 
@@ -57,6 +56,22 @@ function spanLabel(total?: number | null): string | undefined {
 
 function windowLabel(total?: number | null): string | undefined {
   return total == null ? undefined : `${compactNumber(total)} · 24h`
+}
+
+/**
+ * The largest charged currency in a window. Workspaces normally price in one
+ * currency; when more than one is present the panel shows the biggest rather
+ * than adding amounts that cannot be added.
+ */
+function primaryAmount(
+  charges?: { entry_count: number; amounts: Record<string, string> },
+): { amount: number; currency: string } | null {
+  if (!charges?.entry_count) return null
+  const rows = Object.entries(charges.amounts || {})
+    .map(([currency, value]) => ({ currency, amount: Number(value) }))
+    .filter((row) => Number.isFinite(row.amount))
+    .sort((a, b) => b.amount - a.amount)
+  return rows[0] || null
 }
 
 /** A `.sl` row whose `.ct` holds a formatted figure rather than a bare count. */
@@ -186,6 +201,15 @@ export function useConsolePanelData(
     options: { ...SHARED, enabled: isGovern },
   })
 
+  // One call answers the whole Today group: run volume, pass rate and spend
+  // over the same window, counted server-side rather than sampled.
+  const today = useQuery({
+    queryKey: ['console', 'panel', 'today'],
+    queryFn: () =>
+      getRunWindowSummary({ since: new Date(Date.now() - DAY_MS).toISOString() }),
+    options: { ...SHARED, enabled: isOverview },
+  })
+
   // Three counted reads. Each asks for one row and the total, so the figure
   // costs a count query rather than a page of rows nobody renders.
   const runCount = useQuery({
@@ -197,6 +221,11 @@ export function useConsolePanelData(
     queryKey: ['console', 'panel', 'span-count'],
     queryFn: () => listRunSteps({ page_size: 1, with_total: true }),
     options: { ...SHARED, enabled: isObserve },
+  })
+  const grants = useQuery({
+    queryKey: ['console', 'counts', 'grants'],
+    queryFn: () => listWorkspaceResourceGrants({ limit: 500 }),
+    options: { ...SHARED, enabled: isGovern },
   })
   const auditCount = useQuery({
     queryKey: ['console', 'panel', 'audit-count'],
@@ -262,16 +291,44 @@ export function useConsolePanelData(
     runs: countLabel(runCount.data?.total),
     traces: spanLabel(spanCount.data?.total),
     audit: windowLabel(auditCount.data?.total),
-    // Fixtures, not measurements: these two have no endpoint that can answer
-    // them. Each is a fallback, so shipping the API retires it on its own.
+    access: grants.data?.length,
+    // A fixture, not a measurement: policy bundles are not versioned
+    // server-side, so there is no active-bundle identifier to read. It is a
+    // fallback, so shipping the API retires it on its own.
     policies: isGovern ? mockPanelCounts.policies : undefined,
-    access: isGovern ? mockPanelCounts.access : undefined,
   }
 
   const groups: Partial<Record<PanelSlot, PanelRow[]>> = {}
 
   if (isOverview) {
-    groups.today = mockTodayStats.map((row) => ({ kind: 'stat' as const, ...row }))
+    // Every row drops out when its figure is missing rather than showing a
+    // zero, so an unreachable summary leaves the group empty instead of
+    // reporting a quiet day.
+    const summary = today.data
+    const spend = primaryAmount(summary?.charges)
+    groups.today = compact([
+      summary != null && {
+        kind: 'stat',
+        id: 'runs',
+        label: t('console.shell.todayStats.runs'),
+        value: compactNumber(summary.total),
+        to: '/observe/runs',
+      },
+      summary?.pass_rate != null && {
+        kind: 'stat',
+        id: 'pass',
+        label: t('console.shell.todayStats.passRate'),
+        value: percent(summary.pass_rate),
+        to: '/observe/runs',
+      },
+      spend != null && {
+        kind: 'stat',
+        id: 'spend',
+        label: t('console.shell.todayStats.spend'),
+        value: money(spend.amount, spend.currency),
+        to: '/observe/runs',
+      },
+    ])
     groups.pinned = mockPinned.map((row) => ({ kind: 'mini' as const, ...row }))
   }
 
