@@ -162,6 +162,9 @@ record for operators.
 - The agent publish tab shows the last ten runs of the release gate: pass rate,
   what regressed against the baseline, what was fixed, and whether the gate
   blocked. An agent with no report says so rather than showing an empty chart.
+- The Agents workbench review tab reads the drafts the workspace is waiting on
+  and answers them in place, instead of showing a fixture. The console now
+  reports its own version on the About pane, stamped at build time.
 
 ### Changed
 

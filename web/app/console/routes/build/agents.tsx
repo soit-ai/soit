@@ -30,13 +30,16 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
-import { mockAgentMarket, mockAgentReview } from '../../mocks/build-agents'
+import { mockAgentMarket } from '../../mocks/build-agents'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
 import {
   createAgent,
   getAgentWorkbench,
+  listDraftsAwaitingReview,
+  reviewAgentVersion,
+  type AgentReviewAction,
   type AgentWorkbenchRow,
 } from '@/services/agent-service'
 import { requestErrorMessage } from '@/utils/request'
@@ -55,7 +58,10 @@ type CardFilter = 'all' | 'enabled' | 'paused'
 
 const PAGE_SIZE = 50
 
-// BACKEND-PENDING: marketplace and publish review have no server-side object
+// BACKEND-PENDING: the marketplace has no server-side object -- there is no
+// agent catalogue or template registry to read, and the cards below hold the
+// design of a feature that has not been built. Publish review is real: it reads
+// the review state drafts carry.
 // yet; every other tab reads agent-service.
 export default function ConsoleAgents() {
   const { t } = useTranslation()
@@ -96,6 +102,29 @@ export default function ConsoleAgents() {
     },
     onError: (error: unknown) => {
       toast.error(requestErrorMessage(error, 'Failed to create the agent'))
+    },
+  })
+
+  // Drafts somebody was asked to look at. A draft nobody requested review on
+  // is work in progress, not a queue entry, so it is not listed here.
+  const draftsQuery = useQuery({
+    queryKey: ['console', 'agents', 'drafts-awaiting-review'],
+    queryFn: () => listDraftsAwaitingReview({ limit: 50 }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const drafts = Array.isArray(draftsQuery.data) ? draftsQuery.data : []
+
+  const reviewMutation = useMutation<
+    unknown,
+    unknown,
+    { row: { agent_id: string; version_id: string }; action: AgentReviewAction }
+  >({
+    mutationKey: ['console', 'agents', 'review'],
+    mutationFn: ({ row, action }) =>
+      reviewAgentVersion(row.agent_id, row.version_id, { action }, { suppressErrorToast: true }),
+    onSuccess: () => void draftsQuery.refetch(),
+    onError: (error: unknown) => {
+      toast.error(requestErrorMessage(error, 'Failed to record the review'))
     },
   })
 
@@ -182,7 +211,7 @@ export default function ConsoleAgents() {
             { id: 'workbench', label: t('console.agents.tabs.workbench') },
             { id: 'library', label: t('console.agents.tabs.library'), count: rows.length },
             { id: 'market', label: t('console.agents.tabs.market') },
-            { id: 'review', label: t('console.agents.tabs.review'), count: mockAgentReview.length },
+            { id: 'review', label: t('console.agents.tabs.review'), count: drafts.length },
             {
               id: 'exceptions',
               label: t('console.agents.tabs.exceptions'),
@@ -385,30 +414,67 @@ export default function ConsoleAgents() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockAgentReview.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <span className="idm" style={{ '--c': row.color } as React.CSSProperties}>
-                      <i />
-                      {row.id}
-                    </span>
-                  </TableCell>
-                  <TableCell className="dim">{row.change}</TableCell>
-                  <TableCell className="dim">{row.requested_by}</TableCell>
-                  <TableCell className="num dim">{row.waiting}</TableCell>
-                  <TableCell className="num">
-                    <span style={{ display: 'inline-flex', gap: 6 }}>
-                      <ConsoleButton variant="primary" size="sm">
-                        {t('console.approvals.approve')}
-                      </ConsoleButton>
-                      <ConsoleButton size="sm">{t('console.approvals.reject')}</ConsoleButton>
-                      <ConsoleButton variant="ghost" size="sm">
-                        {t('console.agents.diff')}
-                      </ConsoleButton>
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {drafts.length === 0 ? (
+                <DataStateRow
+                  colSpan={5}
+                  isPending={draftsQuery.isPending}
+                  isError={draftsQuery.isError}
+                />
+              ) : (
+                drafts.map((row) => (
+                  <TableRow key={row.version_id}>
+                    <TableCell>
+                      <span
+                        className="idm"
+                        style={{ '--c': catColor(row.agent_id) } as React.CSSProperties}
+                      >
+                        <i />
+                        {row.agent_name || row.agent_id}
+                      </span>
+                    </TableCell>
+                    <TableCell className="dim">
+                      v{row.version}
+                      {row.review_note ? ` · ${row.review_note}` : ''}
+                    </TableCell>
+                    <TableCell className="dim">{row.review_requested_by || '—'}</TableCell>
+                    <TableCell className="num dim">
+                      {row.review_requested_at ? relativeTime(row.review_requested_at) : '—'}
+                    </TableCell>
+                    <TableCell className="num">
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <ConsoleButton
+                          variant="primary"
+                          size="sm"
+                          disabled={reviewMutation.isPending}
+                          onClick={() =>
+                            reviewMutation.mutate({ row, action: 'approve' })
+                          }
+                        >
+                          {t('console.approvals.approve')}
+                        </ConsoleButton>
+                        <ConsoleButton
+                          size="sm"
+                          disabled={reviewMutation.isPending}
+                          onClick={() =>
+                            reviewMutation.mutate({ row, action: 'request_changes' })
+                          }
+                        >
+                          {t('console.approvals.reject')}
+                        </ConsoleButton>
+                        {/* The draft itself is the diff; the version page shows
+                            what it changed. */}
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate(`/build/agents/${row.agent_id}`)}
+                        >
+                          {t('console.agents.diff')}
+                        </ConsoleButton>
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
           <Pager summary={t('console.agents.reviewNote')} />

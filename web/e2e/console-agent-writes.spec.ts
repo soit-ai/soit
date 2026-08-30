@@ -470,3 +470,42 @@ test('the publish tab shows the regression trend and what it blocked', async ({
   await expect(panel).toContainText('2 regressed')
   await expect(panel).toContainText('8/10 cases')
 })
+
+test('the review tab lists drafts the workspace is waiting on and answers them', async ({
+  page,
+}) => {
+  let reviewed: Record<string, unknown> | null = null
+
+  await json(page, '**/api/v1/agents/drafts/awaiting-review**', [
+    {
+      version_id: 'av_9',
+      agent_id: 'release-notes',
+      agent_name: 'release-notes',
+      version: 6,
+      review_status: 'in_review',
+      review_note: 'scope change',
+      review_requested_at: '2026-08-29T10:00:00Z',
+      review_requested_by: 'Wei',
+    },
+  ])
+  await page.route('**/api/v1/agents/release-notes/versions/av_9/review', (route) => {
+    reviewed = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ id: 'av_9', review_status: 'approved' }),
+    })
+  })
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: /Review/i }).click()
+
+  const row = page.locator('tbody tr').filter({ hasText: 'release-notes' })
+  await expect(row).toContainText('scope change')
+  await expect(row).toContainText('Wei')
+
+  await row.getByRole('button', { name: 'Approve' }).click()
+
+  await expect.poll(() => reviewed).not.toBeNull()
+  expect(reviewed).toMatchObject({ action: 'approve' })
+})

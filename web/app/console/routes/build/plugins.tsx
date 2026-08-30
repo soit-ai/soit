@@ -53,7 +53,8 @@ const FILTER_TYPE: Record<'mcp' | 'tools' | 'skills', Plugin['plugin_type']> = {
   skills: 'skill',
 }
 
-// BACKEND-PENDING: the marketplace is the one fixture left on this page —
+// BACKEND-PENDING: the marketplace is the one fixture left on this page.
+// There is no plugin catalogue or registry endpoint, and none is planned —
 // there is no marketplace/catalogue endpoint at all (plugin-service only lists
 // the workspace registry), so browsing and installing remote packages cannot be
 // wired until that API exists. Install/uninstall are wired on the Installed tab

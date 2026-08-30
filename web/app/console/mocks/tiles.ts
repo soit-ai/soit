@@ -3,7 +3,9 @@
  *
  * // BACKEND-PENDING: seats needs a licence record — edition, seat cap and
  * // renewal date have no server object. Its numerator is the live member
- * // count; only the cap and the date below are invented.
+ * // count; only the cap and the date below are invented. Licensing belongs
+ * // to SOIT Cloud (README, "Open source and commercial editions"), so this
+ * // is a boundary rather than a gap.
  *
  * Every other tile that used to live here now reads a real measurement.
  */

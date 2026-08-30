@@ -4,7 +4,18 @@ import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import path from 'path'
 
+import { readFileSync } from 'fs'
+
+const packageVersion = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
+).version as string
+
 export default defineConfig(({ command, mode }) => ({
+  // Stamped at build time so a support conversation can start with the
+  // version the person is actually running, rather than a dash.
+  define: {
+    __CONSOLE_VERSION__: JSON.stringify(packageVersion),
+  },
   base: mode === 'development' ? '/' : '/',
   sourcemap: true,
   appType: 'spa',
