@@ -66,7 +66,7 @@ SOIT is organized around four capabilities. Each is a first-class citizen, desig
 
 Compose agents from a unified capability registry: models, knowledge bases, workflows, skills, and tools. Every binding is typed, versioned, and source-agnostic — a tool from a plugin, an MCP server, or a built-in adapter looks identical from the agent's perspective.
 
-- Visual agent assembly console with versioning and release management
+- Visual agent assembly console with versioning and release management, including a review state on drafts so work in progress is distinguishable from work waiting on somebody
 - DAG workflow editor with 8 core node types — input, LLM, knowledge retrieval, tool, condition, transform, variable assignment, and output — plus plugin-exported node types resolved through the plugin registry
 - Knowledge ingestion pipeline for PDF, DOCX, Markdown, and HTML, with chunking, embedding, and Milvus-backed retrieval
 - MCP-friendly: any Model Context Protocol server resolves into the runtime tool registry without code changes. Transport is streamable HTTP. Protected servers are reached with OAuth 2.1 using authorization-server discovery (RFC 9728, RFC 8414 / OpenID Connect) and resource-bound tokens (RFC 8707), via the `client_credentials` grant — SOIT calls MCP servers on its own behalf, so the browser-based authorization-code flow is not implemented. The adapter targets the MCP SDK v1 line; the stateless 2026-07-28 protocol revision is not yet supported
@@ -80,7 +80,8 @@ Every execution — chat turn, agent loop, or workflow run — flows through the
 - Outbox-based event-driven runtime with checkpoints and idempotency
 - Multi-model routing across OpenAI, Anthropic, DeepSeek, Qwen, and any OpenAI-compatible endpoint
 - Cost-aware execution with per-step token and latency accounting
-- Graceful failure handling with retries, fallback chains, and human-in-the-loop approvals
+- Graceful failure handling with retries, fallback chains, and human-in-the-loop approvals: a run that stops for a decision records the request, so it can be answered from the task rather than only by whoever was watching the stream
+- Cron schedules that hand work to the same durable path the API uses, so a scheduled run is an ordinary run; a missed occurrence is skipped unless the schedule asks to catch up
 
 ### Observe — Workspace-level visibility, not just request logs
 
@@ -90,6 +91,7 @@ Most platforms give you a list of runs. SOIT gives you a **workspace control con
 - Drill-down by agent, by workflow, by tool, and by source (`source_kind=plugin | mcp | builtin`)
 - Trace timeline with full step replay
 - Knowledge retrieval quality metrics
+- Regression trend across the last runs of the release gate: pass rate, what regressed against the baseline, and whether the gate blocked
 - OpenTelemetry-compatible tracing, structured JSON logs, and Prometheus metrics
 
 ### Govern — Permissions, secrets, egress, audit, cost, trace, replay
@@ -101,7 +103,8 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Vault-backed secret management with workspace-scoped visibility
 - Egress policy enforcement for outbound HTTP calls and tool adapters
 - Per-version capability allowlists for models, knowledge, workflows, tools, plugins, and MCP servers
-- Full audit log of privileged operations and runtime tool use
+- Full audit log of privileged operations and runtime tool use, searchable by actor, object, outcome and time window
+- Versioned governance policy: every save of a workspace's egress rules and usage limits appends a revision, an earlier one can be restored, and the policy in force carries a content-derived identifier that refused requests are recorded against
 - Cost attribution by run, model, tool, workflow, and workspace
 - Trace timeline and replay for agent, workflow, response, and tool-call execution
 - Separation of duties: changing egress policy, secrets, or installed plugins requires workspace Owner/Admin, not the Dev role that builds and runs agents
