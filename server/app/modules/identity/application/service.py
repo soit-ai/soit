@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.kernel.commons.errors import NotFoundError, UnauthorizedError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.identity import sealing, totp
 from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.rbac import (
@@ -37,6 +38,7 @@ from app.modules.identity.application.ports import (
     SavedViewRepositoryPort,
     TenantMembershipRepositoryPort,
     TenantRepositoryPort,
+    UserMfaRepositoryPort,
     UserRepositoryPort,
     UserSessionRepositoryPort,
     WorkspaceMembershipRepositoryPort,
@@ -64,6 +66,7 @@ from app.modules.identity.domain.models import (
     Tenant,
     TenantMembership,
     User,
+    UserMfa,
     UserSession,
     Workspace,
     WorkspaceMembership,
@@ -71,6 +74,25 @@ from app.modules.identity.domain.models import (
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+MFA_CHALLENGE_PURPOSE = "mfa_challenge"
+"""Marks a token that may only complete a sign-in, never authorize a request."""
+
+MFA_CHALLENGE_MINUTES = 5
+"""How long the gap between password and code may stay open."""
+
+
+class MfaRequired(Exception):
+    """Raised instead of a session when a second factor still has to be proved.
+
+    Carries the challenge token rather than a message: the caller needs it to
+    continue, and an exception is how the password path refuses to hand back a
+    session without saying "wrong password".
+    """
+
+    def __init__(self, challenge_token: str) -> None:
+        super().__init__("Two-factor authentication is required")
+        self.challenge_token = challenge_token
 
 
 class IdentityService:
@@ -90,6 +112,7 @@ class IdentityService:
         session_repo: UserSessionRepositoryPort,
         saved_view_repo_factory: Callable[[RequestContext], SavedViewRepositoryPort],
         pin_repo_factory: Callable[[RequestContext], PinnedObjectRepositoryPort],
+        mfa_repo: UserMfaRepositoryPort,
     ):
         """Initialize identity service.
 
@@ -109,6 +132,7 @@ class IdentityService:
         self.session_repo = session_repo
         self.saved_view_repo_factory = saved_view_repo_factory
         self.pin_repo_factory = pin_repo_factory
+        self.mfa_repo = mfa_repo
 
     def _run_async(self, coro):
         """Run coroutine to completion from sync contexts."""
@@ -307,6 +331,12 @@ class IdentityService:
         memberships.sort(key=lambda item: item.created_at)
         tenant_id = memberships[0].tenant_id
         tenant_role = memberships[0].role
+
+        if self.mfa_is_active(user.id):
+            # Stop here. A password alone must not produce a session, so the
+            # caller gets a short-lived challenge instead and comes back with
+            # a code.
+            raise MfaRequired(self._issue_mfa_challenge(user.id, tenant_id))
 
         workspace_id, workspace_role = self._ensure_workspace_membership(
             tenant_id=tenant_id,
@@ -515,6 +545,238 @@ class IdentityService:
             )
         )
         self.db.commit()
+
+    # ------------------------------------------------------------------
+    # Second factor
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _app_secret() -> str:
+        from app.settings.settings import settings
+
+        return settings.secret_key
+
+    def get_mfa(self, user_id: str) -> UserMfa | None:
+        """Return the user's enrolment, pending or active."""
+        return self.mfa_repo.get_by_user(user_id)
+
+    def mfa_is_active(self, user_id: str) -> bool:
+        """Whether this user has a confirmed second factor."""
+        enrolment = self.mfa_repo.get_by_user(user_id)
+        return enrolment is not None and enrolment.status == "active"
+
+    def start_mfa_enrolment(
+        self,
+        ctx: RequestContext,
+        issuer: str = "SOIT",
+    ) -> tuple[str, str]:
+        """Begin enrolment and return (secret, provisioning URI).
+
+        Restarting replaces a pending enrolment: a half-finished scan is not
+        worth protecting, and refusing would strand someone holding a secret
+        their authenticator never received. An active enrolment is never
+        replaced -- turning the second factor off is a separate, deliberate act.
+        """
+        existing = self.mfa_repo.get_by_user(ctx.user_id)
+        if existing is not None and existing.status == "active":
+            raise ValidationError("Two-factor authentication is already enabled")
+
+        secret = totp.generate_secret()
+        sealed = sealing.seal(secret, secret_key=self._app_secret())
+        if existing is not None:
+            existing.secret_sealed = sealed
+            existing.status = "pending"
+            existing.recovery_hashes_json = []
+            existing.updated_at = utc_now()
+            self.mfa_repo.save(existing)
+        else:
+            self.mfa_repo.save(
+                UserMfa(user_id=ctx.user_id, secret_sealed=sealed, status="pending")
+            )
+
+        user = self.user_repo.get_by_id(ctx.user_id)
+        account = user.email if user else ctx.user_id
+        return secret, totp.provisioning_uri(secret, account=account, issuer=issuer)
+
+    def confirm_mfa_enrolment(self, ctx: RequestContext, code: str) -> list[str]:
+        """Activate enrolment once a code proves the authenticator holds it.
+
+        Activating at setup instead would let a mistyped scan lock someone out
+        of their own account. Returns the recovery codes, shown once and stored
+        only as hashes.
+        """
+        enrolment = self.mfa_repo.get_by_user(ctx.user_id)
+        if enrolment is None:
+            raise NotFoundError("No enrolment in progress")
+        if enrolment.status == "active":
+            raise ValidationError("Two-factor authentication is already enabled")
+
+        secret = sealing.unseal(enrolment.secret_sealed, secret_key=self._app_secret())
+        if not totp.verify_code(secret, code, int(utc_now().timestamp())):
+            raise UnauthorizedError("That code is not valid")
+
+        codes = totp.generate_recovery_codes()
+        enrolment.status = "active"
+        enrolment.confirmed_at = utc_now()
+        enrolment.recovery_hashes_json = [
+            totp.hash_recovery_code(item) for item in codes
+        ]
+        enrolment.updated_at = utc_now()
+        self.mfa_repo.save(enrolment)
+        self._log_mfa_audit(ctx, operation="enable")
+        return codes
+
+    def disable_mfa(self, ctx: RequestContext, password: str) -> None:
+        """Turn the second factor off, after proving the password.
+
+        An unlocked laptop is exactly the situation a second factor exists for,
+        so a live session alone must not be enough to drop it.
+        """
+        user = self.user_repo.get_by_id(ctx.user_id)
+        if user is None or not pwd_context.verify(password, user.password_hash):
+            raise UnauthorizedError("Password is incorrect")
+        enrolment = self.mfa_repo.get_by_user(ctx.user_id)
+        if enrolment is None:
+            return
+        self.mfa_repo.delete(enrolment)
+        self._log_mfa_audit(ctx, operation="disable")
+
+    def regenerate_recovery_codes(self, ctx: RequestContext, code: str) -> list[str]:
+        """Replace the recovery codes, proving possession of the authenticator."""
+        enrolment = self.mfa_repo.get_by_user(ctx.user_id)
+        if enrolment is None or enrolment.status != "active":
+            raise NotFoundError("Two-factor authentication is not enabled")
+        secret = sealing.unseal(enrolment.secret_sealed, secret_key=self._app_secret())
+        if not totp.verify_code(secret, code, int(utc_now().timestamp())):
+            raise UnauthorizedError("That code is not valid")
+
+        codes = totp.generate_recovery_codes()
+        enrolment.recovery_hashes_json = [
+            totp.hash_recovery_code(item) for item in codes
+        ]
+        enrolment.updated_at = utc_now()
+        self.mfa_repo.save(enrolment)
+        self._log_mfa_audit(ctx, operation="recovery_codes_regenerated")
+        return codes
+
+    def _verify_second_factor(self, user_id: str, code: str) -> bool:
+        """Accept an authenticator code, or spend a recovery code."""
+        enrolment = self.mfa_repo.get_by_user(user_id)
+        if enrolment is None or enrolment.status != "active":
+            return False
+
+        secret = sealing.unseal(enrolment.secret_sealed, secret_key=self._app_secret())
+        if totp.verify_code(secret, code, int(utc_now().timestamp())):
+            enrolment.last_used_at = utc_now()
+            self.mfa_repo.save(enrolment)
+            return True
+
+        # Recovery codes are single use: matching one strikes it off, so a
+        # printed sheet is worth as many sign-ins as it has lines left.
+        candidate = totp.hash_recovery_code(code)
+        remaining = list(enrolment.recovery_hashes_json or [])
+        if candidate in remaining:
+            remaining.remove(candidate)
+            enrolment.recovery_hashes_json = remaining
+            enrolment.last_used_at = utc_now()
+            enrolment.updated_at = utc_now()
+            self.mfa_repo.save(enrolment)
+            return True
+        return False
+
+    def _log_mfa_audit(self, ctx: RequestContext, *, operation: str) -> None:
+        self.db.add(
+            AuditEvent(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                event_type="identity.mfa.changed",
+                resource_type="user_mfa",
+                resource_id=ctx.user_id,
+                operation=operation,
+                actor_user_id=ctx.user_id,
+                subject_user_id=ctx.user_id,
+                outcome="succeeded",
+                scope="tenant",
+                payload_json={"operation": operation},
+            )
+        )
+        self.db.commit()
+
+    def _issue_mfa_challenge(self, user_id: str, tenant_id: str) -> str:
+        """Mint the short-lived token that stands between password and session.
+
+        It is a JWT so nothing has to be stored for it, and it carries a claim
+        marking it as a challenge: an access token and a challenge token must
+        never be interchangeable, or the second factor would be optional for
+        anyone who noticed.
+        """
+        return self.jwt_manager.create_access_token(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            expires_delta=timedelta(minutes=MFA_CHALLENGE_MINUTES),
+            purpose=MFA_CHALLENGE_PURPOSE,
+        )
+
+    def complete_mfa_login(
+        self,
+        challenge_token: str,
+        code: str,
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> tuple[User, str, str, str]:
+        """Finish a sign-in that stopped at the second factor.
+
+        Returns:
+            Tuple of (User, access_token, workspace_id, refresh_token).
+        """
+        payload = self.jwt_manager.decode_token(challenge_token)
+        if payload.get("purpose") != MFA_CHALLENGE_PURPOSE:
+            raise UnauthorizedError("That token cannot complete a sign-in")
+
+        user_id = str(payload.get("sub") or "")
+        tenant_id = str(payload.get("tenant_id") or "")
+        if not user_id or not tenant_id:
+            raise UnauthorizedError("Challenge is missing required claims")
+
+        user = self.user_repo.get_by_id(user_id)
+        if user is None or not user.is_active:
+            raise UnauthorizedError("User account is inactive")
+        if not self._verify_second_factor(user_id, code):
+            raise UnauthorizedError("That code is not valid")
+
+        membership = next(
+            (
+                item
+                for item in self.tenant_membership_repo.get_by_user(user_id)
+                if item.tenant_id == tenant_id
+            ),
+            None,
+        )
+        if membership is None:
+            raise UnauthorizedError("User has no tenant membership")
+
+        workspace_id, workspace_role = self._ensure_workspace_membership(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            tenant_role=membership.role,
+        )
+        session, refresh_token = self._issue_session(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        access_token = self.jwt_manager.create_access_token(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            tenant_role=membership.role,
+            workspace_role=workspace_role,
+            session_id=session.id,
+        )
+        return user, access_token, workspace_id, refresh_token
 
     # ------------------------------------------------------------------
     # Personal shortcuts: kept filters and pinned objects
@@ -897,6 +1159,14 @@ class IdentityService:
                 raise ValidationError("Tenant admin role required to change workspace quotas")
             for field in provided_quota_fields:
                 setattr(workspace, field, getattr(data, field))
+        if "require_mfa" in data.model_fields_set and data.require_mfa is not None:
+            # A workspace-wide security requirement, not a personal preference:
+            # the same bar as changing quotas.
+            if not ctx.is_tenant_admin():
+                raise ValidationError(
+                    "Tenant admin role required to change the workspace MFA requirement"
+                )
+            workspace.require_mfa = bool(data.require_mfa)
         workspace.updated_at = utc_now()
         return repo.update(workspace)
 

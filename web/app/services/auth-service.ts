@@ -14,6 +14,27 @@ export interface TokenResponse {
   refresh_token?: string | null
 }
 
+export interface MfaChallenge {
+  mfa_required: true
+  mfa_token: string
+  expires_in: number
+}
+
+/** A sign-in either completes or stops at the second factor. */
+export type LoginResult = TokenResponse | MfaChallenge
+
+export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
+  return (result as MfaChallenge).mfa_required === true
+}
+
+export interface MfaStatus {
+  enabled: boolean
+  pending: boolean
+  confirmed_at?: string | null
+  last_used_at?: string | null
+  recovery_codes_remaining: number
+}
+
 export interface UserSession {
   id: string
   workspace_id?: string | null
@@ -38,8 +59,49 @@ export interface RegisterRequest {
 // Letting the global handler also raise a toast reports one rejection twice.
 const quiet: RequestConfigWithToast = { suppressErrorToast: true }
 
-export const authLogin = (data: LoginRequest): Promise<TokenResponse> => {
-  return post<TokenResponse>(`/login`, data, quiet)
+export const authLogin = (data: LoginRequest): Promise<LoginResult> => {
+  return post<LoginResult>(`/login`, data, quiet)
+}
+
+/** Finish a sign-in that stopped at the second factor. */
+export const authCompleteMfaLogin = (
+  mfaToken: string,
+  code: string,
+): Promise<TokenResponse> => {
+  return post<TokenResponse>(`/login/mfa`, { mfa_token: mfaToken, code }, quiet)
+}
+
+export const getMfaStatus = (config?: RequestConfigWithToast): Promise<MfaStatus> => {
+  return get<MfaStatus>(`/me/mfa`, undefined, config)
+}
+
+/** Begins enrolment. The secret comes back once and is never returned again. */
+export const startMfaEnrolment = (
+  config?: RequestConfigWithToast,
+): Promise<{ secret: string; provisioning_uri: string }> => {
+  return post<{ secret: string; provisioning_uri: string }>(`/me/mfa/setup`, undefined, config)
+}
+
+export const confirmMfaEnrolment = (
+  code: string,
+  config?: RequestConfigWithToast,
+): Promise<{ recovery_codes: string[] }> => {
+  return post<{ recovery_codes: string[] }>(`/me/mfa/confirm`, { code }, config)
+}
+
+export const regenerateMfaRecoveryCodes = (
+  code: string,
+  config?: RequestConfigWithToast,
+): Promise<{ recovery_codes: string[] }> => {
+  return post<{ recovery_codes: string[] }>(`/me/mfa/recovery-codes`, { code }, config)
+}
+
+/** POST, not DELETE: the password belongs in a body, never in a query string. */
+export const disableMfa = (
+  password: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return post<void>(`/me/mfa/disable`, { password }, config)
 }
 
 export const authRegister = (data: RegisterRequest): Promise<TokenResponse> => {

@@ -3,13 +3,14 @@
 from datetime import UTC
 
 from app.infra.db.session import get_db_sync
-from app.kernel.commons.errors import UnauthorizedError
+from app.kernel.commons.errors import ForbiddenError, UnauthorizedError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.workspace_access import WorkspaceAccess
 from app.modules.identity.infra.repository import (
     TenantMembershipRepository,
     TenantRepository,
+    UserMfaRepository,
     UserSessionRepository,
     WorkspaceMembershipRepository,
     WorkspaceRepository,
@@ -58,6 +59,17 @@ class DatabaseWorkspaceAccessResolver:
             workspace = WorkspaceRepository(db, context).get_by_id(workspace_id)
             if tenant is None or workspace is None:
                 return None
+
+            if getattr(workspace, "require_mfa", False) and not UserMfaRepository(
+                db
+            ).active_user_ids([user_id]):
+                # A distinct error from "not a member": the person belongs here
+                # and needs to enrol, which the console can only offer if it can
+                # tell the two apart.
+                raise ForbiddenError(
+                    "This workspace requires two-factor authentication",
+                    {"reason": "mfa_required", "workspace_id": workspace_id},
+                )
 
             return WorkspaceAccess(
                 tenant_role=tenant_membership.role,

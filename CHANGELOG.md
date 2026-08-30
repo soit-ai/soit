@@ -68,6 +68,16 @@ record for operators.
 - Saved views and pinned objects are stored per user, per workspace:
   `/me/views` and `/me/pins`. Saving a view over an existing name replaces it,
   and only one view per screen can be the default.
+- Two-factor authentication, by TOTP. `/me/mfa/setup` starts enrolment,
+  `/me/mfa/confirm` activates it once a code proves the authenticator holds the
+  secret, and returns ten single-use recovery codes. Once active, a password no
+  longer signs in on its own: `POST /login` answers with a short-lived challenge
+  and `POST /login/mfa` completes it. The challenge token authorizes nothing
+  else. Turning it off requires the password.
+- A workspace can require a second factor (`require_mfa`). Members without one
+  are refused access to that workspace with a distinguishable reason, so they
+  can be sent to enrol rather than shown an error they cannot act on.
+- Workspace member listings report `mfa_enabled`.
 
 ### Changed
 
@@ -75,6 +85,9 @@ record for operators.
   stated in the README (multi-tenant hosting, frontend branding) was
   removed; SOIT Community is licensed under the Apache License 2.0.
 - The web container image moved from Node 20 to the Node 24 LTS line.
+- Authentication failures from context resolution now carry their code and
+  details instead of being flattened to a bare message, because some refusals
+  name something the client must do about them.
 - `ACCESS_TOKEN_EXPIRE_MINUTES` drops from 480 to 30. It is no longer the
   session length — clients renew against `/refresh` — so it now means the worst
   case delay before a revoked session stops working. `REFRESH_TOKEN_EXPIRE_DAYS`

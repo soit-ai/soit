@@ -376,10 +376,13 @@ async def test_auth_dependency_returns_403_for_missing_workspace_membership(
         lambda: _ForbiddenResolver(),
     )
 
-    with pytest.raises(HTTPException) as error:
+    # Re-raised as the kernel error, not flattened: the app's KernelError
+    # handler answers 403 and keeps the code and details, which is how a client
+    # tells "enrol a second factor" apart from "you are not a member".
+    with pytest.raises(ForbiddenError) as error:
         await auth_middleware.get_current_context(_request())
 
-    assert error.value.status_code == 403
+    assert error.value.code == "FORBIDDEN"
 
 
 @pytest.mark.asyncio

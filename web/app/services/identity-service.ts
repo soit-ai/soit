@@ -54,6 +54,8 @@ export interface WorkspaceInfo {
   name: string
   description?: string | null
   metadata?: Record<string, any> | null
+  /** Members without a confirmed second factor cannot reach this workspace. */
+  require_mfa?: boolean
   created_at: string
 }
 
@@ -66,6 +68,8 @@ export interface WorkspaceMember {
   created_at: string
   /** Most recent activity across their sessions; null if never seen. */
   last_active_at?: string | null
+  /** Whether this member has confirmed a second factor. */
+  mfa_enabled?: boolean
 }
 
 export interface SavedView {
@@ -159,9 +163,16 @@ export const getWorkspace = (workspaceId: string): Promise<WorkspaceInfo> => {
 
 export const updateWorkspace = (
   workspaceId: string,
-  data: { name?: string; description?: string | null; metadata?: Record<string, any> }
+  data: {
+    name?: string
+    description?: string | null
+    metadata?: Record<string, any>
+    /** Members without a confirmed second factor cannot reach this workspace. */
+    require_mfa?: boolean
+  },
+  config?: RequestConfigWithToast,
 ): Promise<WorkspaceInfo> => {
-  return patch<WorkspaceInfo>(`/workspaces/${workspaceId}`, data)
+  return patch<WorkspaceInfo>(`/workspaces/${workspaceId}`, data, config)
 }
 
 export const listWorkspaceMembers = (workspaceId: string): Promise<WorkspaceMember[]> => {

@@ -40,6 +40,7 @@ class JWTManager:
         workspace_role: str | None = None,
         expires_delta: timedelta | None = None,
         session_id: str | None = None,
+        purpose: str | None = None,
     ) -> str:
         """Create JWT access token.
 
@@ -54,6 +55,9 @@ class JWTManager:
                 sign-out end the access it granted; a token without one is
                 accepted until it expires, so upgrading does not sign
                 everybody out.
+            purpose: Narrows what the token may do. A token issued for one
+                step of sign-in carries a purpose so it cannot be presented
+                as an ordinary access token.
 
         Returns:
             Encoded JWT token string.
@@ -80,6 +84,8 @@ class JWTManager:
             payload["workspace_role"] = workspace_role
         if session_id:
             payload["sid"] = session_id
+        if purpose:
+            payload["purpose"] = purpose
 
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 

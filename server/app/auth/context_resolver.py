@@ -84,6 +84,12 @@ class ContextResolver:
         if not user_id or not tenant_id:
             raise UnauthorizedError("Token missing required claims")
 
+        # A token minted for one step of sign-in authorizes nothing. Without
+        # this, presenting the challenge token as a bearer would make the
+        # second factor optional for anyone who noticed.
+        if payload.get("purpose"):
+            raise UnauthorizedError("Token cannot be used to authorize a request")
+
         # Resolve workspace ID
         workspace_id = workspace_id_header
         if not workspace_id:
@@ -235,6 +241,12 @@ class ContextResolver:
 
         if not user_id or not tenant_id:
             raise UnauthorizedError("Token missing required claims")
+
+        # A token minted for one step of sign-in authorizes nothing. Without
+        # this, presenting the challenge token as a bearer would make the
+        # second factor optional for anyone who noticed.
+        if payload.get("purpose"):
+            raise UnauthorizedError("Token cannot be used to authorize a request")
 
         # Use workspace_id from parameter or token
         resolved_workspace_id = workspace_id or payload.get("workspace_id")

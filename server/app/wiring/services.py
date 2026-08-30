@@ -46,6 +46,7 @@ from app.modules.identity.infra.repository import (
     SavedViewRepository,
     TenantMembershipRepository,
     TenantRepository,
+    UserMfaRepository,
     UserRepository,
     UserSessionRepository,
     WorkspaceMembershipRepository,
@@ -212,6 +213,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
     tenant_membership_repo = TenantMembershipRepository(db)
     api_key_repo = ApiKeyRepository(db)
     session_repo = UserSessionRepository(db)
+    mfa_repo = UserMfaRepository(db)
 
     def workspace_repo_factory(ctx: RequestContext) -> WorkspaceRepository:
         return WorkspaceRepository(db, ctx)
@@ -233,6 +235,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
         session_repo=session_repo,
         saved_view_repo_factory=saved_view_repo_factory,
         pin_repo_factory=pin_repo_factory,
+        mfa_repo=mfa_repo,
         jwt_manager=jwt_manager,
         user_repo=user_repo,
         tenant_repo=tenant_repo,

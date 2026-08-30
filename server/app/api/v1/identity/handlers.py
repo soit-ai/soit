@@ -25,6 +25,13 @@ from app.modules.identity.application.schemas import (
     MembershipCreate,
     MembershipResponse,
     MembershipUpdate,
+    MfaChallengeResponse,
+    MfaConfirmRequest,
+    MfaDisableRequest,
+    MfaLoginRequest,
+    MfaRecoveryCodesResponse,
+    MfaSetupResponse,
+    MfaStatusResponse,
     MyWorkspaceResponse,
     PasswordChange,
     PinCreate,
@@ -49,7 +56,11 @@ from app.modules.identity.application.schemas import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from app.modules.identity.application.service import IdentityService
+from app.modules.identity.application.service import (
+    MFA_CHALLENGE_MINUTES,
+    IdentityService,
+    MfaRequired,
+)
 
 
 def _client_ip(request: Request | None) -> str | None:
@@ -105,7 +116,7 @@ async def login(
     login_data: UserLogin,
     request: Request,
     service: IdentityService = Depends(get_identity_service),
-) -> TokenResponse:
+) -> TokenResponse | MfaChallengeResponse:
     """Login user.
 
     Args:
@@ -128,6 +139,14 @@ async def login(
             expires_in=settings.access_token_expire_minutes * 60,
             workspace_id=workspace_id,
             refresh_token=refresh_token,
+        )
+    except MfaRequired as challenge:
+        # Not an error: the password was right, and the caller now owes a code.
+        # Returned as a 200 with no access token so a client cannot mistake it
+        # for a completed sign-in.
+        return MfaChallengeResponse(
+            mfa_token=challenge.challenge_token,
+            expires_in=MFA_CHALLENGE_MINUTES * 60,
         )
     except UnauthorizedError as e:
         raise HTTPException(
@@ -290,6 +309,7 @@ def _workspace_response(workspace: Any) -> WorkspaceResponse:
         tool_rate_limit_per_minute=workspace.tool_rate_limit_per_minute,
         llm_daily_quota=workspace.llm_daily_quota,
         tool_daily_quota=workspace.tool_daily_quota,
+        require_mfa=bool(getattr(workspace, "require_mfa", False)),
         created_at=workspace.created_at,
     )
 
@@ -368,6 +388,104 @@ async def list_workspaces(
         return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+async def get_mfa_status(
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> MfaStatusResponse:
+    """Report whether the caller has a second factor, and its state."""
+    enrolment = service.get_mfa(ctx.user_id)
+    if enrolment is None:
+        return MfaStatusResponse(enabled=False)
+    return MfaStatusResponse(
+        enabled=enrolment.status == "active",
+        pending=enrolment.status == "pending",
+        confirmed_at=enrolment.confirmed_at,
+        last_used_at=enrolment.last_used_at,
+        recovery_codes_remaining=len(enrolment.recovery_hashes_json or []),
+    )
+
+
+async def start_mfa_enrolment(
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> MfaSetupResponse:
+    """Begin enrolment. The secret is shown once and never returned again."""
+    try:
+        secret, uri = service.start_mfa_enrolment(ctx)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return MfaSetupResponse(secret=secret, provisioning_uri=uri)
+
+
+async def confirm_mfa_enrolment(
+    payload: MfaConfirmRequest,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> MfaRecoveryCodesResponse:
+    """Activate the second factor and hand back the recovery codes."""
+    try:
+        codes = service.confirm_mfa_enrolment(ctx, payload.code)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+    return MfaRecoveryCodesResponse(recovery_codes=codes)
+
+
+async def regenerate_mfa_recovery_codes(
+    payload: MfaConfirmRequest,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> MfaRecoveryCodesResponse:
+    """Replace the recovery codes. The old ones stop working immediately."""
+    try:
+        codes = service.regenerate_recovery_codes(ctx, payload.code)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+    return MfaRecoveryCodesResponse(recovery_codes=codes)
+
+
+async def disable_mfa(
+    payload: MfaDisableRequest,
+    ctx: RequestContext = Depends(get_current_context),
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Turn the second factor off, after the password proves who is asking."""
+    try:
+        service.disable_mfa(ctx, payload.password)
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+
+async def complete_mfa_login(
+    payload: MfaLoginRequest,
+    request: Request,
+    service: IdentityService = Depends(get_identity_service),
+) -> TokenResponse:
+    """Finish a sign-in that stopped at the second factor."""
+    from app.settings.settings import settings
+
+    try:
+        _user, access_token, workspace_id, refresh_token = service.complete_mfa_login(
+            payload.mfa_token,
+            payload.code,
+            user_agent=request.headers.get("User-Agent"),
+            ip_address=_client_ip(request),
+        )
+    except UnauthorizedError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+    return TokenResponse(
+        access_token=access_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        workspace_id=workspace_id,
+        refresh_token=refresh_token,
+    )
+
 
 async def list_saved_views(
     surface: str | None = None,
@@ -495,9 +613,9 @@ async def list_workspace_members(
     try:
         memberships = service.list_workspace_members(workspace_id, ctx)
         # One read for everyone's last activity rather than a query per member.
-        last_active = service.session_repo.last_seen_for_users(
-            [membership.user_id for membership in memberships]
-        )
+        member_ids = [membership.user_id for membership in memberships]
+        last_active = service.session_repo.last_seen_for_users(member_ids)
+        with_mfa = service.mfa_repo.active_user_ids(member_ids)
         members = []
         for membership in memberships:
             user = service.get_user(membership.user_id)
@@ -510,6 +628,7 @@ async def list_workspace_members(
                     status="active" if user.is_active else "inactive",
                     created_at=membership.created_at,
                     last_active_at=last_active.get(membership.user_id),
+                    mfa_enabled=membership.user_id in with_mfa,
                 )
             )
         return members

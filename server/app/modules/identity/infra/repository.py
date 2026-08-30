@@ -19,6 +19,7 @@ from app.modules.identity.domain.models import (
     Tenant,
     TenantMembership,
     User,
+    UserMfa,
     UserSession,
     Workspace,
     WorkspaceMembership,
@@ -477,6 +478,36 @@ class UserSessionRepository:
             if user_id and last_seen:
                 seen[str(user_id)] = last_seen
         return seen
+
+
+class UserMfaRepository:
+    """Repository for second-factor enrolments."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_user(self, user_id: str) -> UserMfa | None:
+        query = select(UserMfa).where(UserMfa.user_id == user_id)
+        return _unwrap_result(self.db.exec(query).first())
+
+    def active_user_ids(self, user_ids: list[str]) -> set[str]:
+        """Which of these users have a confirmed second factor."""
+        if not user_ids:
+            return set()
+        query = select(UserMfa.user_id).where(
+            and_(UserMfa.user_id.in_(user_ids), UserMfa.status == "active")
+        )
+        return {str(row[0]) for row in self.db.exec(query).all() if row[0]}
+
+    def save(self, enrolment: UserMfa) -> UserMfa:
+        self.db.add(enrolment)
+        self.db.commit()
+        self.db.refresh(enrolment)
+        return enrolment
+
+    def delete(self, enrolment: UserMfa) -> None:
+        self.db.delete(enrolment)
+        self.db.commit()
 
 
 class SavedViewRepository:

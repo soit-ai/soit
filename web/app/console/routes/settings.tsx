@@ -33,7 +33,15 @@ import {
   type ApiKeyScope,
 } from '@/services/api-key-service'
 import { getCreditBalance, listCreditEntries } from '@/services/billing-service'
-import { listSessions, revokeAllSessions, revokeSession } from '@/services/auth-service'
+import {
+  confirmMfaEnrolment,
+  disableMfa,
+  getMfaStatus,
+  listSessions,
+  revokeAllSessions,
+  revokeSession,
+  startMfaEnrolment,
+} from '@/services/auth-service'
 import { getDiagnosticsSnapshot } from '@/services/diagnostics-service'
 import {
   addWorkspaceMember,
@@ -226,7 +234,13 @@ export default function ConsoleSettings() {
   const workspaceQuery = useQuery({
     queryKey: ['console', 'settings', 'workspace', workspaceId],
     queryFn: () => getWorkspace(workspaceId),
-    options: { enabled: on('account') && Boolean(workspaceId), retry: false, refetchOnWindowFocus: false },
+    options: {
+      // Both panes read it: Account renames the workspace, Security sets its
+      // two-factor requirement.
+      enabled: (on('account') || on('security')) && Boolean(workspaceId),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
   })
   const [workspaceName, setWorkspaceName] = useState('')
   useEffect(() => {
@@ -297,6 +311,72 @@ export default function ConsoleSettings() {
       )
     },
     onError: onWriteError('Failed to sign out everywhere'),
+  })
+
+  // Second factor. Enrolment is two steps: a secret to scan, then a code that
+  // proves the authenticator actually holds it.
+  const [mfaSetup, setMfaSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null)
+  const [disablingMfa, setDisablingMfa] = useState(false)
+  const [disableMfaPassword, setDisableMfaPassword] = useState('')
+
+  const mfaQuery = useQuery({
+    queryKey: ['console', 'settings', 'mfa'],
+    queryFn: () => getMfaStatus({ suppressErrorToast: true }),
+    options: { enabled: active === 'account', retry: false, refetchOnWindowFocus: false },
+  })
+  const mfa = mfaQuery.data
+
+  const enrolMfa = useMutation<{ secret: string; provisioning_uri: string }, unknown, void>({
+    mutationKey: ['console', 'settings', 'mfa-setup'],
+    mutationFn: () => startMfaEnrolment({ suppressErrorToast: true }),
+    onSuccess: (result) => {
+      setMfaCode('')
+      setMfaSetup({ secret: result.secret, uri: result.provisioning_uri })
+    },
+    onError: onWriteError('Failed to start two-factor setup'),
+  })
+
+  const confirmMfa = useMutation<{ recovery_codes: string[] }, unknown, void>({
+    mutationKey: ['console', 'settings', 'mfa-confirm'],
+    mutationFn: () => confirmMfaEnrolment(mfaCode, { suppressErrorToast: true }),
+    onSuccess: (result) => {
+      setMfaSetup(null)
+      setMfaCode('')
+      // Shown once. They are stored as hashes, so this is the only chance to
+      // write them down.
+      setRecoveryCodes(result.recovery_codes)
+      void mfaQuery.refetch()
+    },
+    onError: onWriteError('That code was not accepted'),
+  })
+
+  const turnOffMfa = useMutation<void, unknown, void>({
+    mutationKey: ['console', 'settings', 'mfa-disable'],
+    mutationFn: () => disableMfa(disableMfaPassword, { suppressErrorToast: true }),
+    onSuccess: () => {
+      setDisablingMfa(false)
+      setDisableMfaPassword('')
+      void mfaQuery.refetch()
+      toast.success('Two-factor authentication is off')
+    },
+    onError: onWriteError('Password is incorrect'),
+  })
+
+  const requireMfaMutation = useMutation<{ require_mfa?: boolean }, unknown, boolean>({
+    mutationKey: ['console', 'settings', 'require-mfa'],
+    mutationFn: (required: boolean) =>
+      updateWorkspace(workspaceId, { require_mfa: required }, { suppressErrorToast: true }),
+    onSuccess: (workspace) => {
+      void workspaceQuery.refetch()
+      toast.success(
+        workspace.require_mfa
+          ? 'Members now need a second factor to reach this workspace'
+          : 'A second factor is no longer required here',
+      )
+    },
+    onError: onWriteError('Failed to change the two-factor requirement'),
   })
 
   const passwordMutation = useMutation({
@@ -574,14 +654,46 @@ export default function ConsoleSettings() {
               </div>
             </div>
             <div className="frow">
-              <label>{t('console.settings.accountPane.twoFactor')}</label>
+              <label>
+                {t('console.settings.accountPane.twoFactor')}
+                <small>
+                  {mfa?.enabled
+                    ? t('console.settings.accountPane.twoFactorOnHint', {
+                        count: mfa.recovery_codes_remaining,
+                      })
+                    : t('console.settings.accountPane.twoFactorOffHint')}
+                </small>
+              </label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {/* BACKEND-PENDING: no MFA enrollment surface — status unknown,
-                    and "Manage devices…" has nothing to open. */}
-                <StatusChip status="na" label="—" />
-                <ConsoleButton style={{ height: 24, fontSize: 11 }}>
-                  {t('console.settings.accountPane.manageDevices')}
-                </ConsoleButton>
+                <StatusChip
+                  status={mfa ? (mfa.enabled ? 'pass' : 'warn') : 'na'}
+                  label={
+                    mfa
+                      ? mfa.enabled
+                        ? t('console.settings.accountPane.twoFactorOn')
+                        : t('console.settings.accountPane.twoFactorOff')
+                      : '—'
+                  }
+                />
+                {mfa?.enabled ? (
+                  <ConsoleButton
+                    style={{ height: 24, fontSize: 11 }}
+                    onClick={() => {
+                      setDisableMfaPassword('')
+                      setDisablingMfa(true)
+                    }}
+                  >
+                    {t('console.settings.accountPane.turnOffTwoFactor')}
+                  </ConsoleButton>
+                ) : (
+                  <ConsoleButton
+                    style={{ height: 24, fontSize: 11 }}
+                    disabled={!mfa || enrolMfa.isPending}
+                    onClick={() => enrolMfa.mutate(undefined)}
+                  >
+                    {t('console.settings.accountPane.turnOnTwoFactor')}
+                  </ConsoleButton>
+                )}
               </div>
             </div>
             <div className="frow">
@@ -662,8 +774,14 @@ export default function ConsoleSettings() {
                         </span>
                       </td>
                       <td>
-                        {/* BACKEND-PENDING: membership carries no MFA state. */}
-                        <StatusChip status="na" label="—" />
+                        <StatusChip
+                          status={member.mfa_enabled ? 'pass' : 'warn'}
+                          label={
+                            member.mfa_enabled
+                              ? t('console.settings.accountPane.twoFactorOn')
+                              : t('console.settings.accountPane.twoFactorOff')
+                          }
+                        />
                       </td>
                       <td className="num dimmer">
                         {member.last_active_at ? relativeTime(member.last_active_at) : '—'}
@@ -810,11 +928,23 @@ export default function ConsoleSettings() {
                 {t('console.settings.securityPane.twoFactorPolicy')}
                 <small>{t('console.settings.securityPane.twoFactorPolicyHint')}</small>
               </label>
-              {/* BACKEND-PENDING: no 2FA policy resource — static prototype select. */}
-              <select className="input" style={{ maxWidth: 280 }} defaultValue="required for admin & owner">
-                <option>required for admin &amp; owner</option>
-                <option>required for everyone</option>
-                <option>optional</option>
+              {/* Two states, not three: the server can require a second factor
+                  for this workspace or not. A per-role requirement would need a
+                  policy object that does not exist, and offering it here would
+                  be a control that quietly does nothing. */}
+              <select
+                className="input"
+                style={{ maxWidth: 280 }}
+                value={workspaceQuery.data?.require_mfa ? 'required' : 'optional'}
+                disabled={!workspaceQuery.data || requireMfaMutation.isPending}
+                onChange={(event) => requireMfaMutation.mutate(event.target.value === 'required')}
+              >
+                <option value="optional">
+                  {t('console.settings.securityPane.twoFactorOptional')}
+                </option>
+                <option value="required">
+                  {t('console.settings.securityPane.twoFactorRequired')}
+                </option>
               </select>
             </div>
             <div className="frow">
@@ -1302,6 +1432,88 @@ export default function ConsoleSettings() {
           </div>
         )}
       </div>
+
+      <ConsoleModal
+        open={Boolean(mfaSetup)}
+        onOpenChange={(open) => {
+          if (!open) setMfaSetup(null)
+        }}
+        title={t('console.settings.accountPane.mfaSetupTitle')}
+        note={t('console.settings.accountPane.mfaSetupNote')}
+        confirmLabel={t('console.settings.accountPane.mfaConfirm')}
+        confirmDisabled={mfaCode.trim().length < 6}
+        busy={confirmMfa.isPending}
+        onConfirm={() => confirmMfa.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>{t('console.settings.accountPane.mfaSecret')}</label>
+          {/* The secret in text, because not every authenticator scans and
+              this is the only time it is available. */}
+          <div className="mono" style={{ wordBreak: 'break-all', fontSize: 12 }}>
+            {mfaSetup?.secret}
+          </div>
+        </div>
+        <div className="mrow">
+          <label>{t('console.settings.accountPane.mfaUri')}</label>
+          <div className="mono dim" style={{ wordBreak: 'break-all', fontSize: 10.5 }}>
+            {mfaSetup?.uri}
+          </div>
+        </div>
+        <div className="mrow">
+          <label htmlFor="mfa-code">{t('console.settings.accountPane.mfaCode')}</label>
+          <input
+            id="mfa-code"
+            className="input"
+            autoComplete="one-time-code"
+            value={mfaCode}
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={Boolean(recoveryCodes)}
+        onOpenChange={(open) => {
+          if (!open) setRecoveryCodes(null)
+        }}
+        title={t('console.settings.accountPane.recoveryTitle')}
+        note={t('console.settings.accountPane.recoveryNote')}
+        confirmLabel={t('console.common.done')}
+        onConfirm={() => setRecoveryCodes(null)}
+      >
+        <div className="mrow">
+          <div className="mono" style={{ display: 'grid', gap: 4, fontSize: 12 }}>
+            {(recoveryCodes || []).map((code) => (
+              <span key={code}>{code}</span>
+            ))}
+          </div>
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={disablingMfa}
+        onOpenChange={setDisablingMfa}
+        title={t('console.settings.accountPane.mfaOffTitle')}
+        note={t('console.settings.accountPane.mfaOffNote')}
+        confirmLabel={t('console.settings.accountPane.mfaOffConfirm')}
+        confirmDisabled={!disableMfaPassword}
+        busy={turnOffMfa.isPending}
+        onConfirm={() => turnOffMfa.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label htmlFor="mfa-off-password">
+            {t('console.settings.accountPane.currentPassword')}
+          </label>
+          <input
+            id="mfa-off-password"
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            value={disableMfaPassword}
+            onChange={(event) => setDisableMfaPassword(event.target.value)}
+          />
+        </div>
+      </ConsoleModal>
 
       <ConsoleModal
         open={passwordOpen}

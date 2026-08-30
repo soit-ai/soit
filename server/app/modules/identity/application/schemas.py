@@ -87,6 +87,9 @@ class WorkspaceUpdate(BaseModel):
     tool_daily_quota: int | None = Field(
         None, ge=0, description="Workspace tool daily quota (null clears the override)"
     )
+    require_mfa: bool | None = Field(
+        None, description="Require a confirmed second factor to reach this workspace"
+    )
 
 
 # Response schemas
@@ -130,6 +133,7 @@ class WorkspaceResponse(BaseModel):
     tool_rate_limit_per_minute: int | None = None
     llm_daily_quota: int | None = None
     tool_daily_quota: int | None = None
+    require_mfa: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -159,6 +163,9 @@ class WorkspaceMemberResponse(BaseModel):
     last_active_at: datetime | None = None
     """Most recent activity across the member's sessions; None if never seen."""
 
+    mfa_enabled: bool = False
+    """Whether this member has confirmed a second factor."""
+
 
 class MyWorkspaceResponse(BaseModel):
     """A workspace the caller belongs to, and the role they hold in it."""
@@ -168,6 +175,56 @@ class MyWorkspaceResponse(BaseModel):
     description: str | None = None
     role: str
     created_at: datetime
+
+
+class MfaStatusResponse(BaseModel):
+    """Whether a second factor is set up, and how much of it is left."""
+
+    enabled: bool
+    pending: bool = False
+    confirmed_at: datetime | None = None
+    last_used_at: datetime | None = None
+    recovery_codes_remaining: int = 0
+
+
+class MfaSetupResponse(BaseModel):
+    """Everything needed to enrol an authenticator. Shown once."""
+
+    secret: str
+    provisioning_uri: str
+
+
+class MfaConfirmRequest(BaseModel):
+    """The code proving the authenticator holds the secret."""
+
+    code: str = Field(min_length=1, max_length=32)
+
+
+class MfaDisableRequest(BaseModel):
+    """Password, because a live session alone must not drop the second factor."""
+
+    password: str = Field(min_length=1)
+
+
+class MfaRecoveryCodesResponse(BaseModel):
+    """Single-use codes, returned once and stored only as hashes."""
+
+    recovery_codes: list[str]
+
+
+class MfaChallengeResponse(BaseModel):
+    """A sign-in that stopped at the second factor."""
+
+    mfa_required: bool = True
+    mfa_token: str
+    expires_in: int
+
+
+class MfaLoginRequest(BaseModel):
+    """Completing a sign-in with the code, or with a recovery code."""
+
+    mfa_token: str = Field(min_length=1)
+    code: str = Field(min_length=1, max_length=32)
 
 
 class SavedViewCreate(BaseModel):

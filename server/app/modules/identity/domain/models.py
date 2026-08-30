@@ -37,6 +37,11 @@ def generate_user_session_id() -> str:
     return f"ses_{generate_ulid()}"
 
 
+def generate_user_mfa_id() -> str:
+    """Generate MFA enrolment ID."""
+    return f"mfa_{generate_ulid()}"
+
+
 def generate_saved_view_id() -> str:
     """Generate saved view ID."""
     return f"sv_{generate_ulid()}"
@@ -158,6 +163,15 @@ class Workspace(SQLModel, table=True):
 
     tool_daily_quota: int | None = Field(default=None)
     """Workspace-level tool daily request quota."""
+
+    require_mfa: bool = Field(default=False)
+    """Members without a confirmed second factor cannot reach this workspace.
+
+    Enforced at access resolution rather than at sign-in: the requirement
+    belongs to one workspace, and a person may hold others that do not ask for
+    it. Turning it on locks out members who have not enrolled yet, which is the
+    intent -- they enrol and come back.
+    """
 
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
@@ -446,3 +460,45 @@ class PinnedObject(SQLModel, table=True):
     """A name captured when pinning, shown only until the object is read."""
 
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class UserMfa(SQLModel, table=True):
+    """One person's second factor.
+
+    The shared secret is sealed before it is stored: a database dump alone must
+    not hand someone the ability to mint codes. Recovery codes are kept as
+    hashes and struck off as they are used, so a printed sheet is worth exactly
+    as many sign-ins as it has unused lines.
+
+    Enrolment starts pending. It only becomes active once a code proves the
+    authenticator actually holds the secret -- activating on setup would let
+    someone lock themselves out of their own account with a mistyped scan.
+    """
+
+    __tablename__ = "user_mfa"
+    # One row per user, so the unique constraint is also the lookup index;
+    # a composite on (user_id, status) would only duplicate it.
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_mfa_user"),)
+
+    id: str = Field(primary_key=True, default_factory=generate_user_mfa_id)
+    user_id: str = Field(index=True)
+
+    secret_sealed: str = Field(max_length=512)
+    """The TOTP secret, sealed with a key derived from the app secret."""
+
+    status: str = Field(default="pending", index=True)
+    """pending until a code confirms the enrolment, then active."""
+
+    recovery_hashes_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    """SHA-256 of each unused recovery code. Removed on use."""
+
+    confirmed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    last_used_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

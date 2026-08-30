@@ -1,10 +1,19 @@
+import { useState } from 'react'
+
 import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router'
 
 import { Link } from '@/components/ui/link'
 import { useMutation } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
-import { authLogin, type LoginRequest, type TokenResponse } from '@/services/auth-service'
+import {
+  authCompleteMfaLogin,
+  authLogin,
+  isMfaChallenge,
+  type LoginRequest,
+  type LoginResult,
+  type TokenResponse,
+} from '@/services/auth-service'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
 import { resolveSafeAuthRedirect, storeAuthTokens } from '@/utils/auth-session'
@@ -29,28 +38,106 @@ export const LoginForm = () => {
     formState: { errors },
   } = useForm<LoginRequest>()
 
-  const loginMutation = useMutation<TokenResponse, Error, LoginRequest>({
+  // Held between the two steps of a sign-in that needs a second factor. It is
+  // not a session: it authorizes nothing but the code exchange, and the server
+  // refuses it as a bearer token.
+  const [mfaToken, setMfaToken] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+
+  const finishSignIn = async (data: TokenResponse) => {
+    storeAuthTokens(data.access_token, data.refresh_token)
+    if (data.workspace_id) {
+      storage.set('workspace_id', data.workspace_id)
+    } else {
+      storage.delete('workspace_id')
+    }
+    try {
+      const currentUser = await getCurrentUser()
+      setCurrentUser(currentUser)
+    } catch (error) {
+      console.warn('Failed to sync current user after login:', error)
+    }
+    navigate(resolveSafeAuthRedirect(searchParams.get('redirect')))
+  }
+
+  const loginMutation = useMutation<LoginResult, Error, LoginRequest>({
     mutationKey: ['login'],
     mutationFn: (data) => authLogin(data),
-    onSuccess: async (data) => {
-      storeAuthTokens(data.access_token, data.refresh_token)
-      if (data.workspace_id) {
-        storage.set('workspace_id', data.workspace_id)
-      } else {
-        storage.delete('workspace_id')
+    onSuccess: async (result) => {
+      if (isMfaChallenge(result)) {
+        setMfaToken(result.mfa_token)
+        return
       }
-      try {
-        const currentUser = await getCurrentUser()
-        setCurrentUser(currentUser)
-      } catch (error) {
-        console.warn('Failed to sync current user after login:', error)
-      }
-      navigate(resolveSafeAuthRedirect(searchParams.get('redirect')))
+      await finishSignIn(result)
     },
+  })
+
+  const mfaMutation = useMutation<TokenResponse, Error, void>({
+    mutationKey: ['login', 'mfa'],
+    mutationFn: () => authCompleteMfaLogin(mfaToken, mfaCode),
+    onSuccess: (data) => finishSignIn(data),
   })
 
   const onSubmit = (data: LoginRequest) =>
     loginMutation.mutate({ email: data.email, password: data.password })
+
+  if (mfaToken) {
+    return (
+      <form
+        className="auth-card"
+        onSubmit={(event) => {
+          event.preventDefault()
+          mfaMutation.mutate(undefined)
+        }}
+        noValidate
+      >
+        <span className="auth-eyebrow">
+          <i aria-hidden />
+          Two-factor
+        </span>
+
+        <h1>Enter your code</h1>
+        <p className="auth-lede">
+          Open your authenticator app and enter the six-digit code for SOIT. A
+          recovery code works here too, and can only be used once.
+        </p>
+
+        {mfaMutation.isError && (
+          <AuthError>That code was not accepted. Codes expire every 30 seconds.</AuthError>
+        )}
+
+        <div className="auth-field">
+          <label htmlFor="mfaCode">Authentication code</label>
+          <input
+            id="mfaCode"
+            className="input"
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoFocus
+            value={mfaCode}
+            onChange={(event) => setMfaCode(event.target.value)}
+          />
+        </div>
+
+        <AuthSubmit pending={mfaMutation.isPending} pendingLabel="Checking code">
+          Continue
+        </AuthSubmit>
+
+        <div className="auth-alt">
+          <button
+            type="button"
+            className="auth-linkish"
+            onClick={() => {
+              setMfaToken('')
+              setMfaCode('')
+            }}
+          >
+            Use a different account
+          </button>
+        </div>
+      </form>
+    )
+  }
 
   return (
     <form className="auth-card" onSubmit={handleSubmit(onSubmit)} noValidate>

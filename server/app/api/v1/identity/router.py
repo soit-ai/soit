@@ -36,6 +36,58 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/login/mfa",
+    handlers.complete_mfa_login,
+    methods=["POST"],
+    summary="Complete a sign-in with a second factor",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/mfa",
+    handlers.get_mfa_status,
+    methods=["GET"],
+    summary="Report the caller's second-factor state",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/mfa/setup",
+    handlers.start_mfa_enrolment,
+    methods=["POST"],
+    summary="Begin second-factor enrolment",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/mfa/confirm",
+    handlers.confirm_mfa_enrolment,
+    methods=["POST"],
+    summary="Activate the second factor and return recovery codes",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    "/me/mfa/recovery-codes",
+    handlers.regenerate_mfa_recovery_codes,
+    methods=["POST"],
+    summary="Replace the recovery codes",
+    tags=["identity"],
+)
+
+router.add_api_route(
+    # POST rather than DELETE: turning this off carries a password, and a
+    # password belongs in a body. A DELETE body is legal but widely dropped by
+    # proxies, and putting it in the query string would log it.
+    "/me/mfa/disable",
+    handlers.disable_mfa,
+    methods=["POST"],
+    status_code=204,
+    summary="Turn the second factor off",
+    tags=["identity"],
+)
+
+router.add_api_route(
     "/me/views",
     handlers.list_saved_views,
     methods=["GET"],

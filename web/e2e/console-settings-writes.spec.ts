@@ -415,3 +415,98 @@ test('signing out everywhere keeps the calling device signed in', async ({ page 
 
   await expect.poll(() => keepCurrent).toBe('true')
 })
+
+test('two-factor enrolment shows the secret, then the recovery codes once', async ({ page }) => {
+  await json(page, '**/api/v1/me/mfa', { enabled: false, pending: false, recovery_codes_remaining: 0 })
+  await json(page, '**/api/v1/me/mfa/setup', {
+    secret: 'JBSWY3DPEHPK3PXP',
+    provisioning_uri: 'otpauth://totp/SOIT%3Ajude%40acme.io?secret=JBSWY3DPEHPK3PXP&issuer=SOIT',
+  })
+
+  let confirmedCode: string | null = null
+  await page.route('**/api/v1/me/mfa/confirm', async (route) => {
+    confirmedCode = JSON.parse(route.request().postData() || '{}').code
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ recovery_codes: ['AAAA-BBBB', 'CCCC-DDDD'] }),
+    })
+  })
+
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Turn on…' }).click()
+
+  // The secret in text, because not every authenticator scans.
+  const setup = page.locator('.console-modal').filter({ hasText: 'Set up two-factor' })
+  await expect(setup).toContainText('JBSWY3DPEHPK3PXP')
+  await page.locator('#mfa-code').fill('123456')
+  await page.getByRole('button', { name: 'Turn on', exact: true }).click()
+
+  await expect.poll(() => confirmedCode).toBe('123456')
+  // Recovery codes are shown once; they are stored as hashes.
+  const recovery = page.locator('.console-modal').filter({ hasText: 'Save your recovery codes' })
+  await expect(recovery).toContainText('AAAA-BBBB')
+  await expect(recovery).toContainText('CCCC-DDDD')
+})
+
+test('turning two-factor off asks for the password, not just a click', async ({ page }) => {
+  await json(page, '**/api/v1/me/mfa', {
+    enabled: true,
+    pending: false,
+    recovery_codes_remaining: 8,
+  })
+
+  let sentPassword: string | null = null
+  await page.route('**/api/v1/me/mfa/disable', async (route) => {
+    sentPassword = JSON.parse(route.request().postData() || '{}').password
+    return route.fulfill({ status: 204, body: '' })
+  })
+
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('.frow', { hasText: 'Two-factor auth' })).toContainText(
+    '8 recovery codes left',
+  )
+
+  await page.getByRole('button', { name: 'Turn off…' }).click()
+  await page.locator('#mfa-off-password').fill('hunter2')
+  await page.getByRole('button', { name: 'Turn it off', exact: true }).click()
+
+  await expect.poll(() => sentPassword).toBe('hunter2')
+})
+
+test('the workspace two-factor policy offers only what the server can enforce', async ({
+  page,
+}) => {
+  // One handler for both methods: registering a second route on the same
+  // pattern would shadow the first, and the page needs the read to succeed
+  // before the control is enabled.
+  let patched: unknown = null
+  let requireMfa = false
+  await page.route('**/api/v1/workspaces/workspace-1', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      patched = JSON.parse(route.request().postData() || '{}')
+      requireMfa = Boolean((patched as { require_mfa?: boolean }).require_mfa)
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        id: 'workspace-1',
+        tenant_id: 'tenant-1',
+        name: 'acme-robotics',
+        require_mfa: requireMfa,
+        created_at: NOW,
+      }),
+    })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+
+  // Two states, because that is what the server enforces. A per-role option
+  // would be a control that quietly does nothing.
+  const policy = page.locator('.frow', { hasText: 'Two-factor policy' }).locator('select')
+  await expect(policy.locator('option')).toHaveCount(2)
+
+  await policy.selectOption('required')
+  await expect.poll(() => patched).toEqual({ require_mfa: true })
+})

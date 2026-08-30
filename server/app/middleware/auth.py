@@ -101,11 +101,12 @@ async def get_current_context(
             user_id=context.user_id,
         )
         return context
-    except ForbiddenError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=e.message,
-        )
+    except ForbiddenError:
+        # Re-raised rather than flattened into an HTTPException: the kernel
+        # handler keeps the code and details, and some refusals carry a reason
+        # the client has to act on -- "enrol a second factor" is not the same
+        # answer as "you are not a member".
+        raise
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.message)
     except UnauthorizedError as e:
@@ -170,11 +171,12 @@ async def get_current_context_from_request(
             user_id=context.user_id,
         )
         return context
-    except ForbiddenError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=e.message,
-        )
+    except ForbiddenError:
+        # Re-raised rather than flattened into an HTTPException: the kernel
+        # handler keeps the code and details, and some refusals carry a reason
+        # the client has to act on -- "enrol a second factor" is not the same
+        # answer as "you are not a member".
+        raise
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.message)
     except UnauthorizedError as e:

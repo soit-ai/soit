@@ -118,6 +118,10 @@
 .auth-alt { margin-top: 16px; font-size: 12px; color: var(--muted-foreground); text-align: center; }
 .auth-alt a { color: var(--foreground); font-weight: 600; }
 .auth-alt a:hover { text-decoration: underline; }
+/* A button that reads as a link: the second-factor step goes back to the
+   sign-in form rather than navigating anywhere. */
+.auth-linkish { color: var(--foreground); font-weight: 600; font: inherit; }
+.auth-linkish:hover { text-decoration: underline; }
 
 .auth-foot {
   border-top: 1px solid var(--border);
