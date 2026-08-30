@@ -14,7 +14,11 @@ from app.adapters.agui.responses import (
     AgUiInteractionProtocolAdapter,
     AgUiResponseRequestAdapter,
 )
-from app.api.v1.agent.dependencies import AgentStreamExecutor, get_agent_stream_executor
+from app.api.v1.agent.dependencies import (
+    AgentStreamExecutor,
+    get_agent_application_service,
+    get_agent_stream_executor,
+)
 from app.api.v1.attachments.dependencies import get_attachment_service
 from app.api.v1.observe.dependencies import get_observe_service
 from app.api.v1.permissions import (
@@ -50,6 +54,7 @@ from app.kernel.runtime.responses.schemas import (
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.responses.streaming import tail_response_events
 from app.kernel.runtime.tasks.service import TaskService
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.observe.application.schemas import ApprovalResolve
 from app.modules.observe.application.service import ObserveService
 from app.settings.settings import settings
@@ -223,6 +228,7 @@ async def create_response(
     execute_interaction: ResponseInteractionExecutor = Depends(get_response_interaction_executor),
     observe_service: ObserveService = Depends(get_observe_service),
     attachment_service: AttachmentService = Depends(get_attachment_service),
+    agent_application_service: AgentApplicationService = Depends(get_agent_application_service),
 ):
     """Create a response resource and expose semantics for the underlying run."""
 
@@ -527,6 +533,14 @@ async def create_response(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # Naming an agent and no model must not silently execute on the platform
+    # default: the agent's published version is what the caller asked for, and
+    # a workspace owes no route to whatever the default happens to be.
+    if payload.agent_id and not payload.model:
+        published_model = agent_application_service.published_model_ref(payload.agent_id)
+        if published_model:
+            payload = payload.model_copy(update={"model": published_model})
 
     response = await projection_coordinator.execute(payload)
     return ResponseRead.model_validate(response)

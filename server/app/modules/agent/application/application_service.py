@@ -286,6 +286,23 @@ class AgentApplicationService:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
         return version
 
+    def published_model_ref(self, agent_id: str) -> str | None:
+        """Return the model the agent's published version binds, if any.
+
+        Callers that name an agent but no model -- `/responses` is the one that
+        matters -- would otherwise fall back to a hardcoded default that no
+        workspace is obliged to have a route for.
+        """
+        agent = self.agent_repo.get_by_id(agent_id)
+        if agent is None or not agent.published_version_id:
+            return None
+        version = self.version_repo.get_by_id(agent.published_version_id)
+        if version is None or version.agent_id != agent.id:
+            return None
+        bindings = (version.spec_json or {}).get("bindings") or {}
+        model_ref = bindings.get("model_ref")
+        return str(model_ref) if model_ref else None
+
     def _normalize_ref_list(self, values: list[str] | None) -> list[str]:
         seen: set[str] = set()
         normalized: list[str] = []

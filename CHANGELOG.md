@@ -45,6 +45,13 @@ record for operators.
   which read as a pass rather than a share of a total.
 - A relationship-graph label was drawn in a near-white cyan on a light panel,
   leaving it effectively invisible.
+- `POST /responses` executed on a hardcoded default model when the caller named
+  an agent but no model, instead of the model that agent's published version
+  binds. A workspace that has no route to that default saw the call fail.
+- The deterministic in-process model provider registered for non-production
+  builds could not be reached: canonical `model:test:*` references were
+  rejected for having no workspace route, which no in-process provider can
+  have.
 
 ## [1.0.0] - 2026-08-05
 
