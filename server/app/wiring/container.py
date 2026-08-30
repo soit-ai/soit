@@ -449,14 +449,20 @@ class Container:
                 base_url=os.getenv("ANTHROPIC_BASE_URL") or settings.anthropic_base_url,
             )
 
+        unrouted: set[str] = set()
         if self._allows_in_memory_adapters():
             from app.adapters.llm.memory import InMemoryLLMPort
 
             providers["test"] = InMemoryLLMPort()
+            # The deterministic adapter runs in-process, so no workspace can
+            # own a route to it. Without this it would be registered and
+            # unreachable, and `model:test:*` refs would fail to resolve.
+            unrouted.add("test")
         return LLMRouterPort(
             providers=providers,
             provider_resolver=self.get("llm_provider_resolver"),
             secrets_resolver=lambda ctx: self.get_secrets_port(ctx),
+            unrouted_provider_keys=unrouted,
         )
 
     @staticmethod

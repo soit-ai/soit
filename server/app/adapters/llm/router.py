@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -149,10 +149,17 @@ class LLMRouterPort(LLMPort):
         litellm_factory: LiteLLMFactory | None = None,
         native_factory: NativeLLMFactory | None = None,
         egress_guard: GovernedEgressGuard | None = None,
+        unrouted_provider_keys: Iterable[str] = (),
     ) -> None:
         self.providers = providers
         self.provider_resolver = provider_resolver
         self.secrets_resolver = secrets_resolver
+        # Provider keys that are allowed to answer without a workspace route.
+        # Only deterministic in-process adapters belong here: a workspace can
+        # never own a route to one, so requiring it would make the adapter
+        # unreachable. Production registers none, so routing stays
+        # authoritative for every provider that leaves the process.
+        self.unrouted_provider_keys = frozenset(unrouted_provider_keys)
         self.litellm_factory = litellm_factory or _default_litellm_factory
         self.native_factory = native_factory or _default_native_factory
         self.egress_guard = egress_guard or GovernedEgressGuard()
@@ -186,6 +193,13 @@ class LLMRouterPort(LLMPort):
             ctx,
             f"model-provider:{provider_slug}",
             url,
+        )
+
+    def _may_bypass_routing(self, provider_key: str) -> bool:
+        """Return whether this provider may answer without a workspace route."""
+        return (
+            provider_key in self.unrouted_provider_keys
+            and provider_key in self.providers
         )
 
     @staticmethod
@@ -344,7 +358,7 @@ class LLMRouterPort(LLMPort):
             config = self.provider_resolver(ctx, provider_key, model_id)
             if inspect.isawaitable(config):
                 config = await config
-            if config is None:
+            if config is None and not self._may_bypass_routing(provider_key):
                 raise KernelError(
                     "MODEL_RUNTIME_NOT_FOUND",
                     f"Active workspace model route was not found: {model}",
