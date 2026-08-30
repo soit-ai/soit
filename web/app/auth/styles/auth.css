@@ -1,0 +1,204 @@
+/**
+ * Sign-in, sign-up and password reset — ported from the v13 prototype's
+ * signin/signup/forgot pages.
+ *
+ * These screens sit outside the console shell, so they take `.console-root`
+ * for its tokens and control skin but not `.shell`, which would impose the
+ * console's flex layout. Everything below is only the layout the shell would
+ * otherwise have provided.
+ */
+
+.auth-root {
+  min-height: 100svh;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* The row fills the viewport rather than sizing to content: without it the
+     columns end wherever the longer one happens to, and the footer floats
+     short of the bottom on whichever screen has less to say. */
+  grid-template-rows: minmax(100svh, auto);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 980px) {
+  .auth-root { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------------- left: the form ---------------- */
+.auth-form-side {
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px;
+  border-right: 1px solid var(--border);
+}
+@media (max-width: 980px) {
+  .auth-form-side { border-right: none; }
+}
+
+.auth-top { display: flex; align-items: center; gap: 10px; }
+.auth-wordmark { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.auth-top .auth-theme { margin-left: auto; }
+
+.auth-form-wrap { flex: 1; display: grid; place-items: center; padding: 32px 0; }
+.auth-card { width: 100%; max-width: 340px; }
+
+.auth-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--ok-tint);
+  color: var(--success-foreground);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.auth-eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex: none; }
+.auth-eyebrow.warn { background: var(--warn-tint); color: var(--warning-foreground); }
+.auth-eyebrow.warn i { background: var(--warning); }
+
+.auth-card h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 14px 0 6px; }
+.auth-card .auth-lede { color: var(--muted-foreground); font-size: 12.5px; line-height: 1.6; margin-bottom: 22px; }
+
+.auth-field { margin-bottom: 14px; }
+.auth-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.auth-field .input { max-width: none; height: 34px; font-size: 13px; }
+.auth-field .input[aria-invalid='true'] { border-color: var(--destructive); }
+.auth-field .auth-err { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--destructive-foreground); }
+.auth-field .auth-hint { display: block; margin-top: 5px; font-size: 10.5px; color: var(--faint); }
+
+.auth-field-head { display: flex; align-items: baseline; gap: 8px; }
+.auth-field-head .auth-opt {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.auth-submit { width: 100%; height: 36px; justify-content: center; font-size: 13px; margin-top: 4px; text-decoration: none; }
+.auth-submit[disabled] { opacity: 0.7; pointer-events: none; }
+.auth-spinner {
+  width: 12px; height: 12px; border-radius: 50%; flex: none;
+  border: 2px solid rgb(255 255 255 / 0.35);
+  border-top-color: currentColor;
+  animation: auth-spin 0.7s linear infinite;
+}
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+
+.auth-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--bad-tint);
+  color: var(--destructive-foreground);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.auth-bar svg { flex: none; margin-top: 1px; }
+.auth-bar.warn { background: var(--warn-tint); color: var(--warning-foreground); }
+
+.auth-alt { margin-top: 16px; font-size: 12px; color: var(--muted-foreground); text-align: center; }
+.auth-alt a { color: var(--foreground); font-weight: 600; }
+.auth-alt a:hover { text-decoration: underline; }
+
+.auth-foot {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.auth-foot i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: none; }
+.auth-foot span { margin-left: auto; }
+@media (max-width: 520px) {
+  /* Side by side the two notes collide; stack rather than let them overlap. */
+  .auth-foot { flex-direction: column; align-items: flex-start; gap: 5px; }
+  .auth-foot span { margin-left: 0; }
+}
+
+.auth-steps { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.auth-steps li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; font-size: 12.5px; line-height: 1.6; color: var(--muted-foreground); }
+.auth-steps .auth-n {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--raised); border: 1px solid var(--border);
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10px; color: var(--foreground); margin-top: 1px;
+}
+.auth-steps b { color: var(--foreground); font-weight: 500; }
+
+/* ---------------- right: what the product guarantees ---------------- */
+.auth-aside {
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  background: linear-gradient(180deg, transparent, var(--hover)), var(--background);
+}
+@media (max-width: 980px) {
+  .auth-aside { display: none; }
+}
+
+.auth-claim { max-width: 460px; }
+.auth-claim h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.4; }
+.auth-claim p { color: var(--muted-foreground); font-size: 12.5px; line-height: 1.65; margin-top: 9px; }
+
+.auth-evidence { max-width: 460px; }
+.auth-evidence .panel-head { padding: 10px 12px; }
+.auth-ev-run { display: flex; align-items: center; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
+.auth-ev-run .runid { font-family: var(--font-mono); font-size: 11.5px; color: var(--foreground); font-weight: 500; }
+.auth-ev-run .who { font-size: 11.5px; color: var(--muted-foreground); }
+.auth-ev-run .chip { margin-left: auto; }
+
+.auth-ev-step {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.auth-ev-step:last-child { border-bottom: none; }
+.auth-ev-rail { position: relative; height: 100%; display: grid; place-items: center; }
+.auth-ev-rail::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  bottom: -9px;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-0.5px);
+}
+.auth-ev-step:last-child .auth-ev-rail::before { bottom: 50%; }
+.auth-ev-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); position: relative; z-index: 1; }
+.auth-ev-dot.ok { background: var(--success); }
+.auth-ev-dot.pri { background: var(--primary); }
+.auth-ev-what b { display: block; font-size: 12px; font-weight: 500; color: var(--foreground); }
+.auth-ev-what small { display: block; font-size: 10.5px; color: var(--faint); font-family: var(--font-mono); margin-top: 1px; }
+.auth-ev-step .ct { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
+
+.auth-notes { max-width: 460px; display: flex; flex-direction: column; gap: 7px; }
+.auth-note { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--muted-foreground); }
+.auth-note i { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--primary); }

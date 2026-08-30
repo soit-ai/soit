@@ -1,4 +1,4 @@
-import { post } from '@/utils/request'
+import { post, type RequestConfigWithToast } from '@/utils/request'
 
 export interface LoginRequest {
   email: string
@@ -19,11 +19,18 @@ export interface RegisterRequest {
   tenant_name?: string
 }
 
+// The auth forms render the failure inline, next to the fields it concerns.
+// Letting the global handler also raise a toast reports one rejection twice.
+const quiet: RequestConfigWithToast = { suppressErrorToast: true }
+
 export const authLogin = (data: LoginRequest): Promise<TokenResponse> => {
-  return post<TokenResponse>(`/login`, data)
+  return post<TokenResponse>(`/login`, data, quiet)
 }
 
 export const authRegister = (data: RegisterRequest): Promise<TokenResponse> => {
   const { tenant_name, ...payload } = data
-  return post<TokenResponse>(`/register`, payload, tenant_name ? { params: { tenant_name } } : undefined)
+  const config: RequestConfigWithToast = tenant_name
+    ? { ...quiet, params: { tenant_name } }
+    : quiet
+  return post<TokenResponse>(`/register`, payload, config)
 }

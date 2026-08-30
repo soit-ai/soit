@@ -1,22 +1,25 @@
-import { ArrowRight, Loader2, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
-import { useMutation } from '@/hooks/use-query'
-import { authLogin } from '@/services/auth-service'
-import { useNavigate } from '@/hooks/use-navigate'
-import { storage } from '@/utils/storage'
-import { toast } from 'sonner'
-import { type LoginRequest, type TokenResponse } from '@/services/auth-service'
+import { useSearchParams } from 'react-router'
+
 import { Link } from '@/components/ui/link'
+import { useMutation } from '@/hooks/use-query'
+import { useNavigate } from '@/hooks/use-navigate'
+import { authLogin, type LoginRequest, type TokenResponse } from '@/services/auth-service'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
-import { useSearchParams } from 'react-router'
 import { resolveSafeAuthRedirect } from '@/utils/auth-session'
+import { storage } from '@/utils/storage'
 
-export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRef<'form'>) => {
+import { AuthError, AuthSubmit, FieldError } from './auth-controls'
+
+/**
+ * Sign-in (v13 prototype: signin.html).
+ *
+ * Password reset is deliberately not offered here. There is no reset flow
+ * behind it, and advertising one is what the truthful-journeys work removed;
+ * `/forgot-password` stays reachable by URL and says so itself.
+ */
+export const LoginForm = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
@@ -26,7 +29,6 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
     formState: { errors },
   } = useForm<LoginRequest>()
 
-  // Login mutation
   const loginMutation = useMutation<TokenResponse, Error, LoginRequest>({
     mutationKey: ['login'],
     mutationFn: (data) => authLogin(data),
@@ -43,118 +45,75 @@ export const LoginForm = ({ className, ...props }: React.ComponentPropsWithoutRe
       } catch (error) {
         console.warn('Failed to sync current user after login:', error)
       }
-      toast.success('Login successful')
       navigate(resolveSafeAuthRedirect(searchParams.get('redirect')))
-    },
-    onError: (error) => {
-      toast.error('Login failed. Please check your credentials.')
     },
   })
 
-  const onSubmit = (data: LoginRequest) => {
-    loginMutation.mutate({
-      email: data.email,
-      password: data.password,
-    })
-  }
+  const onSubmit = (data: LoginRequest) =>
+    loginMutation.mutate({ email: data.email, password: data.password })
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className={cn('flex flex-col gap-5', className)} {...props}>
-      <div className="space-y-3">
-        <div className="inline-flex items-center gap-2 rounded-[0.5rem] border border-success/80 bg-success/12 px-3 py-2 text-xs font-medium text-success-foreground dark:border-success/20">
-          <ShieldCheck className="h-4 w-4" />
-          Secure SOIT workspace
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-foreground dark:text-white">Sign in to SOIT</h2>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Access agents, knowledge, workflows, and runtime telemetry from one workspace.
-          </p>
-        </div>
-      </div>
-      <div className="grid gap-4">
-        <div className="grid gap-2">
-          <Label htmlFor="email" className="text-sm text-muted-foreground dark:text-foreground">
-            Email
-          </Label>
-          <div className="relative">
-            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="email"
-              type="email"
-              placeholder="name@company.com"
-              autoComplete="email"
-              aria-invalid={Boolean(errors.email)}
-              className="h-12 rounded-[0.5rem] border-border bg-muted pl-10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] placeholder:text-muted-foreground dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
-              {...register('email', {
-                required: 'Email is required',
-                pattern: {
-                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                  message: 'Invalid email address',
-                },
-              })}
-            />
-          </div>
-          {errors.email && (
-            <p role="alert" className="text-sm text-danger-foreground">
-              {errors.email.message}
-            </p>
-          )}
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="password" className="text-sm text-muted-foreground dark:text-foreground">
-            Password
-          </Label>
-          <div className="relative">
-            <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              aria-invalid={Boolean(errors.password)}
-              className="h-12 rounded-[0.5rem] border-border bg-muted pl-10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:border-white/10 dark:bg-white/6 dark:text-white dark:shadow-none"
-              {...register('password', {
-                required: 'Password is required',
-                minLength: {
-                  value: 6,
-                  message: 'Password must be at least 6 characters',
-                },
-              })}
-            />
-          </div>
-          {errors.password && (
-            <p role="alert" className="text-sm text-danger-foreground">
-              {errors.password.message}
-            </p>
-          )}
-        </div>
-        <Button
-          type="submit"
-          className="h-11 w-full rounded-[0.5rem] bg-inverse text-inverse-foreground shadow-[0_18px_42px_rgba(15,23,42,0.18)] hover:bg-inverse-3 dark:bg-inverse-foreground dark:text-inverse dark:hover:bg-inverse-muted-foreground"
-          disabled={loginMutation.isPending}
-        >
-          {loginMutation.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Signing in
-            </>
-          ) : (
-            <>
-              Open workspace
-              <ArrowRight className="h-4 w-4" />
-            </>
-          )}
-        </Button>
-        <div className="text-center text-sm text-muted-foreground">
-          New to SOIT?{' '}
-          <Link to="/sign-up" className="font-medium text-foreground underline underline-offset-4 dark:text-white">
-            Create an account
-          </Link>
-        </div>
-      </div>
-      <p className="text-balance text-center text-xs text-muted-foreground">
-        Community authentication supports email and password only.
+    <form className="auth-card" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <span className="auth-eyebrow">
+        <i aria-hidden />
+        Workspace access
+      </span>
+
+      <h1>Sign in to SOIT</h1>
+      <p className="auth-lede">
+        Agents, workflows, knowledge and every run they produce — under one
+        workspace&apos;s policy and one audit trail.
       </p>
+
+      {/* Says nothing about which of the two was wrong: naming the field tells
+          an attacker which addresses are registered. */}
+      {loginMutation.isError && (
+        <AuthError>That email and password combination did not match an account.</AuthError>
+      )}
+
+      <div className="auth-field">
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          className="input"
+          placeholder="name@company.com"
+          autoComplete="email"
+          aria-invalid={Boolean(errors.email)}
+          {...register('email', {
+            required: 'Enter the email address for your workspace account.',
+            pattern: {
+              value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+              message: 'Enter a valid email address.',
+            },
+          })}
+        />
+        <FieldError message={errors.email?.message} />
+      </div>
+
+      <div className="auth-field">
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          className="input"
+          autoComplete="current-password"
+          aria-invalid={Boolean(errors.password)}
+          {...register('password', {
+            required: 'Enter your password.',
+            minLength: { value: 6, message: 'Passwords are at least 6 characters.' },
+          })}
+        />
+        <FieldError message={errors.password?.message} />
+      </div>
+
+      <AuthSubmit pending={loginMutation.isPending} pendingLabel="Opening workspace">
+        Open workspace
+      </AuthSubmit>
+
+      <div className="auth-alt">
+        New to SOIT? <Link to="/sign-up">Create an account</Link>
+      </div>
     </form>
   )
 }
