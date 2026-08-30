@@ -92,6 +92,27 @@ const indexes = [
     created_at: NOW,
     updated_at: NOW,
   },
+  {
+    id: 'idx_2',
+    tenant_id: 't1',
+    workspace_id: 'w1',
+    knowledge_id: KB,
+    name: 'voyage-trial',
+    is_primary: false,
+    provider: 'milvus',
+    embedding_model_ref: 'voyage-3',
+    dimension: 1024,
+    metric_type: 'cosine',
+    status: 'building',
+    build_version: 1,
+    last_build_at: NOW,
+    last_run_id: null,
+    doc_count: 2,
+    chunk_count: 2,
+    vector_count: 1200,
+    created_at: NOW,
+    updated_at: NOW,
+  }
 ]
 
 const chunks = [
@@ -461,4 +482,63 @@ test('the exceptions tab replays a library stopped ingest jobs', async ({ page }
   await page.getByRole('button', { name: 'Reprocess with OCR' }).click()
 
   await expect.poll(() => retried).toBe('POST')
+})
+
+test('knowledge indexes can be created, edited and deleted', async ({ page }) => {
+  let created: Record<string, unknown> | null = null
+  let patched: Record<string, unknown> | null = null
+  let deleted: string | null = null
+
+  await page.route('**/api/v1/knowledge/product-docs/indexes', (route) => {
+    if (route.request().method() === 'POST') {
+      created = route.request().postDataJSON()
+      return route.fulfill({ status: 200, contentType: 'application/json', body: ok({ id: 'idx_new' }) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(indexes) })
+  })
+  await page.route('**/api/v1/knowledge/product-docs/indexes/idx_2', (route) => {
+    if (route.request().method() === 'PATCH') {
+      patched = route.request().postDataJSON()
+      return route.fulfill({ status: 200, contentType: 'application/json', body: ok(indexes[1]) })
+    }
+    if (route.request().method() === 'DELETE') {
+      deleted = 'idx_2'
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fallback()
+  })
+
+  await page.goto('/build/knowledge/product-docs', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: /Indexes/ }).click()
+
+  // The index serving retrieval offers no delete; only the candidate does.
+  await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(1)
+
+  await page.getByRole('button', { name: 'New index' }).click()
+  await page.locator('.console-modal input.input').first().fill('voyage-trial')
+  await page.locator('.console-modal input.input').nth(1).fill('voyage-3')
+  await page.locator('.console-modal .btn.primary').click()
+  await expect.poll(() => created).not.toBeNull()
+  expect(created).toMatchObject({ name: 'voyage-trial', embedding_model_ref: 'voyage-3', metric_type: 'cosine' })
+
+  // Renaming must not carry the embedding model, which would invalidate vectors.
+  await page.getByRole('button', { name: 'Edit' }).nth(1).click()
+  await page.locator('.console-modal input.input').first().fill('voyage-candidate')
+  await page.locator('.console-modal .btn.primary').click()
+  await expect.poll(() => patched).not.toBeNull()
+  expect(patched).toMatchObject({ name: 'voyage-candidate' })
+  expect(patched && 'embedding_model_ref' in patched).toBe(false)
+
+  // A row's Rebuild must name its own index, not the one serving retrieval.
+  let rebuilt: string | null = null
+  await page.route('**/api/v1/knowledge/product-docs/indexes/*/rebuild', (route) => {
+    rebuilt = new URL(route.request().url()).pathname.split('/').slice(-2)[0]
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(indexes[1]) })
+  })
+  await page.getByRole('button', { name: 'Rebuild' }).nth(1).click()
+  await expect.poll(() => rebuilt).toBe('idx_2')
+
+  await page.getByRole('button', { name: 'Delete' }).click()
+  await page.locator('.console-modal .btn.primary').click()
+  await expect.poll(() => deleted).toBe('idx_2')
 })

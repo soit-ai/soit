@@ -31,7 +31,10 @@ import {
   getKnowledgeRunCostSummary,
   listKnowledgeChunks,
   listKnowledgeDocuments,
+  createKnowledgeIndex,
+  deleteKnowledgeIndex,
   listKnowledgeIndexes,
+  updateKnowledgeIndex,
   listKnowledgeUsages,
   queryKnowledge,
   rebuildKnowledgeIndex,
@@ -42,11 +45,12 @@ import {
   type KnowledgeChunk,
   type KnowledgeChunkUpdateRequest,
   type KnowledgeDocument,
+  type KnowledgeIndex,
   type KnowledgeQueryResponse,
 } from '@/services/knowledge-service'
 import { requestErrorMessage } from '@/utils/request'
 
-type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'analytics' | 'settings'
+type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'indexes' | 'analytics' | 'settings'
 
 const DOCS_PAGE_SIZE = 50
 const CHUNKS_PAGE_SIZE = 50
@@ -145,6 +149,15 @@ export default function ConsoleKnowledgeDetail() {
   const [chunkForm, setChunkForm] = useState({ content: '', indexStatus: '' })
   const [settingsForm, setSettingsForm] = useState({ name: '', source: '', threshold: '' })
   const [deleteBaseOpen, setDeleteBaseOpen] = useState(false)
+  const [indexForm, setIndexForm] = useState<{
+    open: false | 'create' | 'edit'
+    id: string
+    name: string
+    embedding_model_ref: string
+    metric_type: string
+    is_primary: boolean
+  }>({ open: false, id: '', name: '', embedding_model_ref: '', metric_type: 'cosine', is_primary: false })
+  const [deletingIndex, setDeletingIndex] = useState<KnowledgeIndex | null>(null)
 
   const knowledgeId = id || ''
   const enabled = Boolean(knowledgeId)
@@ -218,6 +231,10 @@ export default function ConsoleKnowledgeDetail() {
     isPending: Boolean(activeDocId) && chunksQuery.isPending,
     isError: chunksQuery.isError,
   })
+  const indexesState = useDataStateLabel({
+    isPending: indexesQuery.isPending,
+    isError: indexesQuery.isError,
+  })
   const usagesState = useDataStateLabel({
     isPending: usagesQuery.isPending,
     isError: usagesQuery.isError,
@@ -263,9 +280,61 @@ export default function ConsoleKnowledgeDetail() {
 
   // "Sync now" rebuilds the primary index — the same call the legacy settings
   // page makes; there is no library-level re-sync endpoint.
-  const rebuildMutation = useMutation({
+  const afterIndexWrite = () => {
+    setIndexForm((state) => ({ ...state, open: false }))
+    setDeletingIndex(null)
+    void indexesQuery.refetch()
+    void baseQuery.refetch()
+  }
+  const onIndexError = (fallback: string) => (error: unknown) => {
+    toast.error(requestErrorMessage(error, fallback))
+  }
+
+  const createIndexMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'index', 'create', knowledgeId],
+    mutationFn: () =>
+      createKnowledgeIndex(knowledgeId, {
+        name: indexForm.name.trim(),
+        embedding_model_ref: indexForm.embedding_model_ref.trim(),
+        metric_type: indexForm.metric_type,
+        is_primary: indexForm.is_primary,
+      }),
+    onSuccess: afterIndexWrite,
+    onError: onIndexError('Failed to create the index'),
+  })
+
+  const updateIndexMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'index', 'update', knowledgeId],
+    // The embedding model is only sent when it actually changed: switching it
+    // invalidates every vector, so it must not ride along on a rename.
+    mutationFn: () => {
+      const current = indexes.find((row) => row.id === indexForm.id)
+      const nextModel = indexForm.embedding_model_ref.trim()
+      return updateKnowledgeIndex(knowledgeId, indexForm.id, {
+        name: indexForm.name.trim(),
+        is_primary: indexForm.is_primary,
+        ...(current && nextModel && nextModel !== current.embedding_model_ref
+          ? { embedding_model_ref: nextModel }
+          : {}),
+      })
+    },
+    onSuccess: afterIndexWrite,
+    onError: onIndexError('Failed to update the index'),
+  })
+
+  const deleteIndexMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'index', 'delete', knowledgeId],
+    mutationFn: () => deleteKnowledgeIndex(knowledgeId, deletingIndex!.id),
+    onSuccess: afterIndexWrite,
+    onError: onIndexError('Failed to delete the index'),
+  })
+
+  const rebuildMutation = useMutation<unknown, unknown, string | undefined>({
     mutationKey: ['console', 'knowledge', 'rebuild', knowledgeId],
-    mutationFn: () => rebuildKnowledgeIndex(knowledgeId, primaryIndex!.id),
+    // The header's Sync rebuilds whichever index serves retrieval; a row's
+    // Rebuild has to name its own, or it would silently rebuild a different one.
+    mutationFn: (indexId?: string) =>
+      rebuildKnowledgeIndex(knowledgeId, indexId || primaryIndex?.id || ''),
     onSuccess: () => {
       toast.success(t('console.knowDetail.syncQueued'))
       void indexesQuery.refetch()
@@ -395,6 +464,7 @@ export default function ConsoleKnowledgeDetail() {
     ['chunks', t('console.knowDetail.tabs.chunks'), base ? compactNumber(base.chunk_count) : null],
     ['testing', t('console.knowDetail.tabs.testing'), null],
     ['usages', t('console.knowDetail.tabs.usages'), usages.length ? String(usages.length) : null],
+    ['indexes', t('console.knowDetail.indexes.tab'), indexes.length ? String(indexes.length) : null],
     ['analytics', t('console.knowDetail.tabs.analytics'), null],
     ['settings', t('console.knowDetail.tabs.settings'), null],
   ]
@@ -755,6 +825,129 @@ export default function ConsoleKnowledgeDetail() {
         </WorkbenchPanel>
       )}
 
+      {tab === 'indexes' && (
+        <WorkbenchPanel
+          title={t('console.knowDetail.indexes.title')}
+          hint={t('console.knowDetail.indexes.hint')}
+          actions={
+            <ConsoleButton
+              variant="primary"
+              style={{ height: 24, fontSize: 11 }}
+              onClick={() =>
+                setIndexForm({
+                  open: 'create',
+                  id: '',
+                  name: '',
+                  embedding_model_ref: base?.default_embedding_model_ref || '',
+                  metric_type: 'cosine',
+                  is_primary: indexes.length === 0,
+                })
+              }
+            >
+              {t('console.knowDetail.indexes.newIndex')}
+            </ConsoleButton>
+          }
+        >
+          <table>
+            <thead>
+              <tr>
+                <th>{t('console.knowDetail.indexes.columns.index')}</th>
+                <th>{t('console.knowDetail.indexes.columns.embedding')}</th>
+                <th className="num">{t('console.knowDetail.indexes.columns.dim')}</th>
+                <th>{t('console.knowDetail.indexes.columns.metric')}</th>
+                <th className="num">{t('console.knowDetail.indexes.columns.vectors')}</th>
+                <th>{t('console.knowDetail.indexes.columns.status')}</th>
+                <th className="num">{t('console.knowDetail.indexes.columns.lastBuild')}</th>
+                <th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {indexes.length === 0 ? (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="empty-note">
+                      {indexesQuery.isPending || indexesQuery.isError
+                        ? indexesState
+                        : t('console.knowDetail.indexes.empty')}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                indexes.map((index) => (
+                  <tr key={index.id} className="rowlink">
+                    <td>
+                      <span className="idm" style={{ '--c': catColor(index.id) } as React.CSSProperties}>
+                        <i />
+                        <span>
+                          <b style={{ fontWeight: 600 }}>{index.name}</b>
+                          <br />
+                          <span className="dimmer" style={{ fontSize: 10.5 }}>
+                            {index.is_primary
+                              ? t('console.knowDetail.indexes.primary')
+                              : t('console.knowDetail.indexes.candidate')}
+                          </span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="mono dim">{index.embedding_model_ref}</td>
+                    <td className="num dim">{index.dimension || '—'}</td>
+                    <td className="dim">{index.metric_type || '—'}</td>
+                    <td className="num dim">{compactNumber(index.vector_count)}</td>
+                    <td>
+                      <StatusChip status={pipelineStatus(index.status)} label={index.status.toUpperCase()} />
+                    </td>
+                    <td className="num dimmer">{relativeTime(index.last_build_at)}</td>
+                    <td className="num">
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          disabled={rebuildMutation.isPending}
+                          onClick={() => rebuildMutation.mutate(index.id)}
+                        >
+                          {t('console.knowDetail.indexes.rebuild')}
+                        </ConsoleButton>
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setIndexForm({
+                              open: 'edit',
+                              id: index.id,
+                              name: index.name,
+                              embedding_model_ref: index.embedding_model_ref,
+                              metric_type: index.metric_type,
+                              is_primary: index.is_primary,
+                            })
+                          }
+                        >
+                          {t('console.knowDetail.indexes.edit')}
+                        </ConsoleButton>
+                        {/* The index serving retrieval cannot be removed out from
+                            under it; promote another to primary first. */}
+                        {!index.is_primary && (
+                          <ConsoleButton
+                            variant="ghost"
+                            size="sm"
+                            style={{ color: 'var(--danger-foreground)' }}
+                            onClick={() => setDeletingIndex(index)}
+                          >
+                            {t('console.knowDetail.indexes.del')}
+                          </ConsoleButton>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          <div className="pager">
+            <span>{t('console.knowDetail.indexes.note')}</span>
+          </div>
+        </WorkbenchPanel>
+      )}
+
       {tab === 'analytics' && (
         <>
           <StatTileGrid>
@@ -1011,6 +1204,95 @@ export default function ConsoleKnowledgeDetail() {
       >
         <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
           {t('console.knowDetail.deleteConfirm', { name })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={indexForm.open !== false}
+        onOpenChange={(open) => !open && setIndexForm((state) => ({ ...state, open: false }))}
+        title={t(
+          indexForm.open === 'edit'
+            ? 'console.knowDetail.indexes.editTitle'
+            : 'console.knowDetail.indexes.createTitle',
+        )}
+        note={t('console.knowDetail.indexes.createNote')}
+        confirmLabel={t(indexForm.open === 'edit' ? 'console.common.save' : 'console.common.create')}
+        confirmDisabled={!indexForm.name.trim() || !indexForm.embedding_model_ref.trim()}
+        busy={createIndexMutation.isPending || updateIndexMutation.isPending}
+        onConfirm={() =>
+          indexForm.open === 'edit'
+            ? updateIndexMutation.mutate(undefined)
+            : createIndexMutation.mutate(undefined)
+        }
+      >
+        <div className="mrow">
+          <label>{t('console.knowDetail.indexes.fields.name')}</label>
+          <input
+            className="input"
+            value={indexForm.name}
+            onChange={(event) => setIndexForm((state) => ({ ...state, name: event.target.value }))}
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.knowDetail.indexes.fields.embedding')}
+            <small>{t('console.knowDetail.indexes.fields.embeddingHint')}</small>
+          </label>
+          <input
+            className="input"
+            value={indexForm.embedding_model_ref}
+            onChange={(event) =>
+              setIndexForm((state) => ({ ...state, embedding_model_ref: event.target.value }))
+            }
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.knowDetail.indexes.fields.metric')}</label>
+          <select
+            className="input"
+            style={{ maxWidth: 160 }}
+            value={indexForm.metric_type}
+            onChange={(event) =>
+              setIndexForm((state) => ({ ...state, metric_type: event.target.value }))
+            }
+          >
+            <option value="cosine">cosine</option>
+            <option value="l2">l2</option>
+            <option value="ip">ip</option>
+          </select>
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.knowDetail.indexes.fields.primary')}
+            <small>{t('console.knowDetail.indexes.fields.primaryHint')}</small>
+          </label>
+          <div className="checks">
+            <label>
+              <input
+                type="checkbox"
+                checked={indexForm.is_primary}
+                onChange={(event) =>
+                  setIndexForm((state) => ({ ...state, is_primary: event.target.checked }))
+                }
+              />
+              {t('console.knowDetail.indexes.primary')}
+            </label>
+          </div>
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deletingIndex != null}
+        onOpenChange={(open) => !open && setDeletingIndex(null)}
+        title={t('console.knowDetail.indexes.deleteTitle')}
+        confirmLabel={t('console.knowDetail.indexes.del')}
+        destructive
+        busy={deleteIndexMutation.isPending}
+        onConfirm={() => deleteIndexMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.knowDetail.indexes.deleteConfirm', { name: deletingIndex?.name ?? '' })}
         </div>
       </ConsoleModal>
     </>
