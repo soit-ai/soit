@@ -152,6 +152,7 @@ export const PANEL_CONFIG: PillarConfig[] = [
           { labelKey: 'console.nav.approvals', to: '/govern/approvals', count: 'approvals' },
           { labelKey: 'console.nav.policies', to: '/govern/policies' },
           { labelKey: 'console.nav.audit', to: '/govern/audit' },
+          { labelKey: 'console.nav.access', to: '/govern/access' },
           { labelKey: 'console.nav.secrets', to: '/govern/secrets', count: 'secrets' },
         ],
       },

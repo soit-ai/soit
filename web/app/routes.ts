@@ -48,6 +48,7 @@ export default [
       route('approvals', './console/routes/govern/approvals.tsx'),
       route('policies', './console/routes/govern/policies.tsx'),
       route('audit', './console/routes/govern/audit.tsx'),
+      route('access', './console/routes/govern/access.tsx'),
       route('secrets', './console/routes/govern/secrets.tsx'),
     ]),
     route('settings/:section?', './console/routes/settings.tsx'),
