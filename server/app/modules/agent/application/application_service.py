@@ -29,6 +29,7 @@ from app.kernel.identity.permissions import RESOURCE_AGENT
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.plugins.interface import PluginRuntimePort
 from app.kernel.ports.tools.interface import ToolPort
+from app.kernel.ports.tools.sandbox import SandboxToolPort
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.db.models.responses import (
@@ -105,6 +106,15 @@ class AgentApplicationService:
     """Agent CRUD, publish, and execution service backed by Agent tables."""
 
     _INTERNAL_VERSION_OVERRIDE_KEY = "_agent_version_id"
+
+    _INTERNAL_SANDBOX_KEY = "_agent_sandbox"
+    """Marks an execution as a rehearsal.
+
+    A rehearsal exercises the whole decision path -- the model call, the
+    bindings, the policy checks -- but stops tool calls at the boundary. Without
+    it, testing a release creates tickets, pages people and charges third
+    parties for work nobody asked for.
+    """
 
     _BUILTIN_TOOL_REFS = {
         "tool:http:request",
@@ -482,7 +492,7 @@ class AgentApplicationService:
     def _resolve_skill_context_from_artifacts(self, skill_refs: list[str]) -> str | None:
         return self.capability_catalog.resolve_skill_context(skill_refs)
 
-    def _build_runner(self) -> AgentService:
+    def _build_runner(self, *, sandbox: bool = False) -> AgentService:
         async def execute_workflow_binding(workflow_ref: str, parameters: dict[str, Any]) -> dict[str, Any]:
             from app.modules.workflow.application.service import WorkflowService
 
@@ -495,11 +505,17 @@ class AgentApplicationService:
             )
             return await workflow_service.execute_workflow(workflow_id, parameters or {})
 
+        # A rehearsal answers tool calls without making them. The port is
+        # swapped rather than the calls being skipped, so the agent still
+        # decides to call, the decision is still recorded, and only the
+        # outward effect is withheld.
+        tool_port = SandboxToolPort(self.tool_port) if sandbox else self.tool_port
+
         return AgentService(
             db=self.db,
             ctx=self.ctx,
             llm_port=self.llm_port,
-            tool_port=self.tool_port,
+            tool_port=tool_port,
             tool_resolver=self.tool_resolver,
             memory_service=self.memory_service,
             response_service=self.response_service,
@@ -1199,6 +1215,7 @@ class AgentApplicationService:
             {
                 **self._agent_inputs_from_regression_case(case),
                 self._INTERNAL_VERSION_OVERRIDE_KEY: version_id,
+                self._INTERNAL_SANDBOX_KEY: True,
             },
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -1246,6 +1263,7 @@ class AgentApplicationService:
     async def execute_agent(self, agent_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
         agent = self._get_agent(agent_id)
         inputs = dict(inputs)
+        sandbox = bool(inputs.pop(self._INTERNAL_SANDBOX_KEY, False))
         version_override_id = inputs.pop(self._INTERNAL_VERSION_OVERRIDE_KEY, None)
         if version_override_id:
             version = self._get_version(version_override_id)
@@ -1302,6 +1320,9 @@ class AgentApplicationService:
             subject_version_id=version.id,
             input_summary=current_message.content[:8192],
             request_id=request.request_id,
+            # Marked at creation so cost, dashboards and alerts can exclude a
+            # rehearsal without having to work out afterwards what it was.
+            sandbox=sandbox,
         )
         task = self.task_service.create_task(
             task_type="agent.execute",
@@ -1377,7 +1398,7 @@ class AgentApplicationService:
         self.db.commit()
 
         request = request.model_copy(update={"task_id": task.id, "agent_id": agent.id})
-        runner = self._build_runner()
+        runner = self._build_runner(sandbox=sandbox)
         try:
             result = await runner.run(request, existing_run_id=run.id, response_id=linked_response.id if linked_response else None)
         except Exception as exc:

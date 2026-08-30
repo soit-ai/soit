@@ -6,6 +6,8 @@ these cover the aggregation rather than any new recording path.
 
 from datetime import timedelta
 
+import pytest
+
 from app.kernel.commons.ids import generate_run_id
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.runs import Run, RunStep
@@ -106,3 +108,35 @@ def test_the_threshold_is_reported_with_the_rate_it_produced(db, ctx):
     assert default.score_threshold == 0.6
     assert lenient.hits == 1
     assert lenient.score_threshold == 0.5
+
+
+class _Indexes:
+    """Stands in for the index repository with a fixed answer."""
+
+    def __init__(self, primary) -> None:
+        self.primary = primary
+
+    def get_primary(self, knowledge_id: str):
+        return self.primary
+
+
+def _guard(primary) -> None:
+    from app.modules.knowledge.application.runtime_service import (
+        KnowledgeRuntimeService,
+    )
+
+    service = KnowledgeRuntimeService.__new__(KnowledgeRuntimeService)
+    service.index_repo = _Indexes(primary)
+    KnowledgeRuntimeService._require_index(service, "knw_1")
+
+
+def test_uploading_to_a_base_with_no_index_is_refused_up_front():
+    """It used to return 201 and fail in the background, where nobody looks."""
+    from app.kernel.commons.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="no index"):
+        _guard(None)
+
+
+def test_a_base_that_has_an_index_accepts_uploads_as_before():
+    _guard(object())

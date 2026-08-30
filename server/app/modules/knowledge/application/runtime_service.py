@@ -12,7 +12,7 @@ from urllib.parse import unquote, urlparse
 from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -1366,6 +1366,25 @@ class KnowledgeRuntimeService:
         self.db.refresh(document)
         return document
 
+    def _require_index(self, knowledge_id: str) -> None:
+        """Refuse an upload the knowledge base cannot index.
+
+        A base created without an embedding model has no index, and ingestion
+        for it always ends in "Knowledge has no index configured" -- after
+        accepting the file with a 201 and failing in the background, where
+        nobody is looking. Refusing here says what to do instead.
+
+        No index is created on the caller's behalf: the embedding model decides
+        what retrieval will be able to find, and guessing it silently would
+        make a base that answers badly for a reason nobody chose.
+        """
+        if self.index_repo.get_primary(knowledge_id) is not None:
+            return
+        raise ValidationError(
+            "This knowledge base has no index, so nothing uploaded to it can be "
+            "retrieved. Create an index with an embedding model first."
+        )
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def upload_document(
         self,
@@ -1394,6 +1413,8 @@ class KnowledgeRuntimeService:
             raise KernelError("NO_FILE", "File content or file_id is required for upload source")
         if document_in.source_kind == "crawler" and not document_in.source_uri:
             raise KernelError("INVALID_SOURCE_URI", "source_uri is required for crawler source")
+
+        self._require_index(knowledge_id)
 
         if async_ingest:
             document, _task = await self.enqueue_ingest_task(

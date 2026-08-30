@@ -169,6 +169,14 @@ record for operators.
   the viewport and hid it; the sign-in and sign-up screens scroll, so a light
   band showed around them. Native scrollbars and form controls now follow the
   theme as well.
+- Replaying a regression set against an agent version called tools for real. A
+  rehearsal now answers tool calls at the boundary instead of making them, so
+  testing a release no longer files tickets, pages people or spends money on
+  third parties; the run is marked as a rehearsal so cost and dashboards can
+  leave it out.
+- Uploading a document to a knowledge base with no index was accepted with a
+  201 and then failed in the background, where nobody was watching. The upload
+  is now refused up front, saying an index has to exist first.
 
 ## [1.0.0] - 2026-08-05
 
