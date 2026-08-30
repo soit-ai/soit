@@ -25,10 +25,16 @@ from app.modules.identity.application.schemas import (
     MembershipCreate,
     MembershipResponse,
     MembershipUpdate,
+    MyWorkspaceResponse,
     PasswordChange,
+    PinCreate,
+    PinResponse,
     RefreshRequest,
     ResourceGrantCreate,
     ResourceGrantResponse,
+    SavedViewCreate,
+    SavedViewResponse,
+    SavedViewUpdate,
     SessionRevokeAllResponse,
     TenantCreate,
     TenantResponse,
@@ -362,6 +368,98 @@ async def list_workspaces(
         return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+async def list_saved_views(
+    surface: str | None = None,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> list[SavedViewResponse]:
+    """List the caller's kept filters, optionally for one screen."""
+    return [
+        SavedViewResponse.model_validate(view)
+        for view in service.list_saved_views(ctx, surface)
+    ]
+
+
+async def create_saved_view(
+    data: SavedViewCreate,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> SavedViewResponse:
+    """Keep a filter under a name. Saving over a name replaces it."""
+    return SavedViewResponse.model_validate(service.create_saved_view(ctx, data))
+
+
+async def update_saved_view(
+    view_id: str,
+    data: SavedViewUpdate,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> SavedViewResponse:
+    """Rename a kept filter, repoint it, or make it the default."""
+    try:
+        return SavedViewResponse.model_validate(service.update_saved_view(ctx, view_id, data))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def delete_saved_view(
+    view_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Drop one of the caller's kept filters."""
+    try:
+        service.delete_saved_view(ctx, view_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def list_pins(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> list[PinResponse]:
+    """List the caller's pinned objects."""
+    return [PinResponse.model_validate(pin) for pin in service.list_pins(ctx)]
+
+
+async def create_pin(
+    data: PinCreate,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> PinResponse:
+    """Pin an object. Pinning what is already pinned changes nothing."""
+    return PinResponse.model_validate(service.create_pin(ctx, data))
+
+
+async def delete_pin(
+    pin_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> None:
+    """Unpin an object."""
+    try:
+        service.delete_pin(ctx, pin_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+async def list_my_workspaces(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> list[MyWorkspaceResponse]:
+    """List the workspaces the caller belongs to in the current tenant."""
+    return [
+        MyWorkspaceResponse(
+            id=workspace.id,
+            name=workspace.name,
+            description=workspace.description,
+            role=role,
+            created_at=workspace.created_at,
+        )
+        for workspace, role in service.list_my_workspaces(ctx)
+    ]
+
 
 async def get_workspace(
     workspace_id: str,

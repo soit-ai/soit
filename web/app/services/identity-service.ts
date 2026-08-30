@@ -68,6 +68,91 @@ export interface WorkspaceMember {
   last_active_at?: string | null
 }
 
+export interface SavedView {
+  id: string
+  /** Which screen the view belongs to, e.g. "runs". */
+  surface: string
+  name: string
+  /** The screen's own query string, without a leading question mark. */
+  query: string
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface PinnedObject {
+  id: string
+  object_type: string
+  object_id: string
+  /** Captured when pinning; the live object is the authority on its name. */
+  label?: string | null
+  created_at: string
+}
+
+export const listSavedViews = (
+  params?: { surface?: string },
+  config?: RequestConfigWithToast,
+): Promise<SavedView[]> => {
+  return get<SavedView[]>('/me/views', params, config)
+}
+
+/** Saving over a name replaces that view rather than failing. */
+export const createSavedView = (
+  data: { surface: string; name: string; query: string; is_default?: boolean },
+  config?: RequestConfigWithToast,
+): Promise<SavedView> => {
+  return post<SavedView>('/me/views', data, config)
+}
+
+export const updateSavedView = (
+  viewId: string,
+  data: { name?: string; query?: string; is_default?: boolean },
+  config?: RequestConfigWithToast,
+): Promise<SavedView> => {
+  return patch<SavedView>(`/me/views/${viewId}`, data, config)
+}
+
+export const deleteSavedView = (
+  viewId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del<void>(`/me/views/${viewId}`, undefined, config)
+}
+
+export const listPins = (config?: RequestConfigWithToast): Promise<PinnedObject[]> => {
+  return get<PinnedObject[]>('/me/pins', undefined, config)
+}
+
+export const createPin = (
+  data: { object_type: string; object_id: string; label?: string },
+  config?: RequestConfigWithToast,
+): Promise<PinnedObject> => {
+  return post<PinnedObject>('/me/pins', data, config)
+}
+
+export const deletePin = (pinId: string, config?: RequestConfigWithToast): Promise<void> => {
+  return del<void>(`/me/pins/${pinId}`, undefined, config)
+}
+
+export interface MyWorkspace {
+  id: string
+  name: string
+  description?: string | null
+  /** The caller's role in that workspace. */
+  role: string
+  created_at: string
+}
+
+/**
+ * The workspaces the caller belongs to. Distinct from listing every workspace
+ * in the tenant, which is an administrative question needing admin rights.
+ */
+export const listMyWorkspaces = (
+  config?: RequestConfigWithToast,
+): Promise<MyWorkspace[]> => {
+  return get<MyWorkspace[]>('/me/workspaces', undefined, config)
+}
+
 export const getWorkspace = (workspaceId: string): Promise<WorkspaceInfo> => {
   return get<WorkspaceInfo>(`/workspaces/${workspaceId}`)
 }

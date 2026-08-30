@@ -119,6 +119,8 @@ export const IconChevronRight = makeIcon(<path d="m10 6 6 6-6 6" />, 13)
 
 export const IconChevronLeft = makeIcon(<path d="m14 6-6 6 6 6" />, 13)
 
+export const IconCheck = makeIcon(<path d="m5 12 5 5 9-11" />, 13)
+
 export const IconBack = makeIcon(<path d="m15 18-6-6 6-6" />, 13)
 
 export const IconCopy = makeIcon(

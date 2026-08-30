@@ -62,6 +62,12 @@ record for operators.
   longer something the user sees.
 - Workspace member listings report `last_active_at`, derived from the member's
   own sessions.
+- `GET /me/workspaces` lists the workspaces the caller belongs to, so a
+  workspace can be switched without signing out. Listing every workspace in a
+  tenant stays an administrative question needing admin rights.
+- Saved views and pinned objects are stored per user, per workspace:
+  `/me/views` and `/me/pins`. Saving a view over an existing name replaces it,
+  and only one view per screen can be the default.
 
 ### Changed
 

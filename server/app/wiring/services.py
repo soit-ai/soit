@@ -41,7 +41,9 @@ from app.modules.evaluation.application.service import RegressionEvaluationServi
 from app.modules.identity.application.service import IdentityService
 from app.modules.identity.infra.repository import (
     ApiKeyRepository,
+    PinnedObjectRepository,
     ResourceGrantRepository,
+    SavedViewRepository,
     TenantMembershipRepository,
     TenantRepository,
     UserRepository,
@@ -220,9 +222,17 @@ def build_identity_service(*, db: Session) -> IdentityService:
     def resource_grant_repo_factory(ctx: RequestContext) -> ResourceGrantRepository:
         return ResourceGrantRepository(db, ctx)
 
+    def saved_view_repo_factory(ctx: RequestContext) -> SavedViewRepository:
+        return SavedViewRepository(db, ctx)
+
+    def pin_repo_factory(ctx: RequestContext) -> PinnedObjectRepository:
+        return PinnedObjectRepository(db, ctx)
+
     return IdentityService(
         db=db,
         session_repo=session_repo,
+        saved_view_repo_factory=saved_view_repo_factory,
+        pin_repo_factory=pin_repo_factory,
         jwt_manager=jwt_manager,
         user_repo=user_repo,
         tenant_repo=tenant_repo,

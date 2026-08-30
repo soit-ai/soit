@@ -37,6 +37,16 @@ def generate_user_session_id() -> str:
     return f"ses_{generate_ulid()}"
 
 
+def generate_saved_view_id() -> str:
+    """Generate saved view ID."""
+    return f"sv_{generate_ulid()}"
+
+
+def generate_pin_id() -> str:
+    """Generate pinned object ID."""
+    return f"pin_{generate_ulid()}"
+
+
 class User(SQLModel, table=True):
     """User model - global user account."""
 
@@ -365,3 +375,74 @@ class UserSession(SQLModel, table=True):
     )
     revoked_by: str | None = Field(default=None, nullable=True)
     """Who ended it: the user themselves, or an admin."""
+
+
+class SavedView(SQLModel, table=True):
+    """A filter someone kept, so they do not rebuild it every morning.
+
+    The query is stored as the console's own query string rather than parsed
+    into columns: the filters a screen offers change with the screen, and a
+    schema here would have to be migrated every time one did.
+    """
+
+    __tablename__ = "saved_views"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "surface",
+            "name",
+            name="uq_saved_view_name",
+        ),
+        Index("ix_saved_views_owner", "workspace_id", "user_id", "surface"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_saved_view_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+
+    surface: str = Field(index=True, max_length=64)
+    """Which screen the view belongs to, e.g. "runs" or "traces"."""
+
+    name: str = Field(max_length=128)
+    query: str = Field(max_length=2048)
+    """The screen's own query string, without a leading question mark."""
+
+    is_default: bool = Field(default=False)
+    """Applied when the screen opens with no query of its own."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class PinnedObject(SQLModel, table=True):
+    """Something a person put within reach of every screen.
+
+    Only the reference is kept. The name and state are read live, so a pin
+    cannot go stale into a label that describes what an object used to be.
+    """
+
+    __tablename__ = "pinned_objects"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "object_type",
+            "object_id",
+            name="uq_pinned_object",
+        ),
+        Index("ix_pinned_objects_owner", "workspace_id", "user_id"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_pin_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+
+    object_type: str = Field(index=True, max_length=64)
+    object_id: str = Field(index=True, max_length=128)
+    label: str | None = Field(default=None, nullable=True, max_length=256)
+    """A name captured when pinning, shown only until the object is read."""
+
+    created_at: datetime = Field(default_factory=utc_now)

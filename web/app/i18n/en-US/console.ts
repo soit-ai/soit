@@ -87,6 +87,9 @@ const translation = {
     guarantee: 'Guarantee',
     guaranteeNote: 'Every reply is a governed run',
     untitledThread: 'Untitled thread',
+    switchWorkspace: 'Switch workspace',
+    defaultView: 'default',
+    noOtherWorkspaces: 'No other workspaces',
     egressBlocks: '{{count}} egress blocks · 24h',
     egressSubjects: '{{count}} callers',
     todayStats: {

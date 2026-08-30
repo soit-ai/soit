@@ -3,7 +3,12 @@ import { useQuery } from '@/hooks/use-query'
 import { getAgentWorkbench } from '@/services/agent-service'
 import { getKnowledgeWorkbench } from '@/services/knowledge-service'
 import { listApiKeys } from '@/services/api-key-service'
-import { listWorkspaceMembers, listWorkspaceResourceGrants } from '@/services/identity-service'
+import {
+  listPins,
+  listSavedViews,
+  listWorkspaceMembers,
+  listWorkspaceResourceGrants,
+} from '@/services/identity-service'
 import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
@@ -21,8 +26,6 @@ import {
   mockDraftReviews,
   mockGovernAttention,
   mockPanelCounts,
-  mockPinned,
-  mockSavedViews,
 } from '../mocks/panel'
 import type { ConsoleCountKey, ConsolePillar, PanelSlot } from './panel-config'
 
@@ -53,6 +56,30 @@ function countLabel(total?: number | null): string | undefined {
 
 function spanLabel(total?: number | null): string | undefined {
   return total == null ? undefined : `${compactNumber(total)} spans`
+}
+
+/** Where a pinned object opens. Unknown kinds fall back to their pillar list. */
+function pinRoute(objectType: string, objectId: string): string {
+  switch (objectType) {
+    case 'agent':
+      return `/build/agents/${objectId}`
+    case 'workflow':
+      return `/build/workflows/${objectId}`
+    case 'knowledge':
+      return `/build/knowledge/${objectId}`
+    case 'run':
+      return `/observe/runs/${objectId}`
+    case 'task':
+      return `/execute/tasks/${objectId}`
+    default:
+      return '/'
+  }
+}
+
+/** A saved view is its screen plus the query it kept. */
+function savedViewRoute(view: { surface: string; query: string }): string {
+  const base = view.surface === 'traces' ? '/observe/traces' : `/observe/${view.surface}`
+  return view.query ? `${base}?${view.query}` : base
 }
 
 function windowLabel(total?: number | null): string | undefined {
@@ -229,6 +256,19 @@ export function useConsolePanelData(
       getEgressBlockSummary({ since: new Date(Date.now() - DAY_MS).toISOString() }),
     options: { ...SHARED, enabled: isGovern },
   })
+  // Personal shortcuts. Both are per-user and per-workspace, so they follow
+  // the same cache rules as the rest of the panel.
+  const savedViews = useQuery({
+    queryKey: ['console', 'panel', 'saved-views'],
+    queryFn: () => listSavedViews(undefined, { suppressErrorToast: true }),
+    options: { ...SHARED, enabled: isObserve },
+  })
+  const pins = useQuery({
+    queryKey: ['console', 'panel', 'pins'],
+    queryFn: () => listPins({ suppressErrorToast: true }),
+    options: { ...SHARED, enabled: isOverview },
+  })
+
   const grants = useQuery({
     queryKey: ['console', 'counts', 'grants'],
     queryFn: () => listWorkspaceResourceGrants({ limit: 500 }),
@@ -336,7 +376,15 @@ export function useConsolePanelData(
         to: '/observe/runs',
       },
     ])
-    groups.pinned = mockPinned.map((row) => ({ kind: 'mini' as const, ...row }))
+    groups.pinned = (pins.data || []).slice(0, 5).map((row) => ({
+      kind: 'mini' as const,
+      id: row.id,
+      label: row.label || row.object_id,
+      meta: row.object_type,
+      note: relativeTime(row.created_at),
+      to: pinRoute(row.object_type, row.object_id),
+      at: row.created_at,
+    }))
   }
 
   if (isChat) {
@@ -457,7 +505,16 @@ export function useConsolePanelData(
   }
 
   if (isObserve) {
-    groups.savedViews = mockSavedViews.map((row) => ({ kind: 'stat' as const, ...row }))
+    // A saved view carries no count: its query belongs to the screen, and
+    // asking the server to count each one would be a request per row for a
+    // figure the prototype only ever used as decoration.
+    groups.savedViews = (savedViews.data || []).slice(0, 6).map((row) => ({
+      kind: 'stat' as const,
+      id: row.id,
+      label: row.name,
+      value: row.is_default ? t('console.shell.defaultView') : '',
+      to: savedViewRoute(row),
+    }))
 
     const running = liveRuns.data?.items || []
     groups.live = compact([

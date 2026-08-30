@@ -32,7 +32,9 @@ from app.kernel.identity.rbac import (
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.identity.application.ports import (
     ApiKeyRepositoryPort,
+    PinnedObjectRepositoryPort,
     ResourceGrantRepositoryPort,
+    SavedViewRepositoryPort,
     TenantMembershipRepositoryPort,
     TenantRepositoryPort,
     UserRepositoryPort,
@@ -44,7 +46,10 @@ from app.modules.identity.application.schemas import (
     ApiKeyCreate,
     MembershipCreate,
     PasswordChange,
+    PinCreate,
     ResourceGrantCreate,
+    SavedViewCreate,
+    SavedViewUpdate,
     TenantCreate,
     UserCreate,
     UserProfileUpdate,
@@ -53,7 +58,9 @@ from app.modules.identity.application.schemas import (
 )
 from app.modules.identity.domain.models import (
     ApiKey,
+    PinnedObject,
     ResourceGrant,
+    SavedView,
     Tenant,
     TenantMembership,
     User,
@@ -81,6 +88,8 @@ class IdentityService:
         api_key_repo: ApiKeyRepositoryPort,
         resource_grant_repo_factory: Callable[[RequestContext], ResourceGrantRepositoryPort],
         session_repo: UserSessionRepositoryPort,
+        saved_view_repo_factory: Callable[[RequestContext], SavedViewRepositoryPort],
+        pin_repo_factory: Callable[[RequestContext], PinnedObjectRepositoryPort],
     ):
         """Initialize identity service.
 
@@ -98,6 +107,8 @@ class IdentityService:
         self.api_key_repo = api_key_repo
         self.resource_grant_repo_factory = resource_grant_repo_factory
         self.session_repo = session_repo
+        self.saved_view_repo_factory = saved_view_repo_factory
+        self.pin_repo_factory = pin_repo_factory
 
     def _run_async(self, coro):
         """Run coroutine to completion from sync contexts."""
@@ -505,6 +516,101 @@ class IdentityService:
         )
         self.db.commit()
 
+    # ------------------------------------------------------------------
+    # Personal shortcuts: kept filters and pinned objects
+    # ------------------------------------------------------------------
+
+    def list_saved_views(self, ctx: RequestContext, surface: str | None = None) -> list[SavedView]:
+        """List the caller's kept filters, optionally for one screen."""
+        return self.saved_view_repo_factory(ctx).list(surface)
+
+    def create_saved_view(self, ctx: RequestContext, data: SavedViewCreate) -> SavedView:
+        """Keep a filter under a name, replacing one of the same name."""
+        repo = self.saved_view_repo_factory(ctx)
+        existing = repo.get_by_name(data.surface, data.name)
+        if existing is not None:
+            # Saving over a name is how a person updates a view; refusing would
+            # make them delete and recreate to change one filter.
+            existing.query = data.query
+            existing.is_default = data.is_default
+            existing.updated_at = utc_now()
+            view = repo.save(existing)
+        else:
+            view = repo.save(
+                SavedView(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    user_id=ctx.user_id,
+                    surface=data.surface,
+                    name=data.name,
+                    query=data.query,
+                    is_default=data.is_default,
+                )
+            )
+        if view.is_default:
+            repo.clear_default(view.surface, except_id=view.id)
+        return view
+
+    def update_saved_view(
+        self,
+        ctx: RequestContext,
+        view_id: str,
+        data: SavedViewUpdate,
+    ) -> SavedView:
+        """Rename a kept filter, repoint it, or make it the default."""
+        repo = self.saved_view_repo_factory(ctx)
+        view = repo.get(view_id)
+        if view is None:
+            raise NotFoundError("Saved view not found")
+        if data.name is not None:
+            view.name = data.name
+        if data.query is not None:
+            view.query = data.query
+        if data.is_default is not None:
+            view.is_default = data.is_default
+        view.updated_at = utc_now()
+        saved = repo.save(view)
+        if saved.is_default:
+            repo.clear_default(saved.surface, except_id=saved.id)
+        return saved
+
+    def delete_saved_view(self, ctx: RequestContext, view_id: str) -> None:
+        """Drop one of the caller's kept filters."""
+        repo = self.saved_view_repo_factory(ctx)
+        view = repo.get(view_id)
+        if view is None:
+            raise NotFoundError("Saved view not found")
+        repo.delete(view)
+
+    def list_pins(self, ctx: RequestContext) -> list[PinnedObject]:
+        """List the caller's pinned objects, most recent first."""
+        return self.pin_repo_factory(ctx).list()
+
+    def create_pin(self, ctx: RequestContext, data: PinCreate) -> PinnedObject:
+        """Pin an object, or return the existing pin unchanged."""
+        repo = self.pin_repo_factory(ctx)
+        existing = repo.get_by_target(data.object_type, data.object_id)
+        if existing is not None:
+            return existing
+        return repo.save(
+            PinnedObject(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                user_id=ctx.user_id,
+                object_type=data.object_type,
+                object_id=data.object_id,
+                label=data.label,
+            )
+        )
+
+    def delete_pin(self, ctx: RequestContext, pin_id: str) -> None:
+        """Unpin an object."""
+        repo = self.pin_repo_factory(ctx)
+        pin = repo.get(pin_id)
+        if pin is None:
+            raise NotFoundError("Pin not found")
+        repo.delete(pin)
+
     def create_tenant(
         self,
         tenant_data: TenantCreate,
@@ -813,6 +919,26 @@ class IdentityService:
         """List workspace members."""
         repo = self.workspace_membership_repo_factory(ctx)
         return repo.get_by_workspace(workspace_id)
+
+    def list_my_workspaces(self, ctx: RequestContext) -> list[tuple[Workspace, str]]:
+        """Return the caller's own workspaces in the current tenant, with roles.
+
+        Distinct from ``list_workspaces``, which answers "every workspace in
+        this tenant" and is an administrative question. This one is what a
+        workspace switcher needs, and any member may ask it.
+        """
+        membership_repo = self.workspace_membership_repo_factory(ctx)
+        workspace_repo = self.workspace_repo_factory(ctx)
+        pairs: list[tuple[Workspace, str]] = []
+        for membership in membership_repo.get_by_user(ctx.user_id):
+            workspace = workspace_repo.get_by_id(membership.workspace_id)
+            # A membership can outlive the workspace it points at; showing a
+            # dangling row in a switcher would offer a destination that 404s.
+            if workspace is None or workspace.tenant_id != ctx.tenant_id:
+                continue
+            pairs.append((workspace, membership.role))
+        pairs.sort(key=lambda pair: pair[0].created_at)
+        return pairs
 
     def update_workspace_member_role(
         self,

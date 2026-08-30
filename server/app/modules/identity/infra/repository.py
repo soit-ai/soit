@@ -13,7 +13,9 @@ from app.infra.db.repository import Repository
 from app.kernel.contracts.context import RequestContext
 from app.modules.identity.domain.models import (
     ApiKey,
+    PinnedObject,
     ResourceGrant,
+    SavedView,
     Tenant,
     TenantMembership,
     User,
@@ -475,6 +477,105 @@ class UserSessionRepository:
             if user_id and last_seen:
                 seen[str(user_id)] = last_seen
         return seen
+
+
+class SavedViewRepository:
+    """Repository for a user's kept filters, scoped to their workspace."""
+
+    def __init__(self, db: Session, ctx: RequestContext):
+        self.db = db
+        self.ctx = ctx
+
+    def _scope(self):
+        return [
+            SavedView.tenant_id == self.ctx.tenant_id,
+            SavedView.workspace_id == self.ctx.workspace_id,
+            SavedView.user_id == self.ctx.user_id,
+        ]
+
+    def list(self, surface: str | None = None) -> list[SavedView]:
+        clauses = self._scope()
+        if surface:
+            clauses.append(SavedView.surface == surface)
+        query = (
+            select(SavedView).where(and_(*clauses)).order_by(SavedView.created_at.asc())
+        )
+        return _unwrap_all(list(self.db.exec(query).all()))
+
+    def get(self, view_id: str) -> SavedView | None:
+        query = select(SavedView).where(and_(SavedView.id == view_id, *self._scope()))
+        return _unwrap_result(self.db.exec(query).first())
+
+    def get_by_name(self, surface: str, name: str) -> SavedView | None:
+        query = select(SavedView).where(
+            and_(SavedView.surface == surface, SavedView.name == name, *self._scope())
+        )
+        return _unwrap_result(self.db.exec(query).first())
+
+    def save(self, view: SavedView) -> SavedView:
+        self.db.add(view)
+        self.db.commit()
+        self.db.refresh(view)
+        return view
+
+    def clear_default(self, surface: str, *, except_id: str | None = None) -> None:
+        """Only one view per surface may be the default."""
+        for row in self.list(surface):
+            if row.is_default and row.id != except_id:
+                row.is_default = False
+                self.db.add(row)
+        self.db.commit()
+
+    def delete(self, view: SavedView) -> None:
+        self.db.delete(view)
+        self.db.commit()
+
+
+class PinnedObjectRepository:
+    """Repository for a user's pinned objects, scoped to their workspace."""
+
+    def __init__(self, db: Session, ctx: RequestContext):
+        self.db = db
+        self.ctx = ctx
+
+    def _scope(self):
+        return [
+            PinnedObject.tenant_id == self.ctx.tenant_id,
+            PinnedObject.workspace_id == self.ctx.workspace_id,
+            PinnedObject.user_id == self.ctx.user_id,
+        ]
+
+    def list(self) -> list[PinnedObject]:
+        query = (
+            select(PinnedObject)
+            .where(and_(*self._scope()))
+            .order_by(PinnedObject.created_at.desc())
+        )
+        return _unwrap_all(list(self.db.exec(query).all()))
+
+    def get(self, pin_id: str) -> PinnedObject | None:
+        query = select(PinnedObject).where(and_(PinnedObject.id == pin_id, *self._scope()))
+        return _unwrap_result(self.db.exec(query).first())
+
+    def get_by_target(self, object_type: str, object_id: str) -> PinnedObject | None:
+        query = select(PinnedObject).where(
+            and_(
+                PinnedObject.object_type == object_type,
+                PinnedObject.object_id == object_id,
+                *self._scope(),
+            )
+        )
+        return _unwrap_result(self.db.exec(query).first())
+
+    def save(self, pin: PinnedObject) -> PinnedObject:
+        self.db.add(pin)
+        self.db.commit()
+        self.db.refresh(pin)
+        return pin
+
+    def delete(self, pin: PinnedObject) -> None:
+        self.db.delete(pin)
+        self.db.commit()
 
 
 class ApiKeyRepository:

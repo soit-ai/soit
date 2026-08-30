@@ -160,6 +160,67 @@ class WorkspaceMemberResponse(BaseModel):
     """Most recent activity across the member's sessions; None if never seen."""
 
 
+class MyWorkspaceResponse(BaseModel):
+    """A workspace the caller belongs to, and the role they hold in it."""
+
+    id: str
+    name: str
+    description: str | None = None
+    role: str
+    created_at: datetime
+
+
+class SavedViewCreate(BaseModel):
+    """Keep a filter under a name."""
+
+    surface: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    query: str = Field(default="", max_length=2048)
+    is_default: bool = False
+
+
+class SavedViewUpdate(BaseModel):
+    """Rename a kept filter, repoint it, or make it the default."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    query: str | None = Field(default=None, max_length=2048)
+    is_default: bool | None = None
+
+
+class SavedViewResponse(BaseModel):
+    """A filter someone kept."""
+
+    id: str
+    surface: str
+    name: str
+    query: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PinCreate(BaseModel):
+    """Put an object within reach of every screen."""
+
+    object_type: str = Field(min_length=1, max_length=64)
+    object_id: str = Field(min_length=1, max_length=128)
+    label: str | None = Field(default=None, max_length=256)
+
+
+class PinResponse(BaseModel):
+    """A pinned object reference."""
+
+    id: str
+    object_type: str
+    object_id: str
+    label: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TokenResponse(BaseModel):
     """Schema for token response."""
 

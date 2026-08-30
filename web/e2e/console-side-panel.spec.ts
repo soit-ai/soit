@@ -31,10 +31,15 @@ const healthy = {
 }
 
 test.beforeEach(async ({ page }) => {
+  // Seeded only when absent: this script re-runs on every navigation, and
+  // overwriting would undo anything the app itself stored — a workspace
+  // switch, for one.
   await page.addInitScript(() => {
-    localStorage.setItem('token', 'e2e-token')
-    localStorage.setItem('workspace_id', 'workspace-1')
-    localStorage.setItem('soit-console-theme', 'dark')
+    if (!localStorage.getItem('token')) localStorage.setItem('token', 'e2e-token')
+    if (!localStorage.getItem('workspace_id')) localStorage.setItem('workspace_id', 'workspace-1')
+    if (!localStorage.getItem('soit-console-theme')) {
+      localStorage.setItem('soit-console-theme', 'dark')
+    }
   })
   await mockShellApi(page)
   await json(page, '**/api/v1/workflows/workbench**', emptyWorkbench('total_workflows'))
@@ -46,7 +51,29 @@ test.beforeEach(async ({ page }) => {
     name: 'acme-robotics',
     created_at: NOW,
   })
+  await json(page, '**/api/v1/me/views**', savedViews)
 })
+
+const savedViews = [
+  {
+    id: 'sv_failed',
+    surface: 'runs',
+    name: 'Failed only',
+    query: 'status=failed',
+    is_default: false,
+    created_at: NOW,
+    updated_at: NOW,
+  },
+  {
+    id: 'sv_audited',
+    surface: 'runs',
+    name: 'Has audit',
+    query: 'audited=true',
+    is_default: true,
+    created_at: NOW,
+    updated_at: NOW,
+  },
+]
 
 test('side panel names the workspace and environment it is pointed at', async ({ page }) => {
   await json(page, '**/api/v1/diagnostics', healthy)
@@ -296,6 +323,11 @@ test('saved views do not claim to be the page they filter', async ({ page }) => 
   // pathname alone — left to its default every one of them lights up at once.
   await expect(page.locator('.subnav .sl.active')).toHaveCount(1)
   await expect(page.locator('.subnav .sl.active')).toHaveText(/Runs/)
+  // The rows come from the caller's own saved views, and the default one says
+  // so rather than carrying an invented result count.
+  const saved = page.locator('.subnav .sl', { hasText: 'Has audit' })
+  await expect(saved).toHaveAttribute('href', '/observe/runs?audited=true')
+  await expect(saved.locator('.ct')).toHaveText('default')
 })
 
 test('chat panel addresses a thread by the route that can open it', async ({ page }) => {
@@ -377,4 +409,99 @@ test('head sub-line prefers the workspace name over its id', async ({ page }) =>
   await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   await expect(page.locator('.subnav-head .mono')).toHaveText('acme-robotics · production')
+})
+
+test('the head switches workspace and drops everything read under the old one', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/me/workspaces', [
+    { id: 'workspace-1', name: 'acme-robotics', role: 'Owner', created_at: NOW },
+    { id: 'workspace-2', name: 'acme-labs', role: 'Dev', created_at: NOW },
+  ])
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.locator('.ws-switch-trigger').click()
+
+  const menu = page.locator('.ws-switch-menu')
+  await expect(menu).toBeVisible()
+  // The one you are in is marked, not hidden: a switcher that omits the
+  // current workspace makes you guess where you are.
+  await expect(menu.getByRole('option', { name: /acme-robotics/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+
+  await menu.getByRole('option', { name: /acme-labs/ }).click()
+
+  // A full reload, so nothing read under the old scope survives in memory.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('workspace_id'))).toBe(
+    'workspace-2',
+  )
+  await expect(page).toHaveURL(/\/$|\/overview/)
+
+  // And every request after the switch is scoped to the workspace chosen. This
+  // is the guarantee the archived builder test was written to protect: the old
+  // workspace's inventory must not answer the new one's screens.
+  const scopes: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/')) {
+      scopes.push(request.headers()['x-workspace-id'] || 'missing')
+    }
+  })
+  await page.goto('/build/workflows', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => scopes.length).toBeGreaterThan(0)
+  expect(scopes.every((scope) => scope === 'workspace-2')).toBe(true)
+})
+
+test('switching to the workspace already open changes nothing', async ({ page }) => {
+  await json(page, '**/api/v1/me/workspaces', [
+    { id: 'workspace-1', name: 'acme-robotics', role: 'Owner', created_at: NOW },
+  ])
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.locator('.ws-switch-trigger').click()
+  await page.locator('.ws-switch-menu').getByRole('option', { name: /acme-robotics/ }).click()
+
+  await expect(page).toHaveURL(/\/build\/agents/)
+  await expect(page.locator('.ws-switch-menu')).toHaveCount(0)
+})
+
+test('the overview panel pins what the caller pinned, not a fixture', async ({ page }) => {
+  await json(page, '**/api/v1/me/pins**', [
+    {
+      id: 'pin_1',
+      object_type: 'agent',
+      object_id: 'agt_support',
+      label: 'support-triage',
+      created_at: NOW,
+    },
+    {
+      id: 'pin_2',
+      object_type: 'knowledge',
+      object_id: 'knw_docs',
+      label: 'product-docs',
+      created_at: NOW,
+    },
+  ])
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  const pinned = page.locator('.subnav .sub-mini')
+  await expect(pinned.filter({ hasText: 'support-triage' })).toHaveAttribute(
+    'href',
+    '/build/agents/agt_support',
+  )
+  await expect(pinned.filter({ hasText: 'product-docs' })).toHaveAttribute(
+    'href',
+    '/build/knowledge/knw_docs',
+  )
+})
+
+test('a caller with nothing pinned gets no Pinned group at all', async ({ page }) => {
+  // An empty group with a caption would read as "your pins failed to load".
+  await json(page, '**/api/v1/me/pins**', [])
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('.subnav .sub-cap', { hasText: 'Pinned' })).toHaveCount(0)
 })

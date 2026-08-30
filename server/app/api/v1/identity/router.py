@@ -36,6 +36,72 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/me/views",
+    handlers.list_saved_views,
+    methods=["GET"],
+    summary="List the caller's saved views",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/views",
+    handlers.create_saved_view,
+    methods=["POST"],
+    summary="Save a view",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/views/{view_id}",
+    handlers.update_saved_view,
+    methods=["PATCH"],
+    summary="Update a saved view",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/views/{view_id}",
+    handlers.delete_saved_view,
+    methods=["DELETE"],
+    status_code=204,
+    summary="Delete a saved view",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/pins",
+    handlers.list_pins,
+    methods=["GET"],
+    summary="List the caller's pinned objects",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/pins",
+    handlers.create_pin,
+    methods=["POST"],
+    summary="Pin an object",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/pins/{pin_id}",
+    handlers.delete_pin,
+    methods=["DELETE"],
+    status_code=204,
+    summary="Unpin an object",
+    tags=["preferences"],
+)
+
+router.add_api_route(
+    "/me/workspaces",
+    handlers.list_my_workspaces,
+    methods=["GET"],
+    summary="List the caller's own workspaces",
+    tags=["workspaces"],
+)
+
+router.add_api_route(
     "/me/sessions",
     handlers.list_sessions,
     methods=["GET"],
