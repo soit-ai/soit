@@ -338,13 +338,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-volumes:
-  postgres_data:
-  redis_data:
-  minio_data:
-  etcd_data:
-  milvus_data:
-
   # Fires due schedules. Its own process for the same reason the dispatcher is:
   # a scheduler that shares a process with request handling competes with it,
   # and an API restart should not be a gap in when jobs fire.
@@ -368,3 +361,10 @@ volumes:
         condition: service_healthy
     command: ["python", "scripts/schedule_worker.py"]
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  etcd_data:
+  milvus_data:
