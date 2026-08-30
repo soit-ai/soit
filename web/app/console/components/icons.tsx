@@ -182,3 +182,103 @@ export function IconLogo({ size = 24, ...props }: IconProps) {
     </svg>
   )
 }
+
+/* ---------------------------------------------------------------------------
+ * Side-panel link icons (prototype `.subnav a.sl svg`, 14px). Traced from the
+ * v13 markup. Four of the panel's links reuse a rail icon whose path is already
+ * identical there — overview, chat, runs and policies — so only the rest are
+ * defined here.
+ * ------------------------------------------------------------------------- */
+
+export const IconNavAgents = makeIcon(
+  <>
+    <rect x="4" y="7" width="16" height="12" rx="2" />
+    <path d="M12 7V4M8 12h.01M16 12h.01M9 16h6" />
+  </>,
+  14
+)
+
+export const IconNavWorkflows = makeIcon(
+  <>
+    <rect x="3" y="3" width="6" height="6" rx="1.5" />
+    <rect x="15" y="15" width="6" height="6" rx="1.5" />
+    <path d="M9 6h6a3 3 0 0 1 3 3v3M15 18H9a3 3 0 0 1-3-3V9" />
+  </>,
+  14
+)
+
+export const IconNavKnowledge = makeIcon(
+  <>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 4.5v15Z" />
+    <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+  </>,
+  14
+)
+
+export const IconNavPlugins = makeIcon(
+  <path d="M9 7V3M15 7V3M8 7h8a1 1 0 0 1 1 1v3a5 5 0 0 1-5 5h0a5 5 0 0 1-5-5V8a1 1 0 0 1 1-1ZM12 16v5" />,
+  14
+)
+
+export const IconNavModels = makeIcon(
+  <>
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22M5 5l2.5 2.5M16.5 16.5 19 19M19 5l-2.5 2.5M7.5 16.5 5 19" />
+  </>,
+  14
+)
+
+export const IconNavTasks = makeIcon(
+  <path d="m4 4.5 2 2 3-3.5M4 11.5l2 2 3-3.5M4 18.5l2 2 3-3.5M13 4.5h8M13 11.5h8M13 18.5h8" />,
+  14
+)
+
+export const IconNavSchedules = makeIcon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 3" />
+  </>,
+  14
+)
+
+export const IconNavEvents = makeIcon(
+  <path d="M13 2 4.5 13H11l-1 9L18.5 11H12l1-9Z" />,
+  14
+)
+
+export const IconNavTraces = makeIcon(
+  <path d="M3 5h12M7 12h12M5 19h10" strokeLinecap="round" />,
+  14
+)
+
+export const IconNavApprovals = makeIcon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12.5 2.5 2.5 5-5.5" />
+  </>,
+  14
+)
+
+export const IconNavAudit = makeIcon(
+  <>
+    <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7l-5-5Z" />
+    <path d="M14 2v5h5M9 13h6M9 17h4" />
+  </>,
+  14
+)
+
+export const IconNavAccess = makeIcon(
+  <>
+    <rect x="4" y="10" width="16" height="10" rx="2" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+  </>,
+  14
+)
+
+export const IconNavSecrets = makeIcon(
+  <>
+    <circle cx="8" cy="14" r="4" />
+    <path d="m11 11 9-9M17 5l2.5 2.5M14 8l2 2" />
+  </>,
+  14
+)

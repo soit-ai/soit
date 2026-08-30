@@ -1,10 +1,31 @@
+import {
+  IconChat,
+  IconGovern,
+  IconNavAccess,
+  IconNavAgents,
+  IconNavApprovals,
+  IconNavAudit,
+  IconNavEvents,
+  IconNavKnowledge,
+  IconNavModels,
+  IconNavPlugins,
+  IconNavSchedules,
+  IconNavSecrets,
+  IconNavTasks,
+  IconNavTraces,
+  IconNavWorkflows,
+  IconObserve,
+  IconOverview,
+  IconPlus,
+} from '@/console/components/icons'
 import type { TranslationKey } from '@/i18n/types'
 
 /**
- * Declarative configuration for the contextual side panel (230px).
- * Each pillar declares caption groups of navigation links; dynamic slots
- * (counts, saved views, recents, attention rows) are wired per phase as the
- * backing services land — a link with no `count` simply renders without one.
+ * Declarative configuration for the contextual side panel (230px, prototype
+ * `.subnav`). A pillar is a list of caption groups; a group is either a set of
+ * navigation links or a named slot the shell fills with rows it resolves at
+ * render — recents, queues, live runs. Ordering lives here so a slot lands
+ * between the right captions rather than being appended at the end.
  */
 export type ConsolePillar =
   | 'overview'
@@ -33,6 +54,22 @@ export type ConsoleCountKey =
   | 'secrets'
   | 'threads'
 
+/** A caption group whose rows are resolved at render rather than declared. */
+export type PanelSlot =
+  | 'today'
+  | 'pinned'
+  | 'chatActive'
+  | 'chatByAgent'
+  | 'guarantee'
+  | 'recents'
+  | 'draftReviews'
+  | 'queue'
+  | 'nextUp'
+  | 'savedViews'
+  | 'live'
+  | 'governAttention'
+  | 'governRecent'
+
 export interface PanelLink {
   labelKey: TranslationKey
   to: string
@@ -40,16 +77,22 @@ export interface PanelLink {
   end?: boolean
   /** Renders the prototype's `.ct` badge once the figure resolves. */
   count?: ConsoleCountKey
+  /** The prototype draws a 14px glyph on every primary link. */
+  icon?: React.ComponentType<{ size?: number }>
+  /** An affordance rather than a destination: never marked active. */
+  action?: boolean
 }
 
 export interface PanelSection {
   captionKey: TranslationKey
-  links: PanelLink[]
+  links?: PanelLink[]
+  slot?: PanelSlot
 }
 
 export interface PillarConfig {
   pillar: ConsolePillar
   labelKey: TranslationKey
+  /** The rail's tooltip gloss; the panel head shows the workspace instead. */
   hintKey?: TranslationKey
   /** Rail target when the pillar icon is clicked. */
   to: string
@@ -67,8 +110,12 @@ export const PANEL_CONFIG: PillarConfig[] = [
     sections: [
       {
         captionKey: 'console.shell.workspace',
-        links: [{ labelKey: 'console.nav.overview', to: '/', end: true }],
+        links: [
+          { labelKey: 'console.nav.overview', to: '/', end: true, icon: IconOverview },
+        ],
       },
+      { captionKey: 'console.shell.today', slot: 'today' },
+      { captionKey: 'console.shell.pinned', slot: 'pinned' },
     ],
   },
   {
@@ -81,10 +128,13 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.chat',
         links: [
-          { labelKey: 'console.nav.newThread', to: '/chat', end: true },
-          { labelKey: 'console.nav.allThreads', to: '/chat', count: 'threads' },
+          { labelKey: 'console.nav.newThread', to: '/chat', end: true, action: true, icon: IconPlus },
+          { labelKey: 'console.nav.allThreads', to: '/chat', count: 'threads', icon: IconChat },
         ],
       },
+      { captionKey: 'console.shell.active', slot: 'chatActive' },
+      { captionKey: 'console.shell.byAgent', slot: 'chatByAgent' },
+      { captionKey: 'console.shell.guarantee', slot: 'guarantee' },
     ],
   },
   {
@@ -97,13 +147,15 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.build',
         links: [
-          { labelKey: 'console.nav.agents', to: '/build/agents', count: 'agents' },
-          { labelKey: 'console.nav.workflows', to: '/build/workflows', count: 'workflows' },
-          { labelKey: 'console.nav.knowledge', to: '/build/knowledge', count: 'knowledge' },
-          { labelKey: 'console.nav.plugins', to: '/build/plugins', count: 'plugins' },
-          { labelKey: 'console.nav.models', to: '/build/models', count: 'models' },
+          { labelKey: 'console.nav.agents', to: '/build/agents', count: 'agents', icon: IconNavAgents },
+          { labelKey: 'console.nav.workflows', to: '/build/workflows', count: 'workflows', icon: IconNavWorkflows },
+          { labelKey: 'console.nav.knowledge', to: '/build/knowledge', count: 'knowledge', icon: IconNavKnowledge },
+          { labelKey: 'console.nav.plugins', to: '/build/plugins', count: 'plugins', icon: IconNavPlugins },
+          { labelKey: 'console.nav.models', to: '/build/models', count: 'models', icon: IconNavModels },
         ],
       },
+      { captionKey: 'console.shell.recentlyEdited', slot: 'recents' },
+      { captionKey: 'console.shell.draftsAwaitingReview', slot: 'draftReviews' },
     ],
   },
   {
@@ -116,11 +168,13 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.execute',
         links: [
-          { labelKey: 'console.nav.tasks', to: '/execute/tasks', count: 'tasks' },
-          { labelKey: 'console.nav.schedules', to: '/execute/schedules', count: 'schedules' },
-          { labelKey: 'console.nav.events', to: '/execute/events', count: 'events' },
+          { labelKey: 'console.nav.tasks', to: '/execute/tasks', count: 'tasks', icon: IconNavTasks },
+          { labelKey: 'console.nav.schedules', to: '/execute/schedules', count: 'schedules', icon: IconNavSchedules },
+          { labelKey: 'console.nav.events', to: '/execute/events', count: 'events', icon: IconNavEvents },
         ],
       },
+      { captionKey: 'console.shell.queue', slot: 'queue' },
+      { captionKey: 'console.shell.nextUp', slot: 'nextUp' },
     ],
   },
   {
@@ -133,10 +187,12 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.observe',
         links: [
-          { labelKey: 'console.nav.runs', to: '/observe/runs' },
-          { labelKey: 'console.nav.traces', to: '/observe/traces' },
+          { labelKey: 'console.nav.runs', to: '/observe/runs', icon: IconObserve },
+          { labelKey: 'console.nav.traces', to: '/observe/traces', icon: IconNavTraces },
         ],
       },
+      { captionKey: 'console.shell.savedViews', slot: 'savedViews' },
+      { captionKey: 'console.shell.live', slot: 'live' },
     ],
   },
   {
@@ -149,13 +205,15 @@ export const PANEL_CONFIG: PillarConfig[] = [
       {
         captionKey: 'console.nav.govern',
         links: [
-          { labelKey: 'console.nav.approvals', to: '/govern/approvals', count: 'approvals' },
-          { labelKey: 'console.nav.policies', to: '/govern/policies' },
-          { labelKey: 'console.nav.audit', to: '/govern/audit' },
-          { labelKey: 'console.nav.access', to: '/govern/access' },
-          { labelKey: 'console.nav.secrets', to: '/govern/secrets', count: 'secrets' },
+          { labelKey: 'console.nav.approvals', to: '/govern/approvals', count: 'approvals', icon: IconNavApprovals },
+          { labelKey: 'console.nav.policies', to: '/govern/policies', icon: IconGovern },
+          { labelKey: 'console.nav.audit', to: '/govern/audit', icon: IconNavAudit },
+          { labelKey: 'console.nav.access', to: '/govern/access', icon: IconNavAccess },
+          { labelKey: 'console.nav.secrets', to: '/govern/secrets', count: 'secrets', icon: IconNavSecrets },
         ],
       },
+      { captionKey: 'console.shell.needsAttention', slot: 'governAttention' },
+      { captionKey: 'console.shell.recent', slot: 'governRecent' },
     ],
   },
   {
@@ -163,6 +221,7 @@ export const PANEL_CONFIG: PillarConfig[] = [
     labelKey: 'console.nav.settings',
     to: '/settings',
     match: '/settings',
+    // Settings is the one pillar the prototype draws without link glyphs.
     sections: [
       {
         captionKey: 'console.settings.groupWorkspace',

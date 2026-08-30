@@ -148,9 +148,11 @@ test('console runs renders the prototype workbench with live data', async ({ pag
   await expect(page.getByText('anthropic')).toBeVisible()
   await expect(page.getByText('claude-sonnet-5')).toBeVisible()
 
-  // Table rows with the unified status vocabulary.
-  await expect(page.getByText('run_01J9KD84QF')).toBeVisible()
-  await expect(page.getByText('support-triage')).toBeVisible()
+  // Table rows with the unified status vocabulary. Scoped to the table: the
+  // side panel's Live group names the same running run, as the prototype does.
+  const table = page.getByRole('table')
+  await expect(table.getByText('run_01J9KD84QF')).toBeVisible()
+  await expect(table.getByText('support-triage')).toBeVisible()
   const firstRow = page.locator('[data-slot=table-row]', { hasText: 'run_01J9KD84QF' })
   await expect(firstRow.getByText('Running')).toBeVisible()
   await expect(page.getByText('3 runs on this page')).toBeVisible()
@@ -158,12 +160,14 @@ test('console runs renders the prototype workbench with live data', async ({ pag
 
 test('console runs quick status filter narrows the query', async ({ page }) => {
   await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('run_01J9KD84QF')).toBeVisible()
+  const table = page.getByRole('table')
+  await expect(table.getByText('run_01J9KD84QF')).toBeVisible()
 
   await page.locator('.fchip', { hasText: 'Failed' }).click()
   await expect(page).toHaveURL(/status=failed/)
-  await expect(page.getByText('run_01J9KD6H0T')).toBeVisible()
-  await expect(page.getByText('run_01J9KD84QF')).toHaveCount(0)
+  await expect(table.getByText('run_01J9KD6H0T')).toBeVisible()
+  // The filter narrows the table, not the side panel's independent Live query.
+  await expect(table.getByText('run_01J9KD84QF')).toHaveCount(0)
   await expect(page.getByText('1 runs on this page')).toBeVisible()
 })
 
