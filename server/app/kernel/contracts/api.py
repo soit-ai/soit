@@ -34,11 +34,19 @@ class ApiErrorEnvelope(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    """Stable cursor pagination response used by public APIs."""
+    """Stable cursor pagination response used by public APIs.
+
+    ``total`` is the count of rows matching the same filters as this page,
+    ignoring pagination. It is optional because counting costs an extra query:
+    a caller that only walks pages should not pay for it. Callers that render
+    a count ask for it explicitly, and a response without it means the count
+    was not requested, never that the result set is empty.
+    """
 
     items: list[T]
     next_page_token: str | None = None
     page_size: int
+    total: int | None = None
 
     @classmethod
     def create(
@@ -47,6 +55,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
         page_size: int,
         has_next: bool = False,
         next_offset: int | None = None,
+        total: int | None = None,
     ) -> PaginatedResponse[T]:
         next_token = None
         if has_next and next_offset is not None:
@@ -55,4 +64,5 @@ class PaginatedResponse(BaseModel, Generic[T]):
             items=items,
             next_page_token=next_token,
             page_size=len(items),
+            total=total,
         )

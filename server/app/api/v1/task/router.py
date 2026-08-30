@@ -1,5 +1,6 @@
 """Runtime task API routes."""
 
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
@@ -31,8 +32,11 @@ async def list_tasks(
     task_type: str | None = None,
     agent_id: str | None = None,
     thread_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     page_token: str | None = None,
     page_size: int = 20,
+    with_total: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: TaskQueryService = Depends(get_task_service),
 ):
@@ -45,8 +49,11 @@ async def list_tasks(
         task_type=task_type,
         agent_id=agent_id,
         thread_id=thread_id,
+        since=since,
+        until=until,
         page_token=page_token,
         page_size=page_size,
+        with_total=with_total,
     )
 
 

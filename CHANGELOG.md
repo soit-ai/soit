@@ -12,6 +12,17 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- List endpoints can report how many rows match the filters, not just the page
+  they returned. `with_total=true` on runs, run steps, run audits and tasks adds
+  a `total` to the response. It is opt-in because the count costs a query, and
+  its absence means the count was not requested rather than that nothing
+  matched.
+- Run audits and tasks accept a `since`/`until` creation window, so a caller can
+  ask for "the last 24 hours" instead of paging through history. Runs, run steps
+  and cost summaries keep their existing `started_after`/`started_before`.
+
 ### Changed
 
 - License documentation clarified: the usage-condition wording previously

@@ -245,6 +245,7 @@ async def list_runs(
     has_audit: bool | None = None,
     page_token: str | None = None,
     page_size: int = 20,
+    with_total: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -268,6 +269,7 @@ async def list_runs(
         has_audit=has_audit,
         page_token=page_token,
         page_size=page_size,
+        with_total=with_total,
     )
 
 
@@ -353,6 +355,7 @@ async def list_steps(
     ended_before: datetime | None = None,
     page_token: str | None = None,
     page_size: int = 20,
+    with_total: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -372,6 +375,7 @@ async def list_steps(
         ended_before=ended_before,
         page_token=page_token,
         page_size=page_size,
+        with_total=with_total,
     )
 
 
@@ -381,8 +385,11 @@ async def list_audits(
     step_id: str | None = None,
     step_type: str | None = None,
     gateway_type: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     page_token: str | None = None,
     page_size: int = 50,
+    with_total: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -394,8 +401,11 @@ async def list_audits(
         step_id=step_id,
         step_type=step_type,
         gateway_type=gateway_type,
+        since=since,
+        until=until,
         page_token=page_token,
         page_size=page_size,
+        with_total=with_total,
     )
 
 

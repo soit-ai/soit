@@ -7,13 +7,13 @@ import { listWorkspaceMembers } from '@/services/identity-service'
 import { listApprovals, listDeadLetters } from '@/services/observe-service'
 import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
-import { listRunAudits, listRuns } from '@/services/run-service'
+import { listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
 import { listThreads } from '@/services/thread-service'
 import { getWorkflowWorkbench } from '@/services/workflow-service'
 
-import { catColor, relativeTime } from '../adapters/palette'
+import { catColor, compactNumber, relativeTime } from '../adapters/palette'
 import { useSubjectNames } from '../adapters/subject-names'
 import { mockSchedules } from '../mocks/execute'
 import {
@@ -39,6 +39,25 @@ import type { ConsoleCountKey, ConsolePillar, PanelSlot } from './panel-config'
 const STALE_MS = 60_000
 
 const SHARED = { retry: false, refetchOnWindowFocus: false, staleTime: STALE_MS } as const
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * A total is optional the whole way down: absent means the count was not
+ * answered, and the row then shows no figure at all. Rendering a zero would
+ * claim a measurement the server never made.
+ */
+function countLabel(total?: number | null): string | undefined {
+  return total == null ? undefined : compactNumber(total)
+}
+
+function spanLabel(total?: number | null): string | undefined {
+  return total == null ? undefined : `${compactNumber(total)} spans`
+}
+
+function windowLabel(total?: number | null): string | undefined {
+  return total == null ? undefined : `${compactNumber(total)} · 24h`
+}
 
 /** A `.sl` row whose `.ct` holds a formatted figure rather than a bare count. */
 export interface PanelStatRow {
@@ -167,6 +186,29 @@ export function useConsolePanelData(
     options: { ...SHARED, enabled: isGovern },
   })
 
+  // Three counted reads. Each asks for one row and the total, so the figure
+  // costs a count query rather than a page of rows nobody renders.
+  const runCount = useQuery({
+    queryKey: ['console', 'panel', 'run-count'],
+    queryFn: () => listRuns({ page_size: 1, with_total: true }),
+    options: { ...SHARED, enabled: isObserve },
+  })
+  const spanCount = useQuery({
+    queryKey: ['console', 'panel', 'span-count'],
+    queryFn: () => listRunSteps({ page_size: 1, with_total: true }),
+    options: { ...SHARED, enabled: isObserve },
+  })
+  const auditCount = useQuery({
+    queryKey: ['console', 'panel', 'audit-count'],
+    queryFn: () =>
+      listRunAudits({
+        since: new Date(Date.now() - DAY_MS).toISOString(),
+        page_size: 1,
+        with_total: true,
+      }),
+    options: { ...SHARED, enabled: isGovern },
+  })
+
   // Team and API keys have real services, so they are read rather than faked.
   const members = useQuery({
     queryKey: ['console', 'counts', 'members', workspaceId],
@@ -217,12 +259,12 @@ export function useConsolePanelData(
     threads: threads.data?.items?.length,
     team: members.data?.length,
     apiKeys: apiKeys.data?.items?.length,
-    // Fixtures, not measurements: these five have no endpoint that can answer
+    runs: countLabel(runCount.data?.total),
+    traces: spanLabel(spanCount.data?.total),
+    audit: windowLabel(auditCount.data?.total),
+    // Fixtures, not measurements: these two have no endpoint that can answer
     // them. Each is a fallback, so shipping the API retires it on its own.
-    runs: isObserve ? mockPanelCounts.runs : undefined,
-    traces: isObserve ? mockPanelCounts.traces : undefined,
     policies: isGovern ? mockPanelCounts.policies : undefined,
-    audit: isGovern ? mockPanelCounts.audit : undefined,
     access: isGovern ? mockPanelCounts.access : undefined,
   }
 

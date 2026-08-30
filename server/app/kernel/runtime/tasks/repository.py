@@ -63,16 +63,17 @@ class TaskRepository:
         result = self.db.exec(query).first()
         return result if isinstance(result, Task) else result[0] if result else None
 
-    def list_tasks(
+    def _list_filters(
         self,
         *,
-        limit: int = 20,
-        offset: int = 0,
         status: str | None = None,
         task_type: str | None = None,
         agent_id: str | None = None,
         thread_id: str | None = None,
-    ) -> list[Task]:
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list:
+        """Build the WHERE clauses task listing and counting share."""
         filters = [
             Task.tenant_id == self.ctx.tenant_id,
             Task.workspace_id == self.ctx.workspace_id,
@@ -85,6 +86,32 @@ class TaskRepository:
             filters.append(Task.agent_id == agent_id)
         if thread_id:
             filters.append(Task.thread_id == thread_id)
+        if since:
+            filters.append(Task.created_at >= since)
+        if until:
+            filters.append(Task.created_at <= until)
+        return filters
+
+    def list_tasks(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+        task_type: str | None = None,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[Task]:
+        filters = self._list_filters(
+            status=status,
+            task_type=task_type,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            since=since,
+            until=until,
+        )
 
         query = (
             select(Task)
@@ -95,6 +122,28 @@ class TaskRepository:
         )
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, Task) else item[0] for item in results]
+
+    def count_tasks(
+        self,
+        *,
+        status: str | None = None,
+        task_type: str | None = None,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """Count tasks matching the same filters ``list_tasks`` accepts."""
+        filters = self._list_filters(
+            status=status,
+            task_type=task_type,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            since=since,
+            until=until,
+        )
+        query = select(func.count()).select_from(Task).where(and_(*filters))
+        return self._count_value(self.db.exec(query).first())
 
     def _workbench_filters(
         self,

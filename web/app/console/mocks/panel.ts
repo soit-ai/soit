@@ -78,19 +78,16 @@ export const mockDraftReviews: MockPanelNote[] = [
 /**
  * Side-panel link figures with no service behind them.
  *
- * - `runs` / `traces`: the list endpoints paginate without reporting a total,
- *   so there is no way to show a workspace-wide count or span volume.
  * - `policies`: policy bundles are not versioned server-side; there is no
  *   active-bundle identifier to read.
- * - `audit`: /runs/audits paginates without a total and takes no time window.
  * - `access`: /resource-grants requires resource_type + resource_id, so a
  *   workspace-wide grant count cannot be asked for in one call.
+ *
+ * Runs, traces and audit used to sit here too. They now read `with_total` on
+ * their own list endpoints, so their figures are measurements.
  */
 export const mockPanelCounts = {
-  runs: '1,284',
-  traces: '41k spans',
   policies: 'v08.27-2',
-  audit: '47 · 24h',
   access: '14',
 } as const
 

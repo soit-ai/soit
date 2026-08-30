@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.tasks.query_service import TaskQueryService
@@ -39,6 +41,9 @@ class TaskHandlers:
         thread_id: str | None,
         page_token: str | None,
         page_size: int,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        with_total: bool = False,
     ) -> PaginatedResponse[TaskResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
@@ -49,11 +54,31 @@ class TaskHandlers:
             task_type=task_type,
             agent_id=agent_id,
             thread_id=thread_id,
+            since=since,
+            until=until,
         )
         items = [TaskResponse.model_validate(task) for task in tasks]
         has_next = len(tasks) == limit
         next_offset = offset + len(tasks) if has_next else None
-        return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
+        total = (
+            self.service.count_tasks(
+                status=status,
+                task_type=task_type,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                since=since,
+                until=until,
+            )
+            if with_total
+            else None
+        )
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=next_offset,
+            total=total,
+        )
 
     async def get_workbench(
         self,

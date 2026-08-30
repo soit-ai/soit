@@ -31,6 +31,14 @@ from app.kernel.runtime.runs.schemas import (
 )
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
 
+_UNBOUNDED_AUDIT_LIMIT = 1_000_000
+"""Stand-in for "no limit" when counting audits under a per-row filter.
+
+``list_audits`` already loads every scoped row when gateway_type or step_type
+is requested, because neither is a column. Counting reuses that path, so the
+limit only has to be larger than any workspace's audit history.
+"""
+
 
 def _dimension_sum_columns() -> tuple[Any, ...]:
     """SUM expressions for the dedicated usage dimension columns.
@@ -64,13 +72,22 @@ def _dimension_row_values(row: Any, offset: int = 0) -> dict[str, int]:
     }
 
 
-
 class RunService:
     """Run query service for run records and cost summaries."""
 
     def __init__(self, db: RunQueryRepositoryProtocol, ctx: RequestContext):
         self.db = db
         self.ctx = ctx
+
+    def _scalar_count(self, query: Any) -> int:
+        """Read a COUNT query result, whether the driver hands back a row or a scalar."""
+        result = self.db.exec(query).first()
+        if result is None:
+            return 0
+        try:
+            return int(result[0] or 0)
+        except (KeyError, TypeError, IndexError):
+            return int(result or 0)
 
     @staticmethod
     def _unwrap_row(row: Any) -> Any:
@@ -814,7 +831,7 @@ class RunService:
             result = result.intersection(item)
         return result
 
-    def list_runs(
+    def _run_filter_clauses(
         self,
         *,
         mode: str | None = None,
@@ -828,14 +845,15 @@ class RunService:
         user_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
-        include_observe_summary: bool = False,
         has_tool_call: bool | None = None,
         has_citation: bool | None = None,
         has_audit: bool | None = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> list[RunResponse]:
-        """List runs with optional filters."""
+    ) -> list | None:
+        """Build the WHERE clauses shared by run listing and counting.
+
+        Returns None when a filter already proves that nothing can match, so
+        the caller skips the query instead of running one that cannot hit.
+        """
         clauses = [
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
@@ -869,8 +887,90 @@ class RunService:
         )
         if observe_run_ids is not None:
             if not observe_run_ids:
-                return []
+                return None
             clauses.append(Run.id.in_(list(observe_run_ids)))
+        return clauses
+
+    def count_runs(
+        self,
+        *,
+        mode: str | None = None,
+        kind: str | None = None,
+        subject_version_id: str | None = None,
+        subject_version_ids: list[str] | None = None,
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        status: str | None = None,
+        trace_id: str | None = None,
+        user_id: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        has_tool_call: bool | None = None,
+        has_citation: bool | None = None,
+        has_audit: bool | None = None,
+    ) -> int:
+        """Count runs matching the same filters ``list_runs`` accepts."""
+        clauses = self._run_filter_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            trace_id=trace_id,
+            user_id=user_id,
+            started_after=started_after,
+            started_before=started_before,
+            has_tool_call=has_tool_call,
+            has_citation=has_citation,
+            has_audit=has_audit,
+        )
+        if clauses is None:
+            return 0
+        query = select(func.count()).select_from(Run).where(and_(*clauses))
+        return self._scalar_count(query)
+
+    def list_runs(
+        self,
+        *,
+        mode: str | None = None,
+        kind: str | None = None,
+        subject_version_id: str | None = None,
+        subject_version_ids: list[str] | None = None,
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        status: str | None = None,
+        trace_id: str | None = None,
+        user_id: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        include_observe_summary: bool = False,
+        has_tool_call: bool | None = None,
+        has_citation: bool | None = None,
+        has_audit: bool | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[RunResponse]:
+        """List runs with optional filters."""
+        clauses = self._run_filter_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            trace_id=trace_id,
+            user_id=user_id,
+            started_after=started_after,
+            started_before=started_before,
+            has_tool_call=has_tool_call,
+            has_citation=has_citation,
+            has_audit=has_audit,
+        )
+        if clauses is None:
+            return []
 
         query = (
             select(Run)
@@ -985,6 +1085,36 @@ class RunService:
                 except Exception:
                     continue
         return [RunStepResponse.model_validate(step) for step in steps]
+
+    def count_steps(
+        self,
+        *,
+        run_id: str | None = None,
+        trace_id: str | None = None,
+        step_id: str | None = None,
+        step_type: str | None = None,
+        status: str | None = None,
+        node_id: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        ended_after: datetime | None = None,
+        ended_before: datetime | None = None,
+    ) -> int:
+        """Count run steps matching the same filters ``list_steps`` accepts."""
+        clauses = self._build_step_clauses(
+            run_id=run_id,
+            trace_id=trace_id,
+            step_id=step_id,
+            step_type=step_type,
+            status=status,
+            node_id=node_id,
+            started_after=started_after,
+            started_before=started_before,
+            ended_after=ended_after,
+            ended_before=ended_before,
+        )
+        query = select(func.count()).select_from(RunStep).where(and_(*clauses))
+        return self._scalar_count(query)
 
     def summarize_step_metrics(
         self,
@@ -1188,18 +1318,15 @@ class RunService:
             governance_evidence=governance_evidence,
         )
 
-    def list_audits(
+    def _audit_clauses(
         self,
         *,
         run_id: str | None = None,
         step_id: str | None = None,
-        step_type: str | None = None,
-        gateway_type: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[RunAuditLogResponse]:
-        """List authoritative audit events for scoped runtime executions."""
-        requested_gateway_type = gateway_type
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list:
+        """Build the WHERE clauses an audit listing and count share."""
         clauses = [
             AuditEvent.tenant_id == self.ctx.tenant_id,
             AuditEvent.workspace_id == self.ctx.workspace_id,
@@ -1209,6 +1336,70 @@ class RunService:
             clauses.append(AuditEvent.run_id == run_id)
         if step_id:
             clauses.append(AuditEvent.step_id == step_id)
+        if since:
+            clauses.append(AuditEvent.created_at >= since)
+        if until:
+            clauses.append(AuditEvent.created_at <= until)
+        return clauses
+
+    def count_audits(
+        self,
+        *,
+        run_id: str | None = None,
+        step_id: str | None = None,
+        step_type: str | None = None,
+        gateway_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """Count audit events matching the filters ``list_audits`` accepts.
+
+        ``gateway_type`` and ``step_type`` are resolved per row rather than
+        stored as columns, so counting under those filters costs the same
+        full scan the listing already pays for them.
+        """
+        clauses = self._audit_clauses(
+            run_id=run_id,
+            step_id=step_id,
+            since=since,
+            until=until,
+        )
+        if not gateway_type and not step_type:
+            query = select(func.count()).select_from(AuditEvent).where(and_(*clauses))
+            return self._scalar_count(query)
+        return len(
+            self.list_audits(
+                run_id=run_id,
+                step_id=step_id,
+                step_type=step_type,
+                gateway_type=gateway_type,
+                since=since,
+                until=until,
+                limit=_UNBOUNDED_AUDIT_LIMIT,
+                offset=0,
+            )
+        )
+
+    def list_audits(
+        self,
+        *,
+        run_id: str | None = None,
+        step_id: str | None = None,
+        step_type: str | None = None,
+        gateway_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[RunAuditLogResponse]:
+        """List authoritative audit events for scoped runtime executions."""
+        requested_gateway_type = gateway_type
+        clauses = self._audit_clauses(
+            run_id=run_id,
+            step_id=step_id,
+            since=since,
+            until=until,
+        )
 
         query = (
             select(AuditEvent)

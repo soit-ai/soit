@@ -272,6 +272,7 @@ export const listRuns = (params?: {
   has_audit?: boolean
   page_token?: string
   page_size?: number
+  with_total?: boolean
 }): Promise<PaginatedResponse<RunResponse>> => {
   return get<PaginatedResponse<RunResponse>>('/runs', params)
 }
@@ -391,6 +392,7 @@ export const listRunSteps = (params?: {
   ended_before?: string
   page_token?: string
   page_size?: number
+  with_total?: boolean
 }): Promise<PaginatedResponse<RunStepResponse>> => {
   return get<PaginatedResponse<RunStepResponse>>('/runs/steps', params)
 }
@@ -400,8 +402,11 @@ export const listRunAudits = (params: {
   step_id?: string
   step_type?: string
   gateway_type?: string
+  since?: string
+  until?: string
   page_token?: string
   page_size?: number
+  with_total?: boolean
 }): Promise<PaginatedResponse<RunAuditLogResponse>> => {
   return get<PaginatedResponse<RunAuditLogResponse>>('/runs/audits', params)
 }

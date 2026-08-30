@@ -53,6 +53,7 @@ class RunHandlers:
         has_audit: bool | None = None,
         page_token: str | None = None,
         page_size: int = 20,
+        with_total: bool = False,
     ) -> PaginatedResponse[RunResponse]:
         """List runs with pagination and optional filters."""
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -82,12 +83,33 @@ class RunHandlers:
         has_next = len(runs) > limit
         items = runs[:limit]
         next_offset = offset + len(items) if has_next else None
+        total = (
+            self.service.count_runs(
+                mode=mode,
+                kind=kind,
+                subject_version_id=subject_version_id,
+                subject_version_ids=subject_version_ids,
+                subject_kind=subject_kind,
+                subject_id=subject_id,
+                status=status,
+                trace_id=trace_id,
+                user_id=user_id,
+                started_after=started_after,
+                started_before=started_before,
+                has_tool_call=has_tool_call,
+                has_citation=has_citation,
+                has_audit=has_audit,
+            )
+            if with_total
+            else None
+        )
 
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
             has_next=has_next,
             next_offset=next_offset,
+            total=total,
         )
 
     async def get_run(
@@ -123,6 +145,7 @@ class RunHandlers:
         ended_before: datetime | None = None,
         page_token: str | None = None,
         page_size: int = 20,
+        with_total: bool = False,
     ) -> PaginatedResponse[RunStepResponse]:
         """List run steps with pagination and optional filters."""
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -147,12 +170,29 @@ class RunHandlers:
         has_next = len(steps) > limit
         items = steps[:limit]
         next_offset = offset + len(items) if has_next else None
+        total = (
+            self.service.count_steps(
+                run_id=run_id,
+                trace_id=trace_id,
+                step_id=step_id,
+                step_type=step_type,
+                status=status,
+                node_id=node_id,
+                started_after=started_after,
+                started_before=started_before,
+                ended_after=ended_after,
+                ended_before=ended_before,
+            )
+            if with_total
+            else None
+        )
 
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
             has_next=has_next,
             next_offset=next_offset,
+            total=total,
         )
 
     async def summarize_step_metrics(
@@ -456,8 +496,11 @@ class RunHandlers:
         step_id: str | None = None,
         step_type: str | None = None,
         gateway_type: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
         page_token: str | None = None,
         page_size: int = 50,
+        with_total: bool = False,
     ) -> PaginatedResponse[RunAuditLogResponse]:
         """List audit logs for a run."""
         limit, token_obj = parse_page_params(page_token, page_size)
@@ -469,6 +512,8 @@ class RunHandlers:
             step_id=step_id,
             step_type=step_type,
             gateway_type=gateway_type,
+            since=since,
+            until=until,
             limit=limit_plus,
             offset=offset,
         )
@@ -476,10 +521,23 @@ class RunHandlers:
         has_next = len(entries) > limit
         items = entries[:limit]
         next_offset = offset + len(items) if has_next else None
+        total = (
+            self.service.count_audits(
+                run_id=run_id,
+                step_id=step_id,
+                step_type=step_type,
+                gateway_type=gateway_type,
+                since=since,
+                until=until,
+            )
+            if with_total
+            else None
+        )
 
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
             has_next=has_next,
             next_offset=next_offset,
+            total=total,
         )

@@ -45,6 +45,8 @@ class TaskQueryService:
         task_type: str | None = None,
         agent_id: str | None = None,
         thread_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> list[Task]:
         return self.task_repo.list_tasks(
             limit=limit,
@@ -53,6 +55,28 @@ class TaskQueryService:
             task_type=task_type,
             agent_id=agent_id,
             thread_id=thread_id,
+            since=since,
+            until=until,
+        )
+
+    def count_tasks(
+        self,
+        *,
+        status: str | None = None,
+        task_type: str | None = None,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """Count tasks matching the same filters ``list_tasks`` accepts."""
+        return self.task_repo.count_tasks(
+            status=status,
+            task_type=task_type,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            since=since,
+            until=until,
         )
 
     def get_task(self, task_id: str) -> Task:

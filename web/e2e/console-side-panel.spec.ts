@@ -214,13 +214,61 @@ test('side panel counts team and API keys from their real services', async ({ pa
 test('side panel shows the prototype figures that have no endpoint yet', async ({ page }) => {
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
-  // Fixtures until the APIs exist: no bundle versioning, no windowed audit
-  // count, and no workspace-wide grant count to ask for.
+  // Fixtures until the APIs exist: no bundle versioning, and no workspace-wide
+  // grant count to ask for.
   const figure = (label: string) =>
     page.locator('.subnav .sl', { hasText: label }).locator('.ct')
   await expect(figure('Policies')).toHaveText('v08.27-2')
-  await expect(figure('Audit log')).toHaveText('47 · 24h')
   await expect(figure('Access')).toHaveText('14')
+})
+
+test('audit and run figures are counted by the server, not filled in', async ({ page }) => {
+  await json(page, /\/api\/v1\/runs\/audits\?.*with_total=true/, {
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+    total: 47,
+  })
+  await json(page, /\/api\/v1\/runs\?.*with_total=true/, {
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+    total: 1284,
+  })
+  await json(page, /\/api\/v1\/runs\/steps\?.*with_total=true/, {
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+    total: 41200,
+  })
+
+  // Anchored: the observe panel also carries a saved view named "Slow traces",
+  // which a loose substring match would pick up alongside the nav row.
+  const figure = (label: string) =>
+    page.locator('.subnav .sl').filter({ hasText: new RegExp(`^${label}`) }).locator('.ct')
+
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+  await expect(figure('Audit log')).toHaveText('47 · 24h')
+
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
+  await expect(figure('Runs')).toHaveText('1,284')
+  await expect(figure('Traces')).toHaveText('41.2k spans')
+})
+
+test('a figure the server did not count is left blank, not zeroed', async ({ page }) => {
+  // The count is optional in the payload. A missing one must read as "not
+  // measured" rather than as a workspace with no audit history.
+  await json(page, /\/api\/v1\/runs\/audits/, {
+    items: [],
+    next_page_token: null,
+    page_size: 1,
+  })
+
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+
+  const auditRow = page.locator('.subnav .sl', { hasText: 'Audit log' })
+  await expect(auditRow).toBeVisible()
+  await expect(auditRow.locator('.ct')).toHaveCount(0)
 })
 
 test('saved views do not claim to be the page they filter', async ({ page }) => {
