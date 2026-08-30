@@ -419,3 +419,54 @@ test('a failing write surfaces the API message instead of navigating away', asyn
   ).toBeVisible()
   await expect(page).toHaveURL(/\/build\/agents$/)
 })
+
+test('the publish tab shows the regression trend and what it blocked', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/evaluations/regression-reports/trend**', {
+    subject_kind: 'agent',
+    subject_id: 'ag_1',
+    dataset: 'default',
+    points: [
+      {
+        report_id: 'rep_2',
+        subject_version_id: 'av_2',
+        dataset: 'default',
+        dataset_revision: 3,
+        created_at: NOW,
+        passed: false,
+        total: 10,
+        passed_count: 8,
+        pass_rate: 0.8,
+        regressed: 2,
+        fixed: 0,
+        avg_latency_ms: 1800,
+        total_cost_amount: 0.12,
+      },
+      {
+        report_id: 'rep_1',
+        subject_version_id: 'av_1',
+        dataset: 'default',
+        dataset_revision: 3,
+        created_at: NOW,
+        passed: true,
+        total: 10,
+        passed_count: 10,
+        pass_rate: 1,
+        regressed: 0,
+        fixed: 1,
+        avg_latency_ms: 1700,
+        total_cost_amount: 0.11,
+      },
+    ],
+  })
+
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.locator('.tabs button', { hasText: 'Publish' }).click()
+
+  const panel = page.locator('.panel').filter({ hasText: 'Regression trend' })
+  await expect(panel).toContainText('BLOCKED')
+  // A case that used to pass is what this change broke, so it is named.
+  await expect(panel).toContainText('2 regressed')
+  await expect(panel).toContainText('8/10 cases')
+})

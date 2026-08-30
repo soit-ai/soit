@@ -31,3 +31,37 @@ export const getLatestRegressionReport = (params: {
 }): Promise<RegressionReport> => {
   return get<RegressionReport>('/evaluations/regression-reports/latest', params)
 }
+
+/** One regression report, reduced to what a trend line needs. */
+export interface RegressionTrendPoint {
+  report_id: string
+  subject_version_id: string
+  dataset: string
+  dataset_revision: number
+  created_at: string
+  passed: boolean
+  total: number
+  passed_count: number
+  pass_rate?: number | null
+  /** Cases that passed in the baseline and fail here: what this change broke. */
+  regressed: number
+  fixed: number
+  avg_latency_ms?: number | null
+  total_cost_amount?: number | null
+}
+
+export interface RegressionTrend {
+  subject_kind: string
+  subject_id: string
+  dataset?: string | null
+  points: RegressionTrendPoint[]
+}
+
+export const getRegressionTrend = (params: {
+  subject_kind: string
+  subject_id: string
+  dataset?: string
+  limit?: number
+}): Promise<RegressionTrend> => {
+  return get<RegressionTrend>('/evaluations/regression-reports/trend', params)
+}

@@ -66,9 +66,15 @@ x-server-environment: &server_environment
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
   OTEL_TRACES_SAMPLE_RATIO: ${OTEL_TRACES_SAMPLE_RATIO:-0.1}
 
-  # Content safety is not implemented in SOIT. Point this at a classifier you
-  # operate, or leave it disabled and accept that nothing is inspected.
-  CONTENT_SAFETY_ENABLED: ${CONTENT_SAFETY_ENABLED:-false}
+  # The built-in provider matches credentials and personal identifiers in
+  # process. Set the provider to http and give an endpoint to send content to a
+  # classifier you operate instead; that is the only way to inspect for tone,
+  # intent or confidentiality, which patterns cannot judge.
+  CONTENT_SAFETY_ENABLED: ${CONTENT_SAFETY_ENABLED:-true}
+  CONTENT_SAFETY_PROVIDER: ${CONTENT_SAFETY_PROVIDER:-builtin}
+  # observe records, redact replaces the match, block refuses the content.
+  CONTENT_SAFETY_SECRET_ACTION: ${CONTENT_SAFETY_SECRET_ACTION:-redact}
+  CONTENT_SAFETY_PII_ACTION: ${CONTENT_SAFETY_PII_ACTION:-observe}
   CONTENT_SAFETY_ENDPOINT: ${CONTENT_SAFETY_ENDPOINT:-}
   CONTENT_SAFETY_FAIL_CLOSED: ${CONTENT_SAFETY_FAIL_CLOSED:-true}
 

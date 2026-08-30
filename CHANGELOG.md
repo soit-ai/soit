@@ -127,6 +127,41 @@ record for operators.
   one, so it can be cited. Outbound requests the policy refuses now record the
   tenant and workspace identifiers they were refused by, so a refusal stays
   readable after the rules have moved on.
+- A tool call that stops for approval is now recorded, not only raised. The
+  request is written to the governance ledger before the run suspends, so a
+  task waiting for a decision can be opened, read and answered by somebody who
+  was not watching the stream it was raised on, and the decision that closed it
+  is recorded against the call it belongs to. Rehearsal runs never queue a
+  person for a decision.
+- An agent draft carries a review state and the time it has been waiting.
+  `POST /agents/{id}/versions/{version_id}/review` sends a draft for review or
+  answers one, and `GET /agents/drafts/awaiting-review` lists what the
+  workspace is waiting on, oldest wait first. It is a state on the draft, not a
+  review ticket: what a team needs first is to tell work in progress apart from
+  work waiting on somebody.
+- The audit ledger can be asked a question. `GET /runs/audits` takes
+  `actor_user_id`, `resource_type`, `resource_id` and `outcome` alongside the
+  existing window, entries now carry who acted and what they touched rather
+  than only the gateway and the run, and the console's audit log filters on
+  those instead of eyeballing one page. The entry count reports what matched
+  the filters, not how many rows fit on the page.
+- Content safety ships with a provider instead of only a port. A deterministic
+  in-process rule provider inspects what goes to a model and what comes back
+  for credentials (private keys, cloud and provider tokens, JWTs) and for
+  personal identifiers (email, phone, card numbers validated by checksum,
+  national ids). Credentials are redacted by default because a key in a prompt
+  is never wanted; personal data is recorded rather than rewritten, because
+  silently altering real work is worse than reporting it. Findings go into run
+  evidence, never the matched text. `CONTENT_SAFETY_PROVIDER=http` still sends
+  content to a classifier a deployment operates, which remains the only way to
+  judge tone, intent or confidentiality.
+- Three regression sets ship instead of one, covering grounded answering,
+  ticket operations and the full customer-support path, and the deterministic
+  runner takes each case's expected answer from the case rather than knowing
+  it. A suite that covers one scenario is a demo.
+- The agent publish tab shows the last ten runs of the release gate: pass rate,
+  what regressed against the baseline, what was fixed, and whether the gate
+  blocked. An agent with no report says so rather than showing an empty chart.
 
 ### Changed
 

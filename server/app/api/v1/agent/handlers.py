@@ -22,8 +22,10 @@ from app.modules.agent.application.schemas import (
     AgentUpdate,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentVersionReviewRequest,
     AgentWorkbenchItemsResponse,
     AgentWorkbenchResponse,
+    DraftAwaitingReviewResponse,
 )
 from app.modules.agent.application.service import AgentService
 
@@ -89,6 +91,12 @@ class AgentAppHandlers:
             checksum=version.checksum,
             created_by=version.created_by,
             created_at=version.created_at,
+            review_status=getattr(version, "review_status", "none") or "none",
+            review_requested_at=getattr(version, "review_requested_at", None),
+            review_requested_by=getattr(version, "review_requested_by", None),
+            review_note=getattr(version, "review_note", None),
+            reviewed_by=getattr(version, "reviewed_by", None),
+            reviewed_at=getattr(version, "reviewed_at", None),
         )
 
     def _as_release_response(self, release, *, from_version_id: str | None) -> AgentReleaseResponse:
@@ -209,6 +217,42 @@ class AgentAppHandlers:
         has_next = len(versions) == limit
         next_offset = offset + len(versions) if has_next else None
         return PaginatedResponse.create(items=items, page_size=len(items), has_next=has_next, next_offset=next_offset)
+
+    async def review_version(
+        self,
+        ctx: RequestContext,
+        agent_id: str,
+        version_id: str,
+        data: AgentVersionReviewRequest,
+    ) -> AgentVersionResponse:
+        version = await self.service.review_version(
+            agent_id,
+            version_id,
+            action=data.action,
+            note=data.note,
+        )
+        return self._as_version_response(version)
+
+    async def list_drafts_awaiting_review(
+        self,
+        ctx: RequestContext,
+        limit: int,
+    ) -> list[DraftAwaitingReviewResponse]:
+        versions = await self.service.list_drafts_awaiting_review(limit=limit)
+        names = await self.service.agent_names([version.agent_id for version in versions])
+        return [
+            DraftAwaitingReviewResponse(
+                version_id=version.id,
+                agent_id=version.agent_id,
+                agent_name=names.get(version.agent_id),
+                version=version.version,
+                review_status=version.review_status,
+                review_note=version.review_note,
+                review_requested_at=version.review_requested_at,
+                review_requested_by=version.review_requested_by,
+            )
+            for version in versions
+        ]
 
     async def list_releases(
         self,

@@ -256,6 +256,12 @@ export interface RunAuditLogResponse {
   truncated: boolean
   preview?: string | null
   artifact_key?: string | null
+  /** Who acted. The gateway is how the call was made, not who made it. */
+  actor_user_id?: string | null
+  operation?: string | null
+  resource_type?: string | null
+  resource_id?: string | null
+  created_at?: string | null
 }
 
 export const listRuns = (params?: {
@@ -447,6 +453,10 @@ export const listRunAudits = (params: {
   gateway_type?: string
   since?: string
   until?: string
+  actor_user_id?: string
+  resource_type?: string
+  resource_id?: string
+  outcome?: string
   page_token?: string
   page_size?: number
   with_total?: boolean

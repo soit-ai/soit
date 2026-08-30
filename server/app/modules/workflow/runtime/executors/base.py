@@ -40,6 +40,7 @@ class ExecutionContext:
         steps_outputs: dict[str, dict[str, Any]] | None = None,
         workflow_run_id: str | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        approval_ledger: Any | None = None,
         task_id: str | None = None,
         thread_id: str | None = None,
         agent_id: str | None = None,
@@ -64,6 +65,7 @@ class ExecutionContext:
             steps_outputs: Dictionary of step outputs.
             workflow_run_id: Optional aggregate id for workflow_runs outbox (B3).
             approval_checkpoint_gateway: Optional Enterprise approval checkpoint gateway.
+            approval_ledger: Optional ledger the approval request is recorded in.
             task_id: Optional runtime task id for checkpoint pause integration.
             thread_id: Optional runtime thread id for checkpoint context.
             agent_id: Optional agent id for checkpoint context.
@@ -84,6 +86,7 @@ class ExecutionContext:
         self.steps_outputs = steps_outputs or {}
         self.workflow_run_id = workflow_run_id
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.approval_ledger = approval_ledger
         self.task_id = task_id
         self.thread_id = thread_id
         self.agent_id = agent_id

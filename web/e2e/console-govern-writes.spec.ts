@@ -284,3 +284,60 @@ test('a policy revision can be compared and restored', async ({ page }) => {
   await expect.poll(() => rollback).not.toBeNull()
   expect(rollback).toContain('/security/policies/revisions/pr_1/rollback')
 })
+
+test('the audit explorer asks the ledger by actor, object and window', async ({
+  page,
+}) => {
+  const queries: string[] = []
+
+  await page.route('**/api/v1/runs/audits**', (route) => {
+    queries.push(route.request().url())
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        items: [
+          {
+            audit_id: 'aud_1',
+            run_id: 'run_1',
+            step_id: 'step_1',
+            step_type: 'tool',
+            trace_id: 'trace_1',
+            outcome: 'denied',
+            gateway_type: 'tool',
+            truncated: false,
+            preview: 'egress refused',
+            actor_user_id: 'u_alice',
+            operation: 'invoke',
+            resource_type: 'tool',
+            resource_id: 'plugin:pagerduty.page',
+            created_at: NOW,
+            timestamp: NOW,
+          },
+        ],
+        next_page_token: null,
+        page_size: 50,
+        total: 1,
+      }),
+    })
+  })
+
+  await page.goto('/govern/audit', { waitUntil: 'domcontentloaded' })
+
+  // The row names who acted and what they touched, not the gateway and the run.
+  const row = page.locator('tbody tr').filter({ hasText: 'u_alice' })
+  await expect(row).toContainText('plugin:pagerduty.page')
+  await expect(row).toContainText('invoke')
+
+  const filters = page.locator('.wb-filters input, .filters input')
+  await filters.first().fill('u_alice')
+
+  // The window travels with the filter, so the tile and the rows agree.
+  await expect
+    .poll(() =>
+      queries.some(
+        (url) => url.includes('actor_user_id=u_alice') && url.includes('since='),
+      ),
+    )
+    .toBe(true)
+})

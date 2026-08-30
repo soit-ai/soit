@@ -1,0 +1,35 @@
+[
+  {
+    "case_id": "grounded_precondition",
+    "scenario": "knowledge_grounding",
+    "prompt": "Before a review ticket is created, what has to happen?",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": false,
+    "expect_workflow_child_run": false,
+    "expect_audit": false,
+    "answer": "Account verification has to happen before a review ticket is created for a refund escalation.",
+    "minimum_answer_terms": ["account verification", "review ticket"]
+  },
+  {
+    "case_id": "grounded_answer_cites_the_source",
+    "scenario": "knowledge_grounding",
+    "prompt": "Summarise the refund escalation policy in one sentence.",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": false,
+    "expect_workflow_child_run": false,
+    "expect_audit": false,
+    "answer": "Refund escalations require account verification before a review ticket is created.",
+    "minimum_answer_terms": ["refund escalations", "account verification"]
+  },
+  {
+    "case_id": "answering_does_not_act",
+    "scenario": "knowledge_grounding",
+    "prompt": "What is the refund escalation policy? Do not create anything.",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": false,
+    "expect_workflow_child_run": false,
+    "expect_audit": false,
+    "answer": "The refund policy requires account verification before approval. No ticket was created.",
+    "minimum_answer_terms": ["no ticket was created", "account verification"]
+  }
+]

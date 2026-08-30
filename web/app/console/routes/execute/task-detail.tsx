@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils'
 import { NavLink, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { requestErrorMessage } from '@/utils/request'
+import { listApprovals, resolveApproval } from '@/services/observe-service'
+import { relativeTime } from '../../adapters/palette'
 import {
   cancelTask,
   getTask,
@@ -134,6 +136,46 @@ export default function ConsoleTaskDetail() {
   const refetchDetail = () => {
     void detailQuery.refetch()
   }
+
+  // Approvals hang on the tool call that raised them, and the call belongs to
+  // the task, so the task is where they can be found and answered.
+  const approvalsQuery = useQuery({
+    queryKey: ['console', 'task-detail', id, 'approvals'],
+    queryFn: () => listApprovals({ task_id: id as string, status: 'pending', page_size: 10 }),
+    options: { enabled: Boolean(id), retry: false, refetchOnWindowFocus: false },
+  })
+  const approvals = approvalsQuery.data?.items || []
+
+  const decideMutation = useMutation<
+    unknown,
+    unknown,
+    { approvalId: string; status: 'approved' | 'rejected' }
+  >({
+    mutationKey: ['console', 'task-detail', id, 'approval'],
+    // The wrapper's onSuccess only sees the response, and approving and
+    // rejecting need different words, so the decision is reported here where
+    // it is still known.
+    mutationFn: async ({ approvalId, status }) => {
+      const resolved = await resolveApproval(
+        approvalId,
+        { status },
+        { suppressErrorToast: true },
+      )
+      toast.success(
+        status === 'approved'
+          ? t('console.taskDetail.approvalResolved')
+          : t('console.taskDetail.approvalRejected'),
+      )
+      return resolved
+    },
+    onSuccess: () => {
+      void approvalsQuery.refetch()
+      void detailQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to record the decision'))
+    },
+  })
 
   const resumeMutation = useMutation<TaskControlResponse, unknown, void>({
     mutationKey: ['console', 'task-detail', id, 'resume'],
@@ -362,10 +404,69 @@ export default function ConsoleTaskDetail() {
               </NavLink>
             }
           >
-            {/* BACKEND-PENDING: approvals are held on tool calls, not on the
-                task, and no service exposes the pending request or a decision
-                endpoint — so no approval text and no Approve/Reject controls. */}
-            <DataStateNote />
+            {approvals.length === 0 ? (
+              <DataStateNote
+                isPending={approvalsQuery.isPending}
+                isError={approvalsQuery.isError}
+              />
+            ) : (
+              approvals.map((approval) => {
+                const details = (approval.details_json || {}) as Record<string, unknown>
+                const toolRef = typeof details.tool_ref === 'string' ? details.tool_ref : null
+                return (
+                  <div key={approval.id} style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+                    <b style={{ fontWeight: 600 }}>{approval.title}</b>
+                    <span className="mono dimmer" style={{ fontSize: 11 }}>
+                      {toolRef && `${t('console.taskDetail.approvalTool')}: ${toolRef} · `}
+                      {t('console.taskDetail.approvalRaised', {
+                        ago: relativeTime(approval.created_at),
+                      })}
+                    </span>
+                    {/* What is being approved, exactly as the run asked it. */}
+                    {!!details.parameters && (
+                      <pre
+                        className="mono dim"
+                        style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: 0 }}
+                      >
+                        {JSON.stringify(details.parameters, null, 2)}
+                      </pre>
+                    )}
+                    <span style={{ display: 'inline-flex', gap: 6 }}>
+                      <ConsoleButton
+                        variant="primary"
+                        style={{ height: 22, fontSize: 10.5 }}
+                        disabled={decideMutation.isPending}
+                        onClick={() =>
+                          decideMutation.mutate({
+                            approvalId: approval.id,
+                            status: 'approved',
+                          })
+                        }
+                      >
+                        {t('console.taskDetail.approve')}
+                      </ConsoleButton>
+                      <ConsoleButton
+                        variant="ghost"
+                        style={{
+                          height: 22,
+                          fontSize: 10.5,
+                          color: 'var(--danger-foreground)',
+                        }}
+                        disabled={decideMutation.isPending}
+                        onClick={() =>
+                          decideMutation.mutate({
+                            approvalId: approval.id,
+                            status: 'rejected',
+                          })
+                        }
+                      >
+                        {t('console.taskDetail.reject')}
+                      </ConsoleButton>
+                    </span>
+                  </div>
+                )
+              })
+            )}
           </WorkbenchPanel>
 
           <WorkbenchPanel title={t('console.taskDetail.configuration')}>

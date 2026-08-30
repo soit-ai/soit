@@ -135,6 +135,7 @@ class AgentApplicationService:
         response_service: ResponseService | None = None,
         attachment_service: AttachmentService | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        approval_ledger: Any | None = None,
         regression_evaluator: RegressionEvaluationService | None = None,
         plugin_runtime_port: PluginRuntimePort | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
@@ -162,6 +163,7 @@ class AgentApplicationService:
         )
         self.attachment_service = attachment_service
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.approval_ledger = approval_ledger
         self.regression_evaluator = regression_evaluator
         self.plugin_runtime_port = plugin_runtime_port
         self.capability_catalog = capability_catalog or EmptyAgentCapabilityCatalog()
@@ -523,6 +525,8 @@ class AgentApplicationService:
             workflow_executor=execute_workflow_binding,
             capability_catalog=self.capability_catalog,
             approval_checkpoint_gateway=self.approval_checkpoint_gateway,
+            # A rehearsal must not queue a real person for a decision.
+            approval_ledger=None if sandbox else self.approval_ledger,
         )
 
     def _resolve_thread_title(self, request: AgentRuntimeRequest) -> str | None:
@@ -1163,6 +1167,85 @@ class AgentApplicationService:
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_versions(self, agent_id: str, limit: int = 20, offset: int = 0) -> list[AgentVersion]:
         return self.versioning.list_versions(agent_id, limit=limit, offset=offset)
+
+    @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
+    async def review_version(
+        self,
+        agent_id: str,
+        version_id: str,
+        *,
+        action: str,
+        note: str | None = None,
+    ) -> AgentVersion:
+        """Move a draft between review states.
+
+        A published version is not a draft any more, so it cannot be sent back
+        into review: what would be reviewed is already live, and the answer to
+        wanting a change is a new draft.
+        """
+        agent = self._get_agent(agent_id)
+        version = self._get_version(version_id)
+        if version.agent_id != agent.id:
+            raise NotFoundError(f"Version not found: {version_id}")
+        if version.status == "published":
+            raise ValidationError(
+                "A published version cannot be sent for review; create a draft instead",
+                {"version_id": version_id},
+            )
+
+        now = utc_now()
+        if action == "request":
+            version.review_status = "in_review"
+            version.review_requested_at = now
+            version.review_requested_by = self.ctx.user_id
+            version.review_note = note
+            version.reviewed_by = None
+            version.reviewed_at = None
+        elif action == "withdraw":
+            version.review_status = "none"
+            version.review_requested_at = None
+            version.review_requested_by = None
+            version.review_note = note
+            version.reviewed_by = None
+            version.reviewed_at = None
+        elif action in ("approve", "request_changes"):
+            if version.review_status not in ("in_review", "changes_requested"):
+                raise ValidationError(
+                    "This draft was not sent for review",
+                    {"version_id": version_id, "review_status": version.review_status},
+                )
+            version.review_status = (
+                "approved" if action == "approve" else "changes_requested"
+            )
+            version.review_note = note
+            version.reviewed_by = self.ctx.user_id
+            version.reviewed_at = now
+            if action == "approve":
+                # The wait is over, so it stops being a wait. Changes requested
+                # keeps the original timestamp: the draft is still queued, and
+                # resetting it would hide how long it has been going round.
+                version.review_requested_at = None
+        else:
+            raise ValidationError("Unknown review action", {"action": action})
+
+        return self.version_repo.update(version)
+
+    async def list_drafts_awaiting_review(self, *, limit: int = 20) -> list[AgentVersion]:
+        """Every draft in the workspace that is waiting on somebody."""
+        return self.version_repo.list_awaiting_review(limit=limit)
+
+    async def agent_names(self, agent_ids: list[str]) -> dict[str, str]:
+        """Resolve agent names for a set of ids, skipping any that are gone.
+
+        A draft can outlive the agent it belongs to; a missing name is left
+        absent rather than filled with the id twice.
+        """
+        names: dict[str, str] = {}
+        for agent_id in dict.fromkeys(agent_ids):
+            agent = self.agent_repo.get_by_id(agent_id)
+            if agent is not None:
+                names[agent_id] = agent.name
+        return names
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_releases(self, agent_id: str, limit: int = 20, offset: int = 0) -> list[AgentPublish]:

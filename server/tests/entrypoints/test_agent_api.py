@@ -1397,3 +1397,125 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
         assert execute_response.status_code == status.HTTP_400_BAD_REQUEST
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_moves_a_draft_through_review(client, db, ctx):
+    """A draft says whether somebody is waiting on it, and since when."""
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        agent_id = client.post(
+            "/api/v1/agents",
+            json={"name": "review-agent", "description": "draft review"},
+            headers=headers,
+        ).json()["data"]["id"]
+        version_id = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "You are precise.",
+                "bindings": {"model_ref": "model:test:primary"},
+            },
+            headers=headers,
+        ).json()["data"]["id"]
+
+        # A new draft is not in review: nobody was asked to look at it.
+        assert client.get(
+            "/api/v1/agents/drafts/awaiting-review", headers=headers
+        ).json()["data"] == []
+
+        requested = client.post(
+            f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
+            json={"action": "request", "note": "scope change"},
+            headers=headers,
+        )
+        assert requested.status_code == status.HTTP_200_OK
+        assert requested.json()["data"]["review_status"] == "in_review"
+        assert requested.json()["data"]["review_requested_at"] is not None
+
+        queue = client.get(
+            "/api/v1/agents/drafts/awaiting-review", headers=headers
+        ).json()["data"]
+        assert len(queue) == 1
+        assert queue[0]["agent_name"] == "review-agent"
+        assert queue[0]["review_note"] == "scope change"
+        assert queue[0]["version_id"] == version_id
+
+        changes = client.post(
+            f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
+            json={"action": "request_changes", "note": "tighten the prompt"},
+            headers=headers,
+        ).json()["data"]
+        assert changes["review_status"] == "changes_requested"
+        assert changes["reviewed_by"] == "test-user"
+        # Still waiting: changes requested is an answer, not the end of the wait.
+        assert changes["review_requested_at"] is not None
+
+        approved = client.post(
+            f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
+            json={"action": "approve"},
+            headers=headers,
+        ).json()["data"]
+        assert approved["review_status"] == "approved"
+
+        assert client.get(
+            "/api/v1/agents/drafts/awaiting-review", headers=headers
+        ).json()["data"] == []
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+
+def test_agent_api_refuses_to_review_a_version_that_is_already_live(client, db, ctx):
+    from app.main import app
+
+    async def _override_agent_application_service() -> AgentApplicationService:
+        return AgentApplicationService(
+            db=db,
+            ctx=ctx,
+            llm_port=QueueLLMPort([]),
+            tool_port=StubToolPort(),
+            memory_service=None,
+        )
+
+    headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
+    app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
+    try:
+        agent_id = client.post(
+            "/api/v1/agents",
+            json={"name": "published-agent", "description": "already live"},
+            headers=headers,
+        ).json()["data"]["id"]
+        version_id = client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={
+                "system_prompt": "You are precise.",
+                "bindings": {"model_ref": "model:test:primary"},
+            },
+            headers=headers,
+        ).json()["data"]["id"]
+        client.post(
+            f"/api/v1/agents/{agent_id}/publish",
+            json={"version_id": version_id},
+            headers=headers,
+        )
+
+        refused = client.post(
+            f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
+            json={"action": "request"},
+            headers=headers,
+        )
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert refused.json()["code"] == "VALIDATION_ERROR"
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)

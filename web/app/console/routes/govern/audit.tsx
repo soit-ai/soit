@@ -4,7 +4,6 @@ import {
   ConsoleButton,
   ConsoleTabs,
   DataStateRow,
-  FilterChip,
   FilterSearch,
   IconExport,
   Pager,
@@ -36,6 +35,14 @@ type AuditTab = 'all' | 'blocks' | 'changes' | 'decisions'
 
 const PAGE_SIZE = 50
 
+/** The window each range names, in milliseconds. */
+const RANGE_MS: Record<(typeof RANGES)[number], number> = {
+  '1h': 3_600_000,
+  '24h': 86_400_000,
+  '7d': 7 * 86_400_000,
+  '30d': 30 * 86_400_000,
+}
+
 function clockTime(iso?: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
@@ -60,12 +67,29 @@ export default function ConsoleAudit() {
   const [tab, setTab] = useState<AuditTab>('all')
   const [range, setRange] = useState<(typeof RANGES)[number]>('24h')
   const [search, setSearch] = useState('')
+  const [actor, setActor] = useState('')
+  const [object, setObject] = useState('')
+
+  // The window is a filter on the query, not a label on the page. Every panel
+  // below answers for the same window, so the tiles and the rows agree.
+  const since = useMemo(
+    () => new Date(Date.now() - RANGE_MS[range]).toISOString(),
+    [range],
+  )
+  const filters = useMemo(
+    () => ({
+      since,
+      ...(actor.trim() ? { actor_user_id: actor.trim() } : {}),
+      ...(object.trim() ? { resource_id: object.trim() } : {}),
+    }),
+    [since, actor, object],
+  )
 
   // Gateway audits derived from run steps — the platform's append-only record
   // of every governed call.
   const auditsQuery = useQuery({
-    queryKey: ['console', 'audit', 'runs'],
-    queryFn: () => listRunAudits({ page_size: PAGE_SIZE }),
+    queryKey: ['console', 'audit', 'runs', filters],
+    queryFn: () => listRunAudits({ ...filters, page_size: PAGE_SIZE, with_total: true }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
   // Policy configuration changes.
@@ -90,6 +114,8 @@ export default function ConsoleAudit() {
   })
 
   const audits = useMemo(() => auditsQuery.data?.items || [], [auditsQuery.data])
+  // The total counts what matched the filters, not what fits on this page.
+  const matched = auditsQuery.data?.total ?? null
   const changes = changesQuery.data?.items || []
   const decisions = decisionsQuery.data || []
   const blocks = useMemo(() => audits.filter(isBlock), [audits])
@@ -97,7 +123,15 @@ export default function ConsoleAudit() {
   const allRows = audits.filter((row) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
-    return [row.gateway_type, row.step_type, row.run_id, row.preview]
+    return [
+      row.gateway_type,
+      row.step_type,
+      row.run_id,
+      row.preview,
+      row.actor_user_id,
+      row.resource_id,
+      row.operation,
+    ]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))
   })
@@ -132,9 +166,9 @@ export default function ConsoleAudit() {
         <StatTileGrid>
           <StatTile
             label={t('console.audit.tiles.entries')}
-            value={auditsQuery.data ? String(audits.length) : '—'}
-            na={!auditsQuery.data}
-            sub={<span className="mono dimmer">gateway audits on record</span>}
+            value={matched == null ? '—' : String(matched)}
+            na={matched == null}
+            sub={<span className="mono dimmer">in the last {range}</span>}
           />
           <StatTile
             label={t('console.audit.tiles.blocks')}
@@ -171,8 +205,16 @@ export default function ConsoleAudit() {
       filters={
         tab === 'all' ? (
           <>
-            <FilterChip>{t('console.audit.filters.actor')}</FilterChip>
-            <FilterChip>{t('console.audit.filters.object')}</FilterChip>
+            <FilterSearch
+              value={actor}
+              onChange={(event) => setActor(event.target.value)}
+              placeholder={t('console.audit.filters.actorPlaceholder')}
+            />
+            <FilterSearch
+              value={object}
+              onChange={(event) => setObject(event.target.value)}
+              placeholder={t('console.audit.filters.objectPlaceholder')}
+            />
             <Seg options={RANGES} value={range} onChange={setRange} />
             <FilterSearch
               value={search}
@@ -207,11 +249,16 @@ export default function ConsoleAudit() {
                   const chip = outcomeChip(row)
                   return (
                     <TableRow key={row.audit_id || `${row.run_id}:${row.step_id}:${index}`}>
-                      <TableCell className="num dimmer">{clockTime(row.timestamp)}</TableCell>
-                      {/* Gateway audits record the gateway, not a human actor. */}
-                      <TableCell className="dim">{row.gateway_type || 'gateway'}</TableCell>
-                      <TableCell>{row.step_type}</TableCell>
-                      <TableCell className="mono dim">{row.run_id}</TableCell>
+                      <TableCell className="num dimmer">
+                        {clockTime(row.timestamp || row.created_at)}
+                      </TableCell>
+                      {/* A call made by the runtime itself has no user behind
+                          it, and saying "system" is truer than a blank. */}
+                      <TableCell className="dim">{row.actor_user_id || 'system'}</TableCell>
+                      <TableCell>{row.operation || row.step_type}</TableCell>
+                      <TableCell className="mono dim">
+                        {row.resource_id || row.run_id}
+                      </TableCell>
                       <TableCell>
                         <StatusChip status={chip.status} label={chip.label} />
                       </TableCell>

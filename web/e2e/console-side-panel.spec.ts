@@ -375,6 +375,21 @@ test('chat panel addresses a thread by the route that can open it', async ({ pag
 })
 
 test('caption spacing follows the prototype after the first group', async ({ page }) => {
+  // Spacing between groups needs more than one group, so the panel is given a
+  // draft to be waiting on.
+  await json(page, '**/api/v1/agents/drafts/awaiting-review**', [
+    {
+      version_id: 'av_1',
+      agent_id: 'release-notes',
+      agent_name: 'release-notes',
+      version: 6,
+      review_status: 'in_review',
+      review_note: 'scope change',
+      review_requested_at: '2026-08-29T10:00:00Z',
+      review_requested_by: 'u_1',
+    },
+  ])
+
   await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
   const padding = (index: number) =>
@@ -532,4 +547,39 @@ test('a caller with nothing pinned gets no Pinned group at all', async ({ page }
   await page.goto('/', { waitUntil: 'domcontentloaded' })
 
   await expect(page.locator('.subnav .sub-cap', { hasText: 'Pinned' })).toHaveCount(0)
+})
+
+test('the drafts group lists drafts somebody was actually asked to review', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/agents/drafts/awaiting-review**', [
+    {
+      version_id: 'av_1',
+      agent_id: 'release-notes',
+      agent_name: 'release-notes',
+      version: 6,
+      review_status: 'in_review',
+      review_note: 'scope change',
+      review_requested_at: '2026-08-29T10:00:00Z',
+      review_requested_by: 'u_1',
+    },
+  ])
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+
+  const row = page
+    .locator('.subnav .sub-note')
+    .filter({ hasText: 'release-notes v6' })
+  await expect(row).toContainText('scope change')
+})
+
+test('a workspace with nothing in review shows no drafts group', async ({ page }) => {
+  // A fixture used to sit here, so an empty queue used to look like a busy one.
+  await json(page, '**/api/v1/agents/drafts/awaiting-review**', [])
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+
+  await expect(
+    page.locator('.subnav .sub-note').filter({ hasText: 'scope change' }),
+  ).toHaveCount(0)
 })

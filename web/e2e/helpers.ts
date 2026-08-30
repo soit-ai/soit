@@ -47,6 +47,16 @@ export async function mockShellApi(page: Page) {
     })
   })
 
+  // Answers with a list, because the endpoint does. The catch-all below
+  // answers with a page, and a page is not something callers can map over.
+  await page.route('**/api/v1/agents/drafts/awaiting-review**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data: [] }),
+    })
+  })
+
   await page.route('**/api/v1/agents**', async (route) => {
     await route.fulfill({
       status: 200,

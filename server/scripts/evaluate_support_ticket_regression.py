@@ -35,11 +35,22 @@ from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 from scripts.bootstrap_enterprise_mvp import BootstrapResult, bootstrap_enterprise_mvp
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "support_ticket_golden_set.json"
+REGRESSION_SETS_DIR = (
+    Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "regression"
+)
+"""Scenario sets a deployment can run as-is, one file per scenario."""
 DEMO_TICKET_TOOL_REF = "builtin.ticket.create_review_ticket"
 
 
 @dataclass
 class SupportTicketGoldenCase:
+    """One frozen case in a regression set.
+
+    The answer lives on the case rather than in the runner. A runner that
+    knows what the reply should say can only ever test one scenario, and a
+    regression suite that covers one scenario is a demo.
+    """
+
     case_id: str
     prompt: str
     expected_citation_source: str
@@ -47,6 +58,11 @@ class SupportTicketGoldenCase:
     expect_workflow_child_run: bool
     expect_audit: bool
     minimum_answer_terms: list[str] = field(default_factory=list)
+    scenario: str = "support_ticket"
+    """Which set this case belongs to, carried into the report."""
+
+    answer: str | None = None
+    """The deterministic reply the evaluator LLM returns for this case."""
 
 
 @dataclass
@@ -111,7 +127,7 @@ class SupportTicketEvaluationLLMPort(LLMPort):
                 ],
             )
 
-        text = (
+        text = self.case.answer or (
             "Refund escalations require account verification before approval. "
             "A review ticket was created using the refund policy evidence."
             if self.case.expect_workflow_child_run
@@ -396,8 +412,11 @@ async def evaluate_support_ticket_regression(db, args: argparse.Namespace) -> di
     finally:
         knowledge_tools.knowledge_query = original_knowledge_query
     passed = sum(1 for case in case_reports if case.passed)
+    scenarios = sorted({case.scenario for case in _load_cases(Path(args.cases_path))})
     report = {
-        "scenario": "support_ticket",
+        # The set that ran, so two reports are not compared across scenarios.
+        "scenario": scenarios[0] if len(scenarios) == 1 else "mixed",
+        "scenarios": scenarios,
         "passed": passed == len(case_reports),
         "tenant_id": bootstrap.tenant_id,
         "workspace_id": bootstrap.workspace_id,

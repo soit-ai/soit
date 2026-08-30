@@ -17,9 +17,18 @@ import {
   WorkbenchPanel,
   runStatusToConsole,
 } from '../../components'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, money, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
+import { getRegressionTrend } from '@/services/evaluation-service'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -30,6 +39,8 @@ import {
   listAgentBindings,
   listAgentReleases,
   listAgentVersions,
+  reviewAgentVersion,
+  type AgentReviewAction,
   publishAgentVersion,
   updateAgent,
   type AgentVersion,
@@ -268,6 +279,45 @@ export default function ConsoleAgentDetail() {
 
   const agent = agentQuery.data
   const versions = versionsQuery.data?.items || []
+
+  // The release gate's own history. A single latest report says whether this
+  // version passed; the trend says whether the agent has been getting better
+  // or worse, which is the question before a release.
+  const trendQuery = useQuery({
+    queryKey: ['console', 'agent', agentId, 'regression-trend'],
+    queryFn: () =>
+      getRegressionTrend({ subject_kind: 'agent', subject_id: agentId as string, limit: 10 }),
+    options: { enabled: Boolean(agentId), retry: false, refetchOnWindowFocus: false },
+  })
+  const trendPoints = trendQuery.data?.points || []
+
+  // Review is a state on the draft, not a ticket: who is waiting, and since
+  // when. Answering it here is the whole flow.
+  const reviewMutation = useMutation<
+    unknown,
+    unknown,
+    { versionId: string; action: AgentReviewAction }
+  >({
+    mutationKey: ['console', 'agent', agentId, 'review'],
+    mutationFn: async ({ versionId, action }) => {
+      const updated = await reviewAgentVersion(
+        agentId as string,
+        versionId,
+        { action },
+        { suppressErrorToast: true },
+      )
+      toast.success(
+        action === 'request'
+          ? t('console.agentDetail.review.requested')
+          : t('console.agentDetail.review.answered'),
+      )
+      return updated
+    },
+    onSuccess: () => void versionsQuery.refetch(),
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to record the review'))
+    },
+  })
   const releases = releasesQuery.data?.items || []
   const runs = runsQuery.data?.items || []
   const catalog = catalogQuery.data?.items || []
@@ -957,7 +1007,73 @@ export default function ConsoleAgentDetail() {
                   <small>
                     {version.status} · {version.created_by || '—'} · {relativeTime(version.created_at)} ·{' '}
                     {version.id}
+                    {version.review_status === 'in_review' && (
+                      <>
+                        {' · '}
+                        {t('console.agentDetail.review.inReview')}
+                        {version.review_requested_at &&
+                          ` · ${t('console.agentDetail.review.waiting', {
+                            ago: relativeTime(version.review_requested_at),
+                          })}`}
+                      </>
+                    )}
+                    {version.review_status === 'changes_requested' &&
+                      ` · ${t('console.agentDetail.review.changesRequested')}`}
+                    {version.review_status === 'approved' &&
+                      ` · ${t('console.agentDetail.review.approved')}`}
                   </small>
+                  {!isPublished && (
+                    <span
+                      style={{ display: 'inline-flex', gap: 6, marginTop: 6 }}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {version.review_status === 'in_review' ||
+                      version.review_status === 'changes_requested' ? (
+                        <>
+                          <ConsoleButton
+                            variant="ghost"
+                            style={{ height: 22, fontSize: 10.5 }}
+                            disabled={reviewMutation.isPending}
+                            onClick={() =>
+                              reviewMutation.mutate({
+                                versionId: version.id,
+                                action: 'approve',
+                              })
+                            }
+                          >
+                            {t('console.agentDetail.review.approve')}
+                          </ConsoleButton>
+                          <ConsoleButton
+                            variant="ghost"
+                            style={{ height: 22, fontSize: 10.5 }}
+                            disabled={reviewMutation.isPending}
+                            onClick={() =>
+                              reviewMutation.mutate({
+                                versionId: version.id,
+                                action: 'request_changes',
+                              })
+                            }
+                          >
+                            {t('console.agentDetail.review.requestChanges')}
+                          </ConsoleButton>
+                        </>
+                      ) : (
+                        <ConsoleButton
+                          variant="ghost"
+                          style={{ height: 22, fontSize: 10.5 }}
+                          disabled={reviewMutation.isPending}
+                          onClick={() =>
+                            reviewMutation.mutate({
+                              versionId: version.id,
+                              action: 'request',
+                            })
+                          }
+                        >
+                          {t('console.agentDetail.review.requestReview')}
+                        </ConsoleButton>
+                      )}
+                    </span>
+                  )}
                 </a>
               )
             })
@@ -967,6 +1083,76 @@ export default function ConsoleAgentDetail() {
             command={`soit agent publish ${name}${currentVersion ? `@v${currentVersion.version}` : ''}`}
             output={`${bindings.length} bindings · ${releases.length} releases · runs switch on next trigger`}
           />
+        </WorkbenchPanel>
+      )}
+
+      {tab === 'publish' && (
+        <WorkbenchPanel
+          className="mt-3.5"
+          title={t('console.agentDetail.regressionTrend.title')}
+          hint={t('console.agentDetail.regressionTrend.hint')}
+        >
+          {trendPoints.length === 0 ? (
+            trendQuery.isPending || trendQuery.isError ? (
+              <DataStateNote isPending={trendQuery.isPending} isError={trendQuery.isError} />
+            ) : (
+              <div className="empty-note">
+                {t('console.agentDetail.regressionTrend.never')}
+              </div>
+            )
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('console.agentDetail.regressionTrend.version')}</TableHead>
+                  <TableHead>{t('console.agentDetail.regressionTrend.title')}</TableHead>
+                  <TableHead className="num">%</TableHead>
+                  <TableHead className="num">ms</TableHead>
+                  <TableHead>{t('console.agentDetail.regressionTrend.when')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trendPoints.map((point) => (
+                  <TableRow key={point.report_id}>
+                    <TableCell className="mono dim">{point.subject_version_id}</TableCell>
+                    <TableCell>
+                      <StatusChip
+                        status={point.passed ? 'pass' : 'blocked'}
+                        label={
+                          point.passed
+                            ? t('console.agentDetail.regressionTrend.passed')
+                            : t('console.agentDetail.regressionTrend.blocked')
+                        }
+                      />{' '}
+                      <span className="dimmer" style={{ fontSize: 11 }}>
+                        {t('console.agentDetail.regressionTrend.cases', {
+                          passed: point.passed_count,
+                          total: point.total,
+                        })}
+                        {/* A case that never passed is a known gap; one that
+                            used to pass is something this change broke. */}
+                        {point.regressed > 0 &&
+                          ` · ${t('console.agentDetail.regressionTrend.regressed', {
+                            count: point.regressed,
+                          })}`}
+                        {point.fixed > 0 &&
+                          ` · ${t('console.agentDetail.regressionTrend.fixed', {
+                            count: point.fixed,
+                          })}`}
+                      </span>
+                    </TableCell>
+                    <TableCell className="num dim">
+                      {point.pass_rate == null ? '—' : Math.round(point.pass_rate * 100)}
+                    </TableCell>
+                    <TableCell className="num dim">
+                      {point.avg_latency_ms == null ? '—' : point.avg_latency_ms}
+                    </TableCell>
+                    <TableCell className="dim">{relativeTime(point.created_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </WorkbenchPanel>
       )}
 

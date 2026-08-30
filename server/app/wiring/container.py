@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.events import EventBus
 from app.kernel.ports.llm.interface import LLMPort
@@ -17,6 +18,8 @@ from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.settings.settings import settings
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -73,6 +76,95 @@ class IdentityEgressScopePolicyProvider:
                 tenant_bundle_id=SecurityService.bundle_id_for(tenant),
                 workspace_bundle_id=SecurityService.bundle_id_for(workspace),
             )
+        finally:
+            db.close()
+
+
+class ObserveApprovalLedger:
+    """Write approval requests and decisions into the governance ledger.
+
+    A run that stops for approval already carries the request in its interrupt
+    and its checkpoint, but both are addressed to whoever is watching the
+    stream. This writes the same request where it can be found afterwards: from
+    the task, from the run, and from the approvals queue.
+
+    It uses its own session on purpose. The run's transaction is mid-flight and
+    about to suspend; committing it here to save an approval row would persist
+    whatever else that transaction happened to be holding.
+    """
+
+    def record_pending(self, ctx: RequestContext, record) -> str | None:
+        from app.infra.db.session import get_db_sync
+        from app.modules.observe.domain.models import ApprovalRequest
+        from app.modules.observe.infra.repository import ApprovalRepository
+
+        db = get_db_sync()
+        try:
+            approval = ApprovalRepository(db, ctx).create(
+                ApprovalRequest(
+                    run_id=record.run_id,
+                    task_id=record.task_id,
+                    thread_id=record.thread_id,
+                    agent_id=record.agent_id,
+                    title=record.title,
+                    policy_ref=record.policy_ref,
+                    details_json={
+                        **record.details,
+                        "tool_call_id": record.tool_call_id,
+                    },
+                )
+            )
+            return approval.id
+        except Exception:
+            logger.warning("Failed to record an approval request", exc_info=True)
+            return None
+        finally:
+            db.close()
+
+    def record_decision(
+        self,
+        ctx: RequestContext,
+        *,
+        run_id: str | None,
+        tool_call_id: str | None,
+        approved: bool,
+        decided_by: str | None = None,
+    ) -> None:
+        from app.infra.db.session import get_db_sync
+        from app.kernel.runtime.status import ApprovalStatus
+        from app.modules.observe.infra.repository import ApprovalRepository
+
+        if not run_id and not tool_call_id:
+            return
+
+        db = get_db_sync()
+        try:
+            repo = ApprovalRepository(db, ctx)
+            pending = repo.list(
+                limit=50,
+                offset=0,
+                status=ApprovalStatus.PENDING.value,
+                run_id=run_id,
+                task_id=None,
+            )
+            # One run can be waiting on more than one tool call, so the call is
+            # what identifies the request, not the run.
+            for approval in pending:
+                details = approval.details_json or {}
+                if tool_call_id and details.get("tool_call_id") != tool_call_id:
+                    continue
+                approval.status = (
+                    ApprovalStatus.APPROVED.value if approved else ApprovalStatus.REJECTED.value
+                )
+                approval.resolved_by = decided_by or ctx.user_id
+                approval.resolved_at = utc_now()
+                repo.update(
+                    approval,
+                    emit_resolution_event=approval.status,
+                )
+                break
+        except Exception:
+            logger.warning("Failed to record an approval decision", exc_info=True)
         finally:
             db.close()
 
@@ -314,28 +406,48 @@ class Container:
             timeout_seconds=settings.llm_timeout_seconds,
             image_timeout_seconds=settings.llm_image_timeout_seconds,
             image_max_retries=settings.llm_image_max_retries,
+            content_safety=self.get_content_safety_port(ctx),
+            inspect_inbound=settings.content_safety_inspect_inbound,
+            inspect_outbound=settings.content_safety_inspect_outbound,
         )
 
     def get_content_safety_port(self, ctx: RequestContext):
-        """Return the configured content safety adapter, or None.
+        """Return the content safety provider, or None when inspection is off.
 
-        None means the deployment has not plugged in a classifier. Callers must
-        treat that as "no such capability" rather than "everything is safe".
+        None means nothing inspects content. Callers must treat that as "no
+        such capability" rather than "everything is safe".
         """
         if not settings.content_safety_enabled:
             return None
-        endpoint = (settings.content_safety_endpoint or "").strip()
-        if not endpoint:
-            return None
 
-        from app.adapters.safety.http_content_safety import HttpContentSafetyPort
+        if settings.content_safety_provider == "http":
+            endpoint = (settings.content_safety_endpoint or "").strip()
+            if not endpoint:
+                return None
 
-        return HttpContentSafetyPort(
-            ctx=ctx,
-            endpoint=endpoint,
-            timeout_seconds=settings.content_safety_timeout_seconds,
-            fail_closed=settings.content_safety_fail_closed,
-            api_key=settings.content_safety_api_key,
+            from app.adapters.safety.http_content_safety import HttpContentSafetyPort
+
+            return HttpContentSafetyPort(
+                ctx=ctx,
+                endpoint=endpoint,
+                timeout_seconds=settings.content_safety_timeout_seconds,
+                fail_closed=settings.content_safety_fail_closed,
+                api_key=settings.content_safety_api_key,
+            )
+
+        from app.kernel.safety.rules import RuleContentSafetyPort, SafetyAction
+
+        def _action(value: str, fallback: SafetyAction) -> SafetyAction:
+            try:
+                return SafetyAction(value)
+            except ValueError:
+                # A misspelled action must not silently disable the check.
+                logger.warning("Unknown content safety action %r; using %s", value, fallback.value)
+                return fallback
+
+        return RuleContentSafetyPort(
+            secret_action=_action(settings.content_safety_secret_action, SafetyAction.REDACT),
+            pii_action=_action(settings.content_safety_pii_action, SafetyAction.OBSERVE),
         )
 
     def get_mail_port(self):

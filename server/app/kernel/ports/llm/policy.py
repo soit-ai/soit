@@ -12,7 +12,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, Tracer
 
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import ForbiddenError, KernelError
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -31,6 +31,11 @@ from app.kernel.ports.llm.interface import (
     LLMPort,
     LLMRuntimeTarget,
     RerankResponse,
+)
+from app.kernel.ports.safety.interface import (
+    ContentSafetyPort,
+    SafetyDecision,
+    SafetyDirection,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 
@@ -464,6 +469,9 @@ class LLMPolicyGateway(LLMPort):
         credit_guard: CreditGuard | None = None,
         image_timeout_seconds: float = 300.0,
         image_max_retries: int = 0,
+        content_safety: ContentSafetyPort | None = None,
+        inspect_inbound: bool = True,
+        inspect_outbound: bool = True,
     ):
         """Initialize policy gateway.
 
@@ -501,6 +509,81 @@ class LLMPolicyGateway(LLMPort):
         self.credit_guard = credit_guard
         self.image_timeout_seconds = image_timeout_seconds
         self.image_max_retries = image_max_retries
+        # None means the deployment has no content inspection. That is "no such
+        # capability", never "everything is safe".
+        self.content_safety = content_safety
+        self.inspect_inbound = inspect_inbound
+        self.inspect_outbound = inspect_outbound
+
+    async def _inspect(
+        self,
+        text: str | None,
+        *,
+        direction: SafetyDirection,
+        evidence: list[dict[str, Any]],
+    ) -> str | None:
+        """Return the text to use, recording what the check found.
+
+        A refusal raises; a redaction returns the replacement; anything else
+        returns the text unchanged. Every outcome with findings is appended to
+        `evidence`, which is written onto the run step, so a decision that
+        changed the content is visible afterwards rather than only in the
+        moment.
+        """
+        if self.content_safety is None or not text:
+            return text
+
+        verdict = await self.content_safety.inspect(text, direction=direction)
+        if verdict.findings:
+            evidence.append({**verdict.evidence(), "direction": direction.value})
+        if verdict.decision is SafetyDecision.BLOCK:
+            raise ForbiddenError(
+                "Content refused by the content safety policy",
+                {
+                    "direction": direction.value,
+                    "provider": verdict.provider,
+                    "categories": [finding.category for finding in verdict.findings],
+                },
+            )
+        if verdict.decision is SafetyDecision.REDACT and verdict.redacted_text is not None:
+            return verdict.redacted_text
+        return text
+
+    async def _inspect_messages(
+        self,
+        messages: list[ChatMessage],
+        evidence: list[dict[str, Any]],
+    ) -> list[ChatMessage]:
+        """Inspect what is about to be sent to a model.
+
+        The prompt is where user input and retrieved documents have already
+        been assembled, so it is the one place that sees all of it.
+        """
+        if self.content_safety is None or not self.inspect_inbound:
+            return messages
+
+        inspected: list[ChatMessage] = []
+        changed = False
+        for message in messages:
+            content = await self._inspect(
+                message.content,
+                direction=SafetyDirection.INBOUND,
+                evidence=evidence,
+            )
+            if content == message.content:
+                inspected.append(message)
+                continue
+            changed = True
+            inspected.append(
+                ChatMessage(
+                    role=message.role,
+                    content=content,
+                    tool_call_id=getattr(message, "tool_call_id", None),
+                    tool_calls=getattr(message, "tool_calls", None),
+                    name=getattr(message, "name", None),
+                )
+            )
+        return inspected if changed else messages
 
     async def _resolve_call_route(
         self,
@@ -636,7 +719,9 @@ class LLMPolicyGateway(LLMPort):
             self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
+        safety_evidence: list[dict[str, Any]] = []
         try:
+            messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
             route = await self._resolve_call_route(model, required_capabilities)
             with self.otel_tracer.start_as_current_span(
@@ -670,6 +755,12 @@ class LLMPolicyGateway(LLMPort):
                     retryable_status_codes=route.retryable_status_codes,
                 )
                 response.runtime_target = response.runtime_target or route.target
+                if self.inspect_outbound:
+                    response.text = await self._inspect(
+                        response.text,
+                        direction=SafetyDirection.OUTBOUND,
+                        evidence=safety_evidence,
+                    )
                 span.set_attribute("gen_ai.response.model", response.model or model)
                 span.set_attribute("gen_ai.usage.input_tokens", response.tokens_prompt)
                 span.set_attribute("gen_ai.usage.output_tokens", response.tokens_completion)
@@ -697,6 +788,11 @@ class LLMPolicyGateway(LLMPort):
                         "provider_slug": identity["provider_slug"],
                         "provider_kind": identity["provider_kind"],
                         "upstream_model": identity["upstream_model"],
+                        **(
+                            {"content_safety": safety_evidence}
+                            if safety_evidence
+                            else {}
+                        ),
                     },
                 )
                 pricing = _with_runtime_identity(

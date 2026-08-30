@@ -360,8 +360,28 @@ class Settings(BaseSettings):
     """Require digest verification for plugin package installs."""
 
     # Content safety / PII
-    content_safety_enabled: bool = False
-    """Enable content safety and PII inspection. Requires an endpoint."""
+    content_safety_enabled: bool = True
+    """Inspect content for credentials and personal identifiers."""
+
+    content_safety_provider: str = "builtin"
+    """Which provider inspects content: builtin or http.
+
+    "builtin" is deterministic pattern matching that runs in-process and needs
+    no service. It finds credentials and the identifiers that are personal data
+    everywhere; it cannot judge tone, intent or confidentiality. A deployment
+    that needs a classifier sets this to "http" and points at one.
+    """
+
+    content_safety_secret_action: str = "redact"
+    """What to do when a credential is found: observe, redact or block."""
+
+    content_safety_pii_action: str = "observe"
+    """What to do when personal data is found: observe, redact or block.
+
+    Recording by default. Personal data is the ordinary content of real work --
+    a support agent reading a customer's address is the job -- so rewriting it
+    silently would corrupt the work while looking like nothing happened.
+    """
 
     content_safety_endpoint: str | None = None
     """HTTP endpoint of the external classifier the deployment operates."""
@@ -453,10 +473,15 @@ class Settings(BaseSettings):
             )
         if not self.plugin_integrity_required:
             raise ValueError("Production requires plugin package digest verification")
-        if self.content_safety_enabled and not (self.content_safety_endpoint or "").strip():
-            # Enabled without an endpoint inspects nothing while reporting that
-            # inspection is on, which is worse than declaring it unavailable.
-            raise ValueError("Content safety is enabled but no endpoint is configured")
+        if (
+            self.content_safety_enabled
+            and self.content_safety_provider == "http"
+            and not (self.content_safety_endpoint or "").strip()
+        ):
+            # An external provider with no endpoint inspects nothing while
+            # reporting that inspection is on, which is worse than declaring it
+            # unavailable. The built-in provider needs no endpoint.
+            raise ValueError("Content safety is set to http but no endpoint is configured")
         if not self.otel_enabled:
             raise ValueError("Production requires OpenTelemetry tracing")
         if not (self.otel_exporter_otlp_endpoint or "").strip():

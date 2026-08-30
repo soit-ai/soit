@@ -41,8 +41,10 @@ from app.modules.agent.application.schemas import (
     AgentUpdate,
     AgentVersionCreate,
     AgentVersionResponse,
+    AgentVersionReviewRequest,
     AgentWorkbenchItemsResponse,
     AgentWorkbenchResponse,
+    DraftAwaitingReviewResponse,
 )
 from app.modules.agent.application.service import AgentService
 from app.settings.settings import settings
@@ -161,6 +163,17 @@ async def delete_agent(
     await handlers.delete_agent(ctx, agent_id)
 
 
+@router.get("/drafts/awaiting-review", response_model=list[DraftAwaitingReviewResponse])
+async def list_drafts_awaiting_review(
+    limit: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Every draft in the workspace that somebody is waiting on."""
+    handlers = AgentAppHandlers(service)
+    return await handlers.list_drafts_awaiting_review(ctx, limit)
+
+
 @router.post("/{agent_id}/versions", response_model=AgentVersionResponse, status_code=status.HTTP_201_CREATED)
 async def create_version(
     agent_id: str,
@@ -182,6 +195,22 @@ async def list_versions(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.list_versions(ctx, agent_id, page_token=page_token, page_size=page_size)
+
+
+@router.post(
+    "/{agent_id}/versions/{version_id}/review",
+    response_model=AgentVersionResponse,
+)
+async def review_version(
+    agent_id: str,
+    version_id: str,
+    data: AgentVersionReviewRequest,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Send a draft for review, or answer one that was sent."""
+    handlers = AgentAppHandlers(service)
+    return await handlers.review_version(ctx, agent_id, version_id, data)
 
 
 @router.get("/{agent_id}/releases", response_model=PaginatedResponse[AgentReleaseResponse])

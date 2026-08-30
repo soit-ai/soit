@@ -88,6 +88,7 @@ class WorkflowService:
         publish_repo: WorkflowPublishRepository | None = None,
         response_service: ResponseService | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        approval_ledger: Any | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
         **_: Any,
     ):
@@ -117,6 +118,7 @@ class WorkflowService:
             trace_writer=self.trace_writer,
             response_service=self.response_service,
             approval_checkpoint_gateway=approval_checkpoint_gateway,
+            approval_ledger=approval_ledger,
             workflow_knowledge_query_port=workflow_knowledge_query_port,
         )
 

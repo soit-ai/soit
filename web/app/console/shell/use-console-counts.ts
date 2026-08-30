@@ -1,6 +1,6 @@
 import { useTranslation } from '@/i18n'
 import { useQuery } from '@/hooks/use-query'
-import { getAgentWorkbench } from '@/services/agent-service'
+import { getAgentWorkbench, listDraftsAwaitingReview } from '@/services/agent-service'
 import { getKnowledgeWorkbench } from '@/services/knowledge-service'
 import { listApiKeys } from '@/services/api-key-service'
 import {
@@ -22,7 +22,6 @@ import { getWorkflowWorkbench } from '@/services/workflow-service'
 
 import { catColor, compactNumber, money, percent, relativeTime } from '../adapters/palette'
 import { useSubjectNames } from '../adapters/subject-names'
-import { mockDraftReviews } from '../mocks/panel'
 import type { ConsoleCountKey, ConsolePillar, PanelSlot } from './panel-config'
 
 /**
@@ -273,6 +272,11 @@ export function useConsolePanelData(
     queryFn: () => getPolicyBundle(),
     options: { ...SHARED, enabled: isGovern },
   })
+  const draftReviews = useQuery({
+    queryKey: ['console', 'panel', 'draft-reviews'],
+    queryFn: () => listDraftsAwaitingReview({ limit: 5 }, { suppressErrorToast: true }),
+    options: { ...SHARED, enabled: isBuild },
+  })
   // Personal shortcuts. Both are per-user and per-workspace, so they follow
   // the same cache rules as the rest of the panel.
   const savedViews = useQuery({
@@ -476,7 +480,21 @@ export function useConsolePanelData(
       .slice(0, 3)
       .map((row) => ({ kind: 'mini' as const, ...row }))
 
-    groups.draftReviews = mockDraftReviews.map((row) => ({ kind: 'note' as const, ...row }))
+    // Only drafts somebody was actually asked to look at. A draft nobody
+    // requested review on is work in progress, not a queue entry.
+    // Defensive: the panel wraps every screen, so a service answering with a
+    // shape this does not expect must leave a group empty, never take the
+    // console down.
+    groups.draftReviews = (Array.isArray(draftReviews.data) ? draftReviews.data : []).map((row) => ({
+      kind: 'note' as const,
+      id: row.version_id,
+      label: `${row.agent_name || row.agent_id} v${row.version}${
+        row.review_note ? ` · ${row.review_note}` : ''
+      }`,
+      tone: row.review_status === 'changes_requested' ? ('bad' as const) : ('warn' as const),
+      value: row.review_requested_at ? relativeTime(row.review_requested_at) : undefined,
+      to: `/build/agents/${row.agent_id}`,
+    }))
   }
 
   if (isExecute) {

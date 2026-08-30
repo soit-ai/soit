@@ -6,6 +6,7 @@ Tool node executor.
 from typing import Any
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.approvals import ApprovalRecord
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
@@ -322,6 +323,29 @@ class ToolNodeExecutor(NodeExecutor):
                         },
                         source="workflow",
                     )
+                if context.approval_ledger is not None:
+                    # The node pauses here; the record is what lets someone who
+                    # was not watching find it, read it and answer it.
+                    context.approval_ledger.record_pending(
+                        context.ctx,
+                        ApprovalRecord(
+                            run_id=context.run_id,
+                            task_id=context.task_id,
+                            thread_id=context.thread_id,
+                            agent_id=context.agent_id,
+                            title=f"Approve tool call: {tool_ref}",
+                            policy_ref=policy_ref,
+                            tool_call_id=tool_call_id,
+                            details={
+                                "node_id": node.get("id"),
+                                "tool_ref": tool_ref,
+                                "parameters": parameters,
+                                "reason": reason,
+                                "risk_level": risk_level,
+                            },
+                        ),
+                    )
+
                 output = {
                     "status": approval_status,
                     "approval": approval_payload,

@@ -530,6 +530,10 @@ class RunHandlers:
         gateway_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        actor_user_id: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        outcome: str | None = None,
         page_token: str | None = None,
         page_size: int = 50,
         with_total: bool = False,
@@ -546,6 +550,10 @@ class RunHandlers:
             gateway_type=gateway_type,
             since=since,
             until=until,
+            actor_user_id=actor_user_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            outcome=outcome,
             limit=limit_plus,
             offset=offset,
         )
@@ -561,6 +569,10 @@ class RunHandlers:
                 gateway_type=gateway_type,
                 since=since,
                 until=until,
+                actor_user_id=actor_user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome=outcome,
             )
             if with_total
             else None

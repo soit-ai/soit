@@ -317,3 +317,10 @@ class RunAuditLogResponse(BaseModel):
     truncated: bool = False
     preview: str | None = None
     artifact_key: str | None = None
+    # Who did it and to what. The gateway is how the call was made, not who
+    # made it, and the run is where it happened, not what it touched.
+    actor_user_id: str | None = None
+    operation: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
+    created_at: datetime | None = None

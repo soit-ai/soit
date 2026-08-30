@@ -4,7 +4,7 @@ Agent domain schemas.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -194,8 +194,38 @@ class AgentVersionResponse(BaseModel):
     checksum: str | None
     created_by: str | None
     created_at: datetime
+    review_status: str = "none"
+    review_requested_at: datetime | None = None
+    review_requested_by: str | None = None
+    review_note: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentVersionReviewRequest(BaseModel):
+    """Move a draft between review states.
+
+    `request` puts it in front of a reviewer, `approve` and `request_changes`
+    are the two answers, and `withdraw` takes it back off the queue.
+    """
+
+    action: Literal["request", "approve", "request_changes", "withdraw"]
+    note: str | None = Field(default=None, max_length=512)
+
+
+class DraftAwaitingReviewResponse(BaseModel):
+    """One draft somebody is waiting on, across the workspace."""
+
+    version_id: str
+    agent_id: str
+    agent_name: str | None = None
+    version: int
+    review_status: str
+    review_note: str | None = None
+    review_requested_at: datetime | None = None
+    review_requested_by: str | None = None
 
 
 class AgentReleaseResponse(BaseModel):

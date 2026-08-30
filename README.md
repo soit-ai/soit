@@ -107,7 +107,7 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Separation of duties: changing egress policy, secrets, or installed plugins requires workspace Owner/Admin, not the Dev role that builds and runs agents
 - Scoped, expiring API keys: a key carries an explicit read/write/admin ceiling and never inherits its owner's full role
 
-**Content safety and PII detection are not implemented in SOIT.** The runtime exposes a content safety port and an HTTP adapter, so a deployment can plug in a classifier it operates; inspection outcomes then become part of run evidence. With no adapter configured, the platform performs no content or PII inspection at all.
+**Content safety is a built-in baseline plus a pluggable service.** SOIT ships a deterministic in-process provider that inspects content entering and leaving the runtime for credentials (private keys, cloud and provider tokens, JWTs) and for the identifiers that are personal data everywhere (email, phone, card numbers validated by checksum, national ids). Credentials are redacted by default; personal data is recorded rather than rewritten, because rewriting real work silently is worse than reporting it. Findings go into run evidence, never the matched text. It is pattern matching, not a classifier: it cannot judge tone, intent, jailbreaks or confidentiality. A deployment that needs those sets `CONTENT_SAFETY_PROVIDER=http` and points at a classifier it operates, through the same port.
 
 ## Quick start
 

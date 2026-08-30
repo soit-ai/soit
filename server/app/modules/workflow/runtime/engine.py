@@ -38,6 +38,7 @@ class ExecutionEngine:
         trace_writer: TraceWriter,
         response_service: ResponseService | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        approval_ledger: Any | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
     ):
         """Initialize execution engine.
@@ -52,6 +53,7 @@ class ExecutionEngine:
         self.trace_writer = trace_writer
         self.response_service = response_service
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.approval_ledger = approval_ledger
         self.workflow_knowledge_query_port = workflow_knowledge_query_port
         self.state_machine = StateMachine()
 
@@ -573,6 +575,7 @@ class ExecutionEngine:
             workflow_policy=plan.plan_data.get("policy", {}),
             workflow_run_id=workflow_run_id,
             approval_checkpoint_gateway=self.approval_checkpoint_gateway,
+            approval_ledger=self.approval_ledger,
         )
 
         try:

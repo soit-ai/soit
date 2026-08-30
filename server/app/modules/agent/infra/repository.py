@@ -141,6 +141,27 @@ class AgentVersionRepository:
         results = list(self.db.exec(query).all())
         return [item if isinstance(item, AgentVersion) else item[0] for item in results]
 
+    def list_awaiting_review(self, *, limit: int = 20) -> list[AgentVersion]:
+        """Drafts somebody is waiting on, oldest wait first.
+
+        Oldest first because the useful question is which one has been sitting
+        longest, not which was asked most recently.
+        """
+        query = (
+            select(AgentVersion)
+            .where(
+                and_(
+                    AgentVersion.tenant_id == self.ctx.tenant_id,
+                    AgentVersion.workspace_id == self.ctx.workspace_id,
+                    AgentVersion.review_status.in_(("in_review", "changes_requested")),
+                )
+            )
+            .order_by(AgentVersion.review_requested_at)
+            .limit(limit)
+        )
+        results = list(self.db.exec(query).all())
+        return [item if isinstance(item, AgentVersion) else item[0] for item in results]
+
     def update(self, version: AgentVersion) -> AgentVersion:
         self.db.add(version)
         self.db.commit()

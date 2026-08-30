@@ -116,12 +116,17 @@ def test_container_reports_no_capability_when_unconfigured(monkeypatch):
     assert Container().get_content_safety_port(_ctx()) is None
 
 
-def test_container_requires_an_endpoint_before_claiming_the_capability(monkeypatch):
+def test_container_requires_an_endpoint_before_claiming_an_external_classifier(
+    monkeypatch,
+):
     from app.wiring import container as container_module
 
     monkeypatch.setattr(container_module.settings, "content_safety_enabled", True)
+    monkeypatch.setattr(container_module.settings, "content_safety_provider", "http")
     monkeypatch.setattr(container_module.settings, "content_safety_endpoint", "  ")
 
+    # Claiming inspection while sending content nowhere is worse than saying
+    # the capability is unavailable.
     assert Container().get_content_safety_port(_ctx()) is None
 
 
@@ -129,6 +134,7 @@ def test_container_builds_the_adapter_when_configured(monkeypatch):
     from app.wiring import container as container_module
 
     monkeypatch.setattr(container_module.settings, "content_safety_enabled", True)
+    monkeypatch.setattr(container_module.settings, "content_safety_provider", "http")
     monkeypatch.setattr(
         container_module.settings,
         "content_safety_endpoint",
@@ -138,6 +144,34 @@ def test_container_builds_the_adapter_when_configured(monkeypatch):
     port = Container().get_content_safety_port(_ctx())
 
     assert isinstance(port, HttpContentSafetyPort)
+
+
+def test_container_builds_the_builtin_provider_by_default(monkeypatch):
+    """It needs no service, so an unconfigured install still inspects."""
+    from app.kernel.safety.rules import RuleContentSafetyPort, SafetyAction
+    from app.wiring import container as container_module
+
+    monkeypatch.setattr(container_module.settings, "content_safety_enabled", True)
+    monkeypatch.setattr(container_module.settings, "content_safety_provider", "builtin")
+
+    port = Container().get_content_safety_port(_ctx())
+
+    assert isinstance(port, RuleContentSafetyPort)
+    assert port.secret_action is SafetyAction.REDACT
+    assert port.pii_action is SafetyAction.OBSERVE
+
+
+def test_a_misspelled_action_does_not_quietly_disable_the_check(monkeypatch):
+    from app.kernel.safety.rules import SafetyAction
+    from app.wiring import container as container_module
+
+    monkeypatch.setattr(container_module.settings, "content_safety_enabled", True)
+    monkeypatch.setattr(container_module.settings, "content_safety_provider", "builtin")
+    monkeypatch.setattr(container_module.settings, "content_safety_secret_action", "redakt")
+
+    port = Container().get_content_safety_port(_ctx())
+
+    assert port.secret_action is SafetyAction.REDACT
 
 
 def _production_settings(**overrides) -> Settings:
@@ -162,9 +196,10 @@ def _production_settings(**overrides) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-def test_production_rejects_content_safety_enabled_without_an_endpoint():
+def test_production_rejects_an_external_classifier_without_an_endpoint():
     config = _production_settings(
         content_safety_enabled=True,
+        content_safety_provider="http",
         content_safety_endpoint=None,
     )
 
@@ -172,6 +207,14 @@ def test_production_rejects_content_safety_enabled_without_an_endpoint():
         config.validate_runtime_requirements()
 
 
-def test_production_accepts_content_safety_left_unconfigured():
+def test_production_accepts_the_builtin_provider_with_no_endpoint():
+    # It runs in process, so there is nothing to point at.
+    _production_settings(
+        content_safety_enabled=True,
+        content_safety_provider="builtin",
+    ).validate_runtime_requirements()
+
+
+def test_production_accepts_content_safety_turned_off():
     # Not providing the capability is a documented, honest state.
     _production_settings(content_safety_enabled=False).validate_runtime_requirements()

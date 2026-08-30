@@ -1328,8 +1328,17 @@ class RunService:
         step_id: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        actor_user_id: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        outcome: str | None = None,
     ) -> list:
-        """Build the WHERE clauses an audit listing and count share."""
+        """Build the WHERE clauses an audit listing and count share.
+
+        Actor and object are indexed columns, so an explorer can ask "what did
+        this person do" and "what happened to this object" without scanning
+        every row and filtering in the caller.
+        """
         clauses = [
             AuditEvent.tenant_id == self.ctx.tenant_id,
             AuditEvent.workspace_id == self.ctx.workspace_id,
@@ -1343,6 +1352,14 @@ class RunService:
             clauses.append(AuditEvent.created_at >= since)
         if until:
             clauses.append(AuditEvent.created_at <= until)
+        if actor_user_id:
+            clauses.append(AuditEvent.actor_user_id == actor_user_id)
+        if resource_type:
+            clauses.append(AuditEvent.resource_type == resource_type)
+        if resource_id:
+            clauses.append(AuditEvent.resource_id == resource_id)
+        if outcome:
+            clauses.append(AuditEvent.outcome == outcome)
         return clauses
 
     def count_audits(
@@ -1354,6 +1371,10 @@ class RunService:
         gateway_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        actor_user_id: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        outcome: str | None = None,
     ) -> int:
         """Count audit events matching the filters ``list_audits`` accepts.
 
@@ -1366,6 +1387,10 @@ class RunService:
             step_id=step_id,
             since=since,
             until=until,
+            actor_user_id=actor_user_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            outcome=outcome,
         )
         if not gateway_type and not step_type:
             query = select(func.count()).select_from(AuditEvent).where(and_(*clauses))
@@ -1376,6 +1401,10 @@ class RunService:
                 step_id=step_id,
                 step_type=step_type,
                 gateway_type=gateway_type,
+                actor_user_id=actor_user_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome=outcome,
                 since=since,
                 until=until,
                 limit=_UNBOUNDED_AUDIT_LIMIT,
@@ -1392,6 +1421,10 @@ class RunService:
         gateway_type: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        actor_user_id: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        outcome: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[RunAuditLogResponse]:
@@ -1402,6 +1435,10 @@ class RunService:
             step_id=step_id,
             since=since,
             until=until,
+            actor_user_id=actor_user_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            outcome=outcome,
         )
 
         query = (
@@ -1441,6 +1478,11 @@ class RunService:
                     truncated=bool(payload.get("truncated")),
                     preview=payload.get("preview"),
                     artifact_key=payload.get("artifact_key"),
+                    actor_user_id=audit.actor_user_id,
+                    operation=audit.operation,
+                    resource_type=audit.resource_type,
+                    resource_id=audit.resource_id,
+                    created_at=audit.created_at,
                 )
             )
 

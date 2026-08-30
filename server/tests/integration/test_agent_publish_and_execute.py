@@ -642,7 +642,7 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
         plugin_runtime_port=skill_runtime,
     )
     runner = CapturingRunner()
-    monkeypatch.setattr(service, "_build_runner", lambda: runner)
+    monkeypatch.setattr(service, "_build_runner", lambda **_: runner)
     plugin_spec = {
         "name": "workspace-skill-triage",
         "publisher": "workspace",

@@ -425,13 +425,22 @@ async def list_audits(
     gateway_type: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    actor_user_id: str | None = None,
+    resource_type: str | None = None,
+    resource_id: str | None = None,
+    outcome: str | None = None,
     page_token: str | None = None,
     page_size: int = 50,
     with_total: bool = False,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
-    """List audit logs derived from run steps."""
+    """List audit logs derived from run steps.
+
+    Actor, object and outcome narrow the same ledger the run detail reads, so
+    "what did this person do" and "what happened to this object" are one query
+    each rather than a page of rows filtered by eye.
+    """
     handlers = RunHandlers(service)
     return await handlers.list_audits(
         ctx,
@@ -441,6 +450,10 @@ async def list_audits(
         gateway_type=gateway_type,
         since=since,
         until=until,
+        actor_user_id=actor_user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        outcome=outcome,
         page_token=page_token,
         page_size=page_size,
         with_total=with_total,

@@ -40,6 +40,27 @@ export interface AgentVersion {
   checksum?: string | null
   created_by?: string | null
   created_at: string
+  /** none | in_review | changes_requested | approved */
+  review_status?: string
+  review_requested_at?: string | null
+  review_requested_by?: string | null
+  review_note?: string | null
+  reviewed_by?: string | null
+  reviewed_at?: string | null
+}
+
+export type AgentReviewAction = 'request' | 'approve' | 'request_changes' | 'withdraw'
+
+/** One draft somebody is waiting on, across the whole workspace. */
+export interface DraftAwaitingReview {
+  version_id: string
+  agent_id: string
+  agent_name?: string | null
+  version: number
+  review_status: string
+  review_note?: string | null
+  review_requested_at?: string | null
+  review_requested_by?: string | null
 }
 
 export interface AgentRelease {
@@ -305,4 +326,20 @@ export const cancelAgentExecution = (
   runId: string
 ): Promise<AgentCancelResponse> => {
   return post<AgentCancelResponse>(`/agents/${agentId}/runs/${runId}/cancel`, {})
+}
+
+export const reviewAgentVersion = (
+  agentId: string,
+  versionId: string,
+  data: { action: AgentReviewAction; note?: string },
+  config?: RequestConfigWithToast,
+): Promise<AgentVersion> => {
+  return post<AgentVersion>(`/agents/${agentId}/versions/${versionId}/review`, data, config)
+}
+
+export const listDraftsAwaitingReview = (
+  params?: { limit?: number },
+  config?: RequestConfigWithToast,
+): Promise<DraftAwaitingReview[]> => {
+  return get<DraftAwaitingReview[]>('/agents/drafts/awaiting-review', params, config)
 }

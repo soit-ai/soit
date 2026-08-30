@@ -98,6 +98,24 @@ class AgentVersion(SQLModel, table=True):
     checksum: str | None = Field(default=None, nullable=True)
     created_from_version_id: str | None = Field(default=None, nullable=True)
     changelog: str | None = Field(default=None, nullable=True)
+
+    review_status: str = Field(default="none", index=True)
+    """Where this draft is in review: none, in_review, changes_requested, approved.
+
+    Deliberately a state on the draft rather than a review object. What a team
+    needs first is to tell "somebody is still writing this" apart from "this is
+    waiting on me"; a ticket with threads and assignees is a different feature
+    and is not implied by this one.
+    """
+
+    review_requested_at: datetime | None = Field(default=None, nullable=True)
+    """When the wait started, so the age of the wait is a fact and not a guess."""
+
+    review_requested_by: str | None = Field(default=None, nullable=True)
+    review_note: str | None = Field(default=None, nullable=True)
+    reviewed_by: str | None = Field(default=None, nullable=True)
+    reviewed_at: datetime | None = Field(default=None, nullable=True)
+
     created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
 

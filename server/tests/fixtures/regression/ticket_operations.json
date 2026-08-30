@@ -1,0 +1,24 @@
+[
+  {
+    "case_id": "ticket_for_named_customer",
+    "scenario": "ticket_operations",
+    "prompt": "Create a review ticket for a refund escalation from customer customer-123.",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": true,
+    "expect_workflow_child_run": true,
+    "expect_audit": true,
+    "answer": "A review ticket was created for customer-123 under the refund policy after account verification.",
+    "minimum_answer_terms": ["review ticket", "customer-123", "refund policy"]
+  },
+  {
+    "case_id": "ticket_records_its_evidence",
+    "scenario": "ticket_operations",
+    "prompt": "Escalate this refund and record why it was allowed.",
+    "expected_citation_source": "refund-policy.md",
+    "expect_tool_call": true,
+    "expect_workflow_child_run": true,
+    "expect_audit": true,
+    "answer": "A review ticket was created. The refund policy evidence and account verification are recorded on the run.",
+    "minimum_answer_terms": ["review ticket", "refund policy", "recorded"]
+  }
+]

@@ -120,6 +120,13 @@ from app.wiring.container import get_container
 from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 
 
+def _approval_ledger() -> Any:
+    """The ledger every governed approval request is written to."""
+    from app.wiring.container import ObserveApprovalLedger
+
+    return ObserveApprovalLedger()
+
+
 def _get_optional_approval_checkpoint_gateway() -> Any | None:
     container = get_container()
     try:
@@ -384,6 +391,7 @@ def build_workflow_service(*, db: Session, ctx: RequestContext) -> WorkflowServi
         event_bus=container.get_event_bus(),
         response_service=build_response_service(db=db, ctx=ctx),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
+        approval_ledger=_approval_ledger(),
         workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
             ctx=ctx,
@@ -418,6 +426,7 @@ def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplication
             storage_port=container.get_storage_port(ctx=ctx),
         ),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
+        approval_ledger=_approval_ledger(),
         regression_evaluator=build_evaluation_service(db=db, ctx=ctx),
         plugin_runtime_port=skill_runtime_port,
         capability_catalog=SqlAgentCapabilityCatalog(db, ctx),

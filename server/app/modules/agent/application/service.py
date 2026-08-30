@@ -16,6 +16,7 @@ from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.commons.ids import generate_run_id
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
+from app.kernel.ports.approvals import ApprovalLedgerPort, ApprovalRecord
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -91,6 +92,7 @@ class AgentService:
         workflow_executor: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        approval_ledger: ApprovalLedgerPort | None = None,
     ):
         self.db = db
         self.ctx = ctx
@@ -104,6 +106,7 @@ class AgentService:
         self.workflow_executor = workflow_executor
         self.capability_catalog = capability_catalog or EmptyAgentCapabilityCatalog()
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.approval_ledger = approval_ledger
         self.planner = AgentPlanner(llm_port)
         self.executor = AgentExecutor(tool_port)
         self.verifier = AgentVerifier(llm_port)
@@ -216,6 +219,15 @@ class AgentService:
             edited_arguments = payload.get("editedArgs")
             if approved and edited_arguments is not None and edited_arguments != parameters:
                 raise ValidationError("Edited tool arguments require a new approval")
+            # The run acts on the decision either way; the ledger only records
+            # that it was made, and by whom.
+            if self.approval_ledger is not None:
+                self.approval_ledger.record_decision(
+                    self.ctx,
+                    run_id=run_id,
+                    tool_call_id=tool_call_id,
+                    approved=approved,
+                )
             return {
                 "approved": approved,
                 "parameters": parameters,
@@ -263,6 +275,31 @@ class AgentService:
             if gateway_requires_approval
             else f"tool_spec:{tool_ref}"
         )
+
+        if self.approval_ledger is not None:
+            # Written before the interrupt is raised, so a task that stops for
+            # approval can be opened and answered by someone who was not
+            # watching the stream it was raised on.
+            self.approval_ledger.record_pending(
+                self.ctx,
+                ApprovalRecord(
+                    run_id=run_id,
+                    task_id=data.task_id,
+                    thread_id=data.thread_id,
+                    agent_id=data.agent_id,
+                    title=f"Approve tool call: {tool_ref}",
+                    policy_ref=policy_ref,
+                    tool_call_id=tool_call_id,
+                    details={
+                        "interrupt_id": interrupt_id,
+                        "tool_ref": tool_ref,
+                        "tool_type": tool_type,
+                        "parameters": parameters,
+                        "reason": reason,
+                        "risk_level": approval_rule.risk_level,
+                    },
+                ),
+            )
 
         raise _AgentApprovalInterrupt(
             {
