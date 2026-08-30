@@ -30,6 +30,7 @@ import {
   getKnowledgeBase,
   getKnowledgeRunCostSummary,
   listKnowledgeChunks,
+  listKnowledgeDocumentVersions,
   listKnowledgeDocuments,
   createKnowledgeIndex,
   deleteKnowledgeIndex,
@@ -39,6 +40,7 @@ import {
   queryKnowledge,
   rebuildKnowledgeIndex,
   retryKnowledgeDocumentIngest,
+  rollbackKnowledgeDocumentVersion,
   updateKnowledgeBase,
   updateKnowledgeChunk,
   uploadKnowledgeDocument,
@@ -144,6 +146,8 @@ export default function ConsoleKnowledgeDetail() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [deletingDoc, setDeletingDoc] = useState<KnowledgeDocument | null>(null)
+  const [versionsDoc, setVersionsDoc] = useState<KnowledgeDocument | null>(null)
+  const [restoring, setRestoring] = useState<KnowledgeDocument | null>(null)
   const [retryDocId, setRetryDocId] = useState<string | null>(null)
   const [editingChunk, setEditingChunk] = useState<KnowledgeChunk | null>(null)
   const [chunkForm, setChunkForm] = useState({ content: '', indexStatus: '' })
@@ -386,6 +390,34 @@ export default function ConsoleKnowledgeDetail() {
     onError: onWriteError('Failed to reprocess the document'),
   })
 
+  // A document keeps its history under its doc_key, not its row id.
+  const versionsQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'doc-versions', knowledgeId, versionsDoc?.doc_key],
+    queryFn: () => listKnowledgeDocumentVersions(knowledgeId, versionsDoc!.doc_key),
+    options: {
+      enabled: Boolean(knowledgeId && versionsDoc?.doc_key),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  })
+
+  const rollbackMutation = useMutation({
+    mutationKey: ['console', 'knowledge', 'doc-rollback', knowledgeId],
+    mutationFn: () =>
+      rollbackKnowledgeDocumentVersion(knowledgeId, restoring!.doc_key, restoring!.version),
+    onSuccess: () => {
+      setRestoring(null)
+      setVersionsDoc(null)
+      void documentsQuery.refetch()
+    },
+    onError: onWriteError('Failed to restore the version'),
+  })
+
+  const versionsState = useDataStateLabel({
+    isPending: Boolean(versionsDoc) && versionsQuery.isPending,
+    isError: versionsQuery.isError,
+  })
+
   const deleteDocMutation = useMutation({
     mutationKey: ['console', 'knowledge', 'delete-document', knowledgeId],
     mutationFn: () => deleteKnowledgeDocument(knowledgeId, deletingDoc!.id),
@@ -617,6 +649,16 @@ export default function ConsoleKnowledgeDetail() {
                           {t('console.knowDetail.recrawl')}
                         </ConsoleButton>
                       )}
+                      <ConsoleButton
+                        variant="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setVersionsDoc(doc)
+                        }}
+                      >
+                        {t('console.knowDetail.versions')}
+                      </ConsoleButton>
                       {doc.status === 'failed' && (
                         <ConsoleButton
                           size="sm"
@@ -1293,6 +1335,79 @@ export default function ConsoleKnowledgeDetail() {
       >
         <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
           {t('console.knowDetail.indexes.deleteConfirm', { name: deletingIndex?.name ?? '' })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={versionsDoc != null}
+        onOpenChange={(open) => !open && setVersionsDoc(null)}
+        title={t('console.knowDetail.versionsTitle')}
+        note={t('console.knowDetail.versionsHint')}
+        confirmLabel={t('console.common.cancel')}
+        onConfirm={() => setVersionsDoc(null)}
+      >
+        <table>
+          <thead>
+            <tr>
+              <th className="num">v</th>
+              <th>{t('console.knowDetail.columns.status')}</th>
+              <th className="num">{t('console.knowDetail.columns.updated')}</th>
+              <th className="num" />
+            </tr>
+          </thead>
+          <tbody>
+            {(versionsQuery.data || []).length === 0 ? (
+              <tr>
+                <td colSpan={4}>
+                  <div className="empty-note">
+                    {versionsQuery.isPending || versionsQuery.isError
+                      ? versionsState
+                      : t('console.knowDetail.versionsEmpty')}
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              (versionsQuery.data || []).map((version) => (
+                <tr key={`${version.doc_key}:${version.version}`}>
+                  <td className="num mono">{version.version}</td>
+                  <td>
+                    <StatusChip
+                      status={pipelineStatus(version.status)}
+                      label={version.status.toUpperCase()}
+                    />
+                  </td>
+                  <td className="num dimmer">{relativeTime(version.updated_at)}</td>
+                  <td className="num">
+                    {version.is_latest ? (
+                      <span className="dimmer" style={{ fontSize: 10.5 }}>
+                        {t('console.knowDetail.currentVersion')}
+                      </span>
+                    ) : (
+                      <ConsoleButton size="sm" onClick={() => setRestoring(version)}>
+                        {t('console.knowDetail.restore')}
+                      </ConsoleButton>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={restoring != null}
+        onOpenChange={(open) => !open && setRestoring(null)}
+        title={t('console.knowDetail.restoreTitle')}
+        confirmLabel={t('console.knowDetail.restore')}
+        busy={rollbackMutation.isPending}
+        onConfirm={() => rollbackMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.knowDetail.restoreConfirm', {
+            version: restoring?.version ?? '',
+            name: restoring ? documentLabel(restoring) : '',
+          })}
         </div>
       </ConsoleModal>
     </>

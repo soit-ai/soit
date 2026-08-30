@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { listRuns } from '@/services/run-service'
 import {
   cancelRun,
+  failRun,
   getCurrentWorkflowVersionOrNull,
   getWorkflow,
   getWorkflowCapabilities,
@@ -191,7 +192,7 @@ export default function ConsoleWorkflowDetail() {
   // what a given status permits, so each button is gated on the status the run
   // actually reports rather than offered unconditionally.
   const [confirming, setConfirming] = useState<
-    { action: 'cancel' | 'retry' | 'replay'; runId: string } | null
+    { action: 'cancel' | 'retry' | 'replay' | 'fail'; runId: string } | null
   >(null)
 
   const afterControl = () => {
@@ -226,6 +227,12 @@ export default function ConsoleWorkflowDetail() {
     onSuccess: afterControl,
     onError: onControlError('Failed to retry the run'),
   })
+  const failMutation = useMutation({
+    mutationKey: ['console', 'workflow', 'run', 'fail'],
+    mutationFn: (runId: string) => failRun(workflowId as string, runId),
+    onSuccess: afterControl,
+    onError: onControlError('Failed to mark the run failed'),
+  })
   const replayMutation = useMutation({
     mutationKey: ['console', 'workflow', 'run', 'replay'],
     mutationFn: (runId: string) => replayRun(workflowId as string, runId),
@@ -238,6 +245,7 @@ export default function ConsoleWorkflowDetail() {
     resumeMutation.isPending ||
     cancelMutation.isPending ||
     retryMutation.isPending ||
+    failMutation.isPending ||
     replayMutation.isPending
 
   const confirmMutation =
@@ -245,7 +253,9 @@ export default function ConsoleWorkflowDetail() {
       ? cancelMutation
       : confirming?.action === 'retry'
         ? retryMutation
-        : replayMutation
+        : confirming?.action === 'fail'
+          ? failMutation
+          : replayMutation
   const runs = runsQuery.data?.items || []
   const policyBundle =
     paramString((spec?.policy as Record<string, unknown>) || {}, 'bundle') ||
@@ -410,6 +420,17 @@ export default function ConsoleWorkflowDetail() {
                               >
                                 {t('console.wfDetail.runControls.cancel')}
                               </ConsoleButton>
+                              {/* A run the runtime has lost track of will never
+                                  cancel cleanly; this closes it out. */}
+                              <ConsoleButton
+                                variant="ghost"
+                                size="sm"
+                                style={{ color: 'var(--danger-foreground)' }}
+                                disabled={controlPending}
+                                onClick={() => setConfirming({ action: 'fail', runId: run.id })}
+                              >
+                                {t('console.wfDetail.runControls.fail')}
+                              </ConsoleButton>
                             </>
                           )}
                           {run.status === 'paused' && (
@@ -565,16 +586,20 @@ export default function ConsoleWorkflowDetail() {
             ? 'console.wfDetail.runControls.cancelTitle'
             : confirming?.action === 'retry'
               ? 'console.wfDetail.runControls.retryTitle'
-              : 'console.wfDetail.runControls.replayTitle',
+              : confirming?.action === 'fail'
+                ? 'console.wfDetail.runControls.failTitle'
+                : 'console.wfDetail.runControls.replayTitle',
         )}
         confirmLabel={t(
           confirming?.action === 'cancel'
             ? 'console.wfDetail.runControls.cancel'
             : confirming?.action === 'retry'
               ? 'console.wfDetail.runControls.retry'
-              : 'console.wfDetail.runControls.replay',
+              : confirming?.action === 'fail'
+                ? 'console.wfDetail.runControls.fail'
+                : 'console.wfDetail.runControls.replay',
         )}
-        destructive={confirming?.action === 'cancel'}
+        destructive={confirming?.action === 'cancel' || confirming?.action === 'fail'}
         busy={confirmMutation.isPending}
         onConfirm={() => confirming && confirmMutation.mutate(confirming.runId)}
       >
@@ -584,7 +609,9 @@ export default function ConsoleWorkflowDetail() {
               ? 'console.wfDetail.runControls.cancelConfirm'
               : confirming?.action === 'retry'
                 ? 'console.wfDetail.runControls.retryConfirm'
-                : 'console.wfDetail.runControls.replayConfirm',
+                : confirming?.action === 'fail'
+                  ? 'console.wfDetail.runControls.failConfirm'
+                  : 'console.wfDetail.runControls.replayConfirm',
             { id: confirming?.runId ?? '' },
           )}
         </div>

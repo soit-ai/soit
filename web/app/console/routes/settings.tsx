@@ -32,6 +32,8 @@ import {
   listWorkspaceMembers,
   removeWorkspaceMember,
   updateCurrentUser,
+  getWorkspace,
+  updateWorkspace,
   updateWorkspaceMemberRole,
   type WorkspaceMember,
 } from '@/services/identity-service'
@@ -210,6 +212,33 @@ export default function ConsoleSettings() {
     queryFn: () => listCreditEntries({ page_size: 20 }),
     options: { enabled: on('billing'), retry: false, refetchOnWindowFocus: false },
   })
+
+  const workspaceQuery = useQuery({
+    queryKey: ['console', 'settings', 'workspace', workspaceId],
+    queryFn: () => getWorkspace(workspaceId),
+    options: { enabled: on('account') && Boolean(workspaceId), retry: false, refetchOnWindowFocus: false },
+  })
+  const [workspaceName, setWorkspaceName] = useState('')
+  useEffect(() => {
+    if (workspaceQuery.data?.name) setWorkspaceName(workspaceQuery.data.name)
+  }, [workspaceQuery.data?.name])
+
+  const workspaceMutation = useMutation<unknown, unknown, string>({
+    mutationKey: ['console', 'settings', 'update-workspace'],
+    mutationFn: (name: string) => updateWorkspace(workspaceId, { name }),
+    onSuccess: () => {
+      void workspaceQuery.refetch()
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to rename the workspace'))
+    },
+  })
+  // Commit on blur, like the display-name row above it.
+  const commitWorkspaceName = () => {
+    const next = workspaceName.trim()
+    if (!next || next === workspaceQuery.data?.name) return
+    workspaceMutation.mutate(next)
+  }
 
   const profileMutation = useMutation<unknown, unknown, string>({
     mutationKey: ['console', 'settings', 'update-me'],
@@ -470,6 +499,19 @@ export default function ConsoleSettings() {
                   {currentUser?.workspace_role || '—'}
                 </span>
               </div>
+            </div>
+            <div className="frow">
+              <label>
+                {t('console.settings.accountPane.workspaceName')}
+                <small>{t('console.settings.accountPane.workspaceNameHint')}</small>
+              </label>
+              <input
+                className="input"
+                value={workspaceName}
+                disabled={!workspaceQuery.data}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                onBlur={commitWorkspaceName}
+              />
             </div>
             <div className="frow">
               <label>
