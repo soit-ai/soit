@@ -1,5 +1,15 @@
 name: soit
 
+# Container stdout rotation. The json-file driver has no size cap unless one
+# is given: on 2026-09-01 a single stopped milvus container's log reached
+# 90.8 GB, filled the host disk, and took MinIO down with XMinioStorageFull.
+# Anchored once here so no service can quietly miss it.
+x-logging: &default-logging
+  driver: 'json-file'
+  options:
+    max-size: '100m'
+    max-file: '3'
+
 services:
   postgres:
     image: postgres:15
@@ -17,6 +27,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging: *default-logging
 
   redis:
     # Pinned to the 7.2 line: it is the last BSD-3-Clause release series;
@@ -33,6 +44,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+    logging: *default-logging
 
   minio:
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
@@ -51,6 +63,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging: *default-logging
 
   minio-init:
     image: minio/mc:latest
@@ -66,6 +79,7 @@ services:
         mc mb -p local/${MINIO_BUCKET:-soit-artifacts}
         mc anonymous set none local/${MINIO_BUCKET:-soit-artifacts}
     restart: "no"
+    logging: *default-logging
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
@@ -89,6 +103,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging: *default-logging
 
   milvus:
     image: milvusdb/milvus:v2.5.12
@@ -114,6 +129,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    logging: *default-logging
 
   vault:
     image: hashicorp/vault:1.16
@@ -131,6 +147,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging: *default-logging
 
   migrate:
     build:
@@ -197,6 +214,7 @@ services:
         condition: service_healthy
     command: ["sh", "scripts/migrate.sh"]
     restart: "no"
+    logging: *default-logging
 
   bootstrap:
     build:
@@ -225,6 +243,7 @@ services:
       - --tenant-name
       - ${BOOTSTRAP_TENANT_NAME:-default}
     restart: "no"
+    logging: *default-logging
 
   api:
     build:
@@ -261,6 +280,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    logging: *default-logging
 
   web:
     build:
@@ -280,6 +300,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    logging: *default-logging
 
   knowledge-ingest-worker:
     build:
@@ -309,6 +330,7 @@ services:
         condition: service_healthy
     command: ["python", "scripts/ingest_worker.py"]
     restart: unless-stopped
+    logging: *default-logging
 
   outbox-dispatcher:
     build:
@@ -337,6 +359,7 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    logging: *default-logging
 
   # Fires due schedules. Its own process for the same reason the dispatcher is:
   # a scheduler that shares a process with request handling competes with it,
@@ -361,6 +384,7 @@ services:
         condition: service_healthy
     command: ["python", "scripts/schedule_worker.py"]
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   postgres_data:

@@ -82,6 +82,16 @@ x-server-environment: &server_environment
   DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+# Container stdout rotation. The json-file driver has no size cap unless one
+# is given: on 2026-09-01 a single stopped milvus container's log reached
+# 90.8 GB, filled the host disk, and took MinIO down with XMinioStorageFull.
+# Anchored once here so no service can quietly miss it.
+x-logging: &default-logging
+  driver: 'json-file'
+  options:
+    max-size: '100m'
+    max-file: '3'
+
 services:
   # TLS terminates here. The API itself speaks plain HTTP on the internal
   # network only and is never published directly.
@@ -100,6 +110,7 @@ services:
     depends_on:
       - api
       - web
+    logging: *default-logging
 
   migrate:
     build:
@@ -108,6 +119,7 @@ services:
       <<: *server_environment
     command: ["sh", "scripts/migrate.sh"]
     restart: "no"
+    logging: *default-logging
 
   api:
     build:
@@ -136,6 +148,7 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
 
   web:
     build:
@@ -145,6 +158,7 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    logging: *default-logging
 
   outbox-dispatcher:
     build:
@@ -157,6 +171,7 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    logging: *default-logging
 
   knowledge-ingest-worker:
     build:
@@ -174,6 +189,7 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    logging: *default-logging
 
   scheduler:
     build:
@@ -186,6 +202,7 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    logging: *default-logging
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.109.0
@@ -195,6 +212,7 @@ services:
       - ${OTEL_COLLECTOR_CONFIG:-./production/otel-collector.yaml}:/etc/otel/config.yaml:ro
     expose:
       - "4318"
+    logging: *default-logging
 
 volumes:
   caddy-data:
