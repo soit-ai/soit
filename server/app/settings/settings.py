@@ -125,10 +125,25 @@ class Settings(BaseSettings):
     """Seconds between sweeps. A closure is due within a day, not a second."""
 
     # Milvus
+    milvus_mode: str = "server"
+    """Vector store mode: `server` for a Milvus deployment, `lite` for Milvus Lite.
+
+    `lite` is a local debugging switch. It runs the embedded Milvus Lite engine
+    against a file on disk, so knowledge and retrieval work without the Milvus,
+    etcd and MinIO containers. It is single-process, holds no data anyone else
+    can read, and is rejected in production by `validate_runtime_requirements`.
+    """
     milvus_host: str = "localhost"
-    """Milvus host."""
+    """Milvus host. Used when `milvus_mode` is `server`."""
     milvus_port: int = 19530
-    """Milvus port."""
+    """Milvus port. Used when `milvus_mode` is `server`."""
+    milvus_lite_file: str = "./.milvus/soit_lite.db"
+    """Milvus Lite database file. Used when `milvus_mode` is `lite`.
+
+    A relative path resolves against the working directory of the process, which
+    for local development is `server/`. The parent directory is created on first
+    connect.
+    """
 
     # Storage (fsspec)
     storage_url: str | None = None
@@ -440,6 +455,14 @@ class Settings(BaseSettings):
 
         return self
 
+    @model_validator(mode="after")
+    def _validate_milvus_mode(self) -> "Settings":
+        mode = (self.milvus_mode or "").strip().lower()
+        if mode not in {"server", "lite"}:
+            raise ValueError("MILVUS_MODE must be 'server' or 'lite'")
+        self.milvus_mode = mode
+        return self
+
     def validate_runtime_requirements(self) -> None:
         """Fail closed when production runtime dependencies are not configured."""
         if (self.environment or "").strip().lower() != "production":
@@ -457,6 +480,11 @@ class Settings(BaseSettings):
             raise ValueError("Production database URL must include host, database, and credentials")
         if (self.event_bus_backend or "").strip().lower() != "redis":
             raise ValueError("Production requires the Redis event bus backend")
+        if self.milvus_mode == "lite":
+            # Milvus Lite is a single-process file store meant for local
+            # debugging. Nothing else can read it, so it must not be what a
+            # production deployment silently falls back to.
+            raise ValueError("Production requires a Milvus server, not Milvus Lite")
         if self.outbox_dispatcher_enabled:
             raise ValueError("Production requires the dedicated outbox dispatcher process")
         if self.response_interaction_inline_execution:

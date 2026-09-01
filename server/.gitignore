@@ -36,3 +36,6 @@ storages/
 celery*.bak
 celery*.dat
 celery*.dir
+
+# Milvus Lite database files (MILVUS_MODE=lite)
+.milvus/

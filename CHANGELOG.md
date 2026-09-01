@@ -165,6 +165,11 @@ record for operators.
 - The Agents workbench review tab reads the drafts the workspace is waiting on
   and answers them in place, instead of showing a fixture. The console now
   reports its own version on the About pane, stamped at build time.
+- `MILVUS_MODE=lite` runs the vector store as embedded Milvus Lite against a
+  local file, so knowledge and retrieval can be debugged without the Milvus,
+  etcd and MinIO containers. It is a development switch: one process owns the
+  file, the index is `FLAT` rather than `IVF_FLAT`, there is no Windows build,
+  and production startup refuses it.
 
 ### Changed
 

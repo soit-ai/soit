@@ -6,6 +6,8 @@ Milvus vector gateway adapter implementation.
 import hashlib
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 from pymilvus import (
@@ -21,11 +23,32 @@ from app.kernel.commons.errors import KernelError
 from app.kernel.ports.vector.interface import VectorPort, VectorQueryResult
 from app.settings.settings import settings
 
+LITE_MODE = "lite"
+"""Value of `MILVUS_MODE` that runs the embedded Milvus Lite engine."""
+
 
 class MilvusVectorPort(VectorPort):
-    """Milvus vector gateway adapter."""
+    """Milvus vector gateway adapter.
 
-    def __init__(self, host: str | None = None, port: int | None = None):
+    Talks to a Milvus deployment over gRPC, or to an embedded Milvus Lite
+    database file when `MILVUS_MODE=lite`. Both modes speak the same client
+    API, so the mode only changes how the connection is opened and which index
+    parameters are legal.
+    """
+
+    mode: str = "server"
+    host: str = "localhost"
+    port: int = 19530
+    lite_file: str = ""
+
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        *,
+        mode: str | None = None,
+        lite_file: str | None = None,
+    ):
         """Initialize Milvus gateway.
 
         The Milvus connection is established lazily on first use (not here), so that
@@ -35,9 +58,33 @@ class MilvusVectorPort(VectorPort):
         Args:
             host: Milvus host (defaults to settings).
             port: Milvus port (defaults to settings).
+            mode: `server` or `lite` (defaults to settings).
+            lite_file: Milvus Lite database file (defaults to settings).
         """
+        self.mode = (mode or settings.milvus_mode or "server").strip().lower()
         self.host = host or settings.milvus_host
         self.port = port or settings.milvus_port
+        self.lite_file = lite_file or settings.milvus_lite_file
+
+    def _lite_uri(self) -> str:
+        """Resolve the Milvus Lite database file into a connectable URI."""
+        if sys.platform == "win32":
+            # milvus-lite publishes no Windows wheel, so pymilvus would fail on
+            # an import several frames deep. Say why here instead.
+            raise KernelError(
+                "VECTOR_LITE_UNSUPPORTED",
+                "Milvus Lite has no Windows build. Run the server under WSL, or set MILVUS_MODE=server.",
+                {"platform": sys.platform},
+            )
+        path = Path(self.lite_file).expanduser()
+        if path.suffix != ".db":
+            raise KernelError(
+                "VECTOR_LITE_UNSUPPORTED",
+                "MILVUS_LITE_FILE must be a local file path ending in '.db'.",
+                {"lite_file": self.lite_file},
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return str(path)
 
     def _ensure_connected(self) -> None:
         """Connect to Milvus on demand (idempotent)."""
@@ -46,7 +93,21 @@ class MilvusVectorPort(VectorPort):
                 return
         except Exception:
             pass
+        if self.mode == LITE_MODE:
+            connections.connect("default", uri=self._lite_uri())
+            return
         connections.connect("default", host=self.host, port=self.port)
+
+    def _index_params(self, metric_type: str) -> dict[str, Any]:
+        """Index parameters for the active mode.
+
+        Milvus Lite implements FLAT only, and rejects the IVF_FLAT `nlist`
+        tuning a server accepts. Local debugging collections are small enough
+        that an exhaustive index costs nothing.
+        """
+        if self.mode == LITE_MODE:
+            return {"index_type": "FLAT", "metric_type": metric_type, "params": {}}
+        return {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}}
 
     async def check_ready(self) -> None:
         """Probe vector-store connectivity; raise if unreachable (for readiness checks)."""
@@ -107,7 +168,7 @@ class MilvusVectorPort(VectorPort):
             coll = Collection(name=normalized, schema=schema)
             coll.create_index(
                 field_name="vector",
-                index_params={"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
+                index_params=self._index_params(metric_type),
             )
             return coll
         except Exception as exc:
@@ -169,7 +230,7 @@ class MilvusVectorPort(VectorPort):
         # Build search params
         search_params = {
             "metric_type": self._to_milvus_metric(kwargs.get("metric_type")),
-            "params": {"nprobe": 10},
+            "params": {} if self.mode == LITE_MODE else {"nprobe": 10},
         }
 
         # Build filter expression if provided
