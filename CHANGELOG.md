@@ -170,6 +170,11 @@ record for operators.
   etcd and MinIO containers. It is a development switch: one process owns the
   file, the index is `FLAT` rather than `IVF_FLAT`, there is no Windows build,
   and production startup refuses it.
+- `VECTOR_BACKEND=pgvector` keeps each collection as a table in PostgreSQL, so
+  local development can reuse the database it already runs instead of standing
+  up Milvus. Scores match Milvus for the same metric; the index is HNSW, and
+  vectors wider than 2000 dimensions go unindexed because pgvector will not
+  index them. Production startup requires the `milvus` backend.
 
 ### Changed
 

@@ -50,9 +50,49 @@ under `docker/`, then run the backend and frontend in hot reload mode from
 Keep local data and credentials out of commits. Do not commit generated
 evidence files, screenshots, database dumps, or environment-specific records.
 
-### Milvus Lite For Local Debugging
+### Vector Store
 
-`MILVUS_MODE` selects the vector store the backend talks to. The default,
+`VECTOR_BACKEND` selects the vector store the backend talks to: `milvus`, the
+default and what deployments run, or `pgvector`, which keeps each collection as
+a table in PostgreSQL. Startup refuses anything but `milvus` when
+`ENVIRONMENT=production`.
+
+#### pgvector For Local Development
+
+`pgvector` is the lighter local path: a PostgreSQL instance is already running
+for the application database, so this drops the `milvus`, `etcd`, and `minio`
+containers without adding a process.
+
+```powershell
+$env:VECTOR_BACKEND = "pgvector"
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 9200
+```
+
+It needs the `vector` extension in the target database. The adapter runs
+`CREATE EXTENSION IF NOT EXISTS vector` on first use, which needs privileges a
+shared instance may not grant; where it does not, run it once as a superuser
+and the adapter proceeds. `PGVECTOR_URL` points at a different PostgreSQL than
+the application database, and is empty by default, which reuses `DATABASE_URL`.
+Collections live in the `PGVECTOR_SCHEMA` schema, `vector_store` by default, one
+table each.
+
+Scores match Milvus for the same metric — a similarity for `cosine` and `ip`, a
+distance for `l2` — because retrieval compares them against thresholds. What
+differs is the index: HNSW rather than `IVF_FLAT`, and no index at all above
+2000 dimensions, which is the widest vector pgvector will index.
+
+Round-trip coverage against a real PostgreSQL lives in
+`server/tests/postgres/test_pgvector_backend.py`. It skips unless `DATABASE_URL`
+names a PostgreSQL that has the extension available:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:5432/db_soit"
+uv run pytest tests/postgres/test_pgvector_backend.py
+```
+
+#### Milvus Lite For Local Debugging
+
+`MILVUS_MODE` selects how the `milvus` backend connects. The default,
 `server`, connects to a Milvus deployment at `MILVUS_HOST:MILVUS_PORT`.
 `lite` runs the embedded Milvus Lite engine against a local file, so knowledge
 ingestion and retrieval work without the `milvus`, `etcd`, and `minio`
@@ -77,3 +117,6 @@ The switch is for debugging only:
   not, once collections grow.
 - One process owns the file, and nothing else can read it. Startup refuses
   `lite` when `ENVIRONMENT=production`.
+
+On Windows, `VECTOR_BACKEND=pgvector` is the local path that works; Milvus Lite
+is not available there.

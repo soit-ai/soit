@@ -688,6 +688,11 @@ class Container:
         if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("SOIT_TESTING") == "1":
             from app.adapters.vector.memory import InMemoryVectorPort
             return InMemoryVectorPort()
+
+        if settings.vector_backend == "pgvector":
+            from app.adapters.vector.pgvector import PgVectorPort
+            return PgVectorPort()
+
         from app.adapters.vector.milvus import MilvusVectorPort
         return MilvusVectorPort()
 

@@ -124,6 +124,19 @@ class Settings(BaseSettings):
     account_deletion_sweeper_interval: float = 3600.0
     """Seconds between sweeps. A closure is due within a day, not a second."""
 
+    # Vector store
+    vector_backend: str = "milvus"
+    """Vector store backend: `milvus` or `pgvector`.
+
+    `pgvector` keeps collections as tables in PostgreSQL, which is what local
+    development uses when it already runs PostgreSQL and would rather not run
+    Milvus. Production runs `milvus`.
+    """
+    pgvector_url: str | None = None
+    """PostgreSQL URL for the vector store. Falls back to `database_url`."""
+    pgvector_schema: str = "vector_store"
+    """Schema holding the pgvector collection tables."""
+
     # Milvus
     milvus_mode: str = "server"
     """Vector store mode: `server` for a Milvus deployment, `lite` for Milvus Lite.
@@ -456,7 +469,12 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _validate_milvus_mode(self) -> "Settings":
+    def _validate_vector_store(self) -> "Settings":
+        backend = (self.vector_backend or "").strip().lower()
+        if backend not in {"milvus", "pgvector"}:
+            raise ValueError("VECTOR_BACKEND must be 'milvus' or 'pgvector'")
+        self.vector_backend = backend
+
         mode = (self.milvus_mode or "").strip().lower()
         if mode not in {"server", "lite"}:
             raise ValueError("MILVUS_MODE must be 'server' or 'lite'")
@@ -480,6 +498,11 @@ class Settings(BaseSettings):
             raise ValueError("Production database URL must include host, database, and credentials")
         if (self.event_bus_backend or "").strip().lower() != "redis":
             raise ValueError("Production requires the Redis event bus backend")
+        if self.vector_backend != "milvus":
+            # pgvector is a development convenience that puts the vector store
+            # in the application database. Production runs the vector store the
+            # deployment profile provisions and operates.
+            raise ValueError("Production requires the Milvus vector backend")
         if self.milvus_mode == "lite":
             # Milvus Lite is a single-process file store meant for local
             # debugging. Nothing else can read it, so it must not be what a
