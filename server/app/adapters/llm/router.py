@@ -61,6 +61,7 @@ class RuntimeProviderConfig:
     capability_matrix: dict[str, Any] = field(default_factory=dict)
     provider_capabilities: dict[str, Any] = field(default_factory=dict)
     pricing: dict[str, Any] = field(default_factory=dict)
+    image_capabilities: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class ResolvedLLMRoute:
     retry_backoff: str = "exponential"
     retryable_status_codes: tuple[int, ...] = (408, 409, 429, 500, 502, 503, 504)
     pricing: dict[str, Any] = field(default_factory=dict)
+    image_capabilities: dict[str, Any] = field(default_factory=dict)
 
 
 ProviderResolver = Callable[
@@ -390,6 +392,7 @@ class LLMRouterPort(LLMPort):
                         retry_backoff=config.retry_backoff,
                         retryable_status_codes=config.retryable_status_codes,
                         pricing=config.pricing,
+                        image_capabilities=config.image_capabilities,
                     )
                 if config.adapter_backend == "litellm":
                     credentials = await self._resolve_credentials(ctx, config)
@@ -408,6 +411,7 @@ class LLMRouterPort(LLMPort):
                         retry_backoff=config.retry_backoff,
                         retryable_status_codes=config.retryable_status_codes,
                         pricing=config.pricing,
+                        image_capabilities=config.image_capabilities,
                     )
                 raise ValidationError(
                     f"Unsupported LLM adapter backend: {config.adapter_backend}"
@@ -507,6 +511,29 @@ class LLMRouterPort(LLMPort):
         response = await route.port.generate_image(
             prompt=prompt,
             model=model,
+            n=n,
+            size=size,
+            **self._downstream_kwargs(kwargs),
+        )
+        response.runtime_target = route.target
+        return response
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        route = await self.resolve_route(model, kwargs.get("ctx"), ("image_edit",))
+        response = await route.port.edit_image(
+            image=image,
+            prompt=prompt,
+            model=model,
+            mask=mask,
             n=n,
             size=size,
             **self._downstream_kwargs(kwargs),

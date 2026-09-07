@@ -5,7 +5,7 @@ LLM port policies: timeout/retry/rate-limit/audit.
 
 import asyncio
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -32,6 +32,7 @@ from app.kernel.ports.llm.interface import (
     LLMRuntimeTarget,
     RerankResponse,
 )
+from app.kernel.ports.llm.runtime_config import validate_image_request
 from app.kernel.ports.safety.interface import (
     ContentSafetyPort,
     SafetyDecision,
@@ -91,6 +92,7 @@ class _ResolvedPolicyRoute:
     retry_backoff: str
     retryable_status_codes: tuple[int, ...]
     pricing: dict[str, Any]
+    image_capabilities: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -145,7 +147,7 @@ def _unpriced_calculation(
     pricing: dict[str, Any],
     *,
     billing_basis: str,
-    quantities: dict[str, int],
+    quantities: dict[str, Any],
     reason: str | None = None,
 ) -> _PricingCalculation:
     resolved_reason = reason or (
@@ -210,7 +212,7 @@ def _priced_calculation(
     *,
     billing_basis: str,
     rates: dict[str, tuple[Decimal, str, int]],
-    quantities: dict[str, int],
+    quantities: dict[str, Any],
     amount: Decimal,
     currency: str,
 ) -> _PricingCalculation:
@@ -388,9 +390,25 @@ def _image_pricing(
     pricing: dict[str, Any],
     *,
     image_count: int,
+    size: str | None = None,
+    quality: str | None = None,
+    steps: int | None = None,
 ) -> _PricingCalculation:
-    """Images bill per generated image; pricing key "image" with unit "image"."""
-    quantities = {"images": image_count}
+    """Images bill per generated image; pricing key "image" with unit "image".
+
+    Diffusion cost tracks resolution and step count, not image count, so the
+    request shape is recorded alongside the quantity even while the rate stays
+    per-image. Without it the images column reconciles against a number that
+    cannot explain itself: four 4096px images and four 256px images bill
+    identically and leave no evidence of the difference.
+    """
+    quantities: dict[str, Any] = {"images": image_count}
+    if size:
+        quantities["size"] = size
+    if quality:
+        quantities["quality"] = quality
+    if steps is not None:
+        quantities["steps"] = steps
     try:
         currency = str(pricing["currency"]).strip().upper()
     except (KeyError, TypeError, ValueError):
@@ -619,6 +637,7 @@ class LLMPolicyGateway(LLMPort):
             retry_backoff=route.retry_backoff,
             retryable_status_codes=route.retryable_status_codes,
             pricing=route.pricing,
+            image_capabilities=getattr(route, "image_capabilities", None) or {},
         )
 
     @staticmethod
@@ -1225,6 +1244,15 @@ class LLMPolicyGateway(LLMPort):
                 timeout_fallback=self.image_timeout_seconds,
                 max_retries_cap=self.image_max_retries,
             )
+            # Refuse against what the model declared before the provider is
+            # called, so an impossible request is never billed.
+            validate_image_request(
+                route.image_capabilities,
+                model=model,
+                size=size,
+                background=kwargs.get("background"),
+                seed=kwargs.get("seed"),
+            )
             with self.otel_tracer.start_as_current_span(
                 "soit.llm.generate_image",
                 attributes={
@@ -1281,7 +1309,13 @@ class LLMPolicyGateway(LLMPort):
                     },
                 )
                 pricing = _with_runtime_identity(
-                    _image_pricing(route.pricing, image_count=image_count),
+                    _image_pricing(
+                        route.pricing,
+                        image_count=image_count,
+                        size=size,
+                        quality=kwargs.get("quality"),
+                        steps=kwargs.get("steps"),
+                    ),
                     requested_model=model,
                     identity=identity,
                 )
@@ -1296,6 +1330,179 @@ class LLMPolicyGateway(LLMPort):
                     **identity,
                     source_port="llm",
                     operation="generate_image",
+                    latency_ms=elapsed_ms,
+                    request_count=n,
+                )
+
+            return response
+        except Exception as e:
+            if step and self.trace_writer:
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    error_code="IMAGE_ERROR",
+                    error_message=str(e),
+                    error_details=error_details(e),
+                )
+            raise
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        """Edit an image with policy enforcement.
+
+        Deliberately the same chain as ``generate_image`` - one rate limit, one
+        daily quota, one credit guard, one trace step, one cost row - because an
+        edit is the same kind of spend as a generation. Only the capability
+        token and the operation name differ, so an edit appears in the ledger as
+        its own operation without a second governance mechanism existing.
+
+        Args:
+            image: Source image bytes.
+            prompt: What the edited region should become.
+            model: Model reference.
+            mask: Optional selection; white marks the region to edit.
+            n: Number of images to return.
+            size: Optional output size.
+            **kwargs: Additional parameters.
+
+        Returns:
+            ImageGenerationResponse instance.
+        """
+        if self.rate_limit_per_minute:
+            rate_limit_key = f"llm:image:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        await self._check_daily_quota(key_suffix="image")
+        if self.credit_guard:
+            await self.credit_guard.check(operation="edit_image")
+
+        step = None
+        if self.trace_writer:
+            run_id = resolve_run_id(kwargs, self.ctx)
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            masked = "yes" if mask else "no"
+            step = self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="llm",
+                input_summary=(
+                    f"model={model}, images={n}, mask={masked}, prompt={prompt[:200]}"
+                ),
+            )
+            self.trace_writer.update_step_status(step.id, "running")
+
+        start_time = utc_now()
+        try:
+            route = await self._resolve_call_route(
+                model,
+                ("image_edit",),
+                timeout_fallback=self.image_timeout_seconds,
+                max_retries_cap=self.image_max_retries,
+            )
+            validate_image_request(
+                route.image_capabilities,
+                model=model,
+                size=size,
+                has_mask=mask is not None,
+                background=kwargs.get("background"),
+                seed=kwargs.get("seed"),
+            )
+            with self.otel_tracer.start_as_current_span(
+                "soit.llm.edit_image",
+                attributes={
+                    "gen_ai.operation.name": "image_edit",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                    "soit.tenant.id": self.ctx.tenant_id,
+                    "soit.workspace.id": self.ctx.workspace_id,
+                    "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
+                    "soit.step.id": step.id if step else "",
+                    "soit.llm.image.requested_count": n,
+                    "soit.llm.image.masked": mask is not None,
+                },
+            ) as span:
+                response = await self._run_call(
+                    lambda: route.port.edit_image(
+                        image=image,
+                        prompt=prompt,
+                        model=model,
+                        mask=mask,
+                        n=n,
+                        size=size,
+                        ctx=self.ctx,
+                        **kwargs,
+                    ),
+                    timeout_factory=lambda: KernelTimeoutError(
+                        f"LLM image edit timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": model},
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+                response.runtime_target = response.runtime_target or route.target
+                span.set_attribute("gen_ai.response.model", response.model or model)
+                span.set_attribute(
+                    "soit.llm.image.generated_count",
+                    len(response.images),
+                )
+
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                image_count = len(response.images)
+                identity = _runtime_cost_fields(
+                    requested_model=model,
+                    upstream_model=response.model,
+                    target=response.runtime_target,
+                )
+                self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    metrics={
+                        "image_count": image_count,
+                        "latency_ms": elapsed_ms,
+                        "model": response.model or model,
+                        "model_ref": identity["model_ref"],
+                        "provider_id": identity["provider_id"],
+                        "provider_slug": identity["provider_slug"],
+                        "provider_kind": identity["provider_kind"],
+                        "upstream_model": identity["upstream_model"],
+                    },
+                )
+                pricing = _with_runtime_identity(
+                    _image_pricing(
+                        route.pricing,
+                        image_count=image_count,
+                        size=size,
+                        quality=kwargs.get("quality"),
+                        steps=kwargs.get("steps"),
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
+                self.trace_writer.record_cost(
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    step_id=step.id,
+                    billing_basis="images",
+                    billed_quantity=image_count,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
+                    **identity,
+                    source_port="llm",
+                    operation="edit_image",
                     latency_ms=elapsed_ms,
                     request_count=n,
                 )

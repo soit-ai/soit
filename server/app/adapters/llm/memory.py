@@ -30,6 +30,9 @@ _TINY_PNG_B64 = (
 class InMemoryLLMPort(LLMPort):
     """In-memory LLM implementation with deterministic responses."""
 
+    def __init__(self) -> None:
+        self.last_edit: dict[str, Any] | None = None
+
     async def chat(
         self,
         messages: list[ChatMessage],
@@ -168,6 +171,31 @@ class InMemoryLLMPort(LLMPort):
         **kwargs: Any,
     ) -> ImageGenerationResponse:
         model_name = model.split(":")[-1] if ":" in model else model
+        return ImageGenerationResponse(
+            images=[GeneratedImage(b64_json=_TINY_PNG_B64) for _ in range(max(1, n))],
+            model=model_name,
+        )
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        model_name = model.split(":")[-1] if ":" in model else model
+        # Recorded so tests can assert the mask reached the adapter rather than
+        # being dropped somewhere in the governance chain.
+        self.last_edit = {
+            "image_bytes": len(image or b""),
+            "mask_bytes": len(mask) if mask else 0,
+            "prompt": prompt,
+            "size": size,
+            "kwargs": dict(kwargs),
+        }
         return ImageGenerationResponse(
             images=[GeneratedImage(b64_json=_TINY_PNG_B64) for _ in range(max(1, n))],
             model=model_name,

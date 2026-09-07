@@ -108,3 +108,41 @@ class ContentSafetyPort(ABC):
             The verdict to apply.
         """
         raise NotImplementedError
+
+    async def inspect_image(
+        self,
+        image: bytes,
+        *,
+        direction: SafetyDirection,
+        media_type: str = "image/png",
+        **kwargs: Any,
+    ) -> SafetyVerdict:
+        """Inspect one image and return the policy verdict.
+
+        Not abstract, and the default is an explicit "no capability" rather
+        than an allow: a deployment whose classifier only reads text must not
+        have its images silently recorded as checked. The verdict carries a
+        finding saying so, so the run's evidence distinguishes "inspected and
+        clean" from "never inspected".
+
+        Args:
+            image: Encoded image bytes.
+            direction: Whether the image is entering or leaving the runtime.
+            media_type: MIME type of the encoded bytes.
+            **kwargs: Adapter-specific context (run_id, tenant_id, ...).
+
+        Returns:
+            The verdict to apply.
+        """
+        del image, direction, media_type, kwargs
+        return SafetyVerdict(
+            decision=SafetyDecision.ALLOW,
+            findings=[
+                SafetyFinding(
+                    category="safety.image_inspection_unavailable",
+                    severity="info",
+                    detail=f"{type(self).__name__} inspects text only",
+                )
+            ],
+            provider=None,
+        )

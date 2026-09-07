@@ -8,6 +8,7 @@ safety service cannot become a hole in the egress policy.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import httpx
@@ -84,6 +85,72 @@ class HttpContentSafetyPort(ContentSafetyPort):
             # An unreachable classifier must not silently disable the check.
             # Deployments that prefer availability over enforcement can opt out
             # explicitly, but the default is to refuse the content.
+            if self.fail_closed:
+                return SafetyVerdict(
+                    decision=SafetyDecision.BLOCK,
+                    findings=[
+                        SafetyFinding(
+                            category="safety.provider_unavailable",
+                            severity="error",
+                            detail=type(exc).__name__,
+                        )
+                    ],
+                    provider=self.provider,
+                )
+            return SafetyVerdict(
+                decision=SafetyDecision.ALLOW,
+                findings=[
+                    SafetyFinding(
+                        category="safety.provider_unavailable",
+                        severity="warning",
+                        detail=type(exc).__name__,
+                    )
+                ],
+                provider=self.provider,
+            )
+
+        return self._to_verdict(data)
+
+    async def inspect_image(
+        self,
+        image: bytes,
+        *,
+        direction: SafetyDirection,
+        media_type: str = "image/png",
+        **kwargs: Any,
+    ) -> SafetyVerdict:
+        """Forward an image to the configured service.
+
+        The bytes travel base64-encoded in the same envelope as text, so a
+        deployment runs one safety service rather than two, and the same
+        fail-closed rule applies: an unreachable classifier refuses the content
+        unless the deployment has explicitly opted out.
+        """
+        payload = {
+            "image_b64": base64.b64encode(image).decode("ascii"),
+            "media_type": media_type,
+            "direction": direction.value,
+            "tenant_id": self.ctx.tenant_id,
+            "workspace_id": self.ctx.workspace_id,
+        }
+        run_id = kwargs.get("run_id")
+        if run_id:
+            payload["run_id"] = str(run_id)
+
+        try:
+            async with governed_httpx_client(
+                ctx=self.ctx,
+                resource_ref=RESOURCE_REF,
+                timeout=httpx.Timeout(self.timeout_seconds),
+            ) as client:
+                response = await client.post(
+                    self.endpoint,
+                    json=payload,
+                    headers=self._headers(),
+                )
+                response.raise_for_status()
+                data = response.json()
+        except Exception as exc:
             if self.fail_closed:
                 return SafetyVerdict(
                     decision=SafetyDecision.BLOCK,

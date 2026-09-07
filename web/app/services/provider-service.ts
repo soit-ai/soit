@@ -264,6 +264,11 @@ const MODEL_CAPABILITY_KEYS = [
   'audio_input',
   'video_input',
   'image_output',
+  // Routing checks these two by name: `image_generation` for /images/generations
+  // and `image_edit` for /images/edits. Without them a model that can serve an
+  // image route shows no sign of it in the console.
+  'image_generation',
+  'image_edit',
   'tool_calling',
   'structured_outputs',
   'reasoning',

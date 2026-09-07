@@ -13,7 +13,10 @@ import redis.asyncio as redis_async
 from app.adapters.llm.router import RuntimeProviderConfig
 from app.infra.db.session import get_db_sync
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.runtime_config import resolve_litellm_runtime_config
+from app.kernel.ports.llm.runtime_config import (
+    normalize_image_capabilities,
+    resolve_litellm_runtime_config,
+)
 from app.modules.modelhub.infra.repository import (
     PlatformModelRepository,
     ProviderModelRepository,
@@ -95,6 +98,9 @@ class DatabaseProviderResolver:
                 or {}
             ),
             pricing=getattr(model, "pricing_json", None) or {},
+            image_capabilities=normalize_image_capabilities(
+                getattr(model, "capabilities_json", None)
+            ),
         )
 
     @staticmethod

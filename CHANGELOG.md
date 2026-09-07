@@ -175,9 +175,42 @@ record for operators.
   up Milvus. Scores match Milvus for the same metric; the index is HNSW, and
   vectors wider than 2000 dimensions go unindexed because pgvector will not
   index them. Production startup requires the `milvus` backend.
+- `POST /images/edits` edits an existing image under a text instruction, in the
+  three shapes that are one provider call: inpainting (image and mask),
+  outpainting (a pre-expanded canvas whose new margin is masked), and reference
+  editing (image, no mask). It runs the same governance chain as generation —
+  one rate limit, one daily quota, one credit check, one trace step, one cost
+  row — and appears in the ledger as `edit_image`, so an edit is told apart from
+  a generation without a second mechanism existing.
+- The mask convention is fixed at the API boundary and published with every
+  response as `mask_convention`. White marks the region to edit. The two
+  conventions in use are exact opposites, and guessing wrong does not degrade an
+  edit, it inverts it: adapters convert per provider so one mask means one thing
+  on every route.
+- Image models can declare what they will actually accept — `mask`,
+  `transparent_background`, `max_dimension`, `supports_seed` — and a request
+  against a trait the model has ruled out is refused with one SOIT error code
+  before the provider is called and before anything is billed. Only declared
+  traits are enforced; a model that never stated one is routed as before.
+- Image generation and editing accept `async=true`, returning a run id
+  immediately and finishing the work in the background, and
+  `response_format=artifact`, writing results into governed run storage. Four
+  2048px images are 10-16 MB of base64 in one response body, which a gateway
+  cuts before the provider has finished.
+- Generated and edited images are inspected by the content safety port before
+  they are stored or returned, so a refused image never becomes a durable
+  artifact. A deployment whose classifier reads only text records that fact
+  rather than an all-clear: the evidence distinguishes "inspected and clean"
+  from "never inspected".
 
 ### Changed
 
+- Image cost snapshots record the shape of the request — `size`, `quality`,
+  `steps` — alongside the count. The rate is still per image; without the shape
+  the images column could not explain itself, because four 4096px images and
+  four 256px images bill identically.
+- Model capability refusals answer 4xx instead of 500. A model that cannot serve
+  the requested capability is a fact about the request, not a server fault.
 - License documentation clarified: the usage-condition wording previously
   stated in the README (multi-tenant hosting, frontend branding) was
   removed; SOIT Community is licensed under the Apache License 2.0.
@@ -210,6 +243,12 @@ record for operators.
 
 ### Fixed
 
+- Image calls to any `gpt-image` model failed at the provider with
+  `Unknown parameter: 'response_format'`. The models always answer with inline
+  base64 and reject the parameter that asks for it, while LiteLLM still lists it
+  as supported. This affected generation, which shipped earlier, as well as the
+  new edit endpoint. A request that asks for `url` from such a model is now told
+  so plainly rather than quietly handed base64.
 - Dark-mode success, warning, and info badges rendered near-black text on a
   dark tint of their own hue, leaving the label unreadable.
 - The prompt-versus-completion token bar drew a breakdown in success green,

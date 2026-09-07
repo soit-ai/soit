@@ -352,6 +352,43 @@ class LLMPort(ABC):
             f"{type(self).__name__} does not support image generation"
         )
 
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        """Edit an existing image under a text instruction.
+
+        One method covers the three shapes the same provider call serves:
+        inpainting (image + mask), outpainting (a pre-expanded canvas whose new
+        margin is masked), and reference editing (image, no mask).
+
+        Not abstract, for the same reason as ``generate_image``: chat-only
+        adapters keep working and fail loudly if ever routed an edit.
+
+        Args:
+            image: Source image bytes.
+            prompt: What the edited region should become.
+            mask: Optional selection. SOIT's convention is **white marks the
+                region to edit**; adapters convert to whatever their provider
+                reads, so callers never see the difference.
+            model: Model reference.
+            n: Number of images to return.
+            size: Optional output size; None follows the input image.
+            **kwargs: Additional provider parameters.
+
+        Returns:
+            ImageGenerationResponse instance.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support image editing"
+        )
+
     @abstractmethod
     async def rerank(
         self,

@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.llm.image_mask import mask_to_openai_alpha
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
@@ -63,6 +64,7 @@ class LiteLLMPort(LLMPort):
         embedding_fn: SDKCall | None = None,
         rerank_fn: SDKCall | None = None,
         image_generation_fn: SDKCall | None = None,
+        image_edit_fn: SDKCall | None = None,
         load_sdk_defaults: bool = True,
     ) -> None:
         self.provider_kind = provider_kind
@@ -81,7 +83,10 @@ class LiteLLMPort(LLMPort):
         self.max_retries = max_retries
 
         if load_sdk_defaults and (
-            completion_fn is None or embedding_fn is None or image_generation_fn is None
+            completion_fn is None
+            or embedding_fn is None
+            or image_generation_fn is None
+            or image_edit_fn is None
         ):
             import litellm
 
@@ -91,6 +96,7 @@ class LiteLLMPort(LLMPort):
             image_generation_fn = image_generation_fn or getattr(
                 litellm, "aimage_generation", None
             )
+            image_edit_fn = image_edit_fn or getattr(litellm, "aimage_edit", None)
 
         if completion_fn is None or embedding_fn is None:
             raise ValueError("LiteLLM completion and embedding callables are required")
@@ -98,6 +104,7 @@ class LiteLLMPort(LLMPort):
         self._embedding = embedding_fn
         self._rerank = rerank_fn
         self._image_generation = image_generation_fn
+        self._image_edit = image_edit_fn
 
     def _model_name(self, model: str) -> str:
         model_id = model
@@ -363,8 +370,100 @@ class LiteLLMPort(LLMPort):
             params["size"] = size
         # Prefer inline bytes so callers own storage; providers without
         # b64 support ignore the hint and return URLs instead.
-        params["response_format"] = kwargs.get("response_format") or "b64_json"
+        self._apply_response_format(params, kwargs.get("response_format"))
         response = await self._image_generation(**params)
+        images: list[GeneratedImage] = []
+        for item in _value(response, "data", []) or []:
+            images.append(
+                GeneratedImage(
+                    b64_json=_value(item, "b64_json"),
+                    url=_value(item, "url"),
+                )
+            )
+        return ImageGenerationResponse(
+            images=images,
+            model=_value(response, "model", params["model"]),
+        )
+
+    # Providers that read the mask's alpha channel, where transparent marks
+    # the region to replace. Everything else is sent SOIT's own convention:
+    # white marks the region to edit.
+    _ALPHA_MASK_PROVIDERS = {"openai", "openai_compatible", "azure_openai"}
+
+    # Models that always answer with inline base64 and reject the parameter
+    # that asks for it. LiteLLM still lists response_format as supported for
+    # these, so sending it is a provider-side 400 on every call.
+    _IMPLICIT_B64_MODEL_PREFIXES = ("gpt-image", "chatgpt-image")
+
+    @classmethod
+    def _accepts_response_format(cls, model_name: str) -> bool:
+        bare = model_name.rsplit("/", 1)[-1]
+        return not bare.startswith(cls._IMPLICIT_B64_MODEL_PREFIXES)
+
+    @classmethod
+    def _apply_response_format(
+        cls,
+        params: dict[str, Any],
+        requested: str | None,
+    ) -> None:
+        """Ask for inline bytes where the model lets us, and say so where not.
+
+        A model that cannot serve URLs is told to the caller rather than
+        quietly handed back base64 under a URL request, which would break the
+        response shape they coded against.
+        """
+        resolved = requested or "b64_json"
+        if cls._accepts_response_format(params["model"]):
+            params["response_format"] = resolved
+            return
+        if resolved == "url":
+            raise ValidationError(
+                f"Model {params['model']} returns inline image bytes only; "
+                "request response_format=b64_json"
+            )
+
+    def _mask_for_provider(self, mask: bytes) -> bytes:
+        if self.provider_kind in self._ALPHA_MASK_PROVIDERS:
+            return mask_to_openai_alpha(mask)
+        return mask
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        if self._image_edit is None:
+            raise ValidationError("LiteLLM image editing capability is unavailable")
+        params: dict[str, Any] = {
+            "model": self._model_name(model),
+            "image": image,
+            "prompt": prompt,
+            "n": n,
+            **self._connection_params(),
+        }
+        if mask is not None:
+            params["mask"] = self._mask_for_provider(mask)
+        if size is not None:
+            params["size"] = size
+        self._apply_response_format(params, kwargs.get("response_format"))
+
+        # Parameters outside the OpenAI edit shape reach the provider through
+        # extra_body rather than being dropped in silence: a seed the caller
+        # asked to reproduce with must either be honoured or refused.
+        extra_body = dict(kwargs.get("extra_body") or {})
+        for name in ("seed", "strength", "negative_prompt", "background", "output_format"):
+            value = kwargs.get(name)
+            if value is not None:
+                extra_body[name] = value
+        if extra_body:
+            params["extra_body"] = extra_body
+
+        response = await self._image_edit(**params)
         images: list[GeneratedImage] = []
         for item in _value(response, "data", []) or []:
             images.append(
