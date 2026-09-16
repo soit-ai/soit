@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import update
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import (
     generate_artifact_id,
@@ -124,11 +124,16 @@ def _build_pricing_snapshot(
 
 
 class TraceWriter:
-    """Write trace data to database and object storage."""
+    """Write trace data to database and object storage.
+
+    Every method that touches the database is a coroutine. Outbox rows are
+    staged synchronously (they are only `session.add`) and flushed together
+    with the business write they belong to.
+    """
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         event_bus: EventBus | None = None,
         sandbox: bool = False,
@@ -194,7 +199,10 @@ class TraceWriter:
 
         self._emit_event(event_type, payload, run_id=run_id)
 
-    def create_run(
+    def _in_scope(self, row: Any) -> bool:
+        return row.tenant_id == self.ctx.tenant_id and row.workspace_id == self.ctx.workspace_id
+
+    async def create_run(
         self,
         mode: str,
         *,
@@ -228,8 +236,8 @@ class TraceWriter:
         if attempt_no < 1:
             raise ValueError("attempt_no must be at least 1")
         if parent_run_id:
-            parent = self.db.get(Run, parent_run_id)
-            if not parent or parent.tenant_id != self.ctx.tenant_id or parent.workspace_id != self.ctx.workspace_id:
+            parent = await self.db.get(Run, parent_run_id)
+            if not parent or not self._in_scope(parent):
                 raise ValueError("Parent run scope mismatch")
 
         run = Run(
@@ -280,8 +288,8 @@ class TraceWriter:
             payload=outbox_payload,
         )
         OutboxPublisher(OutboxRepository(self.db)).publish(envelope)
-        self.db.flush()
-        self.db.refresh(run)
+        await self.db.flush()
+        await self.db.refresh(run)
 
         set_run_context(run.id)
 
@@ -305,7 +313,7 @@ class TraceWriter:
 
         return run
 
-    def update_run_status(
+    async def update_run_status(
         self,
         run_id: str,
         status: str,
@@ -324,12 +332,12 @@ class TraceWriter:
         Returns:
             Updated Run instance.
         """
-        run = self.db.get(Run, run_id)
+        run = await self.db.get(Run, run_id)
         if not run:
             raise ValueError(f"Run not found: {run_id}")
 
         # Verify scope
-        if run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
+        if not self._in_scope(run):
             raise ValueError("Run scope mismatch")
 
         old_status = run.status
@@ -343,8 +351,8 @@ class TraceWriter:
                 run.error_message = error_message[:8192]
             if error_step_id:
                 run.error_step_id = error_step_id
-            self.db.flush()
-            self.db.refresh(run)
+            await self.db.flush()
+            await self.db.refresh(run)
             return run
 
         changed_at = utc_now()
@@ -371,7 +379,7 @@ class TraceWriter:
                 duration_seconds = (changed_at - started_at).total_seconds()
                 values["duration_ms"] = int(duration_seconds * 1000)
 
-        result = self.db.execute(
+        result = await self.db.exec(
             update(Run)
             .where(
                 Run.id == run_id,
@@ -383,16 +391,18 @@ class TraceWriter:
             .execution_options(synchronize_session=False)
         )
         if result.rowcount != 1:
-            self.db.expire_all()
-            current = self.db.get(Run, run_id)
+            # Somebody else moved the run; reload it to report the real state.
+            self.db.expire(run)
+            current = await self.db.get(Run, run_id)
             if current and current.status == target_status:
                 return current
             if current:
                 validate_run_transition(current.status, target_status)
-            raise RuntimeTransitionError(f"Concurrent run transition rejected: {old_status} -> {target_status}")
+            raise RuntimeTransitionError(
+                f"Concurrent run transition rejected: {old_status} -> {target_status}"
+            )
 
-        self.db.expire(run)
-        self.db.refresh(run)
+        await self.db.refresh(run)
         status_payload: dict[str, Any] = {
             "run_id": run.id,
             "old_status": old_status,
@@ -415,46 +425,27 @@ class TraceWriter:
                 payload=status_payload,
             )
         )
-        self.db.flush()
-        self.db.refresh(run)
+        await self.db.flush()
+        await self.db.refresh(run)
 
-        self._emit_event(
-            "run.status",
-            {
-                "run_id": run.id,
-                "status": run.status,
-                "mode": run.mode,
-                "kind": run.kind,
-                "output_summary": run.output_summary,
-                "subject_kind": run.subject_kind,
-                "subject_id": run.subject_id,
-                "subject_version_id": run.subject_version_id,
-                "error_code": run.error_code,
-                "error_message": run.error_message,
-                "error_step_id": run.error_step_id,
-            },
-            run_id=run.id,
-        )
-        self._emit_event(
-            "run.updated",
-            {
-                "run_id": run.id,
-                "status": run.status,
-                "mode": run.mode,
-                "kind": run.kind,
-                "output_summary": run.output_summary,
-                "subject_kind": run.subject_kind,
-                "subject_id": run.subject_id,
-                "subject_version_id": run.subject_version_id,
-                "error_code": run.error_code,
-                "error_message": run.error_message,
-                "error_step_id": run.error_step_id,
-            },
-            run_id=run.id,
-        )
+        run_payload = {
+            "run_id": run.id,
+            "status": run.status,
+            "mode": run.mode,
+            "kind": run.kind,
+            "output_summary": run.output_summary,
+            "subject_kind": run.subject_kind,
+            "subject_id": run.subject_id,
+            "subject_version_id": run.subject_version_id,
+            "error_code": run.error_code,
+            "error_message": run.error_message,
+            "error_step_id": run.error_step_id,
+        }
+        self._emit_event("run.status", dict(run_payload), run_id=run.id)
+        self._emit_event("run.updated", dict(run_payload), run_id=run.id)
         return run
 
-    def create_step(
+    async def create_step(
         self,
         run_id: str,
         step_type: str,
@@ -488,7 +479,7 @@ class TraceWriter:
             started_at=utc_now(),
         )
         self.db.add(step)
-        self.db.flush()
+        await self.db.flush()
         step_payload: dict[str, Any] = {
             "run_id": step.run_id,
             "step_row_id": step.id,
@@ -512,8 +503,8 @@ class TraceWriter:
                 payload=step_payload,
             )
         )
-        self.db.flush()
-        self.db.refresh(step)
+        await self.db.flush()
+        await self.db.refresh(step)
 
         set_step_context(step.id)
 
@@ -533,7 +524,7 @@ class TraceWriter:
 
         return step
 
-    def update_step_status(
+    async def update_step_status(
         self,
         step_id: str,
         status: str,
@@ -557,12 +548,12 @@ class TraceWriter:
         Returns:
             Updated RunStep instance.
         """
-        step = self.db.get(RunStep, step_id)
+        step = await self.db.get(RunStep, step_id)
         if not step:
             raise ValueError(f"Step not found: {step_id}")
 
         # Verify scope
-        if step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
+        if not self._in_scope(step):
             raise ValueError("Step scope mismatch")
 
         old_status = step.status
@@ -580,8 +571,8 @@ class TraceWriter:
                 step.error_message = error_message
             if error_details:
                 step.error_details = error_details
-            self.db.flush()
-            self.db.refresh(step)
+            await self.db.flush()
+            await self.db.refresh(step)
             return step
 
         changed_at = utc_now()
@@ -601,7 +592,7 @@ class TraceWriter:
         if target_status in ("succeeded", "failed", "skipped", "canceled", "expired"):
             values["ended_at"] = changed_at
 
-        result = self.db.execute(
+        result = await self.db.exec(
             update(RunStep)
             .where(
                 RunStep.id == step_id,
@@ -613,20 +604,21 @@ class TraceWriter:
             .execution_options(synchronize_session=False)
         )
         if result.rowcount != 1:
-            self.db.expire_all()
-            current = self.db.get(RunStep, step_id)
+            self.db.expire(step)
+            current = await self.db.get(RunStep, step_id)
             if current and current.status == target_status:
                 return current
             if current:
                 validate_step_transition(current.status, target_status)
-            raise RuntimeTransitionError(f"Concurrent step transition rejected: {old_status} -> {target_status}")
+            raise RuntimeTransitionError(
+                f"Concurrent step transition rejected: {old_status} -> {target_status}"
+            )
 
-        self.db.expire(step)
-        self.db.refresh(step)
+        await self.db.refresh(step)
 
         if target_status == "failed":
-            run = self.db.get(Run, step.run_id)
-            if run and run.tenant_id == self.ctx.tenant_id and run.workspace_id == self.ctx.workspace_id:
+            run = await self.db.get(Run, step.run_id)
+            if run and self._in_scope(run):
                 run.error_step_id = step.id
                 if error_code:
                     run.error_code = error_code
@@ -642,7 +634,7 @@ class TraceWriter:
             "step_type": step.step_type,
             "tenant_id": self.ctx.tenant_id,
         }
-        self.db.flush()
+        await self.db.flush()
         OutboxPublisher(OutboxRepository(self.db)).publish(
             DomainEventEnvelope(
                 event_id=generate_ulid(),
@@ -658,65 +650,59 @@ class TraceWriter:
                 payload=step_status_payload,
             )
         )
-        self.db.flush()
-        self.db.refresh(step)
+        await self.db.flush()
+        await self.db.refresh(step)
 
-        self._emit_event(
-            "step.status",
-            {
-                "run_id": step.run_id,
-                "step_id": step.id,
-                "step_key": step.step_id,
-                "step_type": step.step_type,
-                "status": step.status,
-                "node_id": step.node_id,
-                "input_summary": step.input_summary,
-                "output_summary": step.output_summary,
-                "error_code": step.error_code,
-                "error_message": step.error_message,
-            },
-            run_id=step.run_id,
-        )
-        self._emit_event(
-            "step.updated",
-            {
-                "run_id": step.run_id,
-                "step_id": step.id,
-                "step_key": step.step_id,
-                "step_type": step.step_type,
-                "status": step.status,
-                "node_id": step.node_id,
-                "input_summary": step.input_summary,
-                "output_summary": step.output_summary,
-                "error_code": step.error_code,
-                "error_message": step.error_message,
-            },
-            run_id=step.run_id,
-        )
+        step_payload = {
+            "run_id": step.run_id,
+            "step_id": step.id,
+            "step_key": step.step_id,
+            "step_type": step.step_type,
+            "status": step.status,
+            "node_id": step.node_id,
+            "input_summary": step.input_summary,
+            "output_summary": step.output_summary,
+            "error_code": step.error_code,
+            "error_message": step.error_message,
+        }
+        self._emit_event("step.status", dict(step_payload), run_id=step.run_id)
+        self._emit_event("step.updated", dict(step_payload), run_id=step.run_id)
         return step
 
-    def update_step_metrics(
+    async def update_step_metrics(
         self,
         step_id: str,
         metrics: dict[str, Any],
     ) -> RunStep:
         """Merge metrics into an existing step without changing status."""
-        step = self.db.get(RunStep, step_id)
+        step = await self.db.get(RunStep, step_id)
         if not step:
             raise ValueError(f"Step not found: {step_id}")
 
-        if step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
+        if not self._in_scope(step):
             raise ValueError("Step scope mismatch")
 
         merged = dict(step.metrics_json or {})
         merged.update(metrics or {})
         step.metrics_json = merged
 
-        self.db.flush()
-        self.db.refresh(step)
+        await self.db.flush()
+        await self.db.refresh(step)
         return step
 
-    def create_artifact(
+    async def _require_scoped_run(self, run_id: str) -> Run:
+        run = await self.db.get(Run, run_id)
+        if not run or not self._in_scope(run):
+            raise ValueError("Run scope mismatch")
+        return run
+
+    async def _require_scoped_step(self, run_id: str, step_id: str) -> RunStep:
+        step = await self.db.get(RunStep, step_id)
+        if not step or step.run_id != run_id or not self._in_scope(step):
+            raise ValueError("Step scope mismatch")
+        return step
+
+    async def create_artifact(
         self,
         run_id: str,
         artifact_type: str,
@@ -738,18 +724,9 @@ class TraceWriter:
         Returns:
             Created RunArtifact instance.
         """
-        run = self.db.get(Run, run_id)
-        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
-            raise ValueError("Run scope mismatch")
+        await self._require_scoped_run(run_id)
         if step_id:
-            step = self.db.get(RunStep, step_id)
-            if (
-                not step
-                or step.run_id != run_id
-                or step.tenant_id != self.ctx.tenant_id
-                or step.workspace_id != self.ctx.workspace_id
-            ):
-                raise ValueError("Step scope mismatch")
+            await self._require_scoped_step(run_id, step_id)
         prefix = f"tenants/{self.ctx.tenant_id}/workspaces/{self.ctx.workspace_id}/runs/{run_id}/"
         if not storage_key.startswith(prefix):
             raise ValueError("Artifact storage key must use the canonical run prefix")
@@ -772,11 +749,11 @@ class TraceWriter:
             meta_json=meta,
         )
         self.db.add(artifact)
-        self.db.flush()
-        self.db.refresh(artifact)
+        await self.db.flush()
+        await self.db.refresh(artifact)
         return artifact
 
-    def record_cost(
+    async def record_cost(
         self,
         *,
         run_id: str,
@@ -812,13 +789,9 @@ class TraceWriter:
         dimension columns (tokens, latency_ms, request_count, ...) carry the
         measured facts, while unit/quantity only describe the billing basis.
         """
-        run = self.db.get(Run, run_id)
-        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
-            raise ValueError("Run scope mismatch")
+        await self._require_scoped_run(run_id)
         if step_id:
-            step = self.db.get(RunStep, step_id)
-            if not step or step.run_id != run_id or step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
-                raise ValueError("Step scope mismatch")
+            await self._require_scoped_step(run_id, step_id)
 
         qty = Decimal(str(billed_quantity))
         if qty < 0:
@@ -889,7 +862,7 @@ class TraceWriter:
             storage_bytes=storage_bytes,
         )
         self.db.add(entry)
-        self.db.flush()
+        await self.db.flush()
 
         cost_payload: dict[str, Any] = {
             "cost_entry_id": entry.id,
@@ -936,8 +909,8 @@ class TraceWriter:
                 payload=cost_payload,
             )
         )
-        self.db.flush()
-        self.db.refresh(entry)
+        await self.db.flush()
+        await self.db.refresh(entry)
 
         self._emit_event(
             "cost.recorded",
@@ -957,7 +930,7 @@ class TraceWriter:
         )
         return entry
 
-    def record_audit(
+    async def record_audit(
         self,
         *,
         run_id: str,
@@ -969,13 +942,9 @@ class TraceWriter:
     ) -> AuditEvent:
         """Persist an authoritative scoped gateway audit event."""
 
-        run = self.db.get(Run, run_id)
-        if not run or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
-            raise ValueError("Run scope mismatch")
+        await self._require_scoped_run(run_id)
         if step_id:
-            step = self.db.get(RunStep, step_id)
-            if not step or step.run_id != run_id or step.tenant_id != self.ctx.tenant_id or step.workspace_id != self.ctx.workspace_id:
-                raise ValueError("Step scope mismatch")
+            await self._require_scoped_step(run_id, step_id)
 
         event = AuditEvent(
             tenant_id=self.ctx.tenant_id,
@@ -994,6 +963,6 @@ class TraceWriter:
             payload_json=payload,
         )
         self.db.add(event)
-        self.db.flush()
-        self.db.refresh(event)
+        await self.db.flush()
+        await self.db.refresh(event)
         return event

@@ -3,94 +3,98 @@
 from __future__ import annotations
 
 import pytest
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.status import RuntimeTransitionError
 
+pytestmark = pytest.mark.asyncio
 
-def test_run_terminal_status_cannot_be_overwritten(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
-    writer.update_run_status(run.id, "running")
-    writer.update_run_status(run.id, "succeeded")
+
+async def test_run_terminal_status_cannot_be_overwritten(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
+    await writer.update_run_status(run.id, "running")
+    await writer.update_run_status(run.id, "succeeded")
 
     with pytest.raises(RuntimeTransitionError, match="Invalid run transition"):
-        writer.update_run_status(run.id, "failed")
+        await writer.update_run_status(run.id, "failed")
 
-    db.refresh(run)
+    await async_db.refresh(run)
     assert run.status == "succeeded"
 
 
-def test_run_same_terminal_status_is_idempotent(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
-    writer.update_run_status(run.id, "running")
-    first = writer.update_run_status(run.id, "succeeded", output_summary="done")
+async def test_run_same_terminal_status_is_idempotent(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
+    await writer.update_run_status(run.id, "running")
+    first = await writer.update_run_status(run.id, "succeeded", output_summary="done")
     ended_at = first.ended_at
 
-    second = writer.update_run_status(run.id, "succeeded", output_summary="done")
+    second = await writer.update_run_status(run.id, "succeeded", output_summary="done")
 
     assert second.status == "succeeded"
     assert second.ended_at == ended_at
 
 
-def test_step_terminal_status_cannot_be_overwritten(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("workflow")
-    step = writer.create_step(run.id, "tool")
-    writer.update_step_status(step.id, "running")
-    writer.update_step_status(step.id, "succeeded")
+async def test_step_terminal_status_cannot_be_overwritten(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("workflow")
+    step = await writer.create_step(run.id, "tool")
+    await writer.update_step_status(step.id, "running")
+    await writer.update_step_status(step.id, "succeeded")
 
     with pytest.raises(RuntimeTransitionError, match="Invalid step transition"):
-        writer.update_step_status(step.id, "failed")
+        await writer.update_step_status(step.id, "failed")
 
-    db.refresh(step)
+    await async_db.refresh(step)
     assert step.status == "succeeded"
 
 
-def test_unknown_runtime_status_is_rejected_without_mutation(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_unknown_runtime_status_is_rejected_without_mutation(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
     with pytest.raises(RuntimeTransitionError, match="Unknown run status"):
-        writer.update_run_status(run.id, "completed")
+        await writer.update_run_status(run.id, "completed")
 
-    stored = db.get(Run, run.id)
+    stored = await async_db.get(Run, run.id)
     assert stored is not None
     assert stored.status == "queued"
 
 
-def test_step_skipped_is_terminal(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("workflow")
-    step = writer.create_step(run.id, "condition")
+async def test_step_skipped_is_terminal(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("workflow")
+    step = await writer.create_step(run.id, "condition")
 
-    skipped = writer.update_step_status(step.id, "skipped")
+    skipped = await writer.update_step_status(step.id, "skipped")
 
     assert skipped.status == "skipped"
     assert skipped.ended_at is not None
-    assert db.get(RunStep, step.id).status == "skipped"
+    stored = await async_db.get(RunStep, step.id)
+    assert stored is not None
+    assert stored.status == "skipped"
 
 
-def test_stale_writer_cannot_win_terminal_status_race(db, ctx):
-    initial_writer = TraceWriter(db, ctx)
-    run = initial_writer.create_run("agent")
-    initial_writer.update_run_status(run.id, "running")
-    db.commit()
+async def test_stale_writer_cannot_win_terminal_status_race(async_db, ctx):
+    initial_writer = TraceWriter(async_db, ctx)
+    run = await initial_writer.create_run("agent")
+    await initial_writer.update_run_status(run.id, "running")
+    await async_db.commit()
 
-    winner_session = Session(db.get_bind())
-    stale_session = Session(db.get_bind())
+    winner_session = AsyncSession(async_db.bind, expire_on_commit=False)
+    stale_session = AsyncSession(async_db.bind, expire_on_commit=False)
     try:
-        assert winner_session.get(Run, run.id).status == "running"
-        assert stale_session.get(Run, run.id).status == "running"
+        assert (await winner_session.get(Run, run.id)).status == "running"
+        assert (await stale_session.get(Run, run.id)).status == "running"
 
-        TraceWriter(winner_session, ctx).update_run_status(run.id, "succeeded")
-        winner_session.commit()
+        await TraceWriter(winner_session, ctx).update_run_status(run.id, "succeeded")
+        await winner_session.commit()
 
         with pytest.raises(RuntimeTransitionError, match="Invalid run transition"):
-            TraceWriter(stale_session, ctx).update_run_status(run.id, "failed")
+            await TraceWriter(stale_session, ctx).update_run_status(run.id, "failed")
     finally:
-        winner_session.close()
-        stale_session.close()
+        await winner_session.close()
+        await stale_session.close()

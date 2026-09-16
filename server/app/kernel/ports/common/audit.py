@@ -93,7 +93,7 @@ async def log_gateway_request(
     inline_limit = 8 * 1024
 
     if len(audit_bytes) <= inline_limit:
-        trace_writer.record_audit(
+        await trace_writer.record_audit(
             run_id=run_id,
             step_id=step_id,
             gateway_type=gateway_type,
@@ -114,7 +114,7 @@ async def log_gateway_request(
                 content_type="application/json",
                 run_id=run_id,
             )
-            artifact = trace_writer.create_artifact(
+            artifact = await trace_writer.create_artifact(
                 run_id=run_id,
                 artifact_type="json",
                 storage_key=storage_key,
@@ -128,7 +128,7 @@ async def log_gateway_request(
                     "mime_type": "application/json",
                 },
             )
-            trace_writer.record_audit(
+            await trace_writer.record_audit(
                 run_id=run_id,
                 step_id=step_id,
                 gateway_type=gateway_type,
@@ -147,7 +147,7 @@ async def log_gateway_request(
             pass
 
     preview = audit_json[:inline_limit]
-    trace_writer.record_audit(
+    await trace_writer.record_audit(
         run_id=run_id,
         step_id=step_id,
         gateway_type=gateway_type,

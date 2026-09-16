@@ -6,9 +6,11 @@ from typing import Any, Protocol
 
 
 class RunQueryRepositoryProtocol(Protocol):
-    """Minimal query executor contract used by RunService."""
+    """Minimal async query executor contract used by RunService."""
 
-    def exec(self, statement: Any) -> Any: ...
+    async def exec(self, statement: Any) -> Any: ...
+
+    async def get(self, entity: Any, ident: Any) -> Any: ...
 
 
 __all__ = ["RunQueryRepositoryProtocol"]

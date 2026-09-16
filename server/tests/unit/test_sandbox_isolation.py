@@ -69,14 +69,18 @@ async def test_explicitly_listed_tools_still_run():
     assert inner.calls == ["tool:local:search"]
 
 
-def test_runs_are_real_unless_the_writer_says_otherwise(db, ctx: RequestContext):
-    run = TraceWriter(db, ctx).create_run(mode="agent", subject_id="a", subject_kind="agent")
+@pytest.mark.asyncio
+async def test_runs_are_real_unless_the_writer_says_otherwise(async_db, ctx: RequestContext):
+    run = await TraceWriter(async_db, ctx).create_run(
+        mode="agent", subject_id="a", subject_kind="agent"
+    )
 
     assert run.sandbox is False
 
 
-def test_a_sandbox_writer_marks_every_run_it_creates(db, ctx: RequestContext):
-    run = TraceWriter(db, ctx, sandbox=True).create_run(
+@pytest.mark.asyncio
+async def test_a_sandbox_writer_marks_every_run_it_creates(async_db, ctx: RequestContext):
+    run = await TraceWriter(async_db, ctx, sandbox=True).create_run(
         mode="agent",
         subject_id="a",
         subject_kind="agent",
@@ -85,7 +89,7 @@ def test_a_sandbox_writer_marks_every_run_it_creates(db, ctx: RequestContext):
     assert run.sandbox is True
 
 
-def _cost(db, ctx: RequestContext, *, run_id: str, sandbox: bool, tokens: int) -> None:
+async def _cost(db, ctx: RequestContext, *, run_id: str, sandbox: bool, tokens: int) -> None:
     db.add(
         Run(
             id=run_id,
@@ -111,16 +115,17 @@ def _cost(db, ctx: RequestContext, *, run_id: str, sandbox: bool, tokens: int) -
             prompt_tokens=tokens,
         )
     )
-    db.commit()
+    await db.commit()
 
 
-def test_sandbox_spend_is_excluded_from_workspace_cost(db, ctx: RequestContext):
-    _cost(db, ctx, run_id="run_real", sandbox=False, tokens=10)
-    _cost(db, ctx, run_id="run_rehearsal", sandbox=True, tokens=90)
-    service = RunService(db=db, ctx=ctx)
+@pytest.mark.asyncio
+async def test_sandbox_spend_is_excluded_from_workspace_cost(async_db, ctx: RequestContext):
+    await _cost(async_db, ctx, run_id="run_real", sandbox=False, tokens=10)
+    await _cost(async_db, ctx, run_id="run_rehearsal", sandbox=True, tokens=90)
+    service = RunService(db=async_db, ctx=ctx)
 
-    default_summary = service.summarize_costs()
-    with_sandbox = service.summarize_costs(include_sandbox=True)
+    default_summary = await service.summarize_costs()
+    with_sandbox = await service.summarize_costs(include_sandbox=True)
 
     # Counting rehearsal spend as production would misstate what the workspace
     # actually cost.

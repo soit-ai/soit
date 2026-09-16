@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import and_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError
 from app.kernel.commons.time import utc_now
@@ -136,7 +136,7 @@ class RuntimeToolExecutionService:
     def __init__(
         self,
         *,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         trace_writer: TraceWriter,
         lease_owner: str,
@@ -150,220 +150,218 @@ class RuntimeToolExecutionService:
         self.lease_seconds = lease_seconds
         self.storage_port = storage_port
 
-    def _require_run(self, run_id: str) -> Run:
-        run = self.db.get(Run, run_id)
-        if (
-            run is None
-            or run.tenant_id != self.ctx.tenant_id
-            or run.workspace_id != self.ctx.workspace_id
-        ):
+    def _in_scope(self, row: Any) -> bool:
+        return row.tenant_id == self.ctx.tenant_id and row.workspace_id == self.ctx.workspace_id
+
+    async def _require_run(self, run_id: str) -> Run:
+        run = await self.db.get(Run, run_id)
+        if run is None or not self._in_scope(run):
             raise ValueError("Run scope mismatch")
         return run
 
-    def _require_tool_step(self, *, run_id: str, run_step_id: str) -> RunStep:
-        step = self.db.get(RunStep, run_step_id)
+    async def _require_tool_step(self, *, run_id: str, run_step_id: str) -> RunStep:
+        step = await self.db.get(RunStep, run_step_id)
         if (
             step is None
-            or step.tenant_id != self.ctx.tenant_id
-            or step.workspace_id != self.ctx.workspace_id
+            or not self._in_scope(step)
             or step.run_id != run_id
             or step.step_type != "tool"
         ):
             raise ValueError("Tool RunStep scope mismatch")
         return step
 
-    def _find_existing(
+    def _call_statement(self, run_id: str, tool_call_id: str):
+        return select(RunStepToolCall).where(
+            and_(
+                RunStepToolCall.tenant_id == self.ctx.tenant_id,
+                RunStepToolCall.workspace_id == self.ctx.workspace_id,
+                RunStepToolCall.run_id == run_id,
+                RunStepToolCall.tool_call_id == tool_call_id,
+            )
+        )
+
+    async def _find_existing(
         self,
         command: ToolExecutionCommand,
         *,
         for_update: bool = False,
     ) -> RunStepToolCall | None:
-        statement = select(RunStepToolCall).where(
-                and_(
-                    RunStepToolCall.tenant_id == self.ctx.tenant_id,
-                    RunStepToolCall.workspace_id == self.ctx.workspace_id,
-                    RunStepToolCall.run_id == command.run_id,
-                    RunStepToolCall.tool_call_id == command.tool_call_id,
-                )
-            )
+        statement = self._call_statement(command.run_id, command.tool_call_id)
         if for_update:
             statement = statement.with_for_update()
-        return self.db.execute(statement).scalars().first()
+        # Plain SQLAlchemy select: scalarize, the way the sync code did.
+        return (await self.db.exec(statement)).scalars().first()
 
-    def get_by_call(self, *, run_id: str, tool_call_id: str) -> ToolExecutionClaim | None:
+    async def get_by_call(self, *, run_id: str, tool_call_id: str) -> ToolExecutionClaim | None:
         """Return the scoped control record and linked step for a logical call."""
 
-        record = self.db.execute(
-            select(RunStepToolCall).where(
-                and_(
-                    RunStepToolCall.tenant_id == self.ctx.tenant_id,
-                    RunStepToolCall.workspace_id == self.ctx.workspace_id,
-                    RunStepToolCall.run_id == run_id,
-                    RunStepToolCall.tool_call_id == tool_call_id,
-                )
-            )
-        ).scalars().first()
+        record = (await self.db.exec(self._call_statement(run_id, tool_call_id))).scalars().first()
         if record is None:
             return None
-        step = self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
+        step = await self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
         return ToolExecutionClaim(record=record, run_step=step)
 
-    def _require_record(self, record_id: str) -> RunStepToolCall:
-        record = self.db.get(RunStepToolCall, record_id)
-        if (
-            record is None
-            or record.tenant_id != self.ctx.tenant_id
-            or record.workspace_id != self.ctx.workspace_id
-        ):
+    async def _require_record(self, record_id: str) -> RunStepToolCall:
+        record = await self.db.get(RunStepToolCall, record_id)
+        if record is None or not self._in_scope(record):
             raise ValueError("Tool-call record scope mismatch")
         return record
 
-    def claim(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
-        """Create the RunStep and atomically claim one logical tool call."""
+    async def _claim_existing(
+        self, command: ToolExecutionCommand, existing: RunStepToolCall, request_hash: str
+    ) -> ToolExecutionClaim:
+        """Resolve a claim against a record that already exists for this call."""
 
-        self._require_run(command.run_id)
-        request_hash = canonical_request_hash(command.arguments)
-        existing = self._find_existing(command, for_update=True)
-        if existing is not None:
-            if (
-                existing.tool_ref != command.tool_ref
-                or existing.idempotency_key != command.idempotency_key
-            ):
-                raise ConflictError("Tool call identity was reused with different input")
-            if existing.status == "waiting_approval" and command.resume_approval:
-                now = utc_now()
-                existing.request_hash = request_hash
-                existing.parameters_summary_json = summarize_parameters(command.arguments)
-                existing.status = "claimed"
-                existing.attempt_count = max(existing.attempt_count, 0) + 1
-                existing.lease_owner = self.lease_owner
-                existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
-                existing.updated_at = now
-                self.db.add(existing)
-                self.db.commit()
-                self.db.refresh(existing)
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
-                )
-                return ToolExecutionClaim(record=existing, run_step=step)
-            if existing.request_hash != request_hash:
-                raise ConflictError("Tool call identity was reused with different input")
-            if (
-                existing.status in {"claimed", "running"}
-                and existing.lease_owner == self.lease_owner
-                and existing.lease_expires_at is not None
-                and _aware_utc(existing.lease_expires_at) > utc_now()
-            ):
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
-                )
-                return ToolExecutionClaim(record=existing, run_step=step)
-            if existing.status == "failed" and command.retry_failed:
-                now = utc_now()
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
-                )
-                self.trace_writer.update_step_status(step.id, "retrying")
-                existing.status = "claimed"
-                existing.attempt_count += 1
-                existing.lease_owner = self.lease_owner
-                existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
-                existing.outbound_started_at = None
-                existing.result_json = {}
-                existing.result_artifact_id = None
-                existing.error_code = None
-                existing.error_message = None
-                existing.updated_at = now
-                existing.completed_at = None
-                self.db.add(existing)
-                self.db.commit()
-                self.db.refresh(existing)
-                self.db.refresh(step)
-                return ToolExecutionClaim(record=existing, run_step=step)
-            if existing.status in {"succeeded", "failed"}:
-                payload = existing.result_json or {}
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
-                )
-                return ToolExecutionClaim(
-                    record=existing,
-                    run_step=step,
-                    replayed=True,
-                    cached_response=ToolResponse(
-                        result=payload.get("result"),
-                        success=existing.status == "succeeded",
-                        error=existing.error_message,
-                        metadata={
-                            **dict(payload.get("metadata") or {}),
-                            "idempotent_replay": True,
-                        },
-                    ),
-                )
-            if existing.status == "in_doubt":
-                raise ConflictError("Tool call outcome is in doubt")
+        if (
+            existing.tool_ref != command.tool_ref
+            or existing.idempotency_key != command.idempotency_key
+        ):
+            raise ConflictError("Tool call identity was reused with different input")
+        if existing.status == "waiting_approval" and command.resume_approval:
             now = utc_now()
-            lease_expired = (
-                existing.lease_expires_at is not None
-                and _aware_utc(existing.lease_expires_at) <= now
+            existing.request_hash = request_hash
+            existing.parameters_summary_json = summarize_parameters(command.arguments)
+            existing.status = "claimed"
+            existing.attempt_count = max(existing.attempt_count, 0) + 1
+            existing.lease_owner = self.lease_owner
+            existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
+            existing.updated_at = now
+            self.db.add(existing)
+            await self.db.commit()
+            await self.db.refresh(existing)
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
             )
-            if lease_expired and existing.outbound_started_at is not None:
-                existing.status = "in_doubt"
-                existing.lease_owner = None
-                existing.lease_expires_at = None
-                existing.updated_at = now
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
+            return ToolExecutionClaim(record=existing, run_step=step)
+        if existing.request_hash != request_hash:
+            raise ConflictError("Tool call identity was reused with different input")
+        if (
+            existing.status in {"claimed", "running"}
+            and existing.lease_owner == self.lease_owner
+            and existing.lease_expires_at is not None
+            and _aware_utc(existing.lease_expires_at) > utc_now()
+        ):
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
+            )
+            return ToolExecutionClaim(record=existing, run_step=step)
+        if existing.status == "failed" and command.retry_failed:
+            now = utc_now()
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
+            )
+            await self.trace_writer.update_step_status(step.id, "retrying")
+            existing.status = "claimed"
+            existing.attempt_count += 1
+            existing.lease_owner = self.lease_owner
+            existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
+            existing.outbound_started_at = None
+            existing.result_json = {}
+            existing.result_artifact_id = None
+            existing.error_code = None
+            existing.error_message = None
+            existing.updated_at = now
+            existing.completed_at = None
+            self.db.add(existing)
+            await self.db.commit()
+            await self.db.refresh(existing)
+            await self.db.refresh(step)
+            return ToolExecutionClaim(record=existing, run_step=step)
+        if existing.status in {"succeeded", "failed"}:
+            payload = existing.result_json or {}
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
+            )
+            return ToolExecutionClaim(
+                record=existing,
+                run_step=step,
+                replayed=True,
+                cached_response=ToolResponse(
+                    result=payload.get("result"),
+                    success=existing.status == "succeeded",
+                    error=existing.error_message,
+                    metadata={
+                        **dict(payload.get("metadata") or {}),
+                        "idempotent_replay": True,
+                    },
+                ),
+            )
+        if existing.status == "in_doubt":
+            raise ConflictError("Tool call outcome is in doubt")
+        now = utc_now()
+        lease_expired = (
+            existing.lease_expires_at is not None
+            and _aware_utc(existing.lease_expires_at) <= now
+        )
+        if lease_expired and existing.outbound_started_at is not None:
+            existing.status = "in_doubt"
+            existing.lease_owner = None
+            existing.lease_expires_at = None
+            existing.updated_at = now
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
+            )
+            if step.status == "running":
+                await self.trace_writer.update_step_status(
+                    step.id,
+                    "paused",
+                    metrics={
+                        "tool_call": {
+                            "tool_call_id": existing.tool_call_id,
+                            "tool_ref": existing.tool_ref,
+                            "attempt_count": existing.attempt_count,
+                            "operational_status": "in_doubt",
+                        }
+                    },
                 )
-                if step.status == "running":
-                    self.trace_writer.update_step_status(
-                        step.id,
-                        "paused",
-                        metrics={
-                            "tool_call": {
-                                "tool_call_id": existing.tool_call_id,
-                                "tool_ref": existing.tool_ref,
-                                "attempt_count": existing.attempt_count,
-                                "operational_status": "in_doubt",
-                            }
-                        },
-                    )
-                self.db.add(existing)
-                self.db.commit()
-                raise ConflictError("Tool call outcome is in doubt")
-            if lease_expired and existing.outbound_started_at is None:
-                existing.status = "claimed"
-                existing.attempt_count += 1
-                existing.lease_owner = self.lease_owner
-                existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
-                existing.updated_at = now
-                self.db.add(existing)
-                self.db.commit()
-                self.db.refresh(existing)
-                step = self._require_tool_step(
-                    run_id=existing.run_id,
-                    run_step_id=existing.run_step_id,
-                )
-                return ToolExecutionClaim(record=existing, run_step=step)
-            raise ConflictError("Tool call is already claimed")
+            self.db.add(existing)
+            await self.db.commit()
+            raise ConflictError("Tool call outcome is in doubt")
+        if lease_expired and existing.outbound_started_at is None:
+            existing.status = "claimed"
+            existing.attempt_count += 1
+            existing.lease_owner = self.lease_owner
+            existing.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
+            existing.updated_at = now
+            self.db.add(existing)
+            await self.db.commit()
+            await self.db.refresh(existing)
+            step = await self._require_tool_step(
+                run_id=existing.run_id,
+                run_step_id=existing.run_step_id,
+            )
+            return ToolExecutionClaim(record=existing, run_step=step)
+        raise ConflictError("Tool call is already claimed")
 
+    async def _resolve_run_step(self, command: ToolExecutionCommand) -> RunStep:
         if command.run_step_id:
-            run_step = self._require_tool_step(
+            return await self._require_tool_step(
                 run_id=command.run_id,
                 run_step_id=command.run_step_id,
             )
-        else:
-            run_step = self.trace_writer.create_step(
-                run_id=command.run_id,
-                step_type="tool",
-                input_summary=f"tool={command.tool_ref}",
-            )
+        return await self.trace_writer.create_step(
+            run_id=command.run_id,
+            step_type="tool",
+            input_summary=f"tool={command.tool_ref}",
+        )
+
+    async def claim(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
+        """Create the RunStep and atomically claim one logical tool call."""
+
+        await self._require_run(command.run_id)
+        request_hash = canonical_request_hash(command.arguments)
+        existing = await self._find_existing(command, for_update=True)
+        if existing is not None:
+            return await self._claim_existing(command, existing, request_hash)
+
+        run_step = await self._resolve_run_step(command)
         if run_step.status == "queued":
-            run_step = self.trace_writer.update_step_status(run_step.id, "preparing")
+            run_step = await self.trace_writer.update_step_status(run_step.id, "preparing")
 
         now = utc_now()
         record = RunStepToolCall(
@@ -386,22 +384,22 @@ class RuntimeToolExecutionService:
         )
         self.db.add(record)
         try:
-            self.db.commit()
+            await self.db.commit()
         except IntegrityError as exc:
-            self.db.rollback()
-            concurrent = self._find_existing(command)
+            await self.db.rollback()
+            concurrent = await self._find_existing(command)
             if concurrent is not None:
                 raise ConflictError("Tool call is already claimed") from exc
             raise
-        self.db.refresh(record)
-        self.db.refresh(run_step)
+        await self.db.refresh(record)
+        await self.db.refresh(run_step)
         return ToolExecutionClaim(record=record, run_step=run_step)
 
-    def prepare_waiting_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
+    async def prepare_waiting_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
         """Persist a tool-call intent before a required human approval."""
 
-        self._require_run(command.run_id)
-        existing = self._find_existing(command, for_update=True)
+        await self._require_run(command.run_id)
+        existing = await self._find_existing(command, for_update=True)
         request_hash = canonical_request_hash(command.arguments)
         if existing is not None:
             if (
@@ -412,27 +410,17 @@ class RuntimeToolExecutionService:
                 raise ConflictError("Tool call identity was reused with different input")
             if existing.status != "waiting_approval":
                 raise ConflictError(f"Tool call cannot wait for approval from {existing.status!r}")
-            step = self._require_tool_step(
+            step = await self._require_tool_step(
                 run_id=existing.run_id,
                 run_step_id=existing.run_step_id,
             )
             return ToolExecutionClaim(record=existing, run_step=step)
 
-        if command.run_step_id:
-            run_step = self._require_tool_step(
-                run_id=command.run_id,
-                run_step_id=command.run_step_id,
-            )
-        else:
-            run_step = self.trace_writer.create_step(
-                run_id=command.run_id,
-                step_type="tool",
-                input_summary=f"tool={command.tool_ref}",
-            )
+        run_step = await self._resolve_run_step(command)
         if run_step.status == "queued":
-            run_step = self.trace_writer.update_step_status(run_step.id, "preparing")
+            run_step = await self.trace_writer.update_step_status(run_step.id, "preparing")
         if run_step.status == "preparing":
-            run_step = self.trace_writer.update_step_status(run_step.id, "waiting_approval")
+            run_step = await self.trace_writer.update_step_status(run_step.id, "waiting_approval")
 
         now = utc_now()
         record = RunStepToolCall(
@@ -452,15 +440,15 @@ class RuntimeToolExecutionService:
             updated_at=now,
         )
         self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
-        self.db.refresh(run_step)
+        await self.db.commit()
+        await self.db.refresh(record)
+        await self.db.refresh(run_step)
         return ToolExecutionClaim(record=record, run_step=run_step)
 
-    def reject_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
+    async def reject_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
         """Cancel a waiting tool call without crossing the outbound boundary."""
 
-        existing = self._find_existing(command, for_update=True)
+        existing = await self._find_existing(command, for_update=True)
         if existing is None:
             raise ValueError("Waiting tool call not found")
         if (
@@ -476,26 +464,26 @@ class RuntimeToolExecutionService:
         existing.error_message = "Tool call was rejected"
         existing.updated_at = now
         existing.completed_at = now
-        step = self._require_tool_step(
+        step = await self._require_tool_step(
             run_id=existing.run_id,
             run_step_id=existing.run_step_id,
         )
-        self.trace_writer.update_step_status(
+        await self.trace_writer.update_step_status(
             step.id,
             "canceled",
             error_code=existing.error_code,
             error_message=existing.error_message,
         )
         self.db.add(existing)
-        self.db.commit()
-        self.db.refresh(existing)
-        self.db.refresh(step)
+        await self.db.commit()
+        await self.db.refresh(existing)
+        await self.db.refresh(step)
         return ToolExecutionClaim(record=existing, run_step=step)
 
-    def mark_running(self, record_id: str) -> RunStepToolCall:
+    async def mark_running(self, record_id: str) -> RunStepToolCall:
         """Mark the durable claim immediately before crossing the tool boundary."""
 
-        record = self._require_record(record_id)
+        record = await self._require_record(record_id)
         if record.status == "running":
             if record.lease_owner != self.lease_owner:
                 raise ConflictError("Tool-call lease owner no longer matches")
@@ -509,19 +497,19 @@ class RuntimeToolExecutionService:
         record.outbound_started_at = now
         record.updated_at = now
         record.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
-        step = self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
+        step = await self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
         if step.status in {"queued", "preparing", "waiting_approval", "retrying", "paused"}:
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
         self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
+        await self.db.commit()
+        await self.db.refresh(record)
         return record
 
-    def renew_lease(self, record_id: str) -> RunStepToolCall:
+    async def renew_lease(self, record_id: str) -> RunStepToolCall:
         """Extend an active claim only when this worker still owns it."""
 
         now = utc_now()
-        result = self.db.execute(
+        result = await self.db.exec(
             update(RunStepToolCall)
             .where(
                 RunStepToolCall.id == record_id,
@@ -537,17 +525,17 @@ class RuntimeToolExecutionService:
             .execution_options(synchronize_session=False)
         )
         if result.rowcount != 1:
-            self.db.rollback()
+            await self.db.rollback()
             raise ConflictError("Tool-call lease owner no longer matches")
-        self.db.commit()
-        record = self._require_record(record_id)
-        self.db.refresh(record)
+        await self.db.commit()
+        record = await self._require_record(record_id)
+        await self.db.refresh(record)
         return record
 
     async def complete(self, record_id: str, response: ToolResponse) -> RunStepToolCall:
         """Persist a terminal tool response and finish the linked RunStep."""
 
-        record = self._require_record(record_id)
+        record = await self._require_record(record_id)
         if record.status in {"succeeded", "failed"}:
             return record
         if record.status not in {"claimed", "running"}:
@@ -585,7 +573,7 @@ class RuntimeToolExecutionService:
                 content_type="application/json",
                 metadata={"run_step_id": record.run_step_id, "tool_call_id": record.tool_call_id},
             )
-            artifact = self.trace_writer.create_artifact(
+            artifact = await self.trace_writer.create_artifact(
                 run_id=record.run_id,
                 step_id=record.run_step_id,
                 artifact_type="json",
@@ -608,7 +596,7 @@ class RuntimeToolExecutionService:
         record.lease_expires_at = None
         record.updated_at = now
         record.completed_at = now
-        step = self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
+        step = await self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
         existing_tool_metrics = dict((step.metrics_json or {}).get("tool_call") or {})
         existing_tool_metrics.update(
             {
@@ -618,19 +606,17 @@ class RuntimeToolExecutionService:
                 "replayed": False,
             }
         )
-        self.trace_writer.update_step_status(
+        await self.trace_writer.update_step_status(
             step.id,
             "succeeded" if response.success else "failed",
             output_summary=str(response.result)[:8192] if response.result is not None else None,
-            metrics={
-                "tool_call": existing_tool_metrics
-            },
+            metrics={"tool_call": existing_tool_metrics},
             error_code=record.error_code,
             error_message=record.error_message,
         )
         self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
+        await self.db.commit()
+        await self.db.refresh(record)
         return record
 
     async def load_cached_response(self, claim: ToolExecutionClaim) -> ToolResponse | None:
@@ -642,11 +628,10 @@ class RuntimeToolExecutionService:
             return claim.cached_response
         if self.storage_port is None:
             raise ValueError("Storage port is required to replay a large tool result")
-        artifact = self.db.get(RunArtifact, claim.record.result_artifact_id)
+        artifact = await self.db.get(RunArtifact, claim.record.result_artifact_id)
         if (
             artifact is None
-            or artifact.tenant_id != self.ctx.tenant_id
-            or artifact.workspace_id != self.ctx.workspace_id
+            or not self._in_scope(artifact)
             or artifact.run_id != claim.record.run_id
             or artifact.step_id != claim.record.run_step_id
         ):
@@ -663,7 +648,7 @@ class RuntimeToolExecutionService:
             },
         )
 
-    def fail(
+    async def fail(
         self,
         record_id: str,
         _error: Exception,
@@ -672,7 +657,7 @@ class RuntimeToolExecutionService:
     ) -> RunStepToolCall:
         """Persist a known adapter failure without retaining sensitive details."""
 
-        record = self._require_record(record_id)
+        record = await self._require_record(record_id)
         if record.status in {"succeeded", "failed"}:
             return record
         if record.lease_owner != self.lease_owner:
@@ -686,15 +671,15 @@ class RuntimeToolExecutionService:
         record.lease_expires_at = None
         record.updated_at = now
         record.completed_at = now
-        step = self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
+        step = await self._require_tool_step(run_id=record.run_id, run_step_id=record.run_step_id)
         if step.status not in {"failed", "canceled", "expired"}:
-            self.trace_writer.update_step_status(
+            await self.trace_writer.update_step_status(
                 step.id,
                 "failed",
                 error_code=error_code,
                 error_message="Tool execution failed",
             )
         self.db.add(record)
-        self.db.commit()
-        self.db.refresh(record)
+        await self.db.commit()
+        await self.db.refresh(record)
         return record

@@ -12,12 +12,14 @@ from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.runs.service import RunService
 from app.kernel.runtime.runs.writer import TraceWriter
 
+pytestmark = pytest.mark.asyncio
 
-def test_run_writer_persists_lineage_and_request_identity(db, ctx):
-    writer = TraceWriter(db, ctx)
-    parent = writer.create_run("agent", request_id="request-parent")
 
-    child = writer.create_run(
+async def test_run_writer_persists_lineage_and_request_identity(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    parent = await writer.create_run("agent", request_id="request-parent")
+
+    child = await writer.create_run(
         "tool",
         parent_run_id=parent.id,
         source_run_id="run_previous_attempt",
@@ -31,12 +33,12 @@ def test_run_writer_persists_lineage_and_request_identity(db, ctx):
     assert child.request_id == "request-child"
 
 
-def test_artifact_registration_requires_scoped_key_and_evidence(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_artifact_registration_requires_scoped_key_and_evidence(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
     with pytest.raises(ValueError, match="canonical run prefix"):
-        writer.create_artifact(
+        await writer.create_artifact(
             run_id=run.id,
             artifact_type="json",
             storage_key=f"audit/{run.id}/evidence.json",
@@ -45,7 +47,7 @@ def test_artifact_registration_requires_scoped_key_and_evidence(db, ctx):
         )
 
     with pytest.raises(ValueError, match="SHA256"):
-        writer.create_artifact(
+        await writer.create_artifact(
             run_id=run.id,
             artifact_type="json",
             storage_key=(
@@ -55,7 +57,7 @@ def test_artifact_registration_requires_scoped_key_and_evidence(db, ctx):
             sha256=None,
         )
 
-    artifact = writer.create_artifact(
+    artifact = await writer.create_artifact(
         run_id=run.id,
         artifact_type="json",
         storage_key=f"tenants/{ctx.tenant_id}/workspaces/{ctx.workspace_id}/runs/{run.id}/evidence.json",
@@ -65,11 +67,11 @@ def test_artifact_registration_requires_scoped_key_and_evidence(db, ctx):
     assert artifact.size_bytes == 2
 
 
-def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
-    usage = writer.record_cost(
+    usage = await writer.record_cost(
         run_id=run.id,
         step_id=None,
         billing_basis="tokens",
@@ -106,7 +108,7 @@ def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
     assert usage.pricing_snapshot_json["unit_size"] == 1_000_000
     assert usage.pricing_snapshot_json["amount"] == "0.0025"
 
-    detail = RunService(db, ctx).get_run(run.id)
+    detail = await RunService(async_db, ctx).get_run(run.id)
     assert len(detail.costs) == 1
     assert detail.usage_summary is not None
     assert detail.usage_summary.tokens_prompt == 10
@@ -115,11 +117,11 @@ def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(db, ctx):
     assert detail.charge_summary.amounts == {"USD": Decimal("0.0025")}
 
 
-def test_usage_row_carries_dimension_columns_for_one_invocation(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_usage_row_carries_dimension_columns_for_one_invocation(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
-    usage = writer.record_cost(
+    usage = await writer.record_cost(
         run_id=run.id,
         step_id=None,
         billing_basis="tokens",
@@ -138,19 +140,19 @@ def test_usage_row_carries_dimension_columns_for_one_invocation(db, ctx):
     assert usage.latency_ms == 120
     assert usage.pricing_snapshot_json["quantities"]["latency_ms"] == 120
 
-    detail = RunService(db, ctx).get_run(run.id)
+    detail = await RunService(async_db, ctx).get_run(run.id)
     assert len(detail.costs) == 1
     assert detail.usage_summary is not None
     assert detail.usage_summary.ms_total == 120
     assert detail.usage_summary.tokens_prompt == 10
 
 
-def test_trace_writer_rejects_negative_dimension_values(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_trace_writer_rejects_negative_dimension_values(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
     with pytest.raises(ValueError, match="latency_ms must not be negative"):
-        writer.record_cost(
+        await writer.record_cost(
             run_id=run.id,
             step_id=None,
             billing_basis="tokens",
@@ -159,12 +161,12 @@ def test_trace_writer_rejects_negative_dimension_values(db, ctx):
         )
 
 
-def test_trace_writer_has_no_charge_entry_concept(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
+async def test_trace_writer_has_no_charge_entry_concept(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
 
     with pytest.raises(TypeError):
-        writer.record_cost(
+        await writer.record_cost(
             run_id=run.id,
             step_id=None,
             entry_type="charge",
@@ -175,11 +177,10 @@ def test_trace_writer_has_no_charge_entry_concept(db, ctx):
         )
 
 
-@pytest.mark.asyncio
-async def test_gateway_audit_is_authoritative_audit_event(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent")
-    step = writer.create_step(run.id, "tool")
+async def test_gateway_audit_is_authoritative_audit_event(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
+    step = await writer.create_step(run.id, "tool")
 
     await log_gateway_request(
         writer,
@@ -190,14 +191,14 @@ async def test_gateway_audit_is_authoritative_audit_event(db, ctx):
         {"status_code": 200},
     )
 
-    event = db.exec(select(AuditEvent).where(AuditEvent.run_id == run.id)).one()
+    event = (await async_db.exec(select(AuditEvent).where(AuditEvent.run_id == run.id))).one()
     assert event.step_id == step.id
     assert event.trace_id == ctx.trace_id
     assert event.outcome == "succeeded"
     assert event.payload_json["request"]["authorization"] == "***REDACTED***"
 
-    db.refresh(step)
+    await async_db.refresh(step)
     assert "audit_json" not in (step.metrics_json or {})
-    audits = RunService(db, ctx).list_audits(run_id=run.id)
+    audits = await RunService(async_db, ctx).list_audits(run_id=run.id)
     assert len(audits) == 1
     assert audits[0].gateway_type == "tool"

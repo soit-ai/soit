@@ -82,9 +82,9 @@ class RunService:
         self.db = db
         self.ctx = ctx
 
-    def _scalar_count(self, query: Any) -> int:
+    async def _scalar_count(self, query: Any) -> int:
         """Read a COUNT query result, whether the driver hands back a row or a scalar."""
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).first()
         if result is None:
             return 0
         try:
@@ -103,7 +103,7 @@ class RunService:
         except Exception:
             return row
 
-    def _list_responses_for_run(self, run_id: str) -> list[Response]:
+    async def _list_responses_for_run(self, run_id: str) -> list[Response]:
         query = (
             select(Response)
             .where(
@@ -115,9 +115,9 @@ class RunService:
             )
             .order_by(Response.created_at.asc(), Response.id.asc())
         )
-        return [self._unwrap_row(row) for row in list(self.db.exec(query).all())]
+        return [self._unwrap_row(row) for row in list((await self.db.exec(query)).all())]
 
-    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifact:
+    async def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifact:
         """Read one tenant/workspace-scoped Run artifact."""
 
         query = select(RunArtifact).where(
@@ -128,12 +128,12 @@ class RunService:
                 RunArtifact.workspace_id == self.ctx.workspace_id,
             )
         )
-        artifact = self._unwrap_row(self.db.exec(query).first())
+        artifact = self._unwrap_row((await self.db.exec(query)).first())
         if artifact is None:
             raise NotFoundError(f"Run artifact not found: {artifact_id}")
         return artifact
 
-    def _list_response_events_for_run(self, run_id: str) -> list[ResponseEventRead]:
+    async def _list_response_events_for_run(self, run_id: str) -> list[ResponseEventRead]:
         query = (
             select(ResponseEvent)
             .where(
@@ -147,10 +147,10 @@ class RunService:
         )
         return [
             ResponseEventRead.model_validate(self._unwrap_row(row))
-            for row in list(self.db.exec(query).all())
+            for row in list((await self.db.exec(query)).all())
         ]
 
-    def _project_tool_calls_for_run(
+    async def _project_tool_calls_for_run(
         self,
         *,
         run_id: str,
@@ -159,7 +159,7 @@ class RunService:
     ) -> list[ToolCallRead]:
         return [
             ToolCallRead.model_validate(item)
-            for item in project_run_tool_calls(
+            for item in await project_run_tool_calls(
                 db=self.db,
                 ctx=self.ctx,
                 run_id=run_id,
@@ -201,7 +201,7 @@ class RunService:
                 child_run_ids.append(candidate)
         return child_run_ids
 
-    def build_observe_summaries(self, run_ids: list[str]) -> dict[str, RunObserveSummaryResponse]:
+    async def build_observe_summaries(self, run_ids: list[str]) -> dict[str, RunObserveSummaryResponse]:
         """Build lightweight observability summaries for the given runs."""
         unique_run_ids = list(dict.fromkeys(run_ids))
         summaries = {run_id: RunObserveSummaryResponse() for run_id in unique_run_ids}
@@ -215,7 +215,7 @@ class RunService:
                 RunStep.workspace_id == self.ctx.workspace_id,
             )
         )
-        steps = [self._unwrap_row(row) for row in list(self.db.exec(steps_query).all())]
+        steps = [self._unwrap_row(row) for row in list((await self.db.exec(steps_query)).all())]
         child_run_ids_by_run: dict[str, set[str]] = {run_id: set() for run_id in unique_run_ids}
         for step in steps:
             summary = summaries.get(step.run_id)
@@ -234,7 +234,7 @@ class RunService:
                 AuditEvent.workspace_id == self.ctx.workspace_id,
             )
         )
-        for audit in [self._unwrap_row(row) for row in list(self.db.exec(audits_query).all())]:
+        for audit in [self._unwrap_row(row) for row in list((await self.db.exec(audits_query)).all())]:
             summary = summaries.get(audit.run_id)
             if summary:
                 summary.audit_count += 1
@@ -246,7 +246,7 @@ class RunService:
                 Response.workspace_id == self.ctx.workspace_id,
             )
         )
-        responses = [self._unwrap_row(row) for row in list(self.db.exec(responses_query).all())]
+        responses = [self._unwrap_row(row) for row in list((await self.db.exec(responses_query)).all())]
         for response in responses:
             summary = summaries.get(response.run_id)
             if not summary:
@@ -262,7 +262,7 @@ class RunService:
                 ResponseEvent.workspace_id == self.ctx.workspace_id,
             )
         )
-        response_events = [self._unwrap_row(row) for row in list(self.db.exec(response_events_query).all())]
+        response_events = [self._unwrap_row(row) for row in list((await self.db.exec(response_events_query)).all())]
         for event in response_events:
             summary = summaries.get(event.run_id)
             if summary:
@@ -275,7 +275,7 @@ class RunService:
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
             )
         )
-        costs = [self._unwrap_row(row) for row in list(self.db.exec(costs_query).all())]
+        costs = [self._unwrap_row(row) for row in list((await self.db.exec(costs_query)).all())]
         for cost in costs:
             summary = summaries.get(cost.run_id)
             if summary:
@@ -307,7 +307,7 @@ class RunService:
                     child_run_ids.append(candidate)
         return child_run_ids
 
-    def _list_child_runs(self, child_run_ids: list[str]) -> list[RunResponse]:
+    async def _list_child_runs(self, child_run_ids: list[str]) -> list[RunResponse]:
         if not child_run_ids:
             return []
         query = (
@@ -323,7 +323,7 @@ class RunService:
         )
         return [
             RunResponse.model_validate(self._unwrap_row(row))
-            for row in list(self.db.exec(query).all())
+            for row in list((await self.db.exec(query)).all())
         ]
 
     @staticmethod
@@ -774,7 +774,7 @@ class RunService:
             ),
         ]
 
-    def _run_ids_for_tool_calls(self) -> set[str]:
+    async def _run_ids_for_tool_calls(self) -> set[str]:
         query = select(RunStep).where(
             and_(
                 RunStep.tenant_id == self.ctx.tenant_id,
@@ -782,9 +782,9 @@ class RunService:
                 RunStep.step_type == "tool",
             )
         )
-        return {self._unwrap_row(row).run_id for row in list(self.db.exec(query).all())}
+        return {self._unwrap_row(row).run_id for row in list((await self.db.exec(query)).all())}
 
-    def _run_ids_for_citations(self) -> set[str]:
+    async def _run_ids_for_citations(self) -> set[str]:
         query = select(Response).where(
             and_(
                 Response.tenant_id == self.ctx.tenant_id,
@@ -792,14 +792,14 @@ class RunService:
             )
         )
         run_ids: set[str] = set()
-        for row in list(self.db.exec(query).all()):
+        for row in list((await self.db.exec(query)).all()):
             response = self._unwrap_row(row)
             citations = (response.output_json or {}).get("citations") if isinstance(response.output_json, dict) else None
             if isinstance(citations, list) and any(isinstance(item, dict) for item in citations):
                 run_ids.add(response.run_id)
         return run_ids
 
-    def _run_ids_for_audits(self) -> set[str]:
+    async def _run_ids_for_audits(self) -> set[str]:
         query = select(AuditEvent).where(
             and_(
                 AuditEvent.tenant_id == self.ctx.tenant_id,
@@ -809,11 +809,11 @@ class RunService:
         )
         return {
             audit.run_id
-            for audit in (self._unwrap_row(row) for row in list(self.db.exec(query).all()))
+            for audit in (self._unwrap_row(row) for row in list((await self.db.exec(query)).all()))
             if audit.run_id
         }
 
-    def _run_ids_matching_observe_filters(
+    async def _run_ids_matching_observe_filters(
         self,
         *,
         has_tool_call: bool | None = None,
@@ -822,11 +822,11 @@ class RunService:
     ) -> set[str] | None:
         required_sets: list[set[str]] = []
         if has_tool_call:
-            required_sets.append(self._run_ids_for_tool_calls())
+            required_sets.append(await self._run_ids_for_tool_calls())
         if has_citation:
-            required_sets.append(self._run_ids_for_citations())
+            required_sets.append(await self._run_ids_for_citations())
         if has_audit:
-            required_sets.append(self._run_ids_for_audits())
+            required_sets.append(await self._run_ids_for_audits())
         if not required_sets:
             return None
         result = required_sets[0]
@@ -834,7 +834,7 @@ class RunService:
             result = result.intersection(item)
         return result
 
-    def _run_filter_clauses(
+    async def _run_filter_clauses(
         self,
         *,
         mode: str | None = None,
@@ -883,7 +883,7 @@ class RunService:
             clauses.append(Run.started_at >= started_after)
         if started_before:
             clauses.append(Run.started_at <= started_before)
-        observe_run_ids = self._run_ids_matching_observe_filters(
+        observe_run_ids = await self._run_ids_matching_observe_filters(
             has_tool_call=has_tool_call,
             has_citation=has_citation,
             has_audit=has_audit,
@@ -894,7 +894,7 @@ class RunService:
             clauses.append(Run.id.in_(list(observe_run_ids)))
         return clauses
 
-    def count_runs(
+    async def count_runs(
         self,
         *,
         mode: str | None = None,
@@ -913,7 +913,7 @@ class RunService:
         has_audit: bool | None = None,
     ) -> int:
         """Count runs matching the same filters ``list_runs`` accepts."""
-        clauses = self._run_filter_clauses(
+        clauses = await self._run_filter_clauses(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -932,9 +932,9 @@ class RunService:
         if clauses is None:
             return 0
         query = select(func.count()).select_from(Run).where(and_(*clauses))
-        return self._scalar_count(query)
+        return await self._scalar_count(query)
 
-    def list_runs(
+    async def list_runs(
         self,
         *,
         mode: str | None = None,
@@ -956,7 +956,7 @@ class RunService:
         offset: int = 0,
     ) -> list[RunResponse]:
         """List runs with optional filters."""
-        clauses = self._run_filter_clauses(
+        clauses = await self._run_filter_clauses(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -982,7 +982,7 @@ class RunService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         runs = []
         for item in rows:
             if hasattr(item, "id"):
@@ -994,7 +994,7 @@ class RunService:
                     continue
         responses = [RunResponse.model_validate(run) for run in runs]
         if include_observe_summary and responses:
-            summaries = self.build_observe_summaries([run.id for run in responses])
+            summaries = await self.build_observe_summaries([run.id for run in responses])
             responses = [
                 run.model_copy(update={"observe_summary": summaries.get(run.id, RunObserveSummaryResponse())})
                 for run in responses
@@ -1041,7 +1041,7 @@ class RunService:
             clauses.append(RunStep.ended_at <= ended_before)
         return clauses
 
-    def list_steps(
+    async def list_steps(
         self,
         *,
         run_id: str | None = None,
@@ -1077,7 +1077,7 @@ class RunService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         steps = []
         for item in rows:
             if hasattr(item, "id"):
@@ -1089,7 +1089,7 @@ class RunService:
                     continue
         return [RunStepResponse.model_validate(step) for step in steps]
 
-    def count_steps(
+    async def count_steps(
         self,
         *,
         run_id: str | None = None,
@@ -1117,9 +1117,9 @@ class RunService:
             ended_before=ended_before,
         )
         query = select(func.count()).select_from(RunStep).where(and_(*clauses))
-        return self._scalar_count(query)
+        return await self._scalar_count(query)
 
-    def summarize_step_metrics(
+    async def summarize_step_metrics(
         self,
         *,
         run_id: str | None = None,
@@ -1147,7 +1147,7 @@ class RunService:
             ended_before=ended_before,
         )
         query = select(RunStep).where(and_(*clauses))
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         steps = [row if hasattr(row, "id") else row[0] for row in rows]
 
         summary: dict[tuple[str, str], dict[str, Any]] = {}
@@ -1209,7 +1209,7 @@ class RunService:
             )
         return results
 
-    def get_run(
+    async def get_run(
         self,
         run_id: str,
         *,
@@ -1225,7 +1225,7 @@ class RunService:
                 Run.workspace_id == self.ctx.workspace_id,
             )
         )
-        run = self.db.exec(query).first()
+        run = (await self.db.exec(query)).first()
         if run and not hasattr(run, "id"):
             try:
                 run = run[0]
@@ -1248,7 +1248,7 @@ class RunService:
                     RunStep.workspace_id == self.ctx.workspace_id,
                 )
             ).order_by(RunStep.created_at)
-            raw_steps = list(self.db.exec(steps_query).all())
+            raw_steps = list((await self.db.exec(steps_query)).all())
             steps = [
                 RunStepResponse.model_validate(item if hasattr(item, "id") else item[0])
                 for item in raw_steps
@@ -1262,7 +1262,7 @@ class RunService:
                     RunArtifact.workspace_id == self.ctx.workspace_id,
                 )
             ).order_by(RunArtifact.created_at)
-            raw_artifacts = list(self.db.exec(artifacts_query).all())
+            raw_artifacts = list((await self.db.exec(artifacts_query)).all())
             artifacts = [
                 RunArtifactResponse.model_validate(item if hasattr(item, "id") else item[0])
                 for item in raw_artifacts
@@ -1276,25 +1276,25 @@ class RunService:
                     RunCostEntry.workspace_id == self.ctx.workspace_id,
                 )
             ).order_by(RunCostEntry.created_at)
-            raw_entries = list(self.db.exec(entries_query).all())
+            raw_entries = list((await self.db.exec(entries_query)).all())
             entries = [item if hasattr(item, "id") else item[0] for item in raw_entries]
             cost_entries = [RunCostEntryResponse.model_validate(item) for item in entries]
             usage_summary = self._summarize_entries(entries)
             charge_summary = self._summarize_charges(entries)
 
-        responses = self._list_responses_for_run(run_id)
-        response_events = self._list_response_events_for_run(run_id)
-        tool_calls = self._project_tool_calls_for_run(
+        responses = await self._list_responses_for_run(run_id)
+        response_events = await self._list_response_events_for_run(run_id)
+        tool_calls = await self._project_tool_calls_for_run(
             run_id=run_id,
             steps=steps,
             response_id=responses[0].id if responses else None,
         )
         citations = self._response_citations(responses)
         child_run_ids = self._extract_child_run_ids(tool_calls)
-        audits = self.list_audits(run_id=run_id, limit=200, offset=0)
+        audits = await self.list_audits(run_id=run_id, limit=200, offset=0)
         for child_run_id in child_run_ids:
-            audits.extend(self.list_audits(run_id=child_run_id, limit=200, offset=0))
-        child_runs = self._list_child_runs(child_run_ids)
+            audits.extend(await self.list_audits(run_id=child_run_id, limit=200, offset=0))
+        child_runs = await self._list_child_runs(child_run_ids)
         governance_evidence = self._build_governance_evidence(
             run=run,
             steps=steps,
@@ -1362,7 +1362,7 @@ class RunService:
             clauses.append(AuditEvent.outcome == outcome)
         return clauses
 
-    def count_audits(
+    async def count_audits(
         self,
         *,
         run_id: str | None = None,
@@ -1394,9 +1394,9 @@ class RunService:
         )
         if not gateway_type and not step_type:
             query = select(func.count()).select_from(AuditEvent).where(and_(*clauses))
-            return self._scalar_count(query)
+            return await self._scalar_count(query)
         return len(
-            self.list_audits(
+            await self.list_audits(
                 run_id=run_id,
                 step_id=step_id,
                 step_type=step_type,
@@ -1412,7 +1412,7 @@ class RunService:
             )
         )
 
-    def list_audits(
+    async def list_audits(
         self,
         *,
         run_id: str | None = None,
@@ -1448,14 +1448,14 @@ class RunService:
         )
         if not gateway_type and not step_type:
             query = query.offset(offset).limit(limit)
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         audits = [row if hasattr(row, "id") else row[0] for row in rows]
 
         entries: list[RunAuditLogResponse] = []
         for audit in audits:
             payload = audit.payload_json if isinstance(audit.payload_json, dict) else {}
             resolved_gateway_type = payload.get("gateway_type") or audit.resource_type
-            step = self.db.get(RunStep, audit.step_id) if audit.step_id else None
+            step = await self.db.get(RunStep, audit.step_id) if audit.step_id else None
             resolved_step_type = step.step_type if step else audit.resource_type
             if requested_gateway_type and requested_gateway_type != resolved_gateway_type:
                 continue
@@ -1490,7 +1490,7 @@ class RunService:
             return entries[offset : offset + limit]
         return entries
 
-    def summarize_costs(
+    async def summarize_costs(
         self,
         *,
         mode: str | None = None,
@@ -1540,13 +1540,13 @@ class RunService:
 
         query = select(*_dimension_sum_columns()).select_from(RunCostEntry).join(Run, RunCostEntry.run_id == Run.id).where(and_(*clauses))
 
-        row = self.db.exec(query).one()
+        row = (await self.db.exec(query)).one()
         return RunCostSummaryResponse(
             **_dimension_row_values(row),
-            charges=self._aggregate_charges(clauses),
+            charges=await self._aggregate_charges(clauses),
         )
 
-    def _aggregate_charges(self, clauses: list) -> RunChargeSummaryResponse:
+    async def _aggregate_charges(self, clauses: list) -> RunChargeSummaryResponse:
         """Sum priced cost entries by currency under the given run filters.
 
         Usage dimensions and money are reported together because a caller
@@ -1567,14 +1567,14 @@ class RunService:
         )
         amounts: dict[str, Decimal] = {}
         entry_count = 0
-        for currency, count, total in self.db.exec(query).all():
+        for currency, count, total in (await self.db.exec(query)).all():
             if not currency:
                 continue
             entry_count += int(count or 0)
             amounts[str(currency)] = Decimal(str(total or 0))
         return RunChargeSummaryResponse(entry_count=entry_count, amounts=amounts)
 
-    def summarize_run_window(
+    async def summarize_run_window(
         self,
         *,
         since: datetime | None = None,
@@ -1604,7 +1604,7 @@ class RunService:
             .group_by(Run.status)
         )
         by_status: dict[str, int] = {}
-        for status_value, count in self.db.exec(query).all():
+        for status_value, count in (await self.db.exec(query)).all():
             by_status[str(status_value)] = int(count or 0)
 
         succeeded = by_status.get(ExecutionStatus.SUCCEEDED.value, 0)
@@ -1625,10 +1625,10 @@ class RunService:
             failed=failed,
             running=running,
             pass_rate=(succeeded / settled) if settled else None,
-            charges=self._aggregate_charges(cost_clauses),
+            charges=await self._aggregate_charges(cost_clauses),
         )
 
-    def list_cost_entries(
+    async def list_cost_entries(
         self,
         *,
         since: datetime | None = None,
@@ -1660,11 +1660,11 @@ class RunService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         entries = [item if hasattr(item, "id") else item[0] for item in rows]
         return [RunCostEntryResponse.model_validate(entry) for entry in entries]
 
-    def summarize_costs_by_day(
+    async def summarize_costs_by_day(
         self,
         *,
         mode: str | None = None,
@@ -1717,7 +1717,7 @@ class RunService:
             .order_by(day_col)
         )
 
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         results: list[RunCostDailyResponse] = []
         for row in rows:
             day = row[0]
@@ -1726,7 +1726,7 @@ class RunService:
             )
         return results
 
-    def summarize_costs_by_subject(
+    async def summarize_costs_by_subject(
         self,
         *,
         mode: str | None = None,
@@ -1778,7 +1778,7 @@ class RunService:
             .order_by(Run.subject_version_id)
         )
 
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         return [
             RunCostBySubjectResponse(
                 subject_version_id=row[0],
@@ -1787,7 +1787,7 @@ class RunService:
             for row in rows
         ]
 
-    def summarize_costs_by_mode(
+    async def summarize_costs_by_mode(
         self,
         *,
         mode: str | None = None,
@@ -1839,7 +1839,7 @@ class RunService:
             .order_by(Run.mode)
         )
 
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         return [
             RunCostByModeResponse(
                 mode=str(row[0]),
@@ -1848,7 +1848,7 @@ class RunService:
             for row in rows
         ]
 
-    def summarize_tool_invocations(
+    async def summarize_tool_invocations(
         self,
         *,
         since: datetime | None = None,
@@ -1897,10 +1897,10 @@ class RunService:
                 invocations=int(row[2] or 0),
                 ms_total=int(row[3] or 0),
             )
-            for row in self.db.exec(query).all()
+            for row in (await self.db.exec(query)).all()
         ]
 
-    def summarize_costs_by_provider(
+    async def summarize_costs_by_provider(
         self,
         *,
         mode: str | None = None,
@@ -1952,7 +1952,7 @@ class RunService:
             .order_by(RunCostEntry.provider)
         )
 
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         return [
             RunCostByProviderResponse(
                 provider=row[0],
@@ -1961,7 +1961,7 @@ class RunService:
             for row in rows
         ]
 
-    def summarize_costs_by_model(
+    async def summarize_costs_by_model(
         self,
         *,
         mode: str | None = None,
@@ -2013,7 +2013,7 @@ class RunService:
             .order_by(RunCostEntry.model_ref)
         )
 
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         return [
             RunCostByModelResponse(
                 model_ref=row[0],

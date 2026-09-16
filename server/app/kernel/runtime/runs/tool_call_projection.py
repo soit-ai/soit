@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
@@ -42,9 +43,9 @@ def _record_result(record: RunStepToolCall) -> dict[str, Any]:
     return {"artifact": artifact} if isinstance(artifact, dict) else {}
 
 
-def project_run_tool_calls(
+async def project_run_tool_calls(
     *,
-    db: Any,
+    db: AsyncSession,
     ctx: RequestContext,
     run_id: str,
     steps: list[Any],
@@ -56,16 +57,18 @@ def project_run_tool_calls(
     """Project one public tool-call item per durable control record."""
 
     step_by_id = {str(step.id): step for step in steps}
-    rows = db.exec(
-        select(RunStepToolCall)
-        .where(
-            and_(
-                RunStepToolCall.run_id == run_id,
-                RunStepToolCall.tenant_id == ctx.tenant_id,
-                RunStepToolCall.workspace_id == ctx.workspace_id,
+    rows = (
+        await db.exec(
+            select(RunStepToolCall)
+            .where(
+                and_(
+                    RunStepToolCall.run_id == run_id,
+                    RunStepToolCall.tenant_id == ctx.tenant_id,
+                    RunStepToolCall.workspace_id == ctx.workspace_id,
+                )
             )
+            .order_by(RunStepToolCall.created_at.asc(), RunStepToolCall.id.asc())
         )
-        .order_by(RunStepToolCall.created_at.asc(), RunStepToolCall.id.asc())
     ).all()
     records = [_unwrap_row(row) for row in rows]
     projections: list[dict[str, Any]] = []
