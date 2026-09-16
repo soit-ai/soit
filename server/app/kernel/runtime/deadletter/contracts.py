@@ -21,7 +21,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 
@@ -89,9 +89,9 @@ class DeadLetterSource(Protocol):
     kind: DeadLetterKind
     redrivable: bool
 
-    def list_dead_letters(
+    async def list_dead_letters(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         *,
         limit: int,
@@ -100,7 +100,9 @@ class DeadLetterSource(Protocol):
         """Return this kind's dead letters, newest first."""
         ...
 
-    def redrive(self, db: Session, ctx: RequestContext, dead_letter_id: str) -> RedriveResult:
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
+    ) -> RedriveResult:
         """Attempt to run the failed work again."""
         ...
 

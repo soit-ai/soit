@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.deadletter.contracts import (
@@ -24,11 +24,11 @@ MAX_PAGE_SIZE = 200
 class DeadLetterService:
     """One view over work that failed terminally, whatever produced it."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def list_dead_letters(
+    async def list_dead_letters(
         self,
         *,
         kind: DeadLetterKind | None = None,
@@ -52,7 +52,7 @@ class DeadLetterService:
                 continue
             try:
                 collected.extend(
-                    source.list_dead_letters(
+                    await source.list_dead_letters(
                         self.db, self.ctx, limit=page + skip, offset=0
                     )
                 )
@@ -69,7 +69,7 @@ class DeadLetterService:
         )
         return collected[skip : skip + page]
 
-    def redrive(self, *, kind: DeadLetterKind, dead_letter_id: str) -> RedriveResult:
+    async def redrive(self, *, kind: DeadLetterKind, dead_letter_id: str) -> RedriveResult:
         """Attempt to run one dead letter again."""
         source = get_dead_letter_source(kind)
         if source is None:
@@ -77,7 +77,7 @@ class DeadLetterService:
                 outcome=RedriveOutcome.UNSUPPORTED,
                 detail=f"No dead letter source is registered for {kind.value}",
             )
-        result = source.redrive(self.db, self.ctx, dead_letter_id)
+        result = await source.redrive(self.db, self.ctx, dead_letter_id)
         logger.info(
             "Dead letter redrive %s",
             result.outcome.value,

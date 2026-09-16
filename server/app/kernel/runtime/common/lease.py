@@ -20,8 +20,8 @@ from enum import Enum
 from typing import Any, TypeVar
 
 from sqlalchemy import and_, or_, update
-from sqlalchemy.orm import Session
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 
@@ -70,8 +70,8 @@ def heartbeat_interval_for(
     )
 
 
-def claim_next(
-    db: Session,
+async def claim_next(
+    db: AsyncSession,
     model: type[ModelT],
     *,
     worker_id: str,
@@ -105,7 +105,7 @@ def claim_next(
     )
     query = query.limit(1).with_for_update(skip_locked=True)
 
-    row = db.execute(query).scalars().first()
+    row = (await db.exec(query)).first()
     if row is None:
         return None
 
@@ -115,13 +115,13 @@ def claim_next(
     row.attempt_count = int(getattr(row, "attempt_count", 0) or 0) + 1
     row.updated_at = moment
     db.add(row)
-    db.commit()
-    db.refresh(row)
+    await db.commit()
+    await db.refresh(row)
     return row
 
 
-def renew_lease(
-    db: Session,
+async def renew_lease(
+    db: AsyncSession,
     model: type[ModelT],
     primary_key: Any,
     *,
@@ -132,7 +132,7 @@ def renew_lease(
 ) -> LeaseRenewal:
     """Extend a held lease, reporting whether this worker still owns the row."""
     moment = utc_now()
-    result = db.execute(
+    result = await db.exec(
         update(model)
         .where(
             model.id == primary_key,
@@ -144,12 +144,17 @@ def renew_lease(
             lease_expires_at=moment + timedelta(seconds=lease_seconds),
             updated_at=moment,
         )
+        .execution_options(synchronize_session=False)
     )
-    db.commit()
+    await db.commit()
     if result.rowcount == 1:
         return LeaseRenewal.RENEWED
 
-    current = db.get(model, primary_key)
+    current = await db.get(model, primary_key)
+    if current is not None:
+        # The row may already sit in the identity map from the claim; the
+        # UPDATE above bypassed it, so read the store's current view.
+        await db.refresh(current)
     still_ours = (
         current is not None
         and current.lease_owner == worker_id
@@ -158,8 +163,8 @@ def renew_lease(
     return LeaseRenewal.TERMINAL if still_ours else LeaseRenewal.LOST
 
 
-def holds_lease(
-    db: Session,
+async def holds_lease(
+    db: AsyncSession,
     model: type[ModelT],
     primary_key: Any,
     *,
@@ -167,7 +172,9 @@ def holds_lease(
     attempt_count: int,
 ) -> bool:
     """Return whether this worker still owns the claim it started with."""
-    current = db.get(model, primary_key)
+    current = await db.get(model, primary_key)
+    if current is not None:
+        await db.refresh(current)
     return (
         current is not None
         and current.lease_owner == worker_id
@@ -175,8 +182,8 @@ def holds_lease(
     )
 
 
-def release_lease(
-    db: Session,
+async def release_lease(
+    db: AsyncSession,
     model: type[ModelT],
     primary_key: Any,
     *,
@@ -190,7 +197,7 @@ def release_lease(
     while one that kept an expired lease could be picked up again.
     """
     moment = utc_now()
-    result = db.execute(
+    result = await db.exec(
         update(model)
         .where(
             model.id == primary_key,
@@ -202,8 +209,9 @@ def release_lease(
             lease_expires_at=None,
             updated_at=moment,
         )
+        .execution_options(synchronize_session=False)
     )
-    db.commit()
+    await db.commit()
     return result.rowcount == 1
 
 
@@ -212,7 +220,7 @@ class LeaseHeartbeat:
 
     def __init__(
         self,
-        db_factory: Callable[[], Session],
+        db_factory: Callable[[], AsyncSession],
         model: type[ModelT],
         primary_key: Any,
         *,
@@ -245,10 +253,10 @@ class LeaseHeartbeat:
             except TimeoutError:
                 pass
 
-            db: Session | None = None
+            db: AsyncSession | None = None
             try:
                 db = self.db_factory()
-                outcome = renew_lease(
+                outcome = await renew_lease(
                     db,
                     self.model,
                     self.primary_key,
@@ -278,4 +286,4 @@ class LeaseHeartbeat:
                 )
             finally:
                 if db is not None:
-                    db.close()
+                    await db.close()

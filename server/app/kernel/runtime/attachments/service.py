@@ -7,7 +7,7 @@ from pathlib import PurePath
 from typing import Any
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -51,7 +51,7 @@ class AttachmentService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         *,
         storage_port: StoragePort,
@@ -101,7 +101,7 @@ class AttachmentService:
             storage_key="pending",
             status="uploading",
         )
-        attachment = self.repository.create(attachment)
+        attachment = await self.repository.create(attachment)
         attachment.storage_key = (
             f"attachments/{self.ctx.tenant_id}/{self.ctx.workspace_id}/{attachment.id}/content"
         )
@@ -114,33 +114,35 @@ class AttachmentService:
             )
         except Exception:
             attachment.status = "failed"
-            self.repository.update(attachment)
-            self.db.commit()
+            await self.repository.update(attachment)
+            await self.db.commit()
             raise
         attachment.status = "ready"
-        attachment = self.repository.update(attachment)
-        self.db.commit()
+        attachment = await self.repository.update(attachment)
+        await self.db.commit()
         return attachment
 
-    def get(self, attachment_id: str) -> Attachment:
-        return self.repository.require(attachment_id)
+    async def get(self, attachment_id: str) -> Attachment:
+        return await self.repository.require(attachment_id)
 
     async def get_content(self, attachment_id: str) -> tuple[Attachment, bytes]:
-        attachment = self.repository.require(attachment_id)
+        attachment = await self.repository.require(attachment_id)
         if attachment.status != "ready":
             raise ValidationError(f"Attachment is not ready: {attachment.id}")
         return attachment, await self.storage_port.get(attachment.storage_key)
 
-    def validate_thread_target(self, thread_id: str, *, agent_id: str | None) -> Thread:
+    async def validate_thread_target(self, thread_id: str, *, agent_id: str | None) -> Thread:
         """Validate the scoped conversation before any attachment is consumed."""
 
-        thread = self.db.execute(
-            select(Thread).where(
-                and_(
-                    Thread.id == thread_id,
-                    Thread.tenant_id == self.ctx.tenant_id,
-                    Thread.workspace_id == self.ctx.workspace_id,
-                    Thread.deleted_at.is_(None),
+        thread = (
+            await self.db.exec(
+                select(Thread).where(
+                    and_(
+                        Thread.id == thread_id,
+                        Thread.tenant_id == self.ctx.tenant_id,
+                        Thread.workspace_id == self.ctx.workspace_id,
+                        Thread.deleted_at.is_(None),
+                    )
                 )
             )
         ).scalars().first()
@@ -164,14 +166,14 @@ class AttachmentService:
         descriptors: list[dict[str, Any]] = []
         total_context_size = 0
         for attachment_id in sorted(attachment_ids):
-            attachment = self.repository.require_for_update(attachment_id)
+            attachment = await self.repository.require_for_update(attachment_id)
             if attachment.status != "ready":
                 raise ValidationError(f"Attachment is not ready: {attachment.id}")
             if attachment.thread_id and attachment.thread_id != thread_id:
                 raise ValidationError("Attachment is already bound to another thread")
             if attachment.thread_id is None:
                 attachment.thread_id = thread_id
-                self.repository.update(attachment)
+                await self.repository.update(attachment)
             descriptor: dict[str, Any] = {
                 "id": attachment.id,
                 "name": attachment.filename,

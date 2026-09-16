@@ -11,7 +11,7 @@ import logging
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -42,29 +42,30 @@ from app.modules.workflow.runtime.resume import (
 logger = logging.getLogger(__name__)
 
 
+async def _scalars(db: AsyncSession, statement) -> list:
+    return list((await db.exec(statement)).scalars().all())
+
+
 class OutboxDeadLetterSource:
     """Outbox rows that exhausted their dispatch attempts."""
 
     kind = DeadLetterKind.OUTBOX_EVENT
     redrivable = True
 
-    def list_dead_letters(
-        self, db: Session, ctx: RequestContext, *, limit: int, offset: int
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
     ) -> Sequence[DeadLetter]:
-        rows = (
-            db.execute(
-                select(EventOutbox)
-                .where(
-                    EventOutbox.tenant_id == ctx.tenant_id,
-                    EventOutbox.workspace_id == ctx.workspace_id,
-                    EventOutbox.status == "failed",
-                )
-                .order_by(EventOutbox.processed_at.desc())
-                .limit(limit)
-                .offset(offset)
+        rows = await _scalars(
+            db,
+            select(EventOutbox)
+            .where(
+                EventOutbox.tenant_id == ctx.tenant_id,
+                EventOutbox.workspace_id == ctx.workspace_id,
+                EventOutbox.status == "failed",
             )
-            .scalars()
-            .all()
+            .order_by(EventOutbox.processed_at.desc())
+            .limit(limit)
+            .offset(offset),
         )
         return [
             DeadLetter(
@@ -83,13 +84,13 @@ class OutboxDeadLetterSource:
             for row in rows
         ]
 
-    def redrive(
-        self, db: Session, ctx: RequestContext, dead_letter_id: str
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
         # Outbox delivery is idempotent by construction, so returning a row to
         # the queue is safe.
-        replayed = OutboxRepository(db).replay_failed(dead_letter_id)
-        db.commit()
+        replayed = await OutboxRepository(db).replay_failed(dead_letter_id)
+        await db.commit()
         if not replayed:
             return RedriveResult(
                 outcome=RedriveOutcome.NOT_DEAD,
@@ -104,23 +105,20 @@ class TaskDeadLetterSource:
     kind = DeadLetterKind.TASK
     redrivable = True
 
-    def list_dead_letters(
-        self, db: Session, ctx: RequestContext, *, limit: int, offset: int
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
     ) -> Sequence[DeadLetter]:
-        rows = (
-            db.execute(
-                select(Task)
-                .where(
-                    Task.tenant_id == ctx.tenant_id,
-                    Task.workspace_id == ctx.workspace_id,
-                    Task.status == TaskStatus.FAILED.value,
-                )
-                .order_by(Task.finished_at.desc())
-                .limit(limit)
-                .offset(offset)
+        rows = await _scalars(
+            db,
+            select(Task)
+            .where(
+                Task.tenant_id == ctx.tenant_id,
+                Task.workspace_id == ctx.workspace_id,
+                Task.status == TaskStatus.FAILED.value,
             )
-            .scalars()
-            .all()
+            .order_by(Task.finished_at.desc())
+            .limit(limit)
+            .offset(offset),
         )
         return [
             DeadLetter(
@@ -140,11 +138,11 @@ class TaskDeadLetterSource:
             for row in rows
         ]
 
-    def redrive(
-        self, db: Session, ctx: RequestContext, dead_letter_id: str
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
         service = TaskService(db, ctx)
-        task = service.task_repo.get_task(dead_letter_id)
+        task = await service.task_repo.get_task(dead_letter_id)
         if task is None:
             return RedriveResult(outcome=RedriveOutcome.NOT_FOUND)
         if task.status != TaskStatus.FAILED.value:
@@ -157,7 +155,7 @@ class TaskDeadLetterSource:
                 outcome=RedriveOutcome.UNSUPPORTED,
                 detail=f"No driver re-executes task type {task.task_type!r}",
             )
-        retried = service.retry_task(task_id=task.id)
+        retried = await service.retry_task(task_id=task.id)
         return RedriveResult(outcome=RedriveOutcome.REDRIVEN, redriven_as=retried.id)
 
 
@@ -167,23 +165,20 @@ class KnowledgeIngestDeadLetterSource:
     kind = DeadLetterKind.KNOWLEDGE_INGEST
     redrivable = True
 
-    def list_dead_letters(
-        self, db: Session, ctx: RequestContext, *, limit: int, offset: int
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
     ) -> Sequence[DeadLetter]:
-        rows = (
-            db.execute(
-                select(KnowledgeIngestTask)
-                .where(
-                    KnowledgeIngestTask.tenant_id == ctx.tenant_id,
-                    KnowledgeIngestTask.workspace_id == ctx.workspace_id,
-                    KnowledgeIngestTask.status == "failed",
-                )
-                .order_by(KnowledgeIngestTask.finished_at.desc())
-                .limit(limit)
-                .offset(offset)
+        rows = await _scalars(
+            db,
+            select(KnowledgeIngestTask)
+            .where(
+                KnowledgeIngestTask.tenant_id == ctx.tenant_id,
+                KnowledgeIngestTask.workspace_id == ctx.workspace_id,
+                KnowledgeIngestTask.status == "failed",
             )
-            .scalars()
-            .all()
+            .order_by(KnowledgeIngestTask.finished_at.desc())
+            .limit(limit)
+            .offset(offset),
         )
         return [
             DeadLetter(
@@ -202,10 +197,10 @@ class KnowledgeIngestDeadLetterSource:
             for row in rows
         ]
 
-    def redrive(
-        self, db: Session, ctx: RequestContext, dead_letter_id: str
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
-        task = db.get(KnowledgeIngestTask, dead_letter_id)
+        task = await db.get(KnowledgeIngestTask, dead_letter_id)
         if task is None or task.tenant_id != ctx.tenant_id or task.workspace_id != ctx.workspace_id:
             return RedriveResult(outcome=RedriveOutcome.NOT_FOUND)
         if task.status != "failed":
@@ -224,7 +219,7 @@ class KnowledgeIngestDeadLetterSource:
         task.lease_expires_at = None
         task.updated_at = now
         db.add(task)
-        db.commit()
+        await db.commit()
         return RedriveResult(outcome=RedriveOutcome.REDRIVEN, redriven_as=task.id)
 
 
@@ -234,23 +229,20 @@ class ResponseInteractionDeadLetterSource:
     kind = DeadLetterKind.RESPONSE_INTERACTION
     redrivable = False
 
-    def list_dead_letters(
-        self, db: Session, ctx: RequestContext, *, limit: int, offset: int
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
     ) -> Sequence[DeadLetter]:
-        rows = (
-            db.execute(
-                select(ResponseInteraction)
-                .where(
-                    ResponseInteraction.tenant_id == ctx.tenant_id,
-                    ResponseInteraction.workspace_id == ctx.workspace_id,
-                    ResponseInteraction.status == "failed",
-                )
-                .order_by(ResponseInteraction.updated_at.desc())
-                .limit(limit)
-                .offset(offset)
+        rows = await _scalars(
+            db,
+            select(ResponseInteraction)
+            .where(
+                ResponseInteraction.tenant_id == ctx.tenant_id,
+                ResponseInteraction.workspace_id == ctx.workspace_id,
+                ResponseInteraction.status == "failed",
             )
-            .scalars()
-            .all()
+            .order_by(ResponseInteraction.updated_at.desc())
+            .limit(limit)
+            .offset(offset),
         )
         return [
             DeadLetter(
@@ -270,8 +262,8 @@ class ResponseInteractionDeadLetterSource:
             for row in rows
         ]
 
-    def redrive(
-        self, db: Session, ctx: RequestContext, dead_letter_id: str
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
         return RedriveResult(
             outcome=RedriveOutcome.UNSUPPORTED,
@@ -294,14 +286,14 @@ class WorkflowRunDeadLetterSource:
     kind = DeadLetterKind.WORKFLOW_RUN
     redrivable = True
 
-    def _assess(
-        self, db: Session, ctx: RequestContext, row: WorkflowRun
+    async def _assess(
+        self, db: AsyncSession, ctx: RequestContext, row: WorkflowRun
     ) -> ResumeAssessment:
         from app.wiring.services import build_workflow_service
 
         try:
             service = build_workflow_service(db=db, ctx=ctx)
-            run = db.get(Run, row.run_id)
+            run = await db.get(Run, row.run_id)
             if run is None or not run.subject_version_id:
                 return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
             version = service.version_repo.get_by_id(run.subject_version_id)
@@ -328,27 +320,24 @@ class WorkflowRunDeadLetterSource:
             )
             return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
 
-    def list_dead_letters(
-        self, db: Session, ctx: RequestContext, *, limit: int, offset: int
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
     ) -> Sequence[DeadLetter]:
-        rows = (
-            db.execute(
-                select(WorkflowRun)
-                .where(
-                    WorkflowRun.tenant_id == ctx.tenant_id,
-                    WorkflowRun.workspace_id == ctx.workspace_id,
-                    WorkflowRun.status == "failed",
-                )
-                .order_by(WorkflowRun.updated_at.desc())
-                .limit(limit)
-                .offset(offset)
+        rows = await _scalars(
+            db,
+            select(WorkflowRun)
+            .where(
+                WorkflowRun.tenant_id == ctx.tenant_id,
+                WorkflowRun.workspace_id == ctx.workspace_id,
+                WorkflowRun.status == "failed",
             )
-            .scalars()
-            .all()
+            .order_by(WorkflowRun.updated_at.desc())
+            .limit(limit)
+            .offset(offset),
         )
         letters: list[DeadLetter] = []
         for row in rows:
-            assessment = self._assess(db, ctx, row)
+            assessment = await self._assess(db, ctx, row)
             details: dict[str, object] = {
                 "completed_nodes": row.completed_nodes,
                 "total_nodes": row.total_nodes,
@@ -372,13 +361,13 @@ class WorkflowRunDeadLetterSource:
             )
         return letters
 
-    def redrive(
-        self, db: Session, ctx: RequestContext, dead_letter_id: str
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
     ) -> RedriveResult:
         from app.wiring.services import build_workflow_service
         from app.wiring.workflow_redrive import start_detached_redrive
 
-        row = db.get(WorkflowRun, dead_letter_id)
+        row = await db.get(WorkflowRun, dead_letter_id)
         if row is None or row.tenant_id != ctx.tenant_id or row.workspace_id != ctx.workspace_id:
             return RedriveResult(outcome=RedriveOutcome.NOT_FOUND)
         if row.status != "failed":
@@ -407,7 +396,7 @@ class WorkflowRunDeadLetterSource:
             )
 
         start_detached_redrive(
-            bind=db.get_bind(),
+            bind=db.bind,
             ctx=ctx,
             plan=prepared.plan,
             workflow_run_id=prepared.workflow_run_id,

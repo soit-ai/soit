@@ -16,6 +16,8 @@ from app.kernel.runtime.tasks.on_task_outbox import (
 from app.kernel.runtime.tasks.query_service import TaskQueryService
 from app.kernel.runtime.tasks.service import TaskService
 
+pytestmark = pytest.mark.asyncio
+
 
 @pytest.fixture(autouse=True)
 def _isolated_registry():
@@ -24,13 +26,17 @@ def _isolated_registry():
     drivers.clear_task_drivers()
 
 
-def _failed_task(db, ctx: RequestContext, *, task_type: str = "agent.execute") -> Task:
+async def _noop_driver(_db, _task) -> None:
+    return None
+
+
+async def _failed_task(db, ctx: RequestContext, *, task_type: str = "agent.execute") -> Task:
     service = TaskService(db, ctx)
-    task = service.create_task(task_type=task_type)
+    task = await service.create_task(task_type=task_type)
     task.status = TaskStatus.FAILED.value
     db.add(task)
-    db.commit()
-    db.refresh(task)
+    await db.commit()
+    await db.refresh(task)
     return task
 
 
@@ -47,71 +53,73 @@ def _retry_event(task: Task) -> EventOutbox:
     )
 
 
-def test_registry_reports_only_registered_types():
+async def test_registry_reports_only_registered_types():
     assert not drivers.is_drivable("agent.execute")
 
-    drivers.register_task_driver("agent.execute", lambda _db, _task: None)
+    drivers.register_task_driver("agent.execute", _noop_driver)
 
     assert drivers.is_drivable("agent.execute")
     assert drivers.registered_task_types() == frozenset({"agent.execute"})
 
 
-def test_retry_is_rejected_when_no_driver_can_run_the_task(db, ctx):
-    task = _failed_task(db, ctx)
-    service = TaskService(db, ctx)
+async def test_retry_is_rejected_when_no_driver_can_run_the_task(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
+    service = TaskService(async_db, ctx)
 
     with pytest.raises(ConflictError):
-        service.retry_task(task_id=task.id)
+        await service.retry_task(task_id=task.id)
 
-    db.refresh(task)
+    await async_db.refresh(task)
     assert task.status == TaskStatus.FAILED.value
 
 
-def test_retry_requeues_the_task_once_a_driver_exists(db, ctx):
-    task = _failed_task(db, ctx)
-    drivers.register_task_driver("agent.execute", lambda _db, _task: None)
-    service = TaskService(db, ctx)
+async def test_retry_requeues_the_task_once_a_driver_exists(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
+    drivers.register_task_driver("agent.execute", _noop_driver)
+    service = TaskService(async_db, ctx)
 
-    retried = service.retry_task(task_id=task.id)
+    retried = await service.retry_task(task_id=task.id)
 
     assert retried.status == TaskStatus.QUEUED.value
 
 
-def test_workbench_hides_retry_for_task_types_without_a_driver(db, ctx):
-    task = _failed_task(db, ctx)
-    query_service = TaskQueryService(db, ctx)
+async def test_workbench_hides_retry_for_task_types_without_a_driver(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
+    query_service = TaskQueryService(async_db, ctx)
 
     assert query_service._available_actions(task) == []
 
-    drivers.register_task_driver("agent.execute", lambda _db, _task: None)
+    drivers.register_task_driver("agent.execute", _noop_driver)
 
     assert query_service._available_actions(task) == ["retry"]
 
 
-def test_outbox_retry_invokes_the_registered_driver(db, ctx):
-    task = _failed_task(db, ctx)
+async def test_outbox_retry_invokes_the_registered_driver(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
+    async_db.add(task)
+    await async_db.commit()
     driven: list[str] = []
-    drivers.register_task_driver(
-        "agent.execute", lambda _db, driven_task: driven.append(driven_task.id)
-    )
 
-    handle_task_runtime_outbox(db, _retry_event(task))
+    async def _record(_db, driven_task) -> None:
+        driven.append(driven_task.id)
+
+    drivers.register_task_driver("agent.execute", _record)
+
+    await handle_task_runtime_outbox(async_db, _retry_event(task))
 
     assert driven == [task.id]
 
 
-def test_outbox_retry_fails_the_task_when_nothing_can_drive_it(db, ctx):
-    task = _failed_task(db, ctx)
+async def test_outbox_retry_fails_the_task_when_nothing_can_drive_it(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
+    async_db.add(task)
+    await async_db.commit()
 
-    handle_task_runtime_outbox(db, _retry_event(task))
+    await handle_task_runtime_outbox(async_db, _retry_event(task))
 
-    db.refresh(task)
+    await async_db.refresh(task)
     # A queued task nothing can run would otherwise be reported as pending
     # forever; failing it keeps the workbench honest.
     assert task.status == TaskStatus.FAILED.value
@@ -119,32 +127,34 @@ def test_outbox_retry_fails_the_task_when_nothing_can_drive_it(db, ctx):
     assert task.finished_at is not None
 
 
-def test_outbox_retry_ignores_tasks_that_already_moved_on(db, ctx):
-    task = _failed_task(db, ctx)
+async def test_outbox_retry_ignores_tasks_that_already_moved_on(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
     task.status = TaskStatus.RUNNING.value
-    db.add(task)
-    db.commit()
+    async_db.add(task)
+    await async_db.commit()
     driven: list[str] = []
-    drivers.register_task_driver(
-        "agent.execute", lambda _db, driven_task: driven.append(driven_task.id)
-    )
 
-    handle_task_runtime_outbox(db, _retry_event(task))
+    async def _record(_db, driven_task) -> None:
+        driven.append(driven_task.id)
 
-    db.refresh(task)
+    drivers.register_task_driver("agent.execute", _record)
+
+    await handle_task_runtime_outbox(async_db, _retry_event(task))
+
+    await async_db.refresh(task)
     assert driven == []
     assert task.status == TaskStatus.RUNNING.value
 
 
-def test_outbox_ignores_non_retry_lifecycle_events(db, ctx):
-    task = _failed_task(db, ctx)
+async def test_outbox_ignores_non_retry_lifecycle_events(async_db, ctx):
+    task = await _failed_task(async_db, ctx)
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
+    async_db.add(task)
+    await async_db.commit()
     event = _retry_event(task)
     event.event_type = TaskEventType.STARTED
 
-    handle_task_runtime_outbox(db, event)
+    await handle_task_runtime_outbox(async_db, event)
 
-    db.refresh(task)
+    await async_db.refresh(task)
     assert task.status == TaskStatus.QUEUED.value
