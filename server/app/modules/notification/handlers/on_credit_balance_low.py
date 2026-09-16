@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import and_, select
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_notification_id
 from app.kernel.commons.time import utc_now
@@ -31,9 +31,9 @@ _TITLES = {
 _SEVERITIES = {"low": "warning", "exhausted": "error"}
 
 
-def handle_credit_balance_low(db: Session, row: EventOutbox) -> None:
+async def handle_credit_balance_low(db: AsyncSession, row: EventOutbox) -> None:
     """Fan a balance alert out to workspace administrators' inboxes."""
-    if not try_claim_consumer_slot(
+    if not await try_claim_consumer_slot(
         db,
         consumer_name=CONSUMER_NAME,
         event_id=row.event_id,
@@ -68,7 +68,7 @@ def handle_credit_balance_low(db: Session, row: EventOutbox) -> None:
             WorkspaceMembership.role.in_(_ALERT_ROLES),
         )
     )
-    rows = list(db.exec(members_query).all())
+    rows = list((await db.exec(members_query)).all())
     members = [item if hasattr(item, "user_id") else item[0] for item in rows]
     if not members:
         logger.warning(
@@ -103,4 +103,4 @@ def handle_credit_balance_low(db: Session, row: EventOutbox) -> None:
                 updated_at=now,
             )
         )
-    db.flush()
+    await db.flush()

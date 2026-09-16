@@ -5,7 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import CreditExhaustedError
 from app.kernel.runtime.db.models.events import EventOutbox
@@ -20,6 +21,8 @@ from app.modules.notification.handlers.on_credit_balance_low import (
     handle_credit_balance_low,
 )
 from app.settings.settings import settings
+
+pytestmark = pytest.mark.asyncio
 
 
 def _cost_event(
@@ -51,19 +54,19 @@ def _cost_event(
     )
 
 
-def _ledger_rows(db: Session) -> list[CreditLedgerEntry]:
-    rows = list(db.exec(select(CreditLedgerEntry)).all())
+async def _ledger_rows(db: AsyncSession) -> list[CreditLedgerEntry]:
+    rows = list((await db.exec(select(CreditLedgerEntry))).all())
     return [row if hasattr(row, "id") else row[0] for row in rows]
 
 
-def test_priced_event_books_one_negative_deduction(db: Session) -> None:
+async def test_priced_event_books_one_negative_deduction(async_db: AsyncSession) -> None:
     row = _cost_event("evt_cost_credit_1")
-    db.add(row)
-    db.flush()
+    async_db.add(row)
+    await async_db.flush()
 
-    handle_cost_recorded_credit(db, row)
+    await handle_cost_recorded_credit(async_db, row)
 
-    entries = _ledger_rows(db)
+    entries = await _ledger_rows(async_db)
     assert len(entries) == 1
     entry = entries[0]
     assert entry.kind == "deduction"
@@ -76,50 +79,52 @@ def test_priced_event_books_one_negative_deduction(db: Session) -> None:
     assert entry.created_by == "system:credit-deduction"
 
 
-def test_duplicate_event_id_books_nothing(db: Session) -> None:
+async def test_duplicate_event_id_books_nothing(async_db: AsyncSession) -> None:
     row = _cost_event("evt_cost_credit_dup")
-    db.add(row)
-    db.flush()
+    async_db.add(row)
+    await async_db.flush()
 
-    handle_cost_recorded_credit(db, row)
-    handle_cost_recorded_credit(db, row)
+    await handle_cost_recorded_credit(async_db, row)
+    await handle_cost_recorded_credit(async_db, row)
 
-    assert len(_ledger_rows(db)) == 1
+    assert len(await _ledger_rows(async_db)) == 1
 
 
-def test_same_cost_entry_under_new_event_id_is_not_double_booked(db: Session) -> None:
+async def test_same_cost_entry_under_new_event_id_is_not_double_booked(
+    async_db: AsyncSession,
+) -> None:
     first = _cost_event("evt_cost_credit_a", cost_entry_id="cost_entry_same")
     second = _cost_event("evt_cost_credit_b", cost_entry_id="cost_entry_same")
-    db.add(first)
-    db.add(second)
-    db.flush()
+    async_db.add(first)
+    async_db.add(second)
+    await async_db.flush()
 
-    handle_cost_recorded_credit(db, first)
-    handle_cost_recorded_credit(db, second)
+    await handle_cost_recorded_credit(async_db, first)
+    await handle_cost_recorded_credit(async_db, second)
 
-    assert len(_ledger_rows(db)) == 1
+    assert len(await _ledger_rows(async_db)) == 1
 
 
-def test_unpriced_event_books_nothing(db: Session) -> None:
+async def test_unpriced_event_books_nothing(async_db: AsyncSession) -> None:
     unpriced = _cost_event("evt_cost_credit_unpriced", amount=None, currency=None)
-    db.add(unpriced)
-    db.flush()
+    async_db.add(unpriced)
+    await async_db.flush()
 
-    handle_cost_recorded_credit(db, unpriced)
+    await handle_cost_recorded_credit(async_db, unpriced)
 
-    assert _ledger_rows(db) == []
+    assert await _ledger_rows(async_db) == []
 
 
-def test_unknown_currency_books_zero_credit_adjustment(db: Session) -> None:
+async def test_unknown_currency_books_zero_credit_adjustment(async_db: AsyncSession) -> None:
     unsupported = _cost_event(
         "evt_cost_credit_eur", cost_entry_id="cost_entry_eur", currency="EUR"
     )
-    db.add(unsupported)
-    db.flush()
+    async_db.add(unsupported)
+    await async_db.flush()
 
-    handle_cost_recorded_credit(db, unsupported)
+    await handle_cost_recorded_credit(async_db, unsupported)
 
-    entries = _ledger_rows(db)
+    entries = await _ledger_rows(async_db)
     assert len(entries) == 1
     entry = entries[0]
     assert entry.kind == "adjustment"
@@ -133,15 +138,17 @@ def test_unknown_currency_books_zero_credit_adjustment(db: Session) -> None:
     replay = _cost_event(
         "evt_cost_credit_eur_replay", cost_entry_id="cost_entry_eur", currency="EUR"
     )
-    db.add(replay)
-    db.flush()
-    handle_cost_recorded_credit(db, replay)
-    assert len(_ledger_rows(db)) == 1
+    async_db.add(replay)
+    await async_db.flush()
+    await handle_cost_recorded_credit(async_db, replay)
+    assert len(await _ledger_rows(async_db)) == 1
 
 
-def test_balance_is_signed_sum_of_grants_and_deductions(db: Session, ctx) -> None:
-    service = CreditService(db, ctx)
-    service.grant(credits=Decimal("1000"), note="initial top-up")
+async def test_balance_is_signed_sum_of_grants_and_deductions(
+    async_db: AsyncSession, ctx
+) -> None:
+    service = CreditService(async_db, ctx)
+    await service.grant(credits=Decimal("1000"), note="initial top-up")
 
     row = _cost_event("evt_cost_credit_balance", cost_entry_id="cost_entry_balance")
     row.tenant_id = ctx.tenant_id
@@ -151,74 +158,75 @@ def test_balance_is_signed_sum_of_grants_and_deductions(db: Session, ctx) -> Non
         "tenant_id": ctx.tenant_id,
         "workspace_id": ctx.workspace_id,
     }
-    db.add(row)
-    db.flush()
-    handle_cost_recorded_credit(db, row)
+    async_db.add(row)
+    await async_db.flush()
+    await handle_cost_recorded_credit(async_db, row)
 
-    balance = service.get_balance()
+    balance = await service.get_balance()
     assert balance.balance == Decimal("750.000000")
     assert balance.granted_total == Decimal("1000")
     assert balance.deducted_total == Decimal("-250.000000")
     assert balance.entry_count == 2
 
-    entries = service.list_entries()
+    entries = await service.list_entries()
     assert len(entries) == 2
-    deductions = service.list_entries(kind="deduction")
+    deductions = await service.list_entries(kind="deduction")
     assert len(deductions) == 1
     assert deductions[0].run_id == "run_credit"
 
 
-def test_grant_rejects_non_positive_credits(db: Session, ctx) -> None:
-    service = CreditService(db, ctx)
+async def test_grant_rejects_non_positive_credits(async_db: AsyncSession, ctx) -> None:
+    service = CreditService(async_db, ctx)
     with pytest.raises(ValueError, match="positive"):
-        service.grant(credits=Decimal("0"))
+        await service.grant(credits=Decimal("0"))
 
 
-@pytest.mark.asyncio
-async def test_guard_is_noop_when_enforcement_disabled(db: Session, ctx) -> None:
-    guard = CreditBalanceGuard(db, ctx)
+async def test_guard_is_noop_when_enforcement_disabled(async_db: AsyncSession, ctx) -> None:
+    guard = CreditBalanceGuard(async_db, ctx)
     await guard.check(operation="chat")  # zero balance, but enforcement is off
 
 
-@pytest.mark.asyncio
-async def test_guard_hard_stops_exhausted_balance(db: Session, ctx, monkeypatch) -> None:
+async def test_guard_hard_stops_exhausted_balance(
+    async_db: AsyncSession, ctx, monkeypatch
+) -> None:
     monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
-    guard = CreditBalanceGuard(db, ctx)
+    guard = CreditBalanceGuard(async_db, ctx)
 
     with pytest.raises(CreditExhaustedError) as excinfo:
         await guard.check(operation="chat")
     assert excinfo.value.details["operation"] == "chat"
 
-    CreditService(db, ctx).grant(credits=Decimal("500"), note="top-up")
+    await CreditService(async_db, ctx).grant(credits=Decimal("500"), note="top-up")
     await guard.check(operation="chat")  # positive balance passes
 
 
-@pytest.mark.asyncio
-async def test_guard_warns_below_threshold(db: Session, ctx, monkeypatch, caplog) -> None:
+async def test_guard_warns_below_threshold(
+    async_db: AsyncSession, ctx, monkeypatch, caplog
+) -> None:
     monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
     monkeypatch.setattr(settings, "credit_low_balance_threshold", 100.0)
-    CreditService(db, ctx).grant(credits=Decimal("50"), note="small top-up")
-    guard = CreditBalanceGuard(db, ctx)
+    await CreditService(async_db, ctx).grant(credits=Decimal("50"), note="small top-up")
+    guard = CreditBalanceGuard(async_db, ctx)
 
     with caplog.at_level("WARNING"):
         await guard.check(operation="chat")
     assert any("credit balance low" in record.message for record in caplog.records)
 
 
-def _balance_alert_events(db: Session) -> list[EventOutbox]:
+async def _balance_alert_events(db: AsyncSession) -> list[EventOutbox]:
     rows = list(
-        db.exec(
-            select(EventOutbox).where(EventOutbox.event_type == CREDIT_BALANCE_LOW)
+        (
+            await db.exec(select(EventOutbox).where(EventOutbox.event_type == CREDIT_BALANCE_LOW))
         ).all()
     )
     return [row if hasattr(row, "event_id") else row[0] for row in rows]
 
 
-def _grant(db: Session, ctx, credits: str) -> None:
-    CreditService(db, ctx).grant(credits=Decimal(credits))
+async def _grant(db: AsyncSession, ctx, credits: str) -> None:
+    await CreditService(db, ctx).grant(credits=Decimal(credits))
 
 
-def _deduct(db: Session, ctx, event_id: str, cost_entry_id: str) -> None:
+async def _deduct(db: AsyncSession, ctx, event_id: str, cost_entry_id: str) -> None:
     row = _cost_event(event_id, cost_entry_id=cost_entry_id)
     row.tenant_id = ctx.tenant_id
     row.workspace_id = ctx.workspace_id
@@ -228,15 +236,15 @@ def _deduct(db: Session, ctx, event_id: str, cost_entry_id: str) -> None:
         "workspace_id": ctx.workspace_id,
     }
     db.add(row)
-    db.flush()
-    handle_cost_recorded_credit(db, row)
+    await db.flush()
+    await handle_cost_recorded_credit(db, row)
 
 
-def test_low_threshold_crossing_publishes_one_alert(db: Session, ctx) -> None:
-    _grant(db, ctx, "300")  # deduction of 250 lands at 50, below the 100 default
-    _deduct(db, ctx, "evt_cross_low", "cost_entry_cross_low")
+async def test_low_threshold_crossing_publishes_one_alert(async_db: AsyncSession, ctx) -> None:
+    await _grant(async_db, ctx, "300")  # deduction of 250 lands at 50, below the 100 default
+    await _deduct(async_db, ctx, "evt_cross_low", "cost_entry_cross_low")
 
-    events = _balance_alert_events(db)
+    events = await _balance_alert_events(async_db)
     assert len(events) == 1
     payload = events[0].payload_json
     assert payload["state"] == "low"
@@ -244,37 +252,37 @@ def test_low_threshold_crossing_publishes_one_alert(db: Session, ctx) -> None:
 
     # A further deduction that stays below the threshold does not re-alert
     # (until the balance is exhausted, which is a separate crossing).
-    _deduct(db, ctx, "evt_cross_low_again", "cost_entry_cross_low_again")
-    events = _balance_alert_events(db)
+    await _deduct(async_db, ctx, "evt_cross_low_again", "cost_entry_cross_low_again")
+    events = await _balance_alert_events(async_db)
     assert {event.payload_json["state"] for event in events} == {"low", "exhausted"}
 
 
-def test_exhaustion_crossing_publishes_error_alert(db: Session, ctx) -> None:
-    _grant(db, ctx, "200")  # deduction of 250 lands at -50
-    _deduct(db, ctx, "evt_cross_exhausted", "cost_entry_cross_exhausted")
+async def test_exhaustion_crossing_publishes_error_alert(async_db: AsyncSession, ctx) -> None:
+    await _grant(async_db, ctx, "200")  # deduction of 250 lands at -50
+    await _deduct(async_db, ctx, "evt_cross_exhausted", "cost_entry_cross_exhausted")
 
-    events = _balance_alert_events(db)
+    events = await _balance_alert_events(async_db)
     assert len(events) == 1
     assert events[0].payload_json["state"] == "exhausted"
 
     # Already exhausted: further deductions do not spam alerts.
-    _deduct(db, ctx, "evt_cross_exhausted_2", "cost_entry_cross_exhausted_2")
-    assert len(_balance_alert_events(db)) == 1
+    await _deduct(async_db, ctx, "evt_cross_exhausted_2", "cost_entry_cross_exhausted_2")
+    assert len(await _balance_alert_events(async_db)) == 1
 
 
-def test_healthy_deduction_publishes_no_alert(db: Session, ctx) -> None:
-    _grant(db, ctx, "1000")
-    _deduct(db, ctx, "evt_no_cross", "cost_entry_no_cross")
-    assert _balance_alert_events(db) == []
+async def test_healthy_deduction_publishes_no_alert(async_db: AsyncSession, ctx) -> None:
+    await _grant(async_db, ctx, "1000")
+    await _deduct(async_db, ctx, "evt_no_cross", "cost_entry_no_cross")
+    assert await _balance_alert_events(async_db) == []
 
 
-def test_balance_alert_notifies_owner_and_admin_only(db: Session, ctx) -> None:
+async def test_balance_alert_notifies_owner_and_admin_only(async_db: AsyncSession, ctx) -> None:
     for user_id, role in (
         ("user_owner", "Owner"),
         ("user_admin", "Admin"),
         ("user_viewer", "Viewer"),
     ):
-        db.add(
+        async_db.add(
             WorkspaceMembership(
                 tenant_id=ctx.tenant_id,
                 workspace_id=ctx.workspace_id,
@@ -297,13 +305,13 @@ def test_balance_alert_notifies_owner_and_admin_only(db: Session, ctx) -> None:
             "ledger_entry_id": "ledger_1",
         },
     )
-    db.add(event)
-    db.flush()
+    async_db.add(event)
+    await async_db.flush()
 
-    handle_credit_balance_low(db, event)
-    handle_credit_balance_low(db, event)  # idempotent replay
+    await handle_credit_balance_low(async_db, event)
+    await handle_credit_balance_low(async_db, event)  # idempotent replay
 
-    rows = list(db.exec(select(Notification)).all())
+    rows = list((await async_db.exec(select(Notification))).all())
     notifications = [row if hasattr(row, "id") else row[0] for row in rows]
     assert {n.user_id for n in notifications} == {"user_owner", "user_admin"}
     assert all(n.type == "alert" for n in notifications)
@@ -312,16 +320,18 @@ def test_balance_alert_notifies_owner_and_admin_only(db: Session, ctx) -> None:
     assert all(n.meta["state"] == "low" for n in notifications)
 
 
-def test_balance_status_reflects_enforcement_thresholds(db: Session, ctx, monkeypatch) -> None:
+async def test_balance_status_reflects_enforcement_thresholds(
+    async_db: AsyncSession, ctx, monkeypatch
+) -> None:
     monkeypatch.setattr(settings, "credit_enforcement_enabled", True)
     monkeypatch.setattr(settings, "credit_low_balance_threshold", 100.0)
-    service = CreditService(db, ctx)
+    service = CreditService(async_db, ctx)
 
-    assert service.get_balance().status == "exhausted"
-    service.grant(credits=Decimal("50"))
-    assert service.get_balance().status == "low"
-    service.grant(credits=Decimal("500"))
-    balance = service.get_balance()
+    assert (await service.get_balance()).status == "exhausted"
+    await service.grant(credits=Decimal("50"))
+    assert (await service.get_balance()).status == "low"
+    await service.grant(credits=Decimal("500"))
+    balance = await service.get_balance()
     assert balance.status == "ok"
     assert balance.enforcement_enabled is True
     assert balance.low_balance_threshold == Decimal("100")

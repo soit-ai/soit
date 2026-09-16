@@ -25,7 +25,7 @@ async def get_credit_balance(
 ):
     """Current workspace credit balance derived from the ledger."""
     _ = ctx
-    return service.get_balance()
+    return await service.get_balance()
 
 
 @router.get("/credits/entries", response_model=list[CreditLedgerEntryResponse])
@@ -39,7 +39,7 @@ async def list_credit_entries(
 ):
     """List signed credit movements, newest first."""
     _ = ctx
-    return service.list_entries(kind=kind, run_id=run_id, limit=limit, offset=offset)
+    return await service.list_entries(kind=kind, run_id=run_id, limit=limit, offset=offset)
 
 
 @router.post("/credits/grants", response_model=CreditLedgerEntryResponse, status_code=201)
@@ -50,4 +50,4 @@ async def grant_credits(
 ):
     """Grant credits to the current workspace (workspace owner only)."""
     _ = ctx
-    return service.grant(credits=body.credits, note=body.note)
+    return await service.grant(credits=body.credits, note=body.note)

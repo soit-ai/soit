@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from opentelemetry import trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, use_span
 
@@ -12,25 +13,27 @@ from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.publisher import OutboxPublisher
 
 
-def test_publisher_delegates_enqueue_to_repository(db) -> None:
+@pytest.mark.asyncio
+async def test_publisher_delegates_enqueue_to_repository(async_db) -> None:
     env = DomainEventEnvelope(
         event_id="evt_pub",
         event_type="t",
         occurred_at=datetime(2025, 3, 23, 12, 0, 0, tzinfo=UTC),
         payload={"a": 1},
     )
-    repo = OutboxRepository(db)
+    repo = OutboxRepository(async_db)
     pub = OutboxPublisher(repo)
     row = pub.publish(env, headers_json={"h": "1"})
-    db.commit()
-    loaded = repo.get(row.id)
+    await async_db.commit()
+    loaded = await repo.get(row.id)
     assert loaded is not None
     assert loaded.event_id == "evt_pub"
     assert loaded.headers_json == {"h": "1"}
 
 
-def test_publisher_propagates_w3c_trace_and_scope_headers(db) -> None:
-    repo = OutboxRepository(db)
+@pytest.mark.asyncio
+async def test_publisher_propagates_w3c_trace_and_scope_headers(async_db) -> None:
+    repo = OutboxRepository(async_db)
     pub = OutboxPublisher(repo)
     span_context = SpanContext(
         trace_id=int("1234567890abcdef1234567890abcdef", 16),

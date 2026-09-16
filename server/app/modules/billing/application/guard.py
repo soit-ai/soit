@@ -6,7 +6,7 @@ import logging
 from decimal import Decimal
 
 from sqlalchemy import and_, func, select
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import CreditExhaustedError
 from app.kernel.contracts.context import RequestContext
@@ -23,11 +23,11 @@ class CreditBalanceGuard:
     (zero ledger, zero balance) keep working until credits are operated.
     """
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         self.db = db
         self.ctx = ctx
 
-    def _balance(self) -> Decimal:
+    async def _balance(self) -> Decimal:
         query = select(
             func.coalesce(func.sum(CreditLedgerEntry.credits_delta), 0)
         ).where(
@@ -36,7 +36,7 @@ class CreditBalanceGuard:
                 CreditLedgerEntry.workspace_id == self.ctx.workspace_id,
             )
         )
-        row = self.db.exec(query).one()
+        row = (await self.db.exec(query)).one()
         value = row if isinstance(row, int | float | Decimal) else row[0]
         return Decimal(str(value))
 
@@ -44,7 +44,7 @@ class CreditBalanceGuard:
         """Raise CreditExhaustedError when the workspace balance is spent."""
         if not settings.credit_enforcement_enabled:
             return
-        balance = self._balance()
+        balance = await self._balance()
         if balance <= 0:
             raise CreditExhaustedError(
                 details={

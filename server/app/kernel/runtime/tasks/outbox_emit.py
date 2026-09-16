@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -37,7 +37,7 @@ def _task_payload(task: Task, **extra: Any) -> dict[str, Any]:
 
 
 def enqueue_task_outbox_event(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     event_type: str,
@@ -71,7 +71,7 @@ def enqueue_task_outbox_event(
 
 
 def enqueue_task_checkpoint_outbox(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     task: Task,

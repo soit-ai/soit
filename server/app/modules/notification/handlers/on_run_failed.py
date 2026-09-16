@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import and_, select
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_notification_id
 from app.kernel.commons.time import utc_now
@@ -33,7 +33,7 @@ _CATEGORY = "task"
 """The preference category a member can switch off."""
 
 
-def _members_to_notify(db: Session, tenant_id: str, workspace_id: str) -> list[str]:
+async def _members_to_notify(db: AsyncSession, tenant_id: str, workspace_id: str) -> list[str]:
     query = select(WorkspaceMembership).where(
         and_(
             WorkspaceMembership.tenant_id == tenant_id,
@@ -41,19 +41,19 @@ def _members_to_notify(db: Session, tenant_id: str, workspace_id: str) -> list[s
             WorkspaceMembership.role.in_(_ALERT_ROLES),
         )
     )
-    rows = list(db.exec(query).all())
+    rows = list((await db.exec(query)).all())
     members = [item if hasattr(item, "user_id") else item[0] for item in rows]
     return [member.user_id for member in members]
 
 
-def _wants_it(db: Session, user_id: str) -> bool:
+async def _wants_it(db: AsyncSession, user_id: str) -> bool:
     """Whether this member left run alerts switched on.
 
     Absent preferences mean the default, which is on: a member who never opened
     the settings still hears that their agents are failing.
     """
     query = select(NotificationPreference).where(NotificationPreference.user_id == user_id)
-    row = db.exec(query).first()
+    row = (await db.exec(query)).first()
     preference = row if row is None or hasattr(row, "categories_json") else row[0]
     if preference is None:
         return True
@@ -61,7 +61,7 @@ def _wants_it(db: Session, user_id: str) -> bool:
     return bool(categories.get(_CATEGORY, True))
 
 
-def handle_run_failed(db: Session, row: EventOutbox) -> None:
+async def handle_run_failed(db: AsyncSession, row: EventOutbox) -> None:
     """Notify a workspace that one of its runs failed."""
     payload = row.payload_json or {}
     status = str(payload.get("status") or "")
@@ -72,7 +72,7 @@ def handle_run_failed(db: Session, row: EventOutbox) -> None:
     if not run_id:
         return
 
-    if not try_claim_consumer_slot(
+    if not await try_claim_consumer_slot(
         db,
         consumer_name=CONSUMER_NAME,
         event_id=row.event_id,
@@ -80,7 +80,7 @@ def handle_run_failed(db: Session, row: EventOutbox) -> None:
     ):
         return
 
-    run = db.get(Run, run_id)
+    run = await db.get(Run, run_id)
     tenant_id = str(payload.get("tenant_id") or row.tenant_id or (run.tenant_id if run else ""))
     workspace_id = str(
         payload.get("workspace_id") or row.workspace_id or (run.workspace_id if run else "")
@@ -100,8 +100,8 @@ def handle_run_failed(db: Session, row: EventOutbox) -> None:
         content = f"{content} {reason}"
 
     now = utc_now()
-    for user_id in _members_to_notify(db, tenant_id, workspace_id):
-        if not _wants_it(db, user_id):
+    for user_id in await _members_to_notify(db, tenant_id, workspace_id):
+        if not await _wants_it(db, user_id):
             continue
         db.add(
             Notification(
@@ -121,4 +121,4 @@ def handle_run_failed(db: Session, row: EventOutbox) -> None:
                 updated_at=now,
             )
         )
-    db.flush()
+    await db.flush()

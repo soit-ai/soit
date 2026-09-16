@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -14,13 +14,13 @@ from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.domain.workflow_events import WorkflowEventType
 
 
-def handle_workflow_node_completed_outbox(db: Session, row: EventOutbox) -> None:
+async def handle_workflow_node_completed_outbox(db: AsyncSession, row: EventOutbox) -> None:
     """Increment workflow run counters; optionally enqueue completion for the next node."""
     payload = row.payload_json or {}
     wfr_id = payload.get("workflow_run_id") or row.workflow_run_id or row.subject_id
     if not wfr_id:
         return
-    wfr = db.get(WorkflowRun, wfr_id)
+    wfr = await db.get(WorkflowRun, wfr_id)
     if wfr is None:
         return
 
@@ -56,13 +56,13 @@ def handle_workflow_node_completed_outbox(db: Session, row: EventOutbox) -> None
     OutboxPublisher(OutboxRepository(db)).publish(envelope)
 
 
-def handle_workflow_node_failed_outbox(db: Session, row: EventOutbox) -> None:
+async def handle_workflow_node_failed_outbox(db: AsyncSession, row: EventOutbox) -> None:
     """Increment workflow_runs.failed_nodes; DAG scheduling stays in-process on the executor."""
     payload = row.payload_json or {}
     wfr_id = payload.get("workflow_run_id") or row.workflow_run_id or row.subject_id
     if not wfr_id:
         return
-    wfr = db.get(WorkflowRun, wfr_id)
+    wfr = await db.get(WorkflowRun, wfr_id)
     if wfr is None:
         return
 

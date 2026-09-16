@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, or_, update
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -26,9 +27,14 @@ class OutboxOperationalStats:
 
 
 class OutboxRepository:
-    """Enqueue and lifecycle helpers for outbox rows."""
+    """Enqueue and lifecycle helpers for outbox rows.
 
-    def __init__(self, db: Session) -> None:
+    `enqueue_from_envelope` only stages the row on the session, so it stays
+    synchronous and callers publish from inside their own transaction without
+    an extra round trip. Everything that reads or writes the database awaits.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
     def enqueue_from_envelope(
@@ -75,7 +81,7 @@ class OutboxRepository:
         self.db.add(row)
         return row
 
-    def list_pending_due(self, *, before: datetime, limit: int) -> list[EventOutbox]:
+    async def list_pending_due(self, *, before: datetime, limit: int) -> list[EventOutbox]:
         """Rows ready for dispatch, including abandoned rows with expired leases."""
         stmt = (
             select(EventOutbox)
@@ -95,9 +101,9 @@ class OutboxRepository:
             .order_by(EventOutbox.available_at)
             .limit(limit)
         )
-        return list(self.db.exec(stmt).all())
+        return list((await self.db.exec(stmt)).all())
 
-    def try_claim(
+    async def try_claim(
         self,
         row_id: str,
         *,
@@ -132,39 +138,43 @@ class OutboxRepository:
                 lock_expires_at=claimed_at + timedelta(seconds=max(1, lease_seconds)),
             )
         )
-        result = self.db.exec(stmt.execution_options(synchronize_session=False))
-        self.db.expire_all()
+        # "fetch" refreshes the matched rows in the identity map instead of
+        # expiring the whole session: with an async session an expired
+        # attribute is implicit IO on next access, which raises MissingGreenlet.
+        result = await self.db.exec(stmt.execution_options(synchronize_session="fetch"))
         return int(result.rowcount or 0) == 1
 
-    def get(self, row_id: str) -> EventOutbox | None:
+    async def get(self, row_id: str) -> EventOutbox | None:
         """Load row by primary key."""
-        return self.db.get(EventOutbox, row_id)
+        return await self.db.get(EventOutbox, row_id)
 
-    def get_operational_stats(self) -> OutboxOperationalStats:
+    async def get_operational_stats(self) -> OutboxOperationalStats:
         """Return backlog and failure signals without loading event payloads."""
-        pending_count = self.db.exec(
-            select(func.count())
-            .select_from(EventOutbox)
-            .where(EventOutbox.status == "pending")
+        pending_count = (
+            await self.db.exec(
+                select(func.count()).select_from(EventOutbox).where(EventOutbox.status == "pending")
+            )
         ).one()
-        retry_count = self.db.exec(
-            select(func.count())
-            .select_from(EventOutbox)
-            .where(
-                and_(
-                    EventOutbox.status == "pending",
-                    EventOutbox.attempt_count > 0,
+        retry_count = (
+            await self.db.exec(
+                select(func.count())
+                .select_from(EventOutbox)
+                .where(
+                    and_(
+                        EventOutbox.status == "pending",
+                        EventOutbox.attempt_count > 0,
+                    )
                 )
             )
         ).one()
-        failed_count = self.db.exec(
-            select(func.count())
-            .select_from(EventOutbox)
-            .where(EventOutbox.status == "failed")
+        failed_count = (
+            await self.db.exec(
+                select(func.count()).select_from(EventOutbox).where(EventOutbox.status == "failed")
+            )
         ).one()
-        oldest_pending_at = self.db.exec(
-            select(func.min(EventOutbox.created_at)).where(
-                EventOutbox.status == "pending"
+        oldest_pending_at = (
+            await self.db.exec(
+                select(func.min(EventOutbox.created_at)).where(EventOutbox.status == "pending")
             )
         ).one()
         return OutboxOperationalStats(
@@ -174,9 +184,9 @@ class OutboxRepository:
             oldest_pending_at=oldest_pending_at,
         )
 
-    def mark_done(self, row_id: str) -> None:
+    async def mark_done(self, row_id: str) -> None:
         """Mark successfully processed."""
-        row = self.db.get(EventOutbox, row_id)
+        row = await self.db.get(EventOutbox, row_id)
         if row is None:
             return
         row.status = "done"
@@ -186,7 +196,7 @@ class OutboxRepository:
         row.lock_expires_at = None
         self.db.add(row)
 
-    def mark_retry(
+    async def mark_retry(
         self,
         row_id: str,
         error: str,
@@ -196,7 +206,7 @@ class OutboxRepository:
         max_delay_seconds: int = 300,
     ) -> None:
         """Return a row to pending with bounded exponential backoff."""
-        row = self.db.get(EventOutbox, row_id)
+        row = await self.db.get(EventOutbox, row_id)
         if row is None:
             return
         retry_at = now if now is not None else utc_now()
@@ -213,9 +223,11 @@ class OutboxRepository:
         row.lock_expires_at = None
         self.db.add(row)
 
-    def mark_failed(self, row_id: str, error: str, *, consumer_name: str | None = None) -> None:
+    async def mark_failed(
+        self, row_id: str, error: str, *, consumer_name: str | None = None
+    ) -> None:
         """Terminal failure: stop retries (e.g. exceeded max attempts or poison message)."""
-        row = self.db.get(EventOutbox, row_id)
+        row = await self.db.get(EventOutbox, row_id)
         if row is None:
             return
         row.status = "failed"
@@ -227,7 +239,7 @@ class OutboxRepository:
         row.lock_expires_at = None
         self.db.add(row)
 
-    def replay_failed(self, row_id: str, *, now: datetime | None = None) -> bool:
+    async def replay_failed(self, row_id: str, *, now: datetime | None = None) -> bool:
         """Atomically return one terminally failed row to the pending queue."""
         replay_at = now if now is not None else utc_now()
         stmt = (
@@ -249,6 +261,8 @@ class OutboxRepository:
                 lock_expires_at=None,
             )
         )
-        result = self.db.exec(stmt.execution_options(synchronize_session=False))
-        self.db.expire_all()
+        # "fetch" refreshes the matched rows in the identity map instead of
+        # expiring the whole session: with an async session an expired
+        # attribute is implicit IO on next access, which raises MissingGreenlet.
+        result = await self.db.exec(stmt.execution_options(synchronize_session="fetch"))
         return int(result.rowcount or 0) == 1

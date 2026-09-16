@@ -5,14 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.events import EventConsumerCheckpoint
 
 
-def try_claim_consumer_slot(
-    db: Session,
+async def try_claim_consumer_slot(
+    db: AsyncSession,
     *,
     consumer_name: str,
     event_id: str,
@@ -29,9 +30,9 @@ def try_claim_consumer_slot(
         processed_at=processed_at if processed_at is not None else utc_now(),
     )
     try:
-        with db.begin_nested():
+        async with db.begin_nested():
             db.add(row)
-            db.flush()
+            await db.flush()
         return True
     except IntegrityError:
         return False
@@ -40,18 +41,18 @@ def try_claim_consumer_slot(
 class ConsumerCheckpointRepository:
     """Persist (consumer_name, event_id) markers without breaking outer transactions."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def is_processed(self, consumer_name: str, event_id: str) -> bool:
+    async def is_processed(self, consumer_name: str, event_id: str) -> bool:
         """Return True if this consumer has already recorded success for the event."""
         stmt = select(EventConsumerCheckpoint.id).where(
             EventConsumerCheckpoint.consumer_name == consumer_name,
             EventConsumerCheckpoint.event_id == event_id,
         )
-        return self.db.exec(stmt).first() is not None
+        return (await self.db.exec(stmt)).first() is not None
 
-    def try_record_success(
+    async def try_record_success(
         self,
         consumer_name: str,
         event_id: str,
@@ -64,7 +65,7 @@ class ConsumerCheckpointRepository:
 
         Uses a savepoint so IntegrityError does not abort the caller's entire transaction.
         """
-        return try_claim_consumer_slot(
+        return await try_claim_consumer_slot(
             self.db,
             consumer_name=consumer_name,
             event_id=event_id,

@@ -7,7 +7,7 @@ import logging
 
 from prometheus_client import start_http_server
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.infra.telemetry import configure_telemetry
 from app.kernel.events.dispatcher import OutboxDispatcherService
 from app.kernel.observe.logging import setup_logging
@@ -29,7 +29,7 @@ async def main() -> None:
     start_http_server(metrics_port, addr="0.0.0.0")
     service = OutboxDispatcherService(
         get_outbox_registry(),
-        db_factory=get_db_sync,
+        db_factory=get_async_session_local(),
         batch_limit=max(1, int(settings.outbox_dispatcher_batch_limit)),
         max_dispatch_attempts=max(1, int(settings.outbox_dispatcher_max_attempts)),
         lease_seconds=max(1, int(settings.outbox_dispatcher_lease_seconds)),

@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.events.checkpoint import try_claim_consumer_slot
@@ -49,7 +49,7 @@ def _credit_rates() -> dict[str, Decimal]:
     return rates
 
 
-def _workspace_balance(db: Session, tenant_id: str, workspace_id: str) -> Decimal:
+async def _workspace_balance(db: AsyncSession, tenant_id: str, workspace_id: str) -> Decimal:
     query = select(
         func.coalesce(func.sum(CreditLedgerEntry.credits_delta), 0)
     ).where(
@@ -58,13 +58,13 @@ def _workspace_balance(db: Session, tenant_id: str, workspace_id: str) -> Decima
             CreditLedgerEntry.workspace_id == workspace_id,
         )
     )
-    row = db.exec(query).one()
+    row = (await db.exec(query)).one()
     value = row if isinstance(row, int | float | Decimal) else row[0]
     return Decimal(str(value))
 
 
 def _publish_balance_alert(
-    db: Session,
+    db: AsyncSession,
     *,
     entry: CreditLedgerEntry,
     state: str,
@@ -106,9 +106,9 @@ def _decimal_or_none(value: object) -> Decimal | None:
         return None
 
 
-def handle_cost_recorded_credit(db: Session, row: EventOutbox) -> None:
+async def handle_cost_recorded_credit(db: AsyncSession, row: EventOutbox) -> None:
     """Book one credit deduction for a priced usage row, exactly once."""
-    if not try_claim_consumer_slot(
+    if not await try_claim_consumer_slot(
         db,
         consumer_name=CONSUMER_NAME,
         event_id=row.event_id,
@@ -177,11 +177,11 @@ def handle_cost_recorded_credit(db: Session, row: EventOutbox) -> None:
             },
             created_by=CREATED_BY,
         )
-    balance_before = _workspace_balance(db, str(tenant_id), str(workspace_id))
+    balance_before = await _workspace_balance(db, str(tenant_id), str(workspace_id))
     try:
-        with db.begin_nested():
+        async with db.begin_nested():
             db.add(entry)
-            db.flush()
+            await db.flush()
     except IntegrityError:
         logger.warning(
             "Credit deduction already booked for cost entry %s; skipping duplicate",

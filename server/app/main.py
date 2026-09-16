@@ -164,13 +164,13 @@ async def lifespan(app: FastAPI):
     outbox_service = None
     if getattr(app_settings, "outbox_dispatcher_enabled", False):
         try:
-            from app.infra.db.session import get_db_sync
+            from app.infra.db.session import get_async_session_local
             from app.kernel.events.dispatcher import OutboxDispatcherService
             from app.wiring.outbox_handlers import get_outbox_registry
 
             outbox_service = OutboxDispatcherService(
                 get_outbox_registry(),
-                db_factory=get_db_sync,
+                db_factory=get_async_session_local(),
                 batch_limit=max(1, int(app_settings.outbox_dispatcher_batch_limit)),
                 max_dispatch_attempts=max(1, int(app_settings.outbox_dispatcher_max_attempts)),
             )

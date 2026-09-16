@@ -15,7 +15,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind, Tracer
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.events.checkpoint import ConsumerCheckpointRepository
@@ -34,7 +34,9 @@ from app.kernel.runtime.db.models.events import EventOutbox
 
 logger = logging.getLogger(__name__)
 
-OutboxHandlerFn = Callable[[Session, EventOutbox], Any]
+OutboxHandlerFn = Callable[[AsyncSession, EventOutbox], Any]
+"""A consumer. It receives the dispatcher's session and may be sync or async;
+anything that touches the database must be async and await the session."""
 
 
 class OutboxDispatcher:
@@ -42,7 +44,7 @@ class OutboxDispatcher:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         registry: OutboxHandlerRegistry,
         *,
         max_dispatch_attempts: int = 64,
@@ -66,14 +68,14 @@ class OutboxDispatcher:
         if inspect.isawaitable(result):
             await result
 
-    def _on_handler_error(self, row_id: str, consumer_name: str, exc: BaseException) -> None:
-        row_fresh = self.repo.get(row_id)
+    async def _on_handler_error(self, row_id: str, consumer_name: str, exc: BaseException) -> None:
+        row_fresh = await self.repo.get(row_id)
         if row_fresh is None:
             return
         msg = f"{consumer_name}: {exc}"
         next_attempt = int(row_fresh.attempt_count or 0) + 1
         if next_attempt >= self.max_dispatch_attempts:
-            self.repo.mark_failed(row_id, msg, consumer_name=consumer_name)
+            await self.repo.mark_failed(row_id, msg, consumer_name=consumer_name)
             outbox_dispatch_attempts.labels(outcome="failed").inc()
             logger.warning(
                 "outbox row %s terminal failure after %s attempts: %s",
@@ -82,12 +84,12 @@ class OutboxDispatcher:
                 msg,
             )
         else:
-            self.repo.mark_retry(row_id, msg)
+            await self.repo.mark_retry(row_id, msg)
             outbox_dispatch_attempts.labels(outcome="retry").inc()
 
     async def dispatch_row(self, row: EventOutbox) -> bool:
         """Try to claim and fully process one row. Returns True if this worker owned dispatch."""
-        if not self.repo.try_claim(
+        if not await self.repo.try_claim(
             row.id,
             owner=self.worker_id,
             lease_seconds=self.lease_seconds,
@@ -116,27 +118,27 @@ class OutboxDispatcher:
         try:
             validate_event_payload_version(row.event_type, row.event_version)
         except ValueError as exc:
-            self.repo.mark_failed(row.id, str(exc))
+            await self.repo.mark_failed(row.id, str(exc))
             outbox_dispatch_attempts.labels(outcome="failed").inc()
             return True
 
         handlers = self.registry.get_handlers(row.event_type)
         if not handlers:
-            self.repo.mark_done(row.id)
+            await self.repo.mark_done(row.id)
             self._record_success(row)
             return True
 
         for reg in handlers:
-            if self.checkpoints.is_processed(reg.consumer_name, row.event_id):
+            if await self.checkpoints.is_processed(reg.consumer_name, row.event_id):
                 continue
             try:
                 await self._invoke(reg.handler, row)
             except Exception as exc:  # noqa: BLE001 — surface to outbox retry/DLQ
-                self._on_handler_error(row.id, reg.consumer_name, exc)
+                await self._on_handler_error(row.id, reg.consumer_name, exc)
                 return True
-            self.checkpoints.try_record_success(reg.consumer_name, row.event_id)
+            await self.checkpoints.try_record_success(reg.consumer_name, row.event_id)
 
-        self.repo.mark_done(row.id)
+        await self.repo.mark_done(row.id)
         self._record_success(row)
         return True
 
@@ -149,9 +151,9 @@ class OutboxDispatcher:
         outbox_dispatch_attempts.labels(outcome="done").inc()
         outbox_delivery_latency.observe(latency)
 
-    def update_operational_metrics(self) -> None:
+    async def update_operational_metrics(self) -> None:
         """Refresh current backlog gauges after a dispatcher tick."""
-        stats = self.repo.get_operational_stats()
+        stats = await self.repo.get_operational_stats()
         outbox_pending.set(stats.pending_count)
         outbox_retries.set(stats.retry_count)
         outbox_dead_letters.set(stats.failed_count)
@@ -171,7 +173,7 @@ class OutboxDispatcher:
     ) -> int:
         """Process up to `batch_limit` due pending rows; returns how many were claimed for work."""
         cutoff = before if before is not None else utc_now()
-        rows = self.repo.list_pending_due(before=cutoff, limit=batch_limit)
+        rows = await self.repo.list_pending_due(before=cutoff, limit=batch_limit)
         attempted = 0
         for row in rows:
             if await self.dispatch_row(row):
@@ -186,7 +188,7 @@ class OutboxDispatcherService:
         self,
         registry: OutboxHandlerRegistry,
         *,
-        db_factory: Callable[[], Session],
+        db_factory: Callable[[], AsyncSession],
         max_dispatch_attempts: int = 64,
         record_dead_letter: bool = True,
         batch_limit: int = 50,
@@ -199,9 +201,7 @@ class OutboxDispatcherService:
         self.record_dead_letter = record_dead_letter
         self.batch_limit = batch_limit
         self.lease_seconds = lease_seconds
-        self.worker_id = worker_id or (
-            f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
-        )
+        self.worker_id = worker_id or (f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}")
 
     async def run_once(self) -> int:
         """One poll: claim/process batch and commit."""
@@ -216,14 +216,14 @@ class OutboxDispatcherService:
                 lease_seconds=self.lease_seconds,
             )
             n = await disp.run_once(batch_limit=self.batch_limit)
-            disp.update_operational_metrics()
-            db.commit()
+            await disp.update_operational_metrics()
+            await db.commit()
             return n
         except Exception:
-            db.rollback()
+            await db.rollback()
             raise
         finally:
-            db.close()
+            await db.close()
 
     async def run_loop(self, *, poll_interval_seconds: float = 1.0) -> None:
         """Infinite background loop; swallow tick errors so the worker stays alive."""

@@ -165,7 +165,9 @@ async def async_db():
     )
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-    session = AsyncSession(engine, expire_on_commit=False, autoflush=False)
+    # Autoflush stays on, as in the sync `db` fixture: tests read back rows
+    # they staged without flushing first.
+    session = AsyncSession(engine, expire_on_commit=False)
     try:
         yield session
     finally:

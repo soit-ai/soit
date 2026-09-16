@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, case, func, select
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.billing.application.schemas import (
@@ -20,7 +20,7 @@ from app.settings.settings import settings
 class CreditService:
     """Workspace-scoped credit ledger queries and grants."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         self.db = db
         self.ctx = ctx
 
@@ -30,7 +30,7 @@ class CreditService:
             CreditLedgerEntry.workspace_id == self.ctx.workspace_id,
         ]
 
-    def get_balance(self) -> CreditBalanceResponse:
+    async def get_balance(self) -> CreditBalanceResponse:
         """Balance is the signed sum of the ledger; no cached counter to drift."""
         query = select(
             func.coalesce(func.sum(CreditLedgerEntry.credits_delta), 0),
@@ -54,7 +54,7 @@ class CreditService:
             ),
             func.count(CreditLedgerEntry.id),
         ).where(and_(*self._scope_clauses()))
-        row = self.db.exec(query).one()
+        row = (await self.db.exec(query)).one()
         balance = Decimal(str(row[0]))
         threshold = Decimal(str(settings.credit_low_balance_threshold))
         if balance <= 0:
@@ -73,7 +73,7 @@ class CreditService:
             low_balance_threshold=threshold,
         )
 
-    def list_entries(
+    async def list_entries(
         self,
         *,
         kind: str | None = None,
@@ -93,11 +93,11 @@ class CreditService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         entries = [row if hasattr(row, "id") else row[0] for row in rows]
         return [CreditLedgerEntryResponse.model_validate(entry) for entry in entries]
 
-    def grant(self, *, credits: Decimal, note: str | None = None) -> CreditLedgerEntryResponse:
+    async def grant(self, *, credits: Decimal, note: str | None = None) -> CreditLedgerEntryResponse:
         if credits <= 0:
             raise ValueError("Grant credits must be positive")
         entry = CreditLedgerEntry(
@@ -110,6 +110,6 @@ class CreditService:
             conversion_snapshot_json={},
         )
         self.db.add(entry)
-        self.db.flush()
-        self.db.refresh(entry)
+        await self.db.flush()
+        await self.db.refresh(entry)
         return CreditLedgerEntryResponse.model_validate(entry)

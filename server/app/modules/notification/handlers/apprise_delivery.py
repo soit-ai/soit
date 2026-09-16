@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from apprise import Apprise
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -34,7 +34,7 @@ async def _send_apprise(url: str, *, title: str, body: str) -> bool:
 
 
 async def handle_notification_delivery_outbox(
-    db: Session,
+    db: AsyncSession,
     row: EventOutbox | Any,
     *,
     secrets_port: SecretsPort | None = None,
@@ -43,17 +43,17 @@ async def handle_notification_delivery_outbox(
 ) -> None:
     """Deliver one queued notification without exposing its endpoint URL."""
     delivery_id = str((row.payload_json or {}).get("delivery_id") or "")
-    delivery = db.get(NotificationDelivery, delivery_id)
+    delivery = await db.get(NotificationDelivery, delivery_id)
     if delivery is None or delivery.status in {"sent", "failed"}:
         return
-    endpoint = db.get(NotificationEndpoint, delivery.endpoint_id)
-    notification = db.get(Notification, delivery.notification_id)
+    endpoint = await db.get(NotificationEndpoint, delivery.endpoint_id)
+    notification = await db.get(Notification, delivery.notification_id)
     if endpoint is None or notification is None:
         delivery.status = "failed"
         delivery.last_error = "ReferenceNotFound"
         delivery.updated_at = utc_now()
         db.add(delivery)
-        db.flush()
+        await db.flush()
         return
     if (
         endpoint.tenant_id != delivery.tenant_id
@@ -65,14 +65,14 @@ async def handle_notification_delivery_outbox(
         delivery.last_error = "ScopeMismatch"
         delivery.updated_at = utc_now()
         db.add(delivery)
-        db.flush()
+        await db.flush()
         return
     if endpoint.status != "active":
         delivery.status = "failed"
         delivery.last_error = "EndpointDisabled"
         delivery.updated_at = utc_now()
         db.add(delivery)
-        db.flush()
+        await db.flush()
         return
 
     delivery.status = "sending"
@@ -108,11 +108,11 @@ async def handle_notification_delivery_outbox(
         if delivery.attempt_count >= 5:
             delivery.status = "failed"
             db.add(delivery)
-            db.flush()
+            await db.flush()
             return
         delivery.status = "queued"
         db.add(delivery)
-        db.flush()
+        await db.flush()
         raise RuntimeError("notification delivery failed") from None
 
     delivery.status = "sent"
@@ -120,4 +120,4 @@ async def handle_notification_delivery_outbox(
     delivery.sent_at = utc_now()
     delivery.updated_at = delivery.sent_at
     db.add(delivery)
-    db.flush()
+    await db.flush()

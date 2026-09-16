@@ -257,10 +257,11 @@ async def test_runtime_model_provider_private_base_url_is_rejected_before_factor
 
 @pytest.mark.asyncio
 async def test_notification_private_target_is_rejected_before_sender(
-    db,
+    async_db,
     ctx,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    db = async_db
     _configure_allowlist(monkeypatch, "hooks.example.com")
     notification = Notification(
         id="ntf_guarded",
@@ -297,7 +298,7 @@ async def test_notification_private_target_is_rejected_before_sender(
         endpoint_id=endpoint.id,
     )
     db.add_all([notification, secret, endpoint, delivery])
-    db.commit()
+    await db.commit()
     secrets = SimpleNamespace(
         get_secret=AsyncMock(return_value="json://hooks.example.com/notify")
     )

@@ -7,7 +7,7 @@ import logging
 from datetime import UTC
 from decimal import Decimal
 
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.observe.event_types import ObserveEventType
 from app.kernel.observe.metrics import (
@@ -36,11 +36,11 @@ def _resolve_run_id(row: EventOutbox) -> str | None:
     return payload.get("run_id") or row.subject_id
 
 
-def handle_run_created_observe(db: Session, row: EventOutbox) -> None:
+async def handle_run_created_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Mirror former TraceWriter.create_run observe (tracer, exporter, run counters)."""
     if row.event_type != RunEventType.CREATED:
         return
-    if not try_claim_projection_slot(
+    if not await try_claim_projection_slot(
         db, consumer_name="observe.run_created.side_effects", event_id=row.event_id
     ):
         return
@@ -48,7 +48,7 @@ def handle_run_created_observe(db: Session, row: EventOutbox) -> None:
     rid = _resolve_run_id(row)
     if not rid:
         return
-    run = db.get(Run, rid)
+    run = await db.get(Run, rid)
     if run is None:
         return
 
@@ -59,10 +59,10 @@ def handle_run_created_observe(db: Session, row: EventOutbox) -> None:
     active_runs.labels(mode=run.mode, tenant_id=run.tenant_id).inc()
 
 
-def handle_task_lifecycle_observe(db: Session, row: EventOutbox) -> None:
+async def handle_task_lifecycle_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Structured usage log hook; extend with usage_events table when needed."""
     consumer = f"observe.task.{row.event_type}"
-    if not try_claim_projection_slot(db, consumer_name=consumer, event_id=row.event_id):
+    if not await try_claim_projection_slot(db, consumer_name=consumer, event_id=row.event_id):
         return
     payload = row.payload_json or {}
     logger.info(
@@ -72,10 +72,10 @@ def handle_task_lifecycle_observe(db: Session, row: EventOutbox) -> None:
     )
 
 
-def handle_workflow_node_observe(db: Session, row: EventOutbox) -> None:
+async def handle_workflow_node_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Audit-style log for workflow node facts (DB counters stay on workflow handler)."""
     consumer = f"observe.workflow.{row.event_type}"
-    if not try_claim_projection_slot(db, consumer_name=consumer, event_id=row.event_id):
+    if not await try_claim_projection_slot(db, consumer_name=consumer, event_id=row.event_id):
         return
     payload = row.payload_json or {}
     logger.info(
@@ -85,11 +85,11 @@ def handle_workflow_node_observe(db: Session, row: EventOutbox) -> None:
     )
 
 
-def handle_run_status_updated_observe(db: Session, row: EventOutbox) -> None:
+async def handle_run_status_updated_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Mirror former TraceWriter.update_run_status observe (tracer, exporter, run metrics)."""
     if row.event_type != ObserveEventType.RUN_STATUS_UPDATED:
         return
-    if not try_claim_projection_slot(
+    if not await try_claim_projection_slot(
         db, consumer_name="observe.run_status.side_effects", event_id=row.event_id
     ):
         return
@@ -97,7 +97,7 @@ def handle_run_status_updated_observe(db: Session, row: EventOutbox) -> None:
     rid = payload.get("run_id") or row.run_id
     if not rid:
         return
-    run = db.get(Run, rid)
+    run = await db.get(Run, rid)
     if run is None:
         return
 
@@ -123,11 +123,11 @@ def handle_run_status_updated_observe(db: Session, row: EventOutbox) -> None:
         run_count.labels(mode=mode, status=new_status, tenant_id=tenant_id).inc()
 
 
-def handle_step_created_observe(db: Session, row: EventOutbox) -> None:
+async def handle_step_created_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Mirror former TraceWriter.create_step observe (tracer, exporter, step counter)."""
     if row.event_type != ObserveEventType.STEP_CREATED:
         return
-    if not try_claim_projection_slot(
+    if not await try_claim_projection_slot(
         db, consumer_name="observe.step_created.side_effects", event_id=row.event_id
     ):
         return
@@ -135,7 +135,7 @@ def handle_step_created_observe(db: Session, row: EventOutbox) -> None:
     sid = payload.get("step_row_id")
     if not sid:
         return
-    step = db.get(RunStep, sid)
+    step = await db.get(RunStep, sid)
     if step is None:
         return
 
@@ -146,11 +146,11 @@ def handle_step_created_observe(db: Session, row: EventOutbox) -> None:
     step_count.labels(step_type=step.step_type, status="queued", tenant_id=tenant_id).inc()
 
 
-def handle_step_status_updated_observe(db: Session, row: EventOutbox) -> None:
+async def handle_step_status_updated_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Mirror former TraceWriter.update_step_status observe."""
     if row.event_type != ObserveEventType.STEP_STATUS_UPDATED:
         return
-    if not try_claim_projection_slot(
+    if not await try_claim_projection_slot(
         db, consumer_name="observe.step_status.side_effects", event_id=row.event_id
     ):
         return
@@ -158,7 +158,7 @@ def handle_step_status_updated_observe(db: Session, row: EventOutbox) -> None:
     sid = payload.get("step_row_id")
     if not sid:
         return
-    step = db.get(RunStep, sid)
+    step = await db.get(RunStep, sid)
     if step is None:
         return
 
@@ -184,9 +184,9 @@ def handle_step_status_updated_observe(db: Session, row: EventOutbox) -> None:
         step_count.labels(step_type=step.step_type, status=new_status, tenant_id=tenant_id).inc()
 
 
-def handle_cost_recorded_observe(db: Session, row: EventOutbox) -> None:
+async def handle_cost_recorded_observe(db: AsyncSession, row: EventOutbox) -> None:
     """Apply token/cost Prometheus counters idempotently per cost entry."""
-    if not try_claim_projection_slot(
+    if not await try_claim_projection_slot(
         db, consumer_name="observe.cost.metrics", event_id=row.event_id
     ):
         return
