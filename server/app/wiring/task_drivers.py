@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -38,7 +38,7 @@ durable worker path, so a retried attempt survives process restarts.
 SNAPSHOT_MISSING_ERROR_CODE = "TASK_RETRY_SNAPSHOT_MISSING"
 
 
-def _latest_snapshot(db: Session, task: Task) -> ResponseInteraction | None:
+async def _latest_snapshot(db: AsyncSession, task: Task) -> ResponseInteraction | None:
     """Return the interaction that drove this task's run, if one was persisted."""
     if not task.run_id:
         return None
@@ -52,7 +52,7 @@ def _latest_snapshot(db: Session, task: Task) -> ResponseInteraction | None:
         .order_by(ResponseInteraction.created_at.desc())
         .limit(1)
     )
-    return db.execute(query).scalars().first()
+    return (await db.exec(query)).scalars().first()
 
 
 def _context(task: Task, snapshot: ResponseInteraction) -> RequestContext:
@@ -68,7 +68,7 @@ def _context(task: Task, snapshot: ResponseInteraction) -> RequestContext:
     )
 
 
-def _fail(db: Session, task: Task, *, error_code: str, message: str) -> None:
+async def _fail(db: AsyncSession, task: Task, *, error_code: str, message: str) -> None:
     now = utc_now()
     task.status = TaskStatus.FAILED.value
     task.error_code = error_code
@@ -76,19 +76,19 @@ def _fail(db: Session, task: Task, *, error_code: str, message: str) -> None:
     task.finished_at = now
     task.updated_at = now
     db.add(task)
-    db.commit()
+    await db.commit()
 
 
-def drive_agent_task_retry(db: Session, task: Task) -> None:
+async def drive_agent_task_retry(db: AsyncSession, task: Task) -> None:
     """Re-enqueue the interaction snapshot behind an agent task."""
-    snapshot = _latest_snapshot(db, task)
+    snapshot = await _latest_snapshot(db, task)
     if snapshot is None or not snapshot.execution_json:
         logger.warning(
             "No interaction snapshot to replay for task %s",
             task.id,
             extra={"task_id": task.id, "run_id": task.run_id},
         )
-        _fail(
+        await _fail(
             db,
             task,
             error_code=SNAPSHOT_MISSING_ERROR_CODE,
@@ -125,11 +125,11 @@ def drive_agent_task_retry(db: Session, task: Task) -> None:
         created_by=task.created_by,
     )
     db.add(replay)
-    db.commit()
+    await db.commit()
 
     # This attempt is over: the durable worker now owns the replacement. Leaving
     # it queued would report work that this task will never perform.
-    TaskService(db, _context(task, snapshot)).transition_task(
+    await TaskService(db, _context(task, snapshot)).transition_task(
         task_id=task.id,
         status=TaskStatus.CANCELED.value,
         progress={

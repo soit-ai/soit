@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import and_, desc, func, or_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -25,7 +25,7 @@ _WAITING_STATUSES = (TaskStatus.QUEUED.value, TaskStatus.RETRYING.value)
 class TaskRepository:
     """Repository for runtime tasks, checkpoints, and task events."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
@@ -37,7 +37,13 @@ class TaskRepository:
         except (KeyError, TypeError, IndexError):
             return int(result or 0)
 
-    def create_task(
+    async def _first(self, query):
+        return (await self.db.exec(query)).first()
+
+    async def _all(self, query) -> list:
+        return list((await self.db.exec(query)).all())
+
+    async def create_task(
         self,
         task: Task,
         *,
@@ -48,15 +54,15 @@ class TaskRepository:
         task.created_by = self.ctx.user_id
         task.updated_by = self.ctx.user_id
         self.db.add(task)
-        self.db.flush()
+        await self.db.flush()
         events = list(outbox_events) if outbox_events is not None else [TaskEventType.CREATED]
         for et in events:
             enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
-        self.db.flush()
-        self.db.refresh(task)
+        await self.db.flush()
+        await self.db.refresh(task)
         return task
 
-    def get_task(self, task_id: str) -> Task | None:
+    async def get_task(self, task_id: str) -> Task | None:
         query = select(Task).where(
             and_(
                 Task.id == task_id,
@@ -64,7 +70,7 @@ class TaskRepository:
                 Task.workspace_id == self.ctx.workspace_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = await self._first(query)
         return result if isinstance(result, Task) else result[0] if result else None
 
     def _list_filters(
@@ -96,7 +102,7 @@ class TaskRepository:
             filters.append(Task.created_at <= until)
         return filters
 
-    def list_tasks(
+    async def list_tasks(
         self,
         *,
         limit: int = 20,
@@ -124,10 +130,10 @@ class TaskRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = await self._all(query)
         return [item if isinstance(item, Task) else item[0] for item in results]
 
-    def count_tasks(
+    async def count_tasks(
         self,
         *,
         status: str | None = None,
@@ -147,7 +153,7 @@ class TaskRepository:
             until=until,
         )
         query = select(func.count()).select_from(Task).where(and_(*filters))
-        return self._count_value(self.db.exec(query).first())
+        return self._count_value(await self._first(query))
 
     def _workbench_filters(
         self,
@@ -204,7 +210,7 @@ class TaskRepository:
             )
         return filters
 
-    def count_workbench_tasks(
+    async def count_workbench_tasks(
         self,
         *,
         tab: str | None = None,
@@ -226,10 +232,9 @@ class TaskRepository:
                 )
             )
         )
-        result = self.db.exec(query).first()
-        return self._count_value(result)
+        return self._count_value(await self._first(query))
 
-    def count_queued(self) -> int:
+    async def count_queued(self) -> int:
         """Count tasks still waiting for a worker to pick them up."""
         query = select(func.count()).select_from(Task).where(
             and_(
@@ -238,9 +243,9 @@ class TaskRepository:
                 Task.status.in_(_WAITING_STATUSES),
             )
         )
-        return self._count_value(self.db.exec(query).first())
+        return self._count_value(await self._first(query))
 
-    def oldest_queued_at(self) -> datetime | None:
+    async def oldest_queued_at(self) -> datetime | None:
         """Return when the longest-waiting task entered the queue."""
         query = select(func.min(Task.created_at)).where(
             and_(
@@ -249,13 +254,13 @@ class TaskRepository:
                 Task.status.in_(_WAITING_STATUSES),
             )
         )
-        result = self.db.exec(query).first()
+        result = await self._first(query)
         if result is None:
             return None
         value = result[0] if isinstance(result, tuple) else result
         return value if isinstance(value, datetime) else None
 
-    def count_created_between(self, start_at: datetime, end_at: datetime) -> int:
+    async def count_created_between(self, start_at: datetime, end_at: datetime) -> int:
         query = select(func.count()).select_from(Task).where(
             and_(
                 Task.tenant_id == self.ctx.tenant_id,
@@ -264,10 +269,9 @@ class TaskRepository:
                 Task.created_at <= end_at,
             )
         )
-        result = self.db.exec(query).first()
-        return self._count_value(result)
+        return self._count_value(await self._first(query))
 
-    def count_completed_between(self, start_at: datetime, end_at: datetime) -> int:
+    async def count_completed_between(self, start_at: datetime, end_at: datetime) -> int:
         query = select(func.count()).select_from(Task).where(
             and_(
                 Task.tenant_id == self.ctx.tenant_id,
@@ -277,10 +281,9 @@ class TaskRepository:
                 Task.finished_at <= end_at,
             )
         )
-        result = self.db.exec(query).first()
-        return self._count_value(result)
+        return self._count_value(await self._first(query))
 
-    def list_workbench_tasks(
+    async def list_workbench_tasks(
         self,
         *,
         limit: int = 20,
@@ -310,10 +313,10 @@ class TaskRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = await self._all(query)
         return [item if isinstance(item, Task) else item[0] for item in results]
 
-    def update_task(
+    async def update_task(
         self,
         task: Task,
         *,
@@ -322,26 +325,26 @@ class TaskRepository:
         task.updated_at = utc_now()
         task.updated_by = self.ctx.user_id
         self.db.add(task)
-        self.db.flush()
+        await self.db.flush()
         for et in outbox_events or []:
             enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
-        self.db.flush()
-        self.db.refresh(task)
+        await self.db.flush()
+        await self.db.refresh(task)
         return task
 
-    def add_checkpoint(self, checkpoint: TaskCheckpoint) -> TaskCheckpoint:
+    async def add_checkpoint(self, checkpoint: TaskCheckpoint) -> TaskCheckpoint:
         checkpoint.tenant_id = self.ctx.tenant_id
         checkpoint.workspace_id = self.ctx.workspace_id
         self.db.add(checkpoint)
-        self.db.flush()
-        task = self.get_task(checkpoint.task_id)
+        await self.db.flush()
+        task = await self.get_task(checkpoint.task_id)
         if task:
             enqueue_task_checkpoint_outbox(self.db, self.ctx, task=task, checkpoint=checkpoint)
-        self.db.flush()
-        self.db.refresh(checkpoint)
+        await self.db.flush()
+        await self.db.refresh(checkpoint)
         return checkpoint
 
-    def list_checkpoints(self, task_id: str) -> list[TaskCheckpoint]:
+    async def list_checkpoints(self, task_id: str) -> list[TaskCheckpoint]:
         query = (
             select(TaskCheckpoint)
             .where(
@@ -353,18 +356,18 @@ class TaskRepository:
             )
             .order_by(TaskCheckpoint.checkpoint_no.asc())
         )
-        results = list(self.db.exec(query).all())
+        results = await self._all(query)
         return [item if isinstance(item, TaskCheckpoint) else item[0] for item in results]
 
-    def add_event(self, event: TaskEvent) -> TaskEvent:
+    async def add_event(self, event: TaskEvent) -> TaskEvent:
         event.tenant_id = self.ctx.tenant_id
         event.workspace_id = self.ctx.workspace_id
         self.db.add(event)
-        self.db.flush()
-        self.db.refresh(event)
+        await self.db.flush()
+        await self.db.refresh(event)
         return event
 
-    def list_events(self, task_id: str) -> list[TaskEvent]:
+    async def list_events(self, task_id: str) -> list[TaskEvent]:
         query = (
             select(TaskEvent)
             .where(
@@ -376,5 +379,5 @@ class TaskRepository:
             )
             .order_by(TaskEvent.created_at.asc())
         )
-        results = list(self.db.exec(query).all())
+        results = await self._all(query)
         return [item if isinstance(item, TaskEvent) else item[0] for item in results]

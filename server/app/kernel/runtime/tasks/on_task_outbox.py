@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.events import EventOutbox
@@ -22,7 +22,7 @@ _REDRIVABLE_STATUSES = frozenset(
 )
 
 
-def handle_task_runtime_outbox(db: Session, row: EventOutbox) -> None:
+async def handle_task_runtime_outbox(db: AsyncSession, row: EventOutbox) -> None:
     """Re-drive a retried task, or fail it when nothing can run it.
 
     Only retries need core action here: every other lifecycle event already
@@ -35,7 +35,7 @@ def handle_task_runtime_outbox(db: Session, row: EventOutbox) -> None:
     if not task_id:
         return None
 
-    task = db.get(Task, task_id)
+    task = await db.get(Task, task_id)
     if task is None:
         return None
     if task.status not in _REDRIVABLE_STATUSES:
@@ -61,8 +61,8 @@ def handle_task_runtime_outbox(db: Session, row: EventOutbox) -> None:
         task.finished_at = now
         task.updated_at = now
         db.add(task)
-        db.commit()
+        await db.commit()
         return None
 
-    driver(db, task)
+    await driver(db, task)
     return None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
@@ -22,7 +22,7 @@ class ThreadService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession | None,
         ctx: RequestContext,
         *,
         thread_repo: ThreadRepositoryProtocol | None = None,
@@ -31,7 +31,7 @@ class ThreadService:
         self.ctx = ctx
         self.thread_repo = thread_repo or ThreadRepository(db, ctx)
 
-    def create_thread(
+    async def create_thread(
         self,
         *,
         agent_id: str | None,
@@ -54,7 +54,7 @@ class ThreadService:
     ) -> Thread:
         """Create an Agent-scoped thread."""
 
-        return self.thread_repo.create_thread(
+        return await self.thread_repo.create_thread(
             Thread(
                 agent_id=agent_id,
                 title=title,
@@ -75,15 +75,16 @@ class ThreadService:
                 metadata_json=metadata or {},
             )
         )
-    def get_thread(self, thread_id: str) -> Thread:
+
+    async def get_thread(self, thread_id: str) -> Thread:
         """Load a thread or fail."""
 
-        thread = self.thread_repo.get_thread(thread_id)
+        thread = await self.thread_repo.get_thread(thread_id)
         if not thread:
             raise NotFoundError(f"Thread not found: {thread_id}")
         return thread
 
-    def update_thread(
+    async def update_thread(
         self,
         *,
         thread_id: str,
@@ -108,7 +109,7 @@ class ThreadService:
     ) -> Thread:
         """Update mutable thread fields."""
 
-        thread = self.thread_repo.update_thread(
+        thread = await self.thread_repo.update_thread(
             thread_id,
             title=title,
             status=status,
@@ -133,14 +134,14 @@ class ThreadService:
             raise NotFoundError(f"Thread not found: {thread_id}")
         return thread
 
-    def delete_thread(self, *, thread_id: str) -> None:
+    async def delete_thread(self, *, thread_id: str) -> None:
         """Soft-delete a thread."""
 
-        thread = self.thread_repo.soft_delete_thread(thread_id)
+        thread = await self.thread_repo.soft_delete_thread(thread_id)
         if not thread:
             raise NotFoundError(f"Thread not found: {thread_id}")
 
-    def append_message(
+    async def append_message(
         self,
         *,
         thread_id: str,
@@ -168,9 +169,9 @@ class ThreadService:
     ) -> ThreadMessage:
         """Append a message to a thread."""
 
-        self.get_thread(thread_id)
+        await self.get_thread(thread_id)
         metadata_json = metadata or {}
-        return self.thread_repo.add_message(
+        return await self.thread_repo.add_message(
             ThreadMessage(
                 id=message_id or generate_thread_message_id(),
                 thread_id=thread_id,

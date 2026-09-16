@@ -70,18 +70,18 @@ class ThreadProjectionWriter:
             return content
         return f"{content}\n\n{attachment_context}" if content else attachment_context
 
-    def touch_latest_run(self, response) -> None:
+    async def touch_latest_run(self, response) -> None:
         if not self.thread_service or not response.thread_id or not response.run_id:
             return
         try:
-            self.thread_service.update_thread(
+            await self.thread_service.update_thread(
                 thread_id=response.thread_id,
                 latest_run_id=response.run_id,
             )
         except Exception:
             return
 
-    def store_input(
+    async def store_input(
         self,
         response,
         messages: list[ChatMessage],
@@ -89,7 +89,7 @@ class ThreadProjectionWriter:
     ) -> str | None:
         if not self.thread_service or not response.thread_id:
             return None
-        thread_messages = self.thread_service.thread_repo.list_messages(response.thread_id)
+        thread_messages = await self.thread_service.thread_repo.list_messages(response.thread_id)
         parent_message_id = thread_messages[-1].id if thread_messages else None
         last_appended_message_id = parent_message_id
         metadata_index = 0
@@ -107,7 +107,7 @@ class ThreadProjectionWriter:
             metadata_index += 1
             agui_message_id = metadata.get("agui_message_id")
             if message.role == "user" and isinstance(agui_message_id, str):
-                existing = self.thread_service.thread_repo.get_message(
+                existing = await self.thread_service.thread_repo.get_message(
                     response.thread_id,
                     agui_message_id,
                 )
@@ -115,7 +115,7 @@ class ThreadProjectionWriter:
                     existing = next(
                         (
                             item
-                            for item in self.thread_service.thread_repo.list_messages(
+                            for item in await self.thread_service.thread_repo.list_messages(
                                 response.thread_id
                             )
                             if (item.metadata_json or {}).get("agui_message_id")
@@ -132,7 +132,7 @@ class ThreadProjectionWriter:
             if "parent_message_id" in metadata:
                 candidate_parent = metadata.get("parent_message_id")
                 parent_message_id = candidate_parent if isinstance(candidate_parent, str) else None
-            stored_message = self.thread_service.append_message(
+            stored_message = await self.thread_service.append_message(
                 thread_id=response.thread_id,
                 role=message.role,
                 content=message.content,
@@ -156,10 +156,10 @@ class ThreadProjectionWriter:
             last_appended_message_id = stored_message.id
         return last_appended_message_id
 
-    def store_failure(self, response, *, parent_message_id: str | None) -> None:
+    async def store_failure(self, response, *, parent_message_id: str | None) -> None:
         if not self.thread_service or not response.thread_id:
             return
-        self.thread_service.append_message(
+        await self.thread_service.append_message(
             thread_id=response.thread_id,
             role="assistant",
             content=response.error_message or "Response failed",
@@ -178,7 +178,7 @@ class ThreadProjectionWriter:
             },
         )
 
-    def store_output(
+    async def store_output(
         self,
         response,
         *,
@@ -192,7 +192,7 @@ class ThreadProjectionWriter:
     ) -> None:
         if not self.thread_service or not response.thread_id:
             return
-        self.thread_service.append_message(
+        await self.thread_service.append_message(
             thread_id=response.thread_id,
             message_id=message_id or generate_thread_message_id(),
             role="assistant",
@@ -367,7 +367,7 @@ class ResponseProjectionCoordinator:
             messages.append(ChatMessage(role="user", content=text))
         return messages
 
-    def _build_runtime_messages(
+    async def _build_runtime_messages(
         self,
         payload: ResponseCreateRequest,
         *,
@@ -382,7 +382,7 @@ class ResponseProjectionCoordinator:
         messages: list[ChatMessage] = []
         if payload.instructions:
             messages.append(ChatMessage(role="system", content=payload.instructions))
-        for message in self.thread_service.thread_repo.message_lineage(
+        for message in await self.thread_service.thread_repo.message_lineage(
             payload.thread_id,
             head_message_id,
         ):
@@ -412,19 +412,19 @@ class ResponseProjectionCoordinator:
             extracted.append(metadata if isinstance(metadata, dict) else {})
         return extracted
 
-    def _touch_thread_latest_run(self, response) -> None:
-        self.thread_writer.touch_latest_run(response)
+    async def _touch_thread_latest_run(self, response) -> None:
+        await self.thread_writer.touch_latest_run(response)
 
-    def _store_thread_input(
+    async def _store_thread_input(
         self,
         response,
         messages: list[ChatMessage],
         message_metadata: list[dict[str, Any]] | None = None,
     ) -> str | None:
-        return self.thread_writer.store_input(response, messages, message_metadata)
+        return await self.thread_writer.store_input(response, messages, message_metadata)
 
-    def _store_thread_failure(self, response, *, parent_message_id: str | None) -> None:
-        self.thread_writer.store_failure(response, parent_message_id=parent_message_id)
+    async def _store_thread_failure(self, response, *, parent_message_id: str | None) -> None:
+        await self.thread_writer.store_failure(response, parent_message_id=parent_message_id)
 
     def _build_completion_output(
         self,
@@ -462,8 +462,8 @@ class ResponseProjectionCoordinator:
                 arguments=call.arguments,
                 idempotency_key=f"hosted:{response.run_id}:{tool_call_id}",
             )
-            claim = execution.claim(command)
-            self.response_service.trace_writer.update_step_status(
+            claim = await execution.claim(command)
+            await self.response_service.trace_writer.update_step_status(
                 claim.run_step.id,
                 claim.run_step.status,
                 metrics={
@@ -477,7 +477,7 @@ class ResponseProjectionCoordinator:
                     }
                 },
             )
-            execution.mark_running(claim.record.id)
+            await execution.mark_running(claim.record.id)
             succeeded = call.status.lower() in {"completed", "succeeded"}
             record = await execution.complete(
                 claim.record.id,
@@ -552,7 +552,7 @@ class ResponseProjectionCoordinator:
                     "file_id": artifact.file_id,
                 },
             )
-            stored = self.response_service.trace_writer.create_artifact(
+            stored = await self.response_service.trace_writer.create_artifact(
                 run_id=response.run_id,
                 step_id=step_ids.get("openai.code_interpreter"),
                 artifact_type="file",
@@ -641,14 +641,14 @@ class ResponseProjectionCoordinator:
             )
         return events
 
-    def _persist_interaction_event(
+    async def _persist_interaction_event(
         self,
         *,
         response,
         protocol: InteractionProtocolAdapter,
         event: InteractionProtocolEvent,
     ) -> dict[str, Any]:
-        stored = self.response_service.append_event(
+        stored = await self.response_service.append_event(
             response=response,
             event_type=event.type,
             payload=event.payload,
@@ -656,13 +656,13 @@ class ResponseProjectionCoordinator:
             protocol_version=protocol.protocol_version,
             interaction_id=str(response.metadata_json.get("interaction_id") or "") or None,
         )
-        self.response_service.publish_persisted_event(stored)
+        await self.response_service.publish_persisted_event(stored)
         return {
             "id": f"{response.id}:{stored.sequence}",
             "data": stored.payload_json,
         }
 
-    def validate_interaction_request(
+    async def validate_interaction_request(
         self,
         payload: ResponseCreateRequest,
         interaction_id: str,
@@ -674,7 +674,7 @@ class ResponseProjectionCoordinator:
         request_hash = str(payload.metadata.get("request_hash") or "")
         if not request_hash:
             raise ValidationError("A protocol interaction requires a request hash")
-        existing_interaction = self.response_service.get_interaction(interaction_id)
+        existing_interaction = await self.response_service.get_interaction(interaction_id)
         if existing_interaction and existing_interaction.request_hash != request_hash:
             raise ConflictError("Interaction ID was already used with a different request")
 
@@ -688,11 +688,11 @@ class ResponseProjectionCoordinator:
     ) -> AsyncIterator[dict[str, Any]]:
         """Execute a response and persist a protocol-native event stream."""
 
-        self.validate_interaction_request(payload, interaction_id)
+        await self.validate_interaction_request(payload, interaction_id)
         request_hash = str(payload.metadata.get("request_hash") or "")
-        existing_interaction = self.response_service.get_interaction(interaction_id)
+        existing_interaction = await self.response_service.get_interaction(interaction_id)
         if existing_interaction and existing_interaction.response_id:
-            stored_events = self.response_service.list_response_events(
+            stored_events = await self.response_service.list_response_events(
                 existing_interaction.response_id,
                 limit=10_000,
                 offset=0,
@@ -704,45 +704,45 @@ class ResponseProjectionCoordinator:
                 }
             return
 
-        response = self.response_service.create_response(payload, emit_initial_events=False)
-        self.response_service.create_interaction(
+        response = await self.response_service.create_response(payload, emit_initial_events=False)
+        await self.response_service.create_interaction(
             interaction_id=interaction_id,
             parent_interaction_id=parent_interaction_id,
             response=response,
             request_hash=request_hash,
         )
-        response = self.response_service.mark_running(response)
+        response = await self.response_service.mark_running(response)
         if response.run_id:
-            self.response_service.trace_writer.update_run_status(response.run_id, "running")
-        self._touch_thread_latest_run(response)
+            await self.response_service.trace_writer.update_run_status(response.run_id, "running")
+        await self._touch_thread_latest_run(response)
 
         input_messages = self._build_messages(payload)
-        assistant_parent_message_id = self._store_thread_input(
+        assistant_parent_message_id = await self._store_thread_input(
             response,
             input_messages,
             self._extract_input_message_metadata(payload),
         )
-        messages = self._build_runtime_messages(
+        messages = await self._build_runtime_messages(
             payload,
             head_message_id=assistant_parent_message_id,
         )
         assistant_message_id = generate_thread_message_id()
 
-        def persist(event: InteractionProtocolEvent) -> dict[str, Any]:
-            return self._persist_interaction_event(
+        async def persist(event: InteractionProtocolEvent) -> dict[str, Any]:
+            return await self._persist_interaction_event(
                 response=response,
                 protocol=protocol,
                 event=event,
             )
 
-        yield persist(
+        yield await persist(
             protocol.run_started(
                 thread_id=payload.thread_id,
                 interaction_id=interaction_id,
                 parent_interaction_id=parent_interaction_id,
             )
         )
-        yield persist(protocol.resources(response=response, interaction_id=interaction_id))
+        yield await persist(protocol.resources(response=response, interaction_id=interaction_id))
 
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
@@ -759,11 +759,11 @@ class ResponseProjectionCoordinator:
         citations: list[dict[str, Any]] = []
         hosted_artifacts: list[HostedArtifact] = []
 
-        def interaction_was_canceled() -> bool:
-            current = self.response_service.get_response(response.id)
+        async def interaction_was_canceled() -> bool:
+            current = await self.response_service.get_response(response.id)
             if current.status != "canceled":
                 return False
-            self.response_service.update_interaction_status(interaction_id, "canceled")
+            await self.response_service.update_interaction_status(interaction_id, "canceled")
             return True
 
         try:
@@ -775,7 +775,7 @@ class ResponseProjectionCoordinator:
 
             if stream is None:
                 result = await self.execution_service.execute_chat(response=response, messages=messages)
-                if interaction_was_canceled():
+                if await interaction_was_canceled():
                     return
                 delta = result.text or ""
                 text_parts.append(delta)
@@ -792,8 +792,8 @@ class ResponseProjectionCoordinator:
                     for reasoning_event in protocol.reasoning_started(
                         message_id=reasoning_message_id
                     ):
-                        yield persist(reasoning_event)
-                    yield persist(
+                        yield await persist(reasoning_event)
+                    yield await persist(
                         protocol.reasoning_content(
                             message_id=reasoning_message_id,
                             delta=result.reasoning,
@@ -802,28 +802,28 @@ class ResponseProjectionCoordinator:
                     for reasoning_event in protocol.reasoning_ended(
                         message_id=reasoning_message_id
                     ):
-                        yield persist(reasoning_event)
+                        yield await persist(reasoning_event)
                     reasoning_ended = True
-                yield persist(protocol.text_started(message_id=assistant_message_id))
+                yield await persist(protocol.text_started(message_id=assistant_message_id))
                 text_started = True
                 if delta:
-                    yield persist(protocol.text_content(message_id=assistant_message_id, delta=delta))
+                    yield await persist(protocol.text_content(message_id=assistant_message_id, delta=delta))
             else:
                 delta_parts: list[str] = []
                 delta_bytes = 0
                 last_delta_flush = time.monotonic()
                 async for chunk in stream:
-                    if interaction_was_canceled():
+                    if await interaction_was_canceled():
                         return
                     if show_reasoning and chunk.reasoning_delta and not reasoning_ended:
                         if not reasoning_started:
                             for reasoning_event in protocol.reasoning_started(
                                 message_id=reasoning_message_id
                             ):
-                                yield persist(reasoning_event)
+                                yield await persist(reasoning_event)
                             reasoning_started = True
                         reasoning_parts.append(chunk.reasoning_delta)
-                        yield persist(
+                        yield await persist(
                             protocol.reasoning_content(
                                 message_id=reasoning_message_id,
                                 delta=chunk.reasoning_delta,
@@ -834,10 +834,10 @@ class ResponseProjectionCoordinator:
                             for reasoning_event in protocol.reasoning_ended(
                                 message_id=reasoning_message_id
                             ):
-                                yield persist(reasoning_event)
+                                yield await persist(reasoning_event)
                             reasoning_ended = True
                         if not text_started:
-                            yield persist(protocol.text_started(message_id=assistant_message_id))
+                            yield await persist(protocol.text_started(message_id=assistant_message_id))
                             text_started = True
                         text_parts.append(chunk.delta)
                         delta_parts.append(chunk.delta)
@@ -847,7 +847,7 @@ class ResponseProjectionCoordinator:
                             delta_bytes >= self._TEXT_FLUSH_BYTES
                             or now - last_delta_flush >= self._TEXT_FLUSH_INTERVAL_SECONDS
                         ):
-                            yield persist(
+                            yield await persist(
                                 protocol.text_content(
                                     message_id=assistant_message_id,
                                     delta="".join(delta_parts),
@@ -871,7 +871,7 @@ class ResponseProjectionCoordinator:
                     if chunk.hosted_artifacts:
                         hosted_artifacts.extend(chunk.hosted_artifacts)
                 if delta_parts:
-                    yield persist(
+                    yield await persist(
                         protocol.text_content(
                             message_id=assistant_message_id,
                             delta="".join(delta_parts),
@@ -882,13 +882,13 @@ class ResponseProjectionCoordinator:
                 for reasoning_event in protocol.reasoning_ended(
                     message_id=reasoning_message_id
                 ):
-                    yield persist(reasoning_event)
+                    yield await persist(reasoning_event)
                 reasoning_ended = True
             if not text_started:
-                yield persist(protocol.text_started(message_id=assistant_message_id))
+                yield await persist(protocol.text_started(message_id=assistant_message_id))
                 text_started = True
 
-            if interaction_was_canceled():
+            if await interaction_was_canceled():
                 return
 
             output_text = "".join(text_parts)
@@ -909,22 +909,22 @@ class ResponseProjectionCoordinator:
                 hosted_tool_records,
                 assistant_message_id,
             ):
-                yield persist(tool_event)
+                yield await persist(tool_event)
             for citation in citations:
-                yield persist(
+                yield await persist(
                     protocol.custom(
                         "soit.source",
                         {"schemaVersion": 1, **citation},
                     )
                 )
             for artifact in governed_artifacts:
-                yield persist(
+                yield await persist(
                     protocol.custom(
                         "soit.artifact",
                         {"schemaVersion": 1, **artifact},
                     )
                 )
-            self.thread_writer.store_output(
+            await self.thread_writer.store_output(
                 response,
                 message_id=assistant_message_id,
                 content=output_text,
@@ -945,23 +945,23 @@ class ResponseProjectionCoordinator:
                 completion_output["artifacts"] = governed_artifacts
             if hosted_tool_records:
                 completion_output["hosted_tool_calls"] = hosted_tool_records
-            response = self.response_service.complete_response(
+            response = await self.response_service.complete_response(
                 response=response,
                 output_json=completion_output,
                 usage_json=usage_payload,
                 output_event_type=None,
                 completed_event_type=None,
             )
-            yield persist(protocol.text_ended(message_id=assistant_message_id))
-            yield persist(protocol.usage(usage=usage_payload, model=model_used))
+            yield await persist(protocol.text_ended(message_id=assistant_message_id))
+            yield await persist(protocol.usage(usage=usage_payload, model=model_used))
             if response.run_id:
-                self.response_service.trace_writer.update_run_status(
+                await self.response_service.trace_writer.update_run_status(
                     response.run_id,
                     "succeeded",
                     output_summary=output_text,
                 )
-            self.response_service.update_interaction_status(interaction_id, "succeeded")
-            yield persist(
+            await self.response_service.update_interaction_status(interaction_id, "succeeded")
+            yield await persist(
                 protocol.run_finished(
                     thread_id=payload.thread_id,
                     interaction_id=interaction_id,
@@ -974,29 +974,29 @@ class ResponseProjectionCoordinator:
                 )
             )
         except Exception as exc:
-            if interaction_was_canceled():
+            if await interaction_was_canceled():
                 return
             logger.exception("Response interaction execution failed", exc_info=exc)
             if response.status in {"succeeded", "failed", "canceled"}:
                 raise
-            response = self.response_service.fail_response(
+            response = await self.response_service.fail_response(
                 response=response,
                 error_code="response_execution_failed",
                 error_message=_PUBLIC_EXECUTION_ERROR,
                 source=protocol.source,
                 failed_event_type=None,
             )
-            self._store_thread_failure(response, parent_message_id=assistant_parent_message_id)
+            await self._store_thread_failure(response, parent_message_id=assistant_parent_message_id)
             if response.run_id:
-                self.response_service.trace_writer.update_run_status(
+                await self.response_service.trace_writer.update_run_status(
                     response.run_id,
                     "failed",
                     output_summary=response.error_message,
                     error_code=response.error_code,
                     error_message=response.error_message,
                 )
-            self.response_service.update_interaction_status(interaction_id, "failed")
-            yield persist(
+            await self.response_service.update_interaction_status(interaction_id, "failed")
+            yield await persist(
                 protocol.run_error(
                     code=response.error_code or "response_execution_failed",
                     message=response.error_message or _PUBLIC_EXECUTION_ERROR,
@@ -1004,19 +1004,19 @@ class ResponseProjectionCoordinator:
             )
 
     async def execute(self, payload: ResponseCreateRequest):
-        response = self.response_service.create_response(payload)
-        response = self.response_service.mark_running(response)
+        response = await self.response_service.create_response(payload)
+        response = await self.response_service.mark_running(response)
         if response.run_id:
-            self.response_service.trace_writer.update_run_status(response.run_id, "running")
-        self._touch_thread_latest_run(response)
+            await self.response_service.trace_writer.update_run_status(response.run_id, "running")
+        await self._touch_thread_latest_run(response)
 
         input_messages = self._build_messages(payload)
-        assistant_parent_message_id = self._store_thread_input(
+        assistant_parent_message_id = await self._store_thread_input(
             response,
             input_messages,
             self._extract_input_message_metadata(payload),
         )
-        messages = self._build_runtime_messages(
+        messages = await self._build_runtime_messages(
             payload,
             head_message_id=assistant_parent_message_id,
         )
@@ -1035,13 +1035,13 @@ class ResponseProjectionCoordinator:
                 reasoning_text,
             )
             usage_payload = self._build_usage(result.tokens_prompt, result.tokens_completion)
-            self.thread_writer.store_output(
+            await self.thread_writer.store_output(
                 response,
                 content=output_text,
                 parent_message_id=assistant_parent_message_id,
                 reasoning=reasoning_text,
             )
-            response = self.response_service.complete_response(
+            response = await self.response_service.complete_response(
                 response=response,
                 output_json=output_payload,
                 usage_json=usage_payload,
@@ -1053,7 +1053,7 @@ class ResponseProjectionCoordinator:
                 },
             )
             if response.run_id:
-                self.response_service.trace_writer.update_run_status(
+                await self.response_service.trace_writer.update_run_status(
                     response.run_id,
                     "succeeded",
                     output_summary=output_text,
@@ -1063,14 +1063,14 @@ class ResponseProjectionCoordinator:
             logger.exception("Response execution failed", exc_info=exc)
             if response.status in {"succeeded", "failed", "canceled"}:
                 raise
-            response = self.response_service.fail_response(
+            response = await self.response_service.fail_response(
                 response=response,
                 error_code="response_execution_failed",
                 error_message=_PUBLIC_EXECUTION_ERROR,
             )
-            self._store_thread_failure(response, parent_message_id=assistant_parent_message_id)
+            await self._store_thread_failure(response, parent_message_id=assistant_parent_message_id)
             if response.run_id:
-                self.response_service.trace_writer.update_run_status(
+                await self.response_service.trace_writer.update_run_status(
                     response.run_id,
                     "failed",
                     output_summary=response.error_message,

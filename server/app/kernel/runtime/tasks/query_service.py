@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
@@ -31,12 +31,12 @@ from app.kernel.runtime.tasks.schemas import (
 class TaskQueryService:
     """Read-only access to runtime task records."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
         self.task_repo = TaskRepository(db, ctx)
 
-    def list_tasks(
+    async def list_tasks(
         self,
         *,
         limit: int = 20,
@@ -48,7 +48,7 @@ class TaskQueryService:
         since: datetime | None = None,
         until: datetime | None = None,
     ) -> list[Task]:
-        return self.task_repo.list_tasks(
+        return await self.task_repo.list_tasks(
             limit=limit,
             offset=offset,
             status=status,
@@ -59,7 +59,7 @@ class TaskQueryService:
             until=until,
         )
 
-    def count_tasks(
+    async def count_tasks(
         self,
         *,
         status: str | None = None,
@@ -70,7 +70,7 @@ class TaskQueryService:
         until: datetime | None = None,
     ) -> int:
         """Count tasks matching the same filters ``list_tasks`` accepts."""
-        return self.task_repo.count_tasks(
+        return await self.task_repo.count_tasks(
             status=status,
             task_type=task_type,
             agent_id=agent_id,
@@ -79,28 +79,28 @@ class TaskQueryService:
             until=until,
         )
 
-    def get_task(self, task_id: str) -> Task:
-        task = self.task_repo.get_task(task_id)
+    async def get_task(self, task_id: str) -> Task:
+        task = await self.task_repo.get_task(task_id)
         if not task:
             raise NotFoundError(f"Task not found: {task_id}")
         return task
 
-    def list_task_events(self, task_id: str):
-        self.get_task(task_id)
-        return self.task_repo.list_events(task_id)
+    async def list_task_events(self, task_id: str):
+        await self.get_task(task_id)
+        return await self.task_repo.list_events(task_id)
 
-    def list_task_checkpoints(self, task_id: str):
-        self.get_task(task_id)
-        return self.task_repo.list_checkpoints(task_id)
+    async def list_task_checkpoints(self, task_id: str):
+        await self.get_task(task_id)
+        return await self.task_repo.list_checkpoints(task_id)
 
-    def get_task_workbench(
+    async def get_task_workbench(
         self,
         *,
         limit: int = 20,
         offset: int = 0,
     ) -> TaskWorkbenchResponse:
         threshold = self._long_running_before()
-        summary = self._build_workbench_summary(threshold)
+        summary = await self._build_workbench_summary(threshold)
         tabs = TaskWorkbenchTabs(
             all=summary.total_tasks,
             waiting_approval=summary.waiting_approval,
@@ -109,7 +109,7 @@ class TaskQueryService:
             long_running=summary.long_running,
             running=summary.running,
         )
-        items_response = self.get_task_workbench_items(
+        items_response = await self.get_task_workbench_items(
             limit=limit,
             offset=offset,
             tab="all",
@@ -127,7 +127,7 @@ class TaskQueryService:
             page_size=items_response.page_size,
         )
 
-    def get_task_workbench_items(
+    async def get_task_workbench_items(
         self,
         *,
         limit: int = 20,
@@ -141,7 +141,7 @@ class TaskQueryService:
         threshold = self._long_running_before()
         start_at = self._parse_date_start(date_from)
         end_at = self._parse_date_end(date_to)
-        total = self.task_repo.count_workbench_tasks(
+        total = await self.task_repo.count_workbench_tasks(
             tab=tab,
             keyword=keyword,
             status=status,
@@ -149,7 +149,7 @@ class TaskQueryService:
             date_to=end_at,
             long_running_before=threshold,
         )
-        tasks = self.task_repo.list_workbench_tasks(
+        tasks = await self.task_repo.list_workbench_tasks(
             limit=limit,
             offset=offset,
             tab=tab,
@@ -168,10 +168,10 @@ class TaskQueryService:
             page_size=len(tasks),
         )
 
-    def get_task_handling(self, task_id: str) -> TaskHandlingResponse:
-        task = self.get_task(task_id)
-        events = self.task_repo.list_events(task_id)
-        checkpoints = self.task_repo.list_checkpoints(task_id)
+    async def get_task_handling(self, task_id: str) -> TaskHandlingResponse:
+        task = await self.get_task(task_id)
+        events = await self.task_repo.list_events(task_id)
+        checkpoints = await self.task_repo.list_checkpoints(task_id)
         title = self._display_name(task)
         return TaskHandlingResponse(
             task=TaskResponse.model_validate(task),
@@ -193,31 +193,38 @@ class TaskQueryService:
             checkpoints=[TaskCheckpointResponse.model_validate(item) for item in checkpoints],
         )
 
-    def _build_workbench_summary(self, long_running_before: datetime) -> TaskWorkbenchSummary:
+    async def _build_workbench_summary(self, long_running_before: datetime) -> TaskWorkbenchSummary:
         now = utc_now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1) - timedelta(microseconds=1)
+        repo = self.task_repo
         return TaskWorkbenchSummary(
-            total_tasks=self.task_repo.count_workbench_tasks(long_running_before=long_running_before),
-            waiting_approval=self.task_repo.count_workbench_tasks(tab="waiting_approval", long_running_before=long_running_before),
-            failed=self.task_repo.count_workbench_tasks(tab="failed", long_running_before=long_running_before),
-            waiting_input=self.task_repo.count_workbench_tasks(tab="waiting_input", long_running_before=long_running_before),
-            long_running=self.task_repo.count_workbench_tasks(tab="long_running", long_running_before=long_running_before),
-            running=self.task_repo.count_workbench_tasks(tab="running", long_running_before=long_running_before),
-            today_created=self.task_repo.count_created_between(today_start, today_end),
-            today_completed=self.task_repo.count_completed_between(today_start, today_end),
-            queued=self.task_repo.count_queued(),
-            oldest_queued_seconds=self._queue_age_seconds(now),
+            total_tasks=await repo.count_workbench_tasks(long_running_before=long_running_before),
+            waiting_approval=await repo.count_workbench_tasks(
+                tab="waiting_approval", long_running_before=long_running_before
+            ),
+            failed=await repo.count_workbench_tasks(tab="failed", long_running_before=long_running_before),
+            waiting_input=await repo.count_workbench_tasks(
+                tab="waiting_input", long_running_before=long_running_before
+            ),
+            long_running=await repo.count_workbench_tasks(
+                tab="long_running", long_running_before=long_running_before
+            ),
+            running=await repo.count_workbench_tasks(tab="running", long_running_before=long_running_before),
+            today_created=await repo.count_created_between(today_start, today_end),
+            today_completed=await repo.count_completed_between(today_start, today_end),
+            queued=await repo.count_queued(),
+            oldest_queued_seconds=await self._queue_age_seconds(now),
             updated_at=now,
         )
 
-    def _queue_age_seconds(self, now: datetime) -> int | None:
+    async def _queue_age_seconds(self, now: datetime) -> int | None:
         """How long the oldest waiting task has been waiting, in seconds.
 
         None when the queue is empty: zero would read as "nothing has waited",
         which is the same figure a one-second-old queue would show.
         """
-        oldest = self.task_repo.oldest_queued_at()
+        oldest = await self.task_repo.oldest_queued_at()
         if oldest is None:
             return None
         if oldest.tzinfo is None:

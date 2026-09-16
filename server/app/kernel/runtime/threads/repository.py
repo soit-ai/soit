@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, desc, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -13,22 +13,22 @@ from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
 class ThreadRepository:
     """Repository for Agent-scoped threads and messages."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create_thread(self, thread: Thread) -> Thread:
+    async def create_thread(self, thread: Thread) -> Thread:
         thread.tenant_id = self.ctx.tenant_id
         thread.workspace_id = self.ctx.workspace_id
         thread.created_by = self.ctx.user_id
         thread.updated_by = self.ctx.user_id
         thread.owner_user_id = thread.owner_user_id or self.ctx.user_id
         self.db.add(thread)
-        self.db.flush()
-        self.db.refresh(thread)
+        await self.db.flush()
+        await self.db.refresh(thread)
         return thread
 
-    def get_thread(self, thread_id: str) -> Thread | None:
+    async def get_thread(self, thread_id: str) -> Thread | None:
         query = select(Thread).where(
             and_(
                 Thread.id == thread_id,
@@ -37,10 +37,10 @@ class ThreadRepository:
                 Thread.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).first()
         return result if isinstance(result, Thread) else result[0] if result else None
 
-    def list_threads(
+    async def list_threads(
         self,
         *,
         limit: int = 20,
@@ -65,10 +65,10 @@ class ThreadRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, Thread) else item[0] for item in results]
 
-    def _next_message_sequence(self, thread_id: str) -> int:
+    async def _next_message_sequence(self, thread_id: str) -> int:
         query = select(func.max(ThreadMessage.sequence_no)).where(
             and_(
                 ThreadMessage.thread_id == thread_id,
@@ -76,7 +76,7 @@ class ThreadRepository:
                 ThreadMessage.workspace_id == self.ctx.workspace_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).first()
         max_val = result if isinstance(result, int) else result[0] if result else None
         return int(max_val or 0) + 1
 
@@ -93,18 +93,20 @@ class ThreadRepository:
         normalized = " ".join((content or "").split())
         return normalized[:280]
 
-    def add_message(self, message: ThreadMessage) -> ThreadMessage:
-        thread_result = self.db.exec(
-            select(Thread)
-            .where(
-                and_(
-                    Thread.id == message.thread_id,
-                    Thread.tenant_id == self.ctx.tenant_id,
-                    Thread.workspace_id == self.ctx.workspace_id,
-                    Thread.deleted_at.is_(None),
+    async def add_message(self, message: ThreadMessage) -> ThreadMessage:
+        thread_result = (
+            await self.db.exec(
+                select(Thread)
+                .where(
+                    and_(
+                        Thread.id == message.thread_id,
+                        Thread.tenant_id == self.ctx.tenant_id,
+                        Thread.workspace_id == self.ctx.workspace_id,
+                        Thread.deleted_at.is_(None),
+                    )
                 )
+                .with_for_update()
             )
-            .with_for_update()
         ).first()
         thread = (
             thread_result
@@ -119,15 +121,19 @@ class ThreadRepository:
         message.tenant_id = self.ctx.tenant_id
         message.workspace_id = self.ctx.workspace_id
         message.created_by = self.ctx.user_id
-        message.sequence_no = message.sequence_no or self._next_message_sequence(message.thread_id)
+        message.sequence_no = message.sequence_no or await self._next_message_sequence(
+            message.thread_id
+        )
         message.status = message.status or "completed"
-        message.content_json = message.content_json or self._default_content_json(message.content, message.message_type)
+        message.content_json = message.content_json or self._default_content_json(
+            message.content, message.message_type
+        )
         message.summary = message.summary or self._default_summary(message.content)
         message.citations_json = message.citations_json or []
         message.attachments_json = message.attachments_json or []
         message.tool_calls_json = message.tool_calls_json or []
         if message.parent_message_id:
-            parent = self.db.get(ThreadMessage, message.parent_message_id)
+            parent = await self.db.get(ThreadMessage, message.parent_message_id)
             if not parent or parent.thread_id != message.thread_id:
                 raise ValueError("parent_message_id must belong to the same thread")
 
@@ -148,11 +154,11 @@ class ThreadRepository:
 
         self.db.add(thread)
         self.db.add(message)
-        self.db.flush()
-        self.db.refresh(message)
+        await self.db.flush()
+        await self.db.refresh(message)
         return message
 
-    def list_messages(self, thread_id: str) -> list[ThreadMessage]:
+    async def list_messages(self, thread_id: str) -> list[ThreadMessage]:
         query = (
             select(ThreadMessage)
             .where(
@@ -165,10 +171,10 @@ class ThreadRepository:
             )
             .order_by(ThreadMessage.sequence_no.asc(), ThreadMessage.created_at.asc())
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, ThreadMessage) else item[0] for item in results]
 
-    def get_message(self, thread_id: str, message_id: str) -> ThreadMessage | None:
+    async def get_message(self, thread_id: str, message_id: str) -> ThreadMessage | None:
         """Return one scoped message that belongs to the requested thread."""
 
         query = select(ThreadMessage).where(
@@ -180,13 +186,13 @@ class ThreadRepository:
                 ThreadMessage.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).first()
         return result if isinstance(result, ThreadMessage) else result[0] if result else None
 
-    def message_lineage(self, thread_id: str, head_message_id: str) -> list[ThreadMessage]:
+    async def message_lineage(self, thread_id: str, head_message_id: str) -> list[ThreadMessage]:
         """Resolve one root-to-head conversation branch from the message ledger."""
 
-        messages = self.list_messages(thread_id)
+        messages = await self.list_messages(thread_id)
         by_id = {message.id: message for message in messages}
         lineage: list[ThreadMessage] = []
         seen: set[str] = set()
@@ -203,7 +209,7 @@ class ThreadRepository:
         lineage.reverse()
         return lineage
 
-    def touch_thread(self, thread: Thread, *, latest_run_id: str | None = None) -> Thread:
+    async def touch_thread(self, thread: Thread, *, latest_run_id: str | None = None) -> Thread:
         thread.updated_at = utc_now()
         thread.updated_by = self.ctx.user_id
         if latest_run_id is not None:
@@ -213,11 +219,11 @@ class ThreadRepository:
         elif thread.status != "archived":
             thread.archived_at = None
         self.db.add(thread)
-        self.db.flush()
-        self.db.refresh(thread)
+        await self.db.flush()
+        await self.db.refresh(thread)
         return thread
 
-    def update_thread(
+    async def update_thread(
         self,
         thread_id: str,
         *,
@@ -240,7 +246,7 @@ class ThreadRepository:
         source: str | None = None,
         pinned_at: object = ...,
     ) -> Thread | None:
-        thread = self.get_thread(thread_id)
+        thread = await self.get_thread(thread_id)
         if not thread:
             return None
         if title is not None:
@@ -277,12 +283,12 @@ class ThreadRepository:
             thread.source = source
         if pinned_at is not ...:
             thread.pinned_at = pinned_at
-        return self.touch_thread(thread, latest_run_id=latest_run_id)
+        return await self.touch_thread(thread, latest_run_id=latest_run_id)
 
-    def soft_delete_thread(self, thread_id: str) -> Thread | None:
-        thread = self.get_thread(thread_id)
+    async def soft_delete_thread(self, thread_id: str) -> Thread | None:
+        thread = await self.get_thread(thread_id)
         if not thread:
             return None
         thread.deleted_at = utc_now()
         thread.status = "deleted"
-        return self.touch_thread(thread)
+        return await self.touch_thread(thread)

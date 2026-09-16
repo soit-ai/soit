@@ -1,9 +1,10 @@
 """Unit tests for the response semantic-flow coordinator."""
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.dialects import postgresql
-from sqlmodel import Session, SQLModel, select
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
 from app.adapters.storage.memory import InMemoryStoragePort
@@ -85,7 +86,7 @@ class CancelingLLMPort(StubLLMPort):
         self.cancel = cancel
 
     async def stream_chat(self, messages, model, **kwargs):
-        self.cancel()
+        await self.cancel()
         yield ChatStreamChunk(delta="must not be persisted", model=model)
 
 
@@ -168,20 +169,20 @@ class FakeResponseRepository:
         self.ctx = ctx
         self.responses = {}
 
-    def create(self, response):
+    async def create(self, response):
         response.tenant_id = self.ctx.tenant_id
         response.workspace_id = self.ctx.workspace_id
         self.responses[response.id] = response
         return response
 
-    def update(self, response):
+    async def update(self, response):
         self.responses[response.id] = response
         return response
 
-    def require(self, response_id):
+    async def require(self, response_id):
         return self.responses[response_id]
 
-    def list_for_run(self, run_id):
+    async def list_for_run(self, run_id):
         return [response for response in self.responses.values() if response.run_id == run_id]
 
 
@@ -190,26 +191,37 @@ class FakeResponseEventRepository:
         self.ctx = ctx
         self.events = []
 
-    def create(self, event):
+    async def create(self, event):
         event.tenant_id = self.ctx.tenant_id
         event.workspace_id = self.ctx.workspace_id
         self.events.append(event)
         return event
 
-    def next_sequence(self, response_id):
+    async def next_sequence(self, response_id):
         return len([event for event in self.events if event.response_id == response_id]) + 1
 
-    def list_for_response(self, response_id, *, limit, offset, after_sequence=None):
+    async def list_for_response(self, response_id, *, limit, offset, after_sequence=None):
         events = [event for event in self.events if event.response_id == response_id]
         if after_sequence is not None:
             events = [event for event in events if event.sequence > after_sequence]
         return events[offset : offset + limit]
 
-    def list_for_run(self, run_id):
+    async def list_for_run(self, run_id):
         return [event for event in self.events if event.run_id == run_id]
 
 
-def test_response_event_sequence_locks_the_parent_response(ctx):
+def _service(db, ctx) -> ResponseService:
+    return ResponseService(
+        db=db,
+        ctx=ctx,
+        response_repo=ResponseRepository(db, ctx),
+        event_repo=ResponseEventRepository(db, ctx),
+        trace_writer=TraceWriter(db, ctx),
+    )
+
+
+@pytest.mark.asyncio
+async def test_response_event_sequence_locks_the_parent_response(ctx):
     class Result:
         def __init__(self, value):
             self.value = value
@@ -221,7 +233,7 @@ def test_response_event_sequence_locks_the_parent_response(ctx):
         def __init__(self):
             self.statements = []
 
-        def exec(self, statement):
+        async def exec(self, statement):
             self.statements.append(statement)
             sql = str(statement.compile(dialect=postgresql.dialect()))
             return Result("resp_locked" if "FOR UPDATE" in sql else 7)
@@ -229,7 +241,7 @@ def test_response_event_sequence_locks_the_parent_response(ctx):
     recording_db = RecordingDb()
     repository = ResponseEventRepository(recording_db, ctx)
 
-    assert repository.next_sequence("resp_locked") == 8
+    assert await repository.next_sequence("resp_locked") == 8
     assert any(
         "FOR UPDATE" in str(statement.compile(dialect=postgresql.dialect()))
         for statement in recording_db.statements
@@ -238,19 +250,14 @@ def test_response_event_sequence_locks_the_parent_response(ctx):
 
 @pytest.mark.asyncio
 async def test_direct_interaction_commits_each_event_before_transport(tmp_path, ctx):
-    engine = create_engine(f"sqlite:///{tmp_path / 'direct-events.db'}")
-    SQLModel.metadata.create_all(engine)
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'direct-events.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
 
-    with Session(engine, expire_on_commit=False) as writer_db:
-        writer_service = ResponseService(
-            db=writer_db,
-            ctx=ctx,
-            response_repo=ResponseRepository(writer_db, ctx),
-            event_repo=ResponseEventRepository(writer_db, ctx),
-            trace_writer=TraceWriter(writer_db, ctx),
-        )
+    writer_db = AsyncSession(engine, expire_on_commit=False)
+    try:
         coordinator = ResponseProjectionCoordinator(
-            response_service=writer_service,
+            response_service=_service(writer_db, ctx),
             llm_port=StubLLMPort(),
             thread_service=None,
         )
@@ -269,26 +276,26 @@ async def test_direct_interaction_commits_each_event_before_transport(tmp_path, 
         first_item = await anext(stream)
         assert first_item["data"]["type"] == "RUN_STARTED"
 
-        with Session(engine) as reader_db:
-            reader_service = ResponseService(
-                db=reader_db,
-                ctx=ctx,
-                response_repo=ResponseRepository(reader_db, ctx),
-                event_repo=ResponseEventRepository(reader_db, ctx),
-                trace_writer=TraceWriter(reader_db, ctx),
-            )
-            interaction = reader_service.get_interaction("interaction_durable_direct")
+        reader_db = AsyncSession(engine, expire_on_commit=False)
+        try:
+            reader_service = _service(reader_db, ctx)
+            interaction = await reader_service.get_interaction("interaction_durable_direct")
             assert interaction is not None
             assert [
                 event.type
-                for event in reader_service.list_response_events(
+                for event in await reader_service.list_response_events(
                     interaction.response_id,
                     limit=10,
                     offset=0,
                 )
             ] == ["RUN_STARTED"]
+        finally:
+            await reader_db.close()
 
         await stream.aclose()
+    finally:
+        await writer_db.close()
+        await engine.dispose()
 
 
 def test_response_internal_components_expose_narrow_responsibilities():
@@ -300,7 +307,8 @@ def test_response_internal_components_expose_narrow_responsibilities():
     assert thread_writer.with_attachment_context("prompt", {"attachments": []}) == "prompt"
 
 
-def test_response_service_accepts_repository_protocols(ctx):
+@pytest.mark.asyncio
+async def test_response_service_accepts_repository_protocols(ctx):
     response_repo = FakeResponseRepository(ctx)
     event_repo = FakeResponseEventRepository(ctx)
     service = ResponseService(
@@ -311,14 +319,14 @@ def test_response_service_accepts_repository_protocols(ctx):
         trace_writer=object(),
     )
 
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id="run_protocol",
         thread_id="thr_protocol",
         model="model:openai:gpt-5.1",
         input_json={"message": "hello"},
     )
-    response = service.mark_running(response)
-    completed = service.complete_response(
+    response = await service.mark_running(response)
+    completed = await service.complete_response(
         response=response,
         output_json={"text": "done"},
         usage_json={"total_tokens": 2},
@@ -326,33 +334,29 @@ def test_response_service_accepts_repository_protocols(ctx):
 
     assert isinstance(response, Response)
     assert isinstance(event_repo.events[0], ResponseEvent)
-    assert response_repo.require(response.id) is completed
+    assert await response_repo.require(response.id) is completed
     assert completed.status == "succeeded"
     assert completed.provider == "openai"
-    assert [event.type for event in event_repo.list_for_response(response.id, limit=10, offset=0)] == [
+    listed = await event_repo.list_for_response(response.id, limit=10, offset=0)
+    assert [event.type for event in listed] == [
         "response.created",
         "response.input.added",
         "response.output_text.done",
         "response.succeeded",
     ]
-    assert event_repo.list_for_run("run_protocol") == event_repo.events
+    assert await event_repo.list_for_run("run_protocol") == event_repo.events
 
 
-def test_response_public_readers_exclude_internal_events(db, ctx):
-    service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    response = service.create_response(
+@pytest.mark.asyncio
+async def test_response_public_readers_exclude_internal_events(async_db, ctx):
+    service = _service(async_db, ctx)
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             input={"items": [{"type": "input_text", "text": "hello"}]},
         )
     )
-    service.append_event(
+    await service.append_event(
         response=response,
         event_type="response.internal.debug",
         payload={"secret": "operator-only"},
@@ -361,9 +365,9 @@ def test_response_public_readers_exclude_internal_events(db, ctx):
 
     assert [
         event.type
-        for event in service.list_response_events(response.id, limit=100, offset=0)
+        for event in await service.list_response_events(response.id, limit=100, offset=0)
     ] == ["response.created", "response.input.added"]
-    timeline = service.get_run_timeline(response.run_id)
+    timeline = await service.get_run_timeline(response.run_id)
     assert [event.type for event in timeline["items"][0]["events"]] == [
         "response.created",
         "response.input.added",
@@ -371,14 +375,8 @@ def test_response_public_readers_exclude_internal_events(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_response_orchestrator_executes_and_records_events(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
+async def test_response_orchestrator_executes_and_records_events(async_db, ctx):
+    response_service = _service(async_db, ctx)
     projection_coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
         llm_port=StubLLMPort(),
@@ -397,7 +395,7 @@ async def test_response_orchestrator_executes_and_records_events(db, ctx):
     assert response.output_json["text"] == "orchestrated answer"
     assert response.usage_json["total_tokens"] == 8
 
-    events = response_service.list_response_events(response.id, limit=10, offset=0)
+    events = await response_service.list_response_events(response.id, limit=10, offset=0)
     assert [event.type for event in events] == [
         "response.created",
         "response.input.added",
@@ -405,22 +403,16 @@ async def test_response_orchestrator_executes_and_records_events(db, ctx):
         "response.succeeded",
     ]
 
-    run = db.get(Run, response.run_id)
+    run = await async_db.get(Run, response.run_id)
     assert run is not None
     assert run.status == "succeeded"
 
 
 @pytest.mark.asyncio
-async def test_response_orchestrator_persists_thread_message_attachments(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Attachment chat")
+async def test_response_orchestrator_persists_thread_message_attachments(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Attachment chat")
     llm_port = StubLLMPort()
     projection_coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
@@ -460,7 +452,7 @@ async def test_response_orchestrator_persists_thread_message_attachments(db, ctx
         )
     )
 
-    messages = thread_service.thread_repo.list_messages(thread.id)
+    messages = await thread_service.thread_repo.list_messages(thread.id)
     assert response.status == "succeeded"
     assert messages[0].role == "user"
     assert messages[0].attachments_json == [
@@ -481,24 +473,18 @@ async def test_response_orchestrator_persists_thread_message_attachments(db, ctx
 
 @pytest.mark.asyncio
 async def test_response_orchestrator_regenerates_from_existing_user_message_without_duplication(
-    db,
+    async_db,
     ctx,
 ):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Regenerate branch")
-    user = thread_service.append_message(
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Regenerate branch")
+    user = await thread_service.append_message(
         thread_id=thread.id,
         role="user",
         content="Give me another answer",
     )
-    first_assistant = thread_service.append_message(
+    first_assistant = await thread_service.append_message(
         thread_id=thread.id,
         role="assistant",
         content="First answer",
@@ -532,7 +518,7 @@ async def test_response_orchestrator_regenerates_from_existing_user_message_with
         )
     )
 
-    messages = thread_service.thread_repo.list_messages(thread.id)
+    messages = await thread_service.thread_repo.list_messages(thread.id)
     assert [message.id for message in messages if message.role == "user"] == [user.id]
     assert [message.content for message in llm_port.messages[0]] == [user.content]
     regenerated = messages[-1]
@@ -542,22 +528,16 @@ async def test_response_orchestrator_regenerates_from_existing_user_message_with
 
 
 @pytest.mark.asyncio
-async def test_response_orchestrator_edits_a_user_turn_as_a_new_branch(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Edited branch")
-    original_user = thread_service.append_message(
+async def test_response_orchestrator_edits_a_user_turn_as_a_new_branch(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Edited branch")
+    original_user = await thread_service.append_message(
         thread_id=thread.id,
         role="user",
         content="Original request",
     )
-    thread_service.append_message(
+    await thread_service.append_message(
         thread_id=thread.id,
         role="assistant",
         content="Original answer",
@@ -591,7 +571,7 @@ async def test_response_orchestrator_edits_a_user_turn_as_a_new_branch(db, ctx):
         )
     )
 
-    messages = thread_service.thread_repo.list_messages(thread.id)
+    messages = await thread_service.thread_repo.list_messages(thread.id)
     edited_user = next(message for message in messages if message.content == "Edited request")
     edited_assistant = messages[-1]
     assert edited_user.parent_message_id is None
@@ -600,16 +580,10 @@ async def test_response_orchestrator_edits_a_user_turn_as_a_new_branch(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_response_orchestrator_persists_failed_thread_message(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Retryable chat")
+async def test_response_orchestrator_persists_failed_thread_message(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Retryable chat")
     projection_coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
         llm_port=FailingLLMPort(),
@@ -625,7 +599,7 @@ async def test_response_orchestrator_persists_failed_thread_message(db, ctx):
             )
         )
 
-    messages = thread_service.thread_repo.list_messages(thread.id)
+    messages = await thread_service.thread_repo.list_messages(thread.id)
     assert [(message.role, message.status) for message in messages] == [
         ("user", "completed"),
         ("assistant", "failed"),
@@ -637,15 +611,10 @@ async def test_response_orchestrator_persists_failed_thread_message(db, ctx):
     assert "provider timeout" not in str(messages[1].metadata_json)
 
 
-def test_response_service_terminalizes_bound_interaction_setup_failure(db, ctx):
-    service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    response = service.create_response(
+@pytest.mark.asyncio
+async def test_response_service_terminalizes_bound_interaction_setup_failure(async_db, ctx):
+    service = _service(async_db, ctx)
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             thread_id="thread_setup_failure",
@@ -653,16 +622,16 @@ def test_response_service_terminalizes_bound_interaction_setup_failure(db, ctx):
         ),
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    service.trace_writer.update_run_status(response.run_id, "running")
-    service.create_interaction(
+    response = await service.mark_running(response)
+    await service.trace_writer.update_run_status(response.run_id, "running")
+    await service.create_interaction(
         interaction_id="interaction_setup_failure",
         parent_interaction_id=None,
         response=response,
         request_hash="hash_setup_failure",
     )
 
-    event = service.fail_interaction_execution(
+    event = await service.fail_interaction_execution(
         "interaction_setup_failure",
         error_code="response_execution_failed",
         error_message="Response execution failed",
@@ -676,42 +645,44 @@ def test_response_service_terminalizes_bound_interaction_setup_failure(db, ctx):
     )
 
     assert event is not None and event.type == "RUN_ERROR"
-    assert service.get_response(response.id).status == "failed"
-    assert service.get_interaction("interaction_setup_failure").status == "failed"
-    assert db.get(Run, response.run_id).status == "failed"
+    assert (await service.get_response(response.id)).status == "failed"
+    assert (await service.get_interaction("interaction_setup_failure")).status == "failed"
+    assert (await async_db.get(Run, response.run_id)).status == "failed"
+
+
+async def _collect_stream(coordinator, request, *, interaction_id):
+    return [
+        item
+        async for item in coordinator.execute_interaction_stream(
+            request,
+            interaction_id=interaction_id,
+            parent_interaction_id=None,
+            protocol=AgUiInteractionProtocolAdapter(),
+        )
+    ]
 
 
 @pytest.mark.asyncio
-async def test_interaction_stream_coalesces_tiny_text_chunks(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Chunk coalescing")
+async def test_interaction_stream_coalesces_tiny_text_chunks(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Chunk coalescing")
     coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
         llm_port=ChunkedLLMPort(),
         thread_service=thread_service,
     )
 
-    streamed = [
-        item
-        async for item in coordinator.execute_interaction_stream(
-            ResponseCreateRequest(
-                model="model:openai:gpt-5.1",
-                thread_id=thread.id,
-                input={"messages": [{"role": "user", "content": "stream"}]},
-                metadata={"interaction_id": "interaction_chunks", "request_hash": "hash_chunks"},
-            ),
-            interaction_id="interaction_chunks",
-            parent_interaction_id=None,
-            protocol=AgUiInteractionProtocolAdapter(),
-        )
-    ]
+    streamed = await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "stream"}]},
+            metadata={"interaction_id": "interaction_chunks", "request_hash": "hash_chunks"},
+        ),
+        interaction_id="interaction_chunks",
+    )
 
     text_events = [item["data"] for item in streamed if item["data"]["type"] == "TEXT_MESSAGE_CONTENT"]
     assert "".join(event["delta"] for event in text_events) == "0123456789" * 300
@@ -722,16 +693,10 @@ async def test_interaction_stream_coalesces_tiny_text_chunks(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_interaction_stream_emits_and_persists_enabled_reasoning(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Reasoning stream")
+async def test_interaction_stream_emits_and_persists_enabled_reasoning(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Reasoning stream")
     llm_port = ReasoningLLMPort()
     coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
@@ -739,54 +704,44 @@ async def test_interaction_stream_emits_and_persists_enabled_reasoning(db, ctx):
         thread_service=thread_service,
     )
 
-    streamed = [
-        item
-        async for item in coordinator.execute_interaction_stream(
-            ResponseCreateRequest(
-                model="model:openai:gpt-5.1",
-                thread_id=thread.id,
-                input={"messages": [{"role": "user", "content": "reason"}]},
-                metadata={
-                    "interaction_id": "interaction_reasoning",
-                    "request_hash": "hash_reasoning",
-                    "show_reasoning": True,
-                    "reasoning_effort": "high",
-                },
-            ),
-            interaction_id="interaction_reasoning",
-            parent_interaction_id=None,
-            protocol=AgUiInteractionProtocolAdapter(),
-        )
-    ]
+    streamed = await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "reason"}]},
+            metadata={
+                "interaction_id": "interaction_reasoning",
+                "request_hash": "hash_reasoning",
+                "show_reasoning": True,
+                "reasoning_effort": "high",
+            },
+        ),
+        interaction_id="interaction_reasoning",
+    )
 
     event_types = [item["data"]["type"] for item in streamed]
     assert event_types.index("REASONING_START") < event_types.index("TEXT_MESSAGE_START")
     assert event_types.count("REASONING_MESSAGE_CONTENT") == 2
     assert llm_port.stream_kwargs["reasoning_effort"] == "high"
-    messages = thread_service.thread_repo.list_messages(thread.id)
+    messages = await thread_service.thread_repo.list_messages(thread.id)
     assert messages[-1].content == "Final answer."
     assert messages[-1].metadata_json["reasoning"] == (
         "Checking constraints. Evidence is sufficient."
     )
-    interaction = response_service.get_interaction("interaction_reasoning")
+    interaction = await response_service.get_interaction("interaction_reasoning")
     assert interaction is not None
-    response = response_service.get_response(interaction.response_id)
+    response = await response_service.get_response(interaction.response_id)
     assert response.output_json["reasoning"] == (
         "Checking constraints. Evidence is sufficient."
     )
 
 
 @pytest.mark.asyncio
-async def test_interaction_stream_governs_hosted_tool_calls_sources_and_files(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Hosted tools")
+async def test_interaction_stream_governs_hosted_tool_calls_sources_and_files(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Hosted tools")
     storage = InMemoryStoragePort()
     llm_port = HostedToolsLLMPort()
     coordinator = ResponseProjectionCoordinator(
@@ -803,24 +758,20 @@ async def test_interaction_stream_governs_hosted_tool_calls_sources_and_files(db
         },
     ]
 
-    streamed = [
-        item
-        async for item in coordinator.execute_interaction_stream(
-            ResponseCreateRequest(
-                model="model:openai:gpt-5.5",
-                thread_id=thread.id,
-                input={"messages": [{"role": "user", "content": "Research and chart"}]},
-                tools=requested_tools,
-                metadata={
-                    "interaction_id": "interaction_hosted_tools",
-                    "request_hash": "hash_hosted_tools",
-                },
-            ),
-            interaction_id="interaction_hosted_tools",
-            parent_interaction_id=None,
-            protocol=AgUiInteractionProtocolAdapter(),
-        )
-    ]
+    streamed = await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.5",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "Research and chart"}]},
+            tools=requested_tools,
+            metadata={
+                "interaction_id": "interaction_hosted_tools",
+                "request_hash": "hash_hosted_tools",
+            },
+        ),
+        interaction_id="interaction_hosted_tools",
+    )
 
     assert llm_port.stream_kwargs["hosted_tools"] == requested_tools
     custom_names = [
@@ -833,18 +784,20 @@ async def test_interaction_stream_governs_hosted_tool_calls_sources_and_files(db
     assert "soit.tool_status" in custom_names
     assert [item["data"]["type"] for item in streamed].count("TOOL_CALL_START") == 2
 
-    interaction = response_service.get_interaction("interaction_hosted_tools")
+    interaction = await response_service.get_interaction("interaction_hosted_tools")
     assert interaction is not None
-    response = response_service.get_response(interaction.response_id)
-    records = db.exec(
-        select(RunStepToolCall).where(RunStepToolCall.run_id == response.run_id)
+    response = await response_service.get_response(interaction.response_id)
+    records = (
+        await async_db.exec(
+            select(RunStepToolCall).where(RunStepToolCall.run_id == response.run_id)
+        )
     ).all()
     assert [(record.tool_ref, record.status) for record in records] == [
         ("openai.web_search", "succeeded"),
         ("openai.code_interpreter", "succeeded"),
     ]
-    artifact = db.exec(
-        select(RunArtifact).where(RunArtifact.run_id == response.run_id)
+    artifact = (
+        await async_db.exec(select(RunArtifact).where(RunArtifact.run_id == response.run_id))
     ).one()
     assert artifact.meta_json["name"] == "report.csv"
     assert await storage.get(artifact.storage_key) == b"name,value\nSOIT,1\n"
@@ -856,74 +809,60 @@ async def test_interaction_stream_governs_hosted_tool_calls_sources_and_files(db
     assert artifact_event["download_url"].endswith(
         f"/runs/{response.run_id}/artifacts/{artifact.id}/content"
     )
-    message = thread_service.thread_repo.list_messages(thread.id)[-1]
+    message = (await thread_service.thread_repo.list_messages(thread.id))[-1]
     assert message.citations_json[0]["title"] == "Primary source"
     assert message.metadata_json["artifacts"][0]["id"] == artifact.id
     assert len(message.tool_calls_json) == 2
 
 
 @pytest.mark.asyncio
-async def test_interaction_stream_does_not_expose_reasoning_when_disabled(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Reasoning disabled")
+async def test_interaction_stream_does_not_expose_reasoning_when_disabled(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Reasoning disabled")
     coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
         llm_port=ReasoningLLMPort(),
         thread_service=thread_service,
     )
 
-    streamed = [
-        item
-        async for item in coordinator.execute_interaction_stream(
-            ResponseCreateRequest(
-                model="model:openai:gpt-5.1",
-                thread_id=thread.id,
-                input={"messages": [{"role": "user", "content": "answer only"}]},
-                metadata={
-                    "interaction_id": "interaction_reasoning_disabled",
-                    "request_hash": "hash_reasoning_disabled",
-                    "show_reasoning": False,
-                },
-            ),
-            interaction_id="interaction_reasoning_disabled",
-            parent_interaction_id=None,
-            protocol=AgUiInteractionProtocolAdapter(),
-        )
-    ]
+    streamed = await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "answer only"}]},
+            metadata={
+                "interaction_id": "interaction_reasoning_disabled",
+                "request_hash": "hash_reasoning_disabled",
+                "show_reasoning": False,
+            },
+        ),
+        interaction_id="interaction_reasoning_disabled",
+    )
 
     assert not any(item["data"]["type"].startswith("REASONING") for item in streamed)
-    message = thread_service.thread_repo.list_messages(thread.id)[-1]
+    message = (await thread_service.thread_repo.list_messages(thread.id))[-1]
     assert "reasoning" not in message.metadata_json
-    interaction = response_service.get_interaction("interaction_reasoning_disabled")
+    interaction = await response_service.get_interaction("interaction_reasoning_disabled")
     assert interaction is not None
-    response = response_service.get_response(interaction.response_id)
+    response = await response_service.get_response(interaction.response_id)
     assert "reasoning" not in response.output_json
 
 
 @pytest.mark.asyncio
-async def test_interaction_stream_stops_without_success_after_explicit_cancellation(db, ctx):
-    response_service = ResponseService(
-        db=db,
-        ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
-    )
-    thread_service = ThreadService(db, ctx)
-    thread = thread_service.create_thread(agent_id=None, title="Canceled interaction")
+async def test_interaction_stream_stops_without_success_after_explicit_cancellation(
+    async_db, ctx
+):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Canceled interaction")
     interaction_id = "interaction_cancel_during_stream"
 
-    def cancel_response() -> None:
-        interaction = response_service.get_interaction(interaction_id)
+    async def cancel_response() -> None:
+        interaction = await response_service.get_interaction(interaction_id)
         assert interaction is not None
-        response_service.cancel_response(interaction.response_id, emit_event=False)
+        await response_service.cancel_response(interaction.response_id, emit_event=False)
 
     coordinator = ResponseProjectionCoordinator(
         response_service=response_service,
@@ -931,24 +870,20 @@ async def test_interaction_stream_stops_without_success_after_explicit_cancellat
         thread_service=thread_service,
     )
 
-    streamed = [
-        item
-        async for item in coordinator.execute_interaction_stream(
-            ResponseCreateRequest(
-                model="model:openai:gpt-5.1",
-                thread_id=thread.id,
-                input={"messages": [{"role": "user", "content": "cancel"}]},
-                metadata={"interaction_id": interaction_id, "request_hash": "hash_cancel"},
-            ),
-            interaction_id=interaction_id,
-            parent_interaction_id=None,
-            protocol=AgUiInteractionProtocolAdapter(),
-        )
-    ]
+    streamed = await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "cancel"}]},
+            metadata={"interaction_id": interaction_id, "request_hash": "hash_cancel"},
+        ),
+        interaction_id=interaction_id,
+    )
 
-    interaction = response_service.get_interaction(interaction_id)
+    interaction = await response_service.get_interaction(interaction_id)
     assert interaction is not None
-    response = response_service.get_response(interaction.response_id)
+    response = await response_service.get_response(interaction.response_id)
     assert response.status == "canceled"
     assert interaction.status == "canceled"
     assert [item["data"]["type"] for item in streamed] == [

@@ -11,13 +11,13 @@ execution code stays out of the kernel.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.runtime.db.models.tasks import Task
 
-TaskDriver = Callable[[Session, Task], None]
+TaskDriver = Callable[[AsyncSession, Task], Awaitable[None]]
 """Re-drives one task. Responsible for moving it out of its queued state."""
 
 _DRIVERS: dict[str, TaskDriver] = {}

@@ -1,6 +1,7 @@
 """Transaction-boundary tests for response persistence repositories."""
 
-from sqlmodel import Session
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.responses.repository import (
@@ -8,12 +9,14 @@ from app.kernel.runtime.responses.repository import (
     ResponseRepository,
 )
 
+pytestmark = pytest.mark.asyncio
 
-def test_response_and_events_rollback_as_one_unit(db, tenant1_ctx) -> None:
-    response_repo = ResponseRepository(db, tenant1_ctx)
-    event_repo = ResponseEventRepository(db, tenant1_ctx)
-    response = response_repo.create(Response(status="queued"))
-    event = event_repo.create(
+
+async def test_response_and_events_rollback_as_one_unit(async_db, tenant1_ctx) -> None:
+    response_repo = ResponseRepository(async_db, tenant1_ctx)
+    event_repo = ResponseEventRepository(async_db, tenant1_ctx)
+    response = await response_repo.create(Response(status="queued"))
+    event = await event_repo.create(
         ResponseEvent(
             response_id=response.id,
             sequence=1,
@@ -21,24 +24,26 @@ def test_response_and_events_rollback_as_one_unit(db, tenant1_ctx) -> None:
         )
     )
 
-    db.rollback()
+    await async_db.rollback()
 
-    check = Session(db.get_bind())
+    check = AsyncSession(async_db.bind, expire_on_commit=False)
     try:
-        assert check.get(Response, response.id) is None
-        assert check.get(ResponseEvent, event.id) is None
+        assert await check.get(Response, response.id) is None
+        assert await check.get(ResponseEvent, event.id) is None
     finally:
-        check.close()
+        await check.close()
 
 
-def test_response_update_can_be_rolled_back(db, tenant1_ctx) -> None:
-    response_repo = ResponseRepository(db, tenant1_ctx)
-    response = response_repo.create(Response(status="queued"))
-    db.commit()
+async def test_response_update_can_be_rolled_back(async_db, tenant1_ctx) -> None:
+    response_repo = ResponseRepository(async_db, tenant1_ctx)
+    response = await response_repo.create(Response(status="queued"))
+    await async_db.commit()
 
     response.status = "completed"
-    response_repo.update(response)
-    db.rollback()
+    await response_repo.update(response)
+    await async_db.rollback()
 
-    db.expire_all()
-    assert response_repo.require(response.id).status == "queued"
+    # Rollback expires every loaded instance; on an async session the reload
+    # must be explicit, since attribute access cannot do implicit IO.
+    await async_db.refresh(response)
+    assert (await response_repo.require(response.id)).status == "queued"

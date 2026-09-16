@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
@@ -14,21 +14,21 @@ from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 class ResponseRepository:
     """Scope-aware repository for response resources."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, response: Response) -> Response:
+    async def create(self, response: Response) -> Response:
         response.tenant_id = self.ctx.tenant_id
         response.workspace_id = self.ctx.workspace_id
         response.created_by = self.ctx.user_id
         response.updated_by = self.ctx.user_id
         self.db.add(response)
-        self.db.flush()
-        self.db.refresh(response)
+        await self.db.flush()
+        await self.db.refresh(response)
         return response
 
-    def get(self, response_id: str) -> Response | None:
+    async def get(self, response_id: str) -> Response | None:
         query = select(Response).where(
             and_(
                 Response.id == response_id,
@@ -36,24 +36,24 @@ class ResponseRepository:
                 Response.workspace_id == self.ctx.workspace_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).first()
         return result if isinstance(result, Response) else result[0] if result else None
 
-    def require(self, response_id: str) -> Response:
-        response = self.get(response_id)
+    async def require(self, response_id: str) -> Response:
+        response = await self.get(response_id)
         if not response:
             raise NotFoundError(f"Response not found: {response_id}")
         return response
 
-    def update(self, response: Response) -> Response:
+    async def update(self, response: Response) -> Response:
         response.updated_at = utc_now()
         response.updated_by = self.ctx.user_id
         self.db.add(response)
-        self.db.flush()
-        self.db.refresh(response)
+        await self.db.flush()
+        await self.db.refresh(response)
         return response
 
-    def list_for_run(self, run_id: str) -> list[Response]:
+    async def list_for_run(self, run_id: str) -> list[Response]:
         query = (
             select(Response)
             .where(
@@ -65,31 +65,33 @@ class ResponseRepository:
             )
             .order_by(Response.created_at.asc(), Response.id.asc())
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, Response) else item[0] for item in results]
 
 
 class ResponseEventRepository:
     """Repository for persisted response semantic events."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def next_sequence(self, response_id: str) -> int:
+    async def next_sequence(self, response_id: str) -> int:
         # Serialize sequence allocation with cancellation/replay writers. The
         # response row is the stable lock target; aggregate rows cannot be
         # locked safely and a plain MAX(sequence) + 1 races across sessions.
-        self.db.exec(
-            select(Response.id)
-            .where(
-                and_(
-                    Response.id == response_id,
-                    Response.tenant_id == self.ctx.tenant_id,
-                    Response.workspace_id == self.ctx.workspace_id,
+        (
+            await self.db.exec(
+                select(Response.id)
+                .where(
+                    and_(
+                        Response.id == response_id,
+                        Response.tenant_id == self.ctx.tenant_id,
+                        Response.workspace_id == self.ctx.workspace_id,
+                    )
                 )
+                .with_for_update()
             )
-            .with_for_update()
         ).first()
         query = select(func.max(ResponseEvent.sequence)).where(
             and_(
@@ -98,22 +100,22 @@ class ResponseEventRepository:
                 ResponseEvent.workspace_id == self.ctx.workspace_id,
             )
         )
-        value = self.db.exec(query).first()
+        value = (await self.db.exec(query)).first()
         if hasattr(value, "__getitem__"):
             current = value[0]
         else:
             current = value
         return int(current or 0) + 1
 
-    def create(self, event: ResponseEvent) -> ResponseEvent:
+    async def create(self, event: ResponseEvent) -> ResponseEvent:
         event.tenant_id = self.ctx.tenant_id
         event.workspace_id = self.ctx.workspace_id
         self.db.add(event)
-        self.db.flush()
-        self.db.refresh(event)
+        await self.db.flush()
+        await self.db.refresh(event)
         return event
 
-    def list_for_response(
+    async def list_for_response(
         self,
         response_id: str,
         *,
@@ -139,10 +141,10 @@ class ResponseEventRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, ResponseEvent) else item[0] for item in results]
 
-    def list_for_run(self, run_id: str) -> list[ResponseEvent]:
+    async def list_for_run(self, run_id: str) -> list[ResponseEvent]:
         query = (
             select(ResponseEvent)
             .where(
@@ -158,5 +160,5 @@ class ResponseEventRepository:
                 ResponseEvent.id.asc(),
             )
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, ResponseEvent) else item[0] for item in results]

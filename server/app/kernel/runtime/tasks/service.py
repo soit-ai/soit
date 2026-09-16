@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, NotFoundError
 from app.kernel.commons.time import utc_now
@@ -23,7 +23,7 @@ class TaskService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession | None,
         ctx: RequestContext,
         *,
         task_repo: TaskRepositoryProtocol | None = None,
@@ -32,7 +32,7 @@ class TaskService:
         self.ctx = ctx
         self.task_repo = task_repo or TaskRepository(db, ctx)
 
-    def create_task(
+    async def create_task(
         self,
         *,
         task_type: str,
@@ -44,7 +44,7 @@ class TaskService:
     ) -> Task:
         """Create a task record."""
 
-        task = self.task_repo.create_task(
+        task = await self.task_repo.create_task(
             Task(
                 task_type=task_type,
                 status=status,
@@ -54,22 +54,22 @@ class TaskService:
                 input_json=input_payload or {},
             )
         )
-        self.add_task_event(
+        await self.add_task_event(
             task_id=task.id,
             event_type="task.created",
             payload={"status": task.status, "task_type": task.task_type},
         )
         return task
 
-    def get_task(self, task_id: str) -> Task:
+    async def get_task(self, task_id: str) -> Task:
         """Load a task or fail."""
 
-        task = self.task_repo.get_task(task_id)
+        task = await self.task_repo.get_task(task_id)
         if not task:
             raise NotFoundError(f"Task not found: {task_id}")
         return task
 
-    def transition_task(
+    async def transition_task(
         self,
         *,
         task_id: str,
@@ -82,7 +82,7 @@ class TaskService:
     ) -> Task:
         """Transition task status and record a task event."""
 
-        task = self.task_repo.get_task(task_id)
+        task = await self.task_repo.get_task(task_id)
         if not task:
             raise ValueError(f"Task not found: {task_id}")
 
@@ -125,8 +125,8 @@ class TaskService:
         if task.status == TaskStatus.FAILED.value:
             outbox_events.append(TaskEventType.FAILED)
 
-        task = self.task_repo.update_task(task, outbox_events=outbox_events)
-        self.add_task_event(
+        task = await self.task_repo.update_task(task, outbox_events=outbox_events)
+        await self.add_task_event(
             task_id=task.id,
             event_type="task.status",
             payload={
@@ -150,10 +150,10 @@ class TaskService:
                 f"Re-execution of task type {task.task_type!r} is not implemented"
             )
 
-    def cancel_task(self, *, task_id: str) -> Task:
+    async def cancel_task(self, *, task_id: str) -> Task:
         """Cancel an in-flight or waiting task."""
 
-        task = self.get_task(task_id)
+        task = await self.get_task(task_id)
         if task.status in {
             TaskStatus.SUCCEEDED.value,
             TaskStatus.FAILED.value,
@@ -161,32 +161,32 @@ class TaskService:
             TaskStatus.EXPIRED.value,
         }:
             return task
-        return self.transition_task(
+        return await self.transition_task(
             task_id=task_id,
             status=TaskStatus.CANCELED.value,
             progress={"action": "cancel"},
         )
 
-    def resume_task(self, *, task_id: str) -> Task:
+    async def resume_task(self, *, task_id: str) -> Task:
         """Resume a paused or waiting task."""
 
-        task = self.get_task(task_id)
+        task = await self.get_task(task_id)
         if task.status not in {
             TaskStatus.PAUSED.value,
             TaskStatus.WAITING_INPUT.value,
             TaskStatus.WAITING_APPROVAL.value,
         }:
             return task
-        return self.transition_task(
+        return await self.transition_task(
             task_id=task_id,
             status=TaskStatus.RUNNING.value,
             progress={**(task.progress_json or {}), "action": "resume"},
         )
 
-    def retry_task(self, *, task_id: str) -> Task:
+    async def retry_task(self, *, task_id: str) -> Task:
         """Retry a failed task by re-queuing it."""
 
-        task = self.get_task(task_id)
+        task = await self.get_task(task_id)
         if task.status not in {
             TaskStatus.FAILED.value,
             TaskStatus.CANCELED.value,
@@ -201,19 +201,19 @@ class TaskService:
         task.output_json = {}
         task.progress_json = {"action": "retry"}
         task.status = TaskStatus.RETRYING.value
-        task = self.task_repo.update_task(task, outbox_events=[TaskEventType.RETRIED])
-        self.add_task_event(
+        task = await self.task_repo.update_task(task, outbox_events=[TaskEventType.RETRIED])
+        await self.add_task_event(
             task_id=task.id,
             event_type="task.retry",
             payload={"status": task.status},
         )
-        return self.transition_task(
+        return await self.transition_task(
             task_id=task.id,
             status=TaskStatus.QUEUED.value,
             progress={"action": "requeued"},
         )
 
-    def add_checkpoint(
+    async def add_checkpoint(
         self,
         *,
         task_id: str,
@@ -223,7 +223,7 @@ class TaskService:
     ) -> TaskCheckpoint:
         """Store a task checkpoint and append a matching event."""
 
-        checkpoint = self.task_repo.add_checkpoint(
+        checkpoint = await self.task_repo.add_checkpoint(
             TaskCheckpoint(
                 task_id=task_id,
                 checkpoint_no=checkpoint_no,
@@ -231,14 +231,14 @@ class TaskService:
                 payload_json=payload or {},
             )
         )
-        self.add_task_event(
+        await self.add_task_event(
             task_id=task_id,
             event_type="task.checkpoint",
             payload={"checkpoint_no": checkpoint_no, "status": status},
         )
         return checkpoint
 
-    def add_task_event(
+    async def add_task_event(
         self,
         *,
         task_id: str,
@@ -247,7 +247,7 @@ class TaskService:
     ) -> TaskEvent:
         """Append a task event."""
 
-        return self.task_repo.add_event(
+        return await self.task_repo.add_event(
             TaskEvent(
                 task_id=task_id,
                 event_type=event_type,
