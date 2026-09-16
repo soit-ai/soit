@@ -80,12 +80,12 @@ class StoragePolicyGateway(StreamingStoragePort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"put key={key}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         async def _put():
@@ -111,7 +111,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             )
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_PUT_ERROR",
@@ -121,7 +121,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_PUT_ERROR",
@@ -133,7 +133,7 @@ class StoragePolicyGateway(StreamingStoragePort):
         # Update cost if trace writer available
         if self.trace_writer and step:
             elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-            self.trace_writer.record_cost(
+            await self.trace_writer.record_cost(
                 run_id=_resolve_run_id(kwargs, self.ctx),
                 step_id=step.id,
                 billing_basis="bytes",
@@ -145,7 +145,7 @@ class StoragePolicyGateway(StreamingStoragePort):
                 request_count=1,
                 storage_bytes=len(data),
             )
-            self.trace_writer.update_step_status(
+            await self.trace_writer.update_step_status(
                 step.id,
                 "succeeded",
                 metrics={
@@ -167,12 +167,12 @@ class StoragePolicyGateway(StreamingStoragePort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"get key={key}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         async def _get():
@@ -192,7 +192,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -200,7 +200,7 @@ class StoragePolicyGateway(StreamingStoragePort):
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="bytes",
@@ -215,7 +215,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             return data
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_GET_ERROR",
@@ -225,7 +225,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_GET_ERROR",
@@ -245,12 +245,12 @@ class StoragePolicyGateway(StreamingStoragePort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"delete key={key}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         async def _delete():
@@ -270,14 +270,14 @@ class StoragePolicyGateway(StreamingStoragePort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
@@ -290,7 +290,7 @@ class StoragePolicyGateway(StreamingStoragePort):
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_DELETE_ERROR",
@@ -300,7 +300,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_DELETE_ERROR",
@@ -320,12 +320,12 @@ class StoragePolicyGateway(StreamingStoragePort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"exists key={key}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -343,7 +343,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -351,7 +351,7 @@ class StoragePolicyGateway(StreamingStoragePort):
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
@@ -365,7 +365,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             return result
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_EXISTS_ERROR",
@@ -375,7 +375,7 @@ class StoragePolicyGateway(StreamingStoragePort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="STORAGE_EXISTS_ERROR",

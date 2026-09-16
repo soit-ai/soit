@@ -165,7 +165,7 @@ async def _store_as_artifacts(
             content_type=mime,
             metadata={"run_id": run_id, "index": str(index)},
         )
-        artifact = trace_writer.create_artifact(
+        artifact = await trace_writer.create_artifact(
             run_id=run_id,
             artifact_type="file",
             storage_key=storage_key,

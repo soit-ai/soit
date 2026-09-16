@@ -68,12 +68,12 @@ class VectorPolicyGateway(VectorPort):
             resolved_run_id = _resolve_run_id(kwargs, self.ctx)
             if not resolved_run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=resolved_run_id,
                 step_type="io",
                 input_summary=f"collection={collection}, dimension={dimension}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -98,14 +98,14 @@ class VectorPolicyGateway(VectorPort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={"latency_ms": elapsed_ms},
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_COLLECTION_ERROR",
@@ -115,7 +115,7 @@ class VectorPolicyGateway(VectorPort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_COLLECTION_ERROR",
@@ -144,12 +144,12 @@ class VectorPolicyGateway(VectorPort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=_resolve_run_id(kwargs, self.ctx),
                 step_type="retrieval",
                 input_summary=f"collection={query_contract.collection}, top_k={query_contract.top_k}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -187,7 +187,7 @@ class VectorPolicyGateway(VectorPort):
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -196,7 +196,7 @@ class VectorPolicyGateway(VectorPort):
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
@@ -211,7 +211,7 @@ class VectorPolicyGateway(VectorPort):
             return result
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_QUERY_ERROR",
@@ -234,12 +234,12 @@ class VectorPolicyGateway(VectorPort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"collection={collection}, vectors={len(vectors)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         documents = [
@@ -274,7 +274,7 @@ class VectorPolicyGateway(VectorPort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -282,7 +282,7 @@ class VectorPolicyGateway(VectorPort):
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=run_id,
                     step_id=step.id,
                     billing_basis="vectors",
@@ -295,7 +295,7 @@ class VectorPolicyGateway(VectorPort):
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_INSERT_ERROR",
@@ -305,7 +305,7 @@ class VectorPolicyGateway(VectorPort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_INSERT_ERROR",
@@ -326,12 +326,12 @@ class VectorPolicyGateway(VectorPort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 input_summary=f"collection={collection}, ids={len(ids)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         documents = [VectorDocument(id=doc_id) for doc_id in ids]
@@ -357,7 +357,7 @@ class VectorPolicyGateway(VectorPort):
             )
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -365,7 +365,7 @@ class VectorPolicyGateway(VectorPort):
                         "latency_ms": elapsed_ms,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=run_id,
                     step_id=step.id,
                     billing_basis="vectors",
@@ -378,7 +378,7 @@ class VectorPolicyGateway(VectorPort):
                 )
         except TimeoutError as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_DELETE_ERROR",
@@ -388,7 +388,7 @@ class VectorPolicyGateway(VectorPort):
             raise
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="VECTOR_DELETE_ERROR",

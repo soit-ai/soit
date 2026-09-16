@@ -85,12 +85,12 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
             run_id = _resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="tool",
                 input_summary=f"plugin={plugin_name}:{tool_name}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -135,7 +135,7 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
                 )
 
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     output_summary=str(response)[:100] if response else None,
@@ -145,7 +145,7 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
                         "tool": tool_name,
                     },
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=_resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
@@ -161,7 +161,7 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
             return response
         except Exception as exc:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="PLUGIN_ERROR",

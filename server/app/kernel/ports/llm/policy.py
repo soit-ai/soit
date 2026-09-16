@@ -730,12 +730,12 @@ class LLMPolicyGateway(LLMPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="llm",
                 input_summary=f"model={model}, messages={len(messages)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         safety_evidence: list[dict[str, Any]] = []
@@ -793,7 +793,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=response.model,
                     target=response.runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     output_summary=response.text[:100] if response.text else None,
@@ -823,7 +823,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="tokens",
@@ -843,7 +843,7 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="LLM_ERROR",
@@ -880,12 +880,12 @@ class LLMPolicyGateway(LLMPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="llm",
                 input_summary=f"model={model}, messages={len(messages)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         tokens_prompt = 0
@@ -1003,7 +1003,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=model_used,
                     target=runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     output_summary=output_preview[:100] if output_preview else None,
@@ -1028,7 +1028,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="tokens",
@@ -1051,7 +1051,7 @@ class LLMPolicyGateway(LLMPort):
             span.record_exception(e)
             span.set_status(Status(StatusCode.ERROR, str(e)))
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="LLM_ERROR",
@@ -1095,12 +1095,12 @@ class LLMPolicyGateway(LLMPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="retrieval",
                 input_summary=f"model={model}, texts={len(texts)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -1141,7 +1141,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=response.model,
                     target=response.runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -1164,7 +1164,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="embeddings",
@@ -1184,7 +1184,7 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="EMBED_ERROR",
@@ -1229,12 +1229,12 @@ class LLMPolicyGateway(LLMPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="llm",
                 input_summary=f"model={model}, images={n}, prompt={prompt[:200]}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -1294,7 +1294,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=response.model,
                     target=response.runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -1319,7 +1319,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="images",
@@ -1337,7 +1337,7 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="IMAGE_ERROR",
@@ -1393,14 +1393,14 @@ class LLMPolicyGateway(LLMPort):
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
             masked = "yes" if mask else "no"
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="llm",
                 input_summary=(
                     f"model={model}, images={n}, mask={masked}, prompt={prompt[:200]}"
                 ),
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -1467,7 +1467,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=response.model,
                     target=response.runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -1492,7 +1492,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="images",
@@ -1510,7 +1510,7 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="IMAGE_ERROR",
@@ -1556,12 +1556,12 @@ class LLMPolicyGateway(LLMPort):
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
                 raise ValueError("run_id is required when trace_writer is enabled")
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="rerank",
                 input_summary=f"model={model}, documents={len(documents)}",
             )
-            self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.update_step_status(step.id, "running")
 
         start_time = utc_now()
         try:
@@ -1610,7 +1610,7 @@ class LLMPolicyGateway(LLMPort):
                     upstream_model=response.model,
                     target=response.runtime_target,
                 )
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     metrics={
@@ -1635,7 +1635,7 @@ class LLMPolicyGateway(LLMPort):
                     requested_model=model,
                     identity=identity,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="rerank",
@@ -1655,7 +1655,7 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="RERANK_ERROR",

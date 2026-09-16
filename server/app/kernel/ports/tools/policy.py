@@ -407,7 +407,7 @@ class ToolPolicyGateway(ToolPort):
                         "error_type": "ToolResponseError",
                         "detail": response.error,
                     }
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded" if response.success else "failed",
                     output_summary=str(response.result)[:100] if response.result else None,
@@ -416,7 +416,7 @@ class ToolPolicyGateway(ToolPort):
                     error_message=response.error,
                     error_details=tool_error_details,
                 )
-                self.trace_writer.record_cost(
+                await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
@@ -456,7 +456,7 @@ class ToolPolicyGateway(ToolPort):
                     )
                 except Exception:
                     pass
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     metrics=self._tool_call_metrics(
