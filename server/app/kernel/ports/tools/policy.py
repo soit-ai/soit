@@ -274,7 +274,7 @@ class ToolPolicyGateway(ToolPort):
                 lease_seconds=max(60, math.ceil(timeout_seconds) + 10),
                 storage_port=self.storage_port,
             )
-            tool_execution_claim = tool_execution_service.claim(
+            tool_execution_claim = await tool_execution_service.claim(
                 ToolExecutionCommand(
                     run_id=run_id,
                     run_step_id=(str(kwargs["run_step_id"]) if kwargs.get("run_step_id") else None),
@@ -294,7 +294,7 @@ class ToolPolicyGateway(ToolPort):
                 )
                 if cached_response is not None:
                     return cached_response
-            tool_execution_service.mark_running(tool_execution_claim.record.id)
+            await tool_execution_service.mark_running(tool_execution_claim.record.id)
             kwargs = {
                 **kwargs,
                 "tool_call_id": tool_call_id,
@@ -326,7 +326,7 @@ class ToolPolicyGateway(ToolPort):
 
             async def _invoke():
                 if tool_execution_service and tool_execution_claim:
-                    tool_execution_service.renew_lease(tool_execution_claim.record.id)
+                    await tool_execution_service.renew_lease(tool_execution_claim.record.id)
                 invoke_kwargs = dict(kwargs)
                 invoke_kwargs.setdefault("ctx", self.ctx)
                 return await self.gateway.invoke(
@@ -471,5 +471,5 @@ class ToolPolicyGateway(ToolPort):
                     error_details=error_details(e),
                 )
             if tool_execution_service and tool_execution_claim:
-                tool_execution_service.fail(tool_execution_claim.record.id, e)
+                await tool_execution_service.fail(tool_execution_claim.record.id, e)
             raise
