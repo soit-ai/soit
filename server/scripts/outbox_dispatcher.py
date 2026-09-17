@@ -10,6 +10,7 @@ from prometheus_client import start_http_server
 from app.infra.db.session import get_async_session_local
 from app.infra.telemetry import configure_telemetry
 from app.kernel.events.dispatcher import OutboxDispatcherService
+from app.kernel.events.retention import OutboxRetentionService
 from app.kernel.observe.logging import setup_logging
 from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 from app.settings.settings import settings
@@ -43,8 +44,18 @@ async def main() -> None:
             "metrics_port": metrics_port,
         },
     )
-    await service.run_loop(
-        poll_interval_seconds=max(0.05, float(settings.outbox_dispatcher_poll_interval))
+    retention = OutboxRetentionService(
+        get_async_session_local(),
+        retention_days=int(settings.outbox_retention_days),
+        batch_size=int(settings.outbox_retention_batch_size),
+    )
+    await asyncio.gather(
+        service.run_loop(
+            poll_interval_seconds=max(0.05, float(settings.outbox_dispatcher_poll_interval))
+        ),
+        retention.run_loop(
+            interval_seconds=float(settings.outbox_retention_interval_seconds)
+        ),
     )
 
 

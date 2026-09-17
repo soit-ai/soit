@@ -78,8 +78,6 @@ def register_outbox_handlers() -> None:
         handle_cost_recorded_observe,
         handle_run_created_observe,
         handle_run_status_updated_observe,
-        handle_step_created_observe,
-        handle_step_status_updated_observe,
         handle_task_lifecycle_observe,
         handle_workflow_node_observe,
     )
@@ -126,17 +124,6 @@ def register_outbox_handlers() -> None:
         "notification.run.failed",
         handle_run_failed,
     )
-    reg.register(
-        ObserveEventType.STEP_CREATED,
-        "observe.step_created.trace_metrics",
-        handle_step_created_observe,
-    )
-    reg.register(
-        ObserveEventType.STEP_STATUS_UPDATED,
-        "observe.step_status.trace_metrics",
-        handle_step_status_updated_observe,
-    )
-
     for _name, event_type in (
         ("created", TaskEventType.CREATED),
         ("started", TaskEventType.STARTED),

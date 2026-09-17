@@ -1,9 +1,9 @@
 """Trace writer: authoritative run/step/cost rows in the request DB transaction.
 
-Wave C: Prometheus counters, OTel trace/export for run/step lifecycle and cost rows are
-applied by outbox consumers (``app.kernel.observe.handlers``), gated by
-``event_consumer_checkpoint`` and dispatcher checkpoints. Optional ``event_bus``
-remains best-effort only.
+Only facts with exactly-once consumers go through the outbox: ``run.created``,
+terminal ``run.status.updated`` and ``cost.recorded``. Step lifecycle and
+intermediate run transitions are observed in-process (trace span, OTel export,
+Prometheus) and announced on the optional best-effort ``event_bus``.
 """
 
 import asyncio
@@ -32,6 +32,11 @@ from app.kernel.observe.context import (
     set_step_context,
 )
 from app.kernel.observe.event_types import ObserveEventType
+from app.kernel.observe.execution_metrics import (
+    observe_run_status_transition,
+    observe_step_created,
+    observe_step_status_transition,
+)
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.runs.events import RunEventType
@@ -121,6 +126,9 @@ def _build_pricing_snapshot(
     result["currency"] = currency
     result["amount"] = format(amount, "f") if amount is not None else None
     return result
+
+
+_TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
 
 
 class TraceWriter:
@@ -410,23 +418,34 @@ class TraceWriter:
             "mode": run.mode,
             "tenant_id": self.ctx.tenant_id,
         }
-        OutboxPublisher(OutboxRepository(self.db)).publish(
-            DomainEventEnvelope(
-                event_id=generate_ulid(),
-                event_type=ObserveEventType.RUN_STATUS_UPDATED,
-                tenant_id=self.ctx.tenant_id,
-                workspace_id=self.ctx.workspace_id,
-                subject_type="run",
-                subject_id=run.id,
-                run_id=run.id,
-                correlation_id=run.id,
-                producer="kernel.trace.writer",
-                occurred_at=run.updated_at,
-                payload=status_payload,
+        if target_status in _TERMINAL_RUN_STATUSES:
+            # Terminal transitions feed exactly-once consumers (failure
+            # notifications, duration metrics); intermediate ones are only
+            # observed in-process.
+            OutboxPublisher(OutboxRepository(self.db)).publish(
+                DomainEventEnvelope(
+                    event_id=generate_ulid(),
+                    event_type=ObserveEventType.RUN_STATUS_UPDATED,
+                    tenant_id=self.ctx.tenant_id,
+                    workspace_id=self.ctx.workspace_id,
+                    subject_type="run",
+                    subject_id=run.id,
+                    run_id=run.id,
+                    correlation_id=run.id,
+                    producer="kernel.trace.writer",
+                    occurred_at=run.updated_at,
+                    payload=status_payload,
+                )
             )
-        )
-        await self.db.flush()
-        await self.db.refresh(run)
+            await self.db.flush()
+            await self.db.refresh(run)
+        else:
+            observe_run_status_transition(
+                run,
+                old_status=old_status,
+                new_status=target_status,
+                tenant_id=self.ctx.tenant_id,
+            )
 
         run_payload = {
             "run_id": run.id,
@@ -480,33 +499,10 @@ class TraceWriter:
         )
         self.db.add(step)
         await self.db.flush()
-        step_payload: dict[str, Any] = {
-            "run_id": step.run_id,
-            "step_row_id": step.id,
-            "step_key": step.step_id,
-            "step_type": step.step_type,
-            "tenant_id": self.ctx.tenant_id,
-            "status": step.status,
-        }
-        OutboxPublisher(OutboxRepository(self.db)).publish(
-            DomainEventEnvelope(
-                event_id=f"evt_step_created_{step.id}",
-                event_type=ObserveEventType.STEP_CREATED,
-                tenant_id=self.ctx.tenant_id,
-                workspace_id=self.ctx.workspace_id,
-                subject_type="run_step",
-                subject_id=step.id,
-                run_id=step.run_id,
-                correlation_id=step.run_id,
-                producer="kernel.trace.writer",
-                occurred_at=step.started_at,
-                payload=step_payload,
-            )
-        )
-        await self.db.flush()
         await self.db.refresh(step)
 
         set_step_context(step.id)
+        observe_step_created(step, tenant_id=self.ctx.tenant_id)
 
         self._emit_event(
             "step.created",
@@ -626,32 +622,14 @@ class TraceWriter:
                     run.error_message = error_message[:8192]
                 run.updated_at = utc_now()
 
-        step_status_payload: dict[str, Any] = {
-            "step_row_id": step.id,
-            "run_id": step.run_id,
-            "old_status": old_status,
-            "new_status": target_status,
-            "step_type": step.step_type,
-            "tenant_id": self.ctx.tenant_id,
-        }
-        await self.db.flush()
-        OutboxPublisher(OutboxRepository(self.db)).publish(
-            DomainEventEnvelope(
-                event_id=generate_ulid(),
-                event_type=ObserveEventType.STEP_STATUS_UPDATED,
-                tenant_id=self.ctx.tenant_id,
-                workspace_id=self.ctx.workspace_id,
-                subject_type="run_step",
-                subject_id=step.id,
-                run_id=step.run_id,
-                correlation_id=step.run_id,
-                producer="kernel.trace.writer",
-                occurred_at=utc_now(),
-                payload=step_status_payload,
-            )
-        )
         await self.db.flush()
         await self.db.refresh(step)
+        observe_step_status_transition(
+            step,
+            old_status=old_status,
+            new_status=target_status,
+            tenant_id=self.ctx.tenant_id,
+        )
 
         step_payload = {
             "run_id": step.run_id,

@@ -177,6 +177,20 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("outbox dispatcher", exc)
 
+    outbox_retention = None
+    if outbox_service is not None:
+        try:
+            from app.infra.db.session import get_async_session_local
+            from app.kernel.events.retention import OutboxRetentionService
+
+            outbox_retention = OutboxRetentionService(
+                get_async_session_local(),
+                retention_days=int(app_settings.outbox_retention_days),
+                batch_size=int(app_settings.outbox_retention_batch_size),
+            )
+        except Exception as exc:
+            _handle_startup_failure("outbox retention", exc)
+
     response_interaction_workers = []
     if getattr(app_settings, "response_interaction_worker_enabled", False):
         try:
@@ -228,6 +242,14 @@ async def lifespan(app: FastAPI):
                             0.05,
                             float(app_settings.outbox_dispatcher_poll_interval),
                         ),
+                    )
+                )
+            )
+        if outbox_retention is not None:
+            background_tasks.append(
+                asyncio.create_task(
+                    outbox_retention.run_loop(
+                        interval_seconds=float(app_settings.outbox_retention_interval_seconds),
                     )
                 )
             )

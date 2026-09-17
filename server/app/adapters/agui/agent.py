@@ -11,7 +11,7 @@ from typing import Any
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
 from app.kernel.commons.errors import public_error_message
 from app.kernel.commons.ids import generate_ulid
-from app.kernel.runtime.db.models.responses import Response
+from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.threads import generate_thread_message_id
 from app.kernel.runtime.responses.interaction import InteractionProtocolEvent
 from app.kernel.runtime.responses.service import ResponseService
@@ -46,6 +46,7 @@ class PersistentAgUiAgentEmitter:
         self.text_has_content = False
         self.text_ended = False
         self.terminal_emitted = False
+        self._pending: list[ResponseEvent] = []
 
     async def _ensure_lease(self) -> None:
         if self.lease_guard is not None:
@@ -65,14 +66,28 @@ class PersistentAgUiAgentEmitter:
             protocol_version=self.protocol.protocol_version,
             interaction_id=self.interaction_id,
         )
-        await self.response_service.publish_persisted_event(stored)
+        self._pending.append(stored)
+
+    async def _flush_pending(self) -> None:
+        """Commit every event staged by the current callback, then hand them to transport.
+
+        One callback (a tool call, the final answer) stages several AG-UI
+        events; committing them together keeps the durable-before-transport
+        contract with a fraction of the transactions.
+        """
+
+        if not self._pending:
+            return
+        pending, self._pending = self._pending, []
+        await self.response_service.publish_persisted_events(pending)
         if self.queue is not None:
-            await self.queue.put(
-                {
-                    "id": f"{stored.response_id}:{stored.sequence}",
-                    "data": stored.payload_json,
-                }
-            )
+            for stored in pending:
+                await self.queue.put(
+                    {
+                        "id": f"{stored.response_id}:{stored.sequence}",
+                        "data": stored.payload_json,
+                    }
+                )
 
     async def bind_response(self, response: Response, *, request_hash: str = "") -> None:
         """Bind SOIT resources and emit the opening interaction events."""
@@ -114,9 +129,14 @@ class PersistentAgUiAgentEmitter:
         await self._persist(
             self.protocol.resources(response=response, interaction_id=self.interaction_id)
         )
+        await self._flush_pending()
 
     async def __call__(self, event: str, data: dict[str, Any]) -> None:
         await self._ensure_lease()
+        await self._dispatch(event, data)
+        await self._flush_pending()
+
+    async def _dispatch(self, event: str, data: dict[str, Any]) -> None:
         if event == "agent.interaction.finished":
             result = dict(data.get("result") or {})
             if result.get("status") == "waiting_approval":
@@ -270,6 +290,7 @@ class PersistentAgUiAgentEmitter:
             )
         )
         self.terminal_emitted = True
+        await self._flush_pending()
 
     async def complete(self, result: dict[str, Any]) -> None:
         await self._ensure_lease()
@@ -338,6 +359,7 @@ class PersistentAgUiAgentEmitter:
             )
         )
         self.terminal_emitted = True
+        await self._flush_pending()
 
     async def fail(self, error: Exception) -> None:
         await self._ensure_lease()
@@ -382,6 +404,7 @@ class PersistentAgUiAgentEmitter:
             )
         )
         self.terminal_emitted = True
+        await self._flush_pending()
 
     async def cancel(self) -> None:
         """Persist or forward the single cancellation terminal for this interaction."""
@@ -425,6 +448,7 @@ class PersistentAgUiAgentEmitter:
             )
             await self.response_service.db.commit()
         self.terminal_emitted = True
+        await self._flush_pending()
 
     async def done(self) -> None:
         if self.queue is not None:

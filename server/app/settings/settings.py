@@ -341,6 +341,15 @@ class Settings(BaseSettings):
     outbox_dispatcher_metrics_port: int = 9201
     """Prometheus and liveness HTTP port for the dedicated dispatcher."""
 
+    outbox_retention_days: int = 7
+    """Dispatched outbox rows and consumer checkpoints older than this are purged."""
+
+    outbox_retention_interval_seconds: float = 3600.0
+    """Seconds between outbox retention passes."""
+
+    outbox_retention_batch_size: int = 1000
+    """Rows deleted per statement during a retention pass."""
+
     metrics_token: str | None = None
     """Optional bearer token required to scrape GET /metrics. When unset, /metrics is
     open and must be protected at the network layer (internal interface / firewall)."""

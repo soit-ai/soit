@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Index, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Text, UniqueConstraint, text
 from sqlmodel import JSON, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -31,6 +31,13 @@ class EventOutbox(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("event_id", name="uq_event_outbox_event_id"),
         Index("ix_event_outbox_status_available_at", "status", "available_at"),
+        # The dispatcher only ever looks for pending rows that are due.
+        Index(
+            "ix_event_outbox_pending_available_at",
+            "available_at",
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
         Index("ix_event_outbox_correlation_id", "correlation_id"),
         Index("ix_event_outbox_subject_type_subject_id", "subject_type", "subject_id"),
         Index("ix_event_outbox_run_id", "run_id"),
@@ -38,7 +45,7 @@ class EventOutbox(SQLModel, table=True):
     )
 
     id: str = Field(primary_key=True, default_factory=generate_outbox_row_id)
-    event_id: str = Field(index=True)
+    event_id: str = Field()
     event_type: str = Field(index=True)
     event_version: str = Field(default="1")
     tenant_id: str | None = Field(default=None, index=True)
@@ -55,7 +62,7 @@ class EventOutbox(SQLModel, table=True):
     producer: str | None = Field(default=None)
     payload_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     headers_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
-    status: str = Field(default="pending", index=True)
+    status: str = Field(default="pending")
     failed_consumer_name: str | None = Field(default=None, nullable=True, index=True)
     available_at: datetime = Field(default_factory=utc_now)
     locked_at: datetime | None = Field(default=None)

@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC
 from decimal import Decimal
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.observe.event_types import ObserveEventType
+from app.kernel.observe.execution_metrics import (
+    observe_run_status_transition,
+    observe_step_created,
+    observe_step_status_transition,
+)
 from app.kernel.observe.metrics import (
     active_runs,
     cost_total,
     run_count,
-    run_duration,
-    step_count,
-    step_duration,
     tokens_total,
 )
 from app.kernel.observe.projection_repo import try_claim_projection_slot
@@ -101,30 +102,17 @@ async def handle_run_status_updated_observe(db: AsyncSession, row: EventOutbox) 
     if run is None:
         return
 
-    old_status = payload.get("old_status")
-    new_status = payload.get("new_status")
-    mode = payload.get("mode") or run.mode
-    tenant_id = payload.get("tenant_id") or run.tenant_id
-
-    exporter = OpenTelemetryExporter()
-    tracer.trace_run(run, {"event": "status"})
-    exporter.export_run(run)
-
-    if run.status in ("succeeded", "failed", "canceled"):
-        if run.started_at and run.ended_at:
-            started_at = run.started_at
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=UTC)
-            duration_seconds = (run.ended_at - started_at).total_seconds()
-            run_duration.labels(mode=run.mode, tenant_id=tenant_id).observe(duration_seconds)
-        active_runs.labels(mode=run.mode, tenant_id=tenant_id).dec()
-
-    if old_status is not None and new_status is not None and old_status != new_status:
-        run_count.labels(mode=mode, status=new_status, tenant_id=tenant_id).inc()
+    observe_run_status_transition(
+        run,
+        old_status=payload.get("old_status"),
+        new_status=payload.get("new_status"),
+        mode=payload.get("mode") or run.mode,
+        tenant_id=payload.get("tenant_id") or run.tenant_id,
+    )
 
 
 async def handle_step_created_observe(db: AsyncSession, row: EventOutbox) -> None:
-    """Mirror former TraceWriter.create_step observe (tracer, exporter, step counter)."""
+    """Observe a step.created row still on the outbox (the writer no longer emits them)."""
     if row.event_type != ObserveEventType.STEP_CREATED:
         return
     if not await try_claim_projection_slot(
@@ -139,15 +127,11 @@ async def handle_step_created_observe(db: AsyncSession, row: EventOutbox) -> Non
     if step is None:
         return
 
-    tenant_id = payload.get("tenant_id") or step.tenant_id
-    exporter = OpenTelemetryExporter()
-    tracer.trace_step(step, {"event": "created"})
-    exporter.export_step(step)
-    step_count.labels(step_type=step.step_type, status="queued", tenant_id=tenant_id).inc()
+    observe_step_created(step, tenant_id=payload.get("tenant_id") or step.tenant_id)
 
 
 async def handle_step_status_updated_observe(db: AsyncSession, row: EventOutbox) -> None:
-    """Mirror former TraceWriter.update_step_status observe."""
+    """Observe a step.status.updated row still on the outbox (no longer emitted)."""
     if row.event_type != ObserveEventType.STEP_STATUS_UPDATED:
         return
     if not await try_claim_projection_slot(
@@ -162,26 +146,12 @@ async def handle_step_status_updated_observe(db: AsyncSession, row: EventOutbox)
     if step is None:
         return
 
-    old_status = payload.get("old_status")
-    new_status = payload.get("new_status")
-    tenant_id = payload.get("tenant_id") or step.tenant_id
-
-    exporter = OpenTelemetryExporter()
-    tracer.trace_step(step, {"event": "status"})
-    exporter.export_step(step)
-
-    if step.status in ("succeeded", "failed", "skipped", "canceled"):
-        if step.started_at and step.ended_at:
-            started_at = step.started_at
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=UTC)
-            duration_seconds = (step.ended_at - started_at).total_seconds()
-            step_duration.labels(step_type=step.step_type, tenant_id=tenant_id).observe(
-                duration_seconds
-            )
-
-    if old_status is not None and new_status is not None and old_status != new_status:
-        step_count.labels(step_type=step.step_type, status=new_status, tenant_id=tenant_id).inc()
+    observe_step_status_transition(
+        step,
+        old_status=payload.get("old_status"),
+        new_status=payload.get("new_status"),
+        tenant_id=payload.get("tenant_id") or step.tenant_id,
+    )
 
 
 async def handle_cost_recorded_observe(db: AsyncSession, row: EventOutbox) -> None:

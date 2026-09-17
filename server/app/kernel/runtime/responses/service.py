@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import and_, select, update
@@ -499,17 +500,29 @@ class ResponseService:
     async def publish_persisted_event(self, event: ResponseEvent) -> None:
         """Commit an interaction event before notifying live stream subscribers."""
 
+        await self.publish_persisted_events([event])
+
+    async def publish_persisted_events(self, events: Sequence[ResponseEvent]) -> None:
+        """Commit a batch of interaction events once, then notify per event.
+
+        Events staged by one emitter callback share a single commit; a tailing
+        reader still only sees committed rows, just fewer transactions.
+        """
+
+        if not events:
+            return
         await self.db.commit()
-        self.trace_writer.emit_event(
-            "response.event.appended",
-            {
-                "response_id": event.response_id,
-                "interaction_id": event.interaction_id,
-                "sequence": event.sequence,
-                "event_type": event.type,
-            },
-            run_id=event.run_id,
-        )
+        for event in events:
+            self.trace_writer.emit_event(
+                "response.event.appended",
+                {
+                    "response_id": event.response_id,
+                    "interaction_id": event.interaction_id,
+                    "sequence": event.sequence,
+                    "event_type": event.type,
+                },
+                run_id=event.run_id,
+            )
 
     async def claim_interaction(
         self,
