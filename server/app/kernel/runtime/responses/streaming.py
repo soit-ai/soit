@@ -12,6 +12,19 @@ from app.kernel.events.bus import Event
 _TERMINAL_RESPONSE_STATUSES = frozenset({"succeeded", "failed", "canceled"})
 
 
+async def release_read_transaction(db: Any) -> None:
+    """End a tailer's read transaction before it waits.
+
+    Every poll's SELECT begins a transaction that pins one pooled connection
+    until it ends; a stream waiting on the worker with that transaction open
+    would hold the connection for the whole execution, and the pool caps how
+    many streams can wait at once. Rolling back returns the connection and
+    costs nothing: the tailer never writes.
+    """
+    if db is not None:
+        await db.rollback()
+
+
 async def tail_response_events(
     service: Any,
     response_id: str,
@@ -72,13 +85,20 @@ async def tail_response_events(
                 if active_interaction_id and hasattr(service, "get_interaction")
                 else None
             )
-            if interaction is not None and (
+            terminal = (
                 interaction.status in _TERMINAL_RESPONSE_STATUSES
                 or interaction.status == "waiting_approval"
-            ):
-                yield {"kind": "done", "sequence": cursor}
-                return
-            if interaction is None and response.status in _TERMINAL_RESPONSE_STATUSES:
+                if interaction is not None
+                else response.status in _TERMINAL_RESPONSE_STATUSES
+            )
+            if terminal:
+                # The status was read after the events; anything the worker
+                # committed between the two reads (typically RUN_FINISHED
+                # itself) would otherwise never reach the client.
+                for event in await service.list_response_events(response_id, **list_kwargs):
+                    if event.sequence > cursor:
+                        cursor = event.sequence
+                        yield {"kind": "event", "event": event}
                 yield {"kind": "done", "sequence": cursor}
                 return
 
@@ -88,6 +108,7 @@ async def tail_response_events(
                 last_heartbeat = now
 
             timeout = max(0.0, poll_interval_seconds)
+            await release_read_transaction(service.db)
             if event_bus is None:
                 await asyncio.sleep(timeout)
                 continue

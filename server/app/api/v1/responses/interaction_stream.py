@@ -13,7 +13,10 @@ from collections.abc import AsyncGenerator
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.runtime.responses.service import ResponseService
-from app.kernel.runtime.responses.streaming import tail_response_events
+from app.kernel.runtime.responses.streaming import (
+    release_read_transaction,
+    tail_response_events,
+)
 
 CLAIM_POLL_INTERVAL_SECONDS = 0.1
 
@@ -82,4 +85,7 @@ async def stream_claimed_interaction(
                 )
             return
         yield ": heartbeat\n\n"
+        # Waiting for the worker must not pin a pooled connection; see
+        # release_read_transaction.
+        await release_read_transaction(response_service.db)
         await asyncio.sleep(CLAIM_POLL_INTERVAL_SECONDS)
