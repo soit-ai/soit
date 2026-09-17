@@ -41,6 +41,18 @@ Pick one side and derive the other:
 roughly 80 ms of Python per agent execution, so 2-4 workers per container is
 the useful range, and each one adds a full pool to the budget above.
 
+## What the formula is, and is not
+
+The formula above is an upper bound: it is what the processes *may* hold, not
+what they normally do. Each pool grows lazily, so a worker only opens as many
+connections as it has concurrent in-flight requests.
+
+Measured on the load ladder (4 API workers, 50 concurrent agent executions, one
+box): **40 established connections**, against an upper bound of
+`4 x (10 + 20) = 120`. Size `max_connections` against the bound, because a
+latency spike is exactly when every pool fills at once; but do not read a
+shortfall against the bound as an immediate outage.
+
 ## Symptoms of an undersized budget
 
 - `FATAL: sorry, too many clients already` in the API or worker logs;
