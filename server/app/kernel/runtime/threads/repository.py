@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common.sequence_cursor import allocate_sequence
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
 
 
@@ -118,8 +119,13 @@ class ThreadRepository:
         message.tenant_id = self.ctx.tenant_id
         message.workspace_id = self.ctx.workspace_id
         message.created_by = self.ctx.user_id
-        message.sequence_no = message.sequence_no or await self._next_message_sequence(
-            message.thread_id
+        # The thread row locked above stays locked until commit, so only the
+        # first message of a transaction reads MAX(sequence_no).
+        message.sequence_no = message.sequence_no or await allocate_sequence(
+            self.db,
+            "thread_message",
+            message.thread_id,
+            lambda: self._next_message_sequence(message.thread_id),
         )
         message.status = message.status or "completed"
         message.content_json = message.content_json or self._default_content_json(

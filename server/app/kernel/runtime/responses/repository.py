@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common.sequence_cursor import allocate_sequence
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 
 
@@ -74,6 +75,14 @@ class ResponseEventRepository:
         self.ctx = ctx
 
     async def next_sequence(self, response_id: str) -> int:
+        # The lock below is held until the transaction ends, so only the
+        # first allocation per transaction has to read the database; the
+        # rest count on from it.
+        return await allocate_sequence(
+            self.db, "response_event", response_id, lambda: self._read_next_sequence(response_id)
+        )
+
+    async def _read_next_sequence(self, response_id: str) -> int:
         # Serialize sequence allocation with cancellation/replay writers. The
         # response row is the stable lock target; aggregate rows cannot be
         # locked safely and a plain MAX(sequence) + 1 races across sessions.
