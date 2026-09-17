@@ -3,6 +3,7 @@
 Unit tests for SecurityService.
 """
 
+import pytest
 from sqlmodel import select
 
 from app.kernel.contracts.context import RequestContext
@@ -21,7 +22,7 @@ from app.modules.security.application.schemas import (
 from app.modules.security.application.service import SecurityService
 
 
-def _seed_tenant_workspace(db):
+async def _seed_tenant_workspace(async_db):
     tenant_id = generate_tenant_id()
     workspace_id = generate_workspace_id()
     tenant = Tenant(id=tenant_id, name="tenant-1", plan="free")
@@ -31,15 +32,16 @@ def _seed_tenant_workspace(db):
         name="workspace-1",
         description="demo",
     )
-    db.add(tenant)
-    db.add(workspace)
-    db.commit()
+    async_db.add(tenant)
+    async_db.add(workspace)
+    await async_db.commit()
     return tenant_id, workspace_id
 
 
-def test_security_policy_updates_and_audits(db):
+@pytest.mark.asyncio
+async def test_security_policy_updates_and_audits(async_db):
     """Update policies and confirm audit records."""
-    tenant_id, workspace_id = _seed_tenant_workspace(db)
+    tenant_id, workspace_id = await _seed_tenant_workspace(async_db)
     ctx = RequestContext(
         tenant_id=tenant_id,
         workspace_id=workspace_id,
@@ -47,9 +49,9 @@ def test_security_policy_updates_and_audits(db):
         tenant_role="Owner",
         workspace_role="Owner",
     )
-    service = SecurityService(db, ctx, DatabaseIdentityPolicyScopePort(db, ctx))
+    service = SecurityService(async_db, ctx, DatabaseIdentityPolicyScopePort(async_db, ctx))
 
-    tenant_policy = service.update_tenant_policy(
+    tenant_policy = await service.update_tenant_policy(
         EgressPolicyUpdate(
             allowlist=["example.com"],
             blocklist=["*.blocked.com"],
@@ -58,7 +60,7 @@ def test_security_policy_updates_and_audits(db):
     assert tenant_policy.egress_allowlist == ["example.com"]
     assert tenant_policy.egress_blocklist == ["*.blocked.com"]
 
-    workspace_policy = service.update_workspace_policy(
+    workspace_policy = await service.update_workspace_policy(
         EgressPolicyUpdate(
             allowlist=["workspace.com"],
             blocklist=["*.workspace-blocked.com"],
@@ -67,18 +69,18 @@ def test_security_policy_updates_and_audits(db):
     assert workspace_policy.egress_allowlist == ["workspace.com"]
     assert workspace_policy.egress_blocklist == ["*.workspace-blocked.com"]
 
-    tenant_audits = service.list_audits(scope="tenant", limit=10, offset=0)
-    workspace_audits = service.list_audits(scope="workspace", limit=10, offset=0)
+    tenant_audits = await service.list_audits(scope="tenant", limit=10, offset=0)
+    workspace_audits = await service.list_audits(scope="workspace", limit=10, offset=0)
 
     assert len(tenant_audits) == 1
     assert tenant_audits[0].scope == "tenant"
     assert len(workspace_audits) == 1
     assert workspace_audits[0].scope == "workspace"
-    audit_events = list(db.exec(select(AuditEvent)).all())
+    audit_events = list((await async_db.exec(select(AuditEvent))).all())
     assert {event.event_type for event in audit_events} == {"security.egress_policy.updated"}
     assert {event.resource_type for event in audit_events} == {"egress_policy"}
 
-    tenant_limits = service.update_tenant_usage_policy(
+    tenant_limits = await service.update_tenant_usage_policy(
         UsagePolicyUpdate(
             llm_rate_limit_per_minute=120,
             tool_rate_limit_per_minute=300,
@@ -89,7 +91,7 @@ def test_security_policy_updates_and_audits(db):
     assert tenant_limits.llm_rate_limit_per_minute == 120
     assert tenant_limits.tool_rate_limit_per_minute == 300
 
-    workspace_limits = service.update_workspace_usage_policy(
+    workspace_limits = await service.update_workspace_usage_policy(
         UsagePolicyUpdate(
             llm_rate_limit_per_minute=60,
             tool_daily_quota=100,

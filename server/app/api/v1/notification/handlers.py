@@ -45,15 +45,15 @@ class NotificationHandlers:
         )
 
     async def get_preferences(self, ctx: RequestContext) -> NotificationPreferenceResponse:
-        return self._preference_response(self.service.get_preferences())
+        return self._preference_response(await self.service.get_preferences())
 
     async def update_preferences(
         self, ctx: RequestContext, data: NotificationPreferenceUpdate
     ) -> NotificationPreferenceResponse:
-        return self._preference_response(self.service.update_preferences(data))
+        return self._preference_response(await self.service.update_preferences(data))
 
     async def list_endpoints(self, ctx: RequestContext) -> list[NotificationEndpointResponse]:
-        return [NotificationEndpointResponse.model_validate(item) for item in self.service.list_endpoints()]
+        return [NotificationEndpointResponse.model_validate(item) for item in await self.service.list_endpoints()]
 
     async def create_endpoint(
         self, ctx: RequestContext, data: NotificationEndpointCreate
@@ -73,14 +73,14 @@ class NotificationHandlers:
     async def test_endpoint(
         self, ctx: RequestContext, endpoint_id: str
     ) -> NotificationDeliveryResponse:
-        return NotificationDeliveryResponse.model_validate(self.service.test_endpoint(endpoint_id))
+        return NotificationDeliveryResponse.model_validate(await self.service.test_endpoint(endpoint_id))
 
     async def list_deliveries(
         self, ctx: RequestContext, notification_id: str
     ) -> list[NotificationDeliveryResponse]:
         return [
             NotificationDeliveryResponse.model_validate(item)
-            for item in self.service.list_deliveries(notification_id)
+            for item in await self.service.list_deliveries(notification_id)
         ]
 
     async def create_notification(
@@ -88,7 +88,7 @@ class NotificationHandlers:
         ctx: RequestContext,
         data: NotificationCreate,
     ) -> NotificationResponse:
-        notification = self.service.create_notification(data)
+        notification = await self.service.create_notification(data)
         return NotificationResponse.model_validate(notification)
 
     async def get_notification(
@@ -96,7 +96,7 @@ class NotificationHandlers:
         ctx: RequestContext,
         notification_id: str,
     ) -> NotificationResponse:
-        notification = self.service.get_notification(notification_id)
+        notification = await self.service.get_notification(notification_id)
         return NotificationResponse.model_validate(notification)
 
     async def list_notifications(
@@ -112,7 +112,7 @@ class NotificationHandlers:
     ) -> PaginatedResponse[NotificationResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        notifications = self.service.list_notifications(
+        notifications = await self.service.list_notifications(
             limit=limit,
             offset=offset,
             status=status,
@@ -132,7 +132,7 @@ class NotificationHandlers:
         )
 
     async def unread_count(self, ctx: RequestContext) -> NotificationUnreadCount:
-        count = self.service.unread_count()
+        count = await self.service.unread_count()
         return NotificationUnreadCount(count=count)
 
     async def mark_read(
@@ -140,7 +140,7 @@ class NotificationHandlers:
         ctx: RequestContext,
         notification_id: str,
     ) -> NotificationResponse:
-        notification = self.service.mark_read(notification_id)
+        notification = await self.service.mark_read(notification_id)
         return NotificationResponse.model_validate(notification)
 
     async def mark_read_bulk(
@@ -148,7 +148,7 @@ class NotificationHandlers:
         ctx: RequestContext,
         request: NotificationReadRequest,
     ) -> NotificationBulkResult:
-        updated = self.service.mark_read_bulk(request)
+        updated = await self.service.mark_read_bulk(request)
         return NotificationBulkResult(updated=updated)
 
     async def archive(
@@ -156,5 +156,5 @@ class NotificationHandlers:
         ctx: RequestContext,
         notification_id: str,
     ) -> NotificationResponse:
-        notification = self.service.archive(notification_id)
+        notification = await self.service.archive(notification_id)
         return NotificationResponse.model_validate(notification)

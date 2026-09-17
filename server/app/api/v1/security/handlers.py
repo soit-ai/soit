@@ -36,13 +36,13 @@ class SecurityHandlers:
         until: datetime | None = None,
     ) -> EgressBlockSummaryResponse:
         """Summarize refused outbound requests inside a window."""
-        return self.service.summarize_egress_blocks(since=since, until=until)
+        return await self.service.summarize_egress_blocks(since=since, until=until)
 
     async def get_tenant_policy(
         self,
         ctx: RequestContext,
     ) -> EgressPolicyResponse:
-        tenant = self.service.get_tenant_policy()
+        tenant = await self.service.get_tenant_policy()
         return EgressPolicyResponse(
             scope="tenant",
             allowlist=tenant.egress_allowlist or [],
@@ -54,7 +54,7 @@ class SecurityHandlers:
         ctx: RequestContext,
         data: EgressPolicyUpdate,
     ) -> EgressPolicyResponse:
-        tenant = self.service.update_tenant_policy(data)
+        tenant = await self.service.update_tenant_policy(data)
         return EgressPolicyResponse(
             scope="tenant",
             allowlist=tenant.egress_allowlist or [],
@@ -65,7 +65,7 @@ class SecurityHandlers:
         self,
         ctx: RequestContext,
     ) -> EgressPolicyResponse:
-        workspace = self.service.get_workspace_policy()
+        workspace = await self.service.get_workspace_policy()
         return EgressPolicyResponse(
             scope="workspace",
             allowlist=workspace.egress_allowlist or [],
@@ -77,7 +77,7 @@ class SecurityHandlers:
         ctx: RequestContext,
         data: EgressPolicyUpdate,
     ) -> EgressPolicyResponse:
-        workspace = self.service.update_workspace_policy(data)
+        workspace = await self.service.update_workspace_policy(data)
         return EgressPolicyResponse(
             scope="workspace",
             allowlist=workspace.egress_allowlist or [],
@@ -95,7 +95,7 @@ class SecurityHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        audits = self.service.list_audits(scope=scope, limit=limit_plus, offset=offset)
+        audits = await self.service.list_audits(scope=scope, limit=limit_plus, offset=offset)
         has_next = len(audits) > limit
         audits = audits[:limit]
         items = [
@@ -129,7 +129,7 @@ class SecurityHandlers:
         scope: str,
     ) -> PolicyBundleResponse:
         """Return the identifier of the policy currently in force."""
-        return self.service.active_bundle(scope)
+        return await self.service.active_bundle(scope)
 
     async def list_policy_revisions(
         self,
@@ -140,7 +140,7 @@ class SecurityHandlers:
     ) -> PaginatedResponse[PolicyRevisionResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        revisions, active_bundle_id = self.service.list_revisions(
+        revisions, active_bundle_id = await self.service.list_revisions(
             scope, limit=limit + 1, offset=offset
         )
         has_next = len(revisions) > limit
@@ -180,7 +180,7 @@ class SecurityHandlers:
         from_revision: int,
         to_revision: int,
     ) -> PolicyRevisionDiff:
-        return self.service.diff_revisions(
+        return await self.service.diff_revisions(
             scope, from_revision=from_revision, to_revision=to_revision
         )
 
@@ -190,13 +190,13 @@ class SecurityHandlers:
         revision_id: str,
         note: str | None,
     ) -> PolicyBundleResponse:
-        return self.service.rollback_to_revision(revision_id, note=note)
+        return await self.service.rollback_to_revision(revision_id, note=note)
 
     async def get_tenant_usage_policy(
         self,
         ctx: RequestContext,
     ) -> UsagePolicyResponse:
-        tenant = self.service.get_tenant_usage_policy()
+        tenant = await self.service.get_tenant_usage_policy()
         return UsagePolicyResponse(
             scope="tenant",
             llm_rate_limit_per_minute=tenant.llm_rate_limit_per_minute,
@@ -210,7 +210,7 @@ class SecurityHandlers:
         ctx: RequestContext,
         data: UsagePolicyUpdate,
     ) -> UsagePolicyResponse:
-        tenant = self.service.update_tenant_usage_policy(data)
+        tenant = await self.service.update_tenant_usage_policy(data)
         return UsagePolicyResponse(
             scope="tenant",
             llm_rate_limit_per_minute=tenant.llm_rate_limit_per_minute,
@@ -223,7 +223,7 @@ class SecurityHandlers:
         self,
         ctx: RequestContext,
     ) -> UsagePolicyResponse:
-        workspace = self.service.get_workspace_usage_policy()
+        workspace = await self.service.get_workspace_usage_policy()
         return UsagePolicyResponse(
             scope="workspace",
             llm_rate_limit_per_minute=workspace.llm_rate_limit_per_minute,
@@ -237,7 +237,7 @@ class SecurityHandlers:
         ctx: RequestContext,
         data: UsagePolicyUpdate,
     ) -> UsagePolicyResponse:
-        workspace = self.service.update_workspace_usage_policy(data)
+        workspace = await self.service.update_workspace_usage_policy(data)
         return UsagePolicyResponse(
             scope="workspace",
             llm_rate_limit_per_minute=workspace.llm_rate_limit_per_minute,

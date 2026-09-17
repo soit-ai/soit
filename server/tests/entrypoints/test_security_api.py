@@ -1,5 +1,6 @@
 """Entrypoint tests for Security API."""
 
+import pytest
 from fastapi import status
 
 from app.modules.identity.domain.models import Tenant, Workspace
@@ -9,22 +10,23 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def _seed_workspace(db) -> None:
+async def _seed_workspace(async_db) -> None:
     tenant = Tenant(id="test-tenant", name="Test Tenant", plan="free")
     workspace = Workspace(
         id="test-workspace",
         tenant_id=tenant.id,
         name="Test Workspace",
     )
-    db.add(tenant)
-    db.add(workspace)
-    db.commit()
+    async_db.add(tenant)
+    async_db.add(workspace)
+    await async_db.commit()
 
 
-def test_security_api_updates_workspace_egress_policy_limits_and_audits(client, db):
-    _seed_workspace(db)
+@pytest.mark.asyncio
+async def test_security_api_updates_workspace_egress_policy_limits_and_audits(async_client, async_db):
+    await _seed_workspace(async_db)
 
-    egress_response = client.put(
+    egress_response = await async_client.put(
         "/api/v1/security/egress/workspace",
         headers=_headers(),
         json={
@@ -39,11 +41,11 @@ def test_security_api_updates_workspace_egress_policy_limits_and_audits(client, 
         "blocklist": ["*.blocked.example"],
     }
 
-    get_egress_response = client.get("/api/v1/security/egress/workspace", headers=_headers())
+    get_egress_response = await async_client.get("/api/v1/security/egress/workspace", headers=_headers())
     assert get_egress_response.status_code == status.HTTP_200_OK
     assert get_egress_response.json()["data"]["allowlist"] == ["api.example.com", "*.trusted.internal"]
 
-    audits_response = client.get(
+    audits_response = await async_client.get(
         "/api/v1/security/egress/audits?scope=workspace&page_size=10",
         headers=_headers(),
     )
@@ -55,7 +57,7 @@ def test_security_api_updates_workspace_egress_policy_limits_and_audits(client, 
     assert audits[0]["created_by"] == "test-user"
     assert audits[0]["allowlist"] == ["api.example.com", "*.trusted.internal"]
 
-    limits_response = client.put(
+    limits_response = await async_client.put(
         "/api/v1/security/limits/workspace",
         headers=_headers(),
         json={
@@ -75,22 +77,23 @@ def test_security_api_updates_workspace_egress_policy_limits_and_audits(client, 
     }
 
 
-def test_security_api_records_policy_revisions_and_restores_one(client, db):
+@pytest.mark.asyncio
+async def test_security_api_records_policy_revisions_and_restores_one(async_client, async_db):
     """The console has to be able to show what a policy was, and put it back."""
-    _seed_workspace(db)
+    await _seed_workspace(async_db)
 
-    client.put(
+    await async_client.put(
         "/api/v1/security/egress/workspace",
         headers=_headers(),
         json={"allowlist": ["safe.example.com"], "blocklist": []},
     )
-    client.put(
+    await async_client.put(
         "/api/v1/security/egress/workspace",
         headers=_headers(),
         json={"allowlist": ["*"], "blocklist": []},
     )
 
-    revisions_response = client.get(
+    revisions_response = await async_client.get(
         "/api/v1/security/policies/revisions?scope=workspace",
         headers=_headers(),
     )
@@ -100,7 +103,7 @@ def test_security_api_records_policy_revisions_and_restores_one(client, db):
     assert revisions[0]["active"] is True
     assert revisions[1]["active"] is False
 
-    bundle_response = client.get(
+    bundle_response = await async_client.get(
         "/api/v1/security/policies/bundle?scope=workspace",
         headers=_headers(),
     )
@@ -109,7 +112,7 @@ def test_security_api_records_policy_revisions_and_restores_one(client, db):
     assert bundle["bundle_id"] == revisions[0]["bundle_id"]
     assert bundle["document"]["egress_allowlist"] == ["*"]
 
-    diff_response = client.get(
+    diff_response = await async_client.get(
         "/api/v1/security/policies/revisions/diff"
         "?scope=workspace&from_revision=1&to_revision=2",
         headers=_headers(),
@@ -118,7 +121,7 @@ def test_security_api_records_policy_revisions_and_restores_one(client, db):
     assert [change["field"] for change in diff["changes"]] == ["egress_allowlist"]
     assert diff["changes"][0]["after"] == ["*"]
 
-    rollback_response = client.post(
+    rollback_response = await async_client.post(
         f"/api/v1/security/policies/revisions/{revisions[1]['id']}/rollback",
         headers=_headers(),
         json={"note": "Too permissive"},
@@ -128,15 +131,16 @@ def test_security_api_records_policy_revisions_and_restores_one(client, db):
     assert restored["revision"] == 3
     assert restored["document"]["egress_allowlist"] == ["safe.example.com"]
 
-    current = client.get("/api/v1/security/egress/workspace", headers=_headers())
+    current = await async_client.get("/api/v1/security/egress/workspace", headers=_headers())
     assert current.json()["data"]["allowlist"] == ["safe.example.com"]
 
 
-def test_security_api_reports_a_bundle_before_anything_was_saved(client, db):
+@pytest.mark.asyncio
+async def test_security_api_reports_a_bundle_before_anything_was_saved(async_client, async_db):
     """A fresh install still has a policy, so it still has an identifier."""
-    _seed_workspace(db)
+    await _seed_workspace(async_db)
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/security/policies/bundle?scope=workspace",
         headers=_headers(),
     )

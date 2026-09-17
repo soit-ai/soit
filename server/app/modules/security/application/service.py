@@ -7,7 +7,7 @@ Security domain service.
 from datetime import datetime
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -34,7 +34,7 @@ class SecurityService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         identity_policy_scope: IdentityPolicyScopePort,
     ):
@@ -52,51 +52,49 @@ class SecurityService:
             return [item[0] for item in results]
         return results
 
-    def get_tenant_policy(self):
-        tenant = self.identity_policy_scope.get_tenant(self.ctx.tenant_id)
+    async def get_tenant_policy(self):
+        tenant = await self.identity_policy_scope.get_tenant(self.ctx.tenant_id)
         if not tenant:
             raise NotFoundError(f"Tenant not found: {self.ctx.tenant_id}")
         return tenant
 
-    def update_tenant_policy(self, data: EgressPolicyUpdate):
-        tenant = self.get_tenant_policy()
+    async def update_tenant_policy(self, data: EgressPolicyUpdate):
+        tenant = await self.get_tenant_policy()
         tenant.egress_allowlist = list(data.allowlist or [])
         tenant.egress_blocklist = list(data.blocklist or [])
         tenant.updated_at = utc_now()
-        self.db.flush()
-        self.db.refresh(tenant)
-        self._log_audit(
+        await self.db.flush()
+        await self._log_audit(
             scope="tenant",
             workspace_id=None,
             allowlist=tenant.egress_allowlist,
             blocklist=tenant.egress_blocklist,
         )
-        self.record_revision("tenant", tenant)
+        await self.record_revision("tenant", tenant)
         return tenant
 
-    def get_workspace_policy(self):
-        workspace = self.identity_policy_scope.get_workspace(self.ctx.workspace_id)
+    async def get_workspace_policy(self):
+        workspace = await self.identity_policy_scope.get_workspace(self.ctx.workspace_id)
         if not workspace:
             raise NotFoundError(f"Workspace not found: {self.ctx.workspace_id}")
         return workspace
 
-    def update_workspace_policy(self, data: EgressPolicyUpdate):
-        workspace = self.get_workspace_policy()
+    async def update_workspace_policy(self, data: EgressPolicyUpdate):
+        workspace = await self.get_workspace_policy()
         workspace.egress_allowlist = list(data.allowlist or [])
         workspace.egress_blocklist = list(data.blocklist or [])
         workspace.updated_at = utc_now()
-        self.db.flush()
-        self.db.refresh(workspace)
-        self._log_audit(
+        await self.db.flush()
+        await self._log_audit(
             scope="workspace",
             workspace_id=workspace.id,
             allowlist=workspace.egress_allowlist,
             blocklist=workspace.egress_blocklist,
         )
-        self.record_revision("workspace", workspace)
+        await self.record_revision("workspace", workspace)
         return workspace
 
-    def list_audits(
+    async def list_audits(
         self,
         *,
         scope: str | None = None,
@@ -120,10 +118,10 @@ class SecurityService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).all())
         return self._unwrap_all(rows)
 
-    def summarize_egress_blocks(
+    async def summarize_egress_blocks(
         self,
         *,
         since: datetime | None = None,
@@ -150,7 +148,7 @@ class SecurityService:
             .where(and_(*clauses))
             .order_by(desc(AuditEvent.created_at))
         )
-        rows = self._unwrap_all(list(self.db.exec(query).all()))
+        rows = self._unwrap_all(list((await self.db.exec(query)).all()))
 
         subjects: set[str] = set()
         domains: set[str] = set()
@@ -187,7 +185,7 @@ class SecurityService:
             recent=recent,
         )
 
-    def _log_audit(
+    async def _log_audit(
         self,
         *,
         scope: str,
@@ -207,8 +205,7 @@ class SecurityService:
             payload_json={"allowlist": allowlist, "blocklist": blocklist},
         )
         self.db.add(audit)
-        self.db.flush()
-        self.db.refresh(audit)
+        await self.db.flush()
 
     # ------------------------------------------------------------------
     # Policy revisions
@@ -219,12 +216,12 @@ class SecurityService:
     # earlier one back without retyping it.
     # ------------------------------------------------------------------
 
-    def _scope_entity(self, scope: str):
+    async def _scope_entity(self, scope: str):
         """Return the tenant or workspace a scope name refers to."""
         if scope == "tenant":
-            return self.get_tenant_policy()
+            return await self.get_tenant_policy()
         if scope == "workspace":
-            return self.get_workspace_policy()
+            return await self.get_workspace_policy()
         raise ValidationError(
             "Policy scope must be 'tenant' or 'workspace'",
             {"scope": scope},
@@ -253,7 +250,7 @@ class SecurityService:
             return None
         return policy_bundle_id(SecurityService._document(entity).model_dump())
 
-    def _latest_revision(self, scope: str, scope_id: str) -> PolicyRevision | None:
+    async def _latest_revision(self, scope: str, scope_id: str) -> PolicyRevision | None:
         query = (
             select(PolicyRevision)
             .where(
@@ -266,10 +263,10 @@ class SecurityService:
             .order_by(desc(PolicyRevision.revision))
             .limit(1)
         )
-        rows = self._unwrap_all(list(self.db.exec(query).all()))
+        rows = self._unwrap_all(list((await self.db.exec(query)).all()))
         return rows[0] if rows else None
 
-    def record_revision(
+    async def record_revision(
         self,
         scope: str,
         entity,
@@ -285,7 +282,7 @@ class SecurityService:
         """
         scope_id = entity.id
         document = self._document(entity)
-        previous = self._latest_revision(scope, scope_id)
+        previous = await self._latest_revision(scope, scope_id)
         revision = PolicyRevision(
             tenant_id=self.ctx.tenant_id,
             scope=scope,
@@ -299,11 +296,10 @@ class SecurityService:
             created_by=self.ctx.user_id,
         )
         self.db.add(revision)
-        self.db.flush()
-        self.db.refresh(revision)
+        await self.db.flush()
         return revision
 
-    def active_bundle(self, scope: str) -> PolicyBundleResponse:
+    async def active_bundle(self, scope: str) -> PolicyBundleResponse:
         """Return the identifier of the policy in force for a scope.
 
         The identifier is derived from the live policy, never from the last row
@@ -312,10 +308,10 @@ class SecurityService:
         recorded revision, which is the honest answer for an install that has
         never saved one.
         """
-        entity = self._scope_entity(scope)
+        entity = await self._scope_entity(scope)
         document = self._document(entity)
         bundle_id = policy_bundle_id(document.model_dump())
-        latest = self._latest_revision(scope, entity.id)
+        latest = await self._latest_revision(scope, entity.id)
         matched = latest if latest is not None and latest.bundle_id == bundle_id else None
         return PolicyBundleResponse(
             scope=scope,
@@ -327,7 +323,7 @@ class SecurityService:
             activated_by=matched.created_by if matched else None,
         )
 
-    def list_revisions(
+    async def list_revisions(
         self,
         scope: str,
         *,
@@ -340,7 +336,7 @@ class SecurityService:
         which entry is in force without a second request that could disagree
         with the first.
         """
-        entity = self._scope_entity(scope)
+        entity = await self._scope_entity(scope)
         query = (
             select(PolicyRevision)
             .where(
@@ -354,17 +350,17 @@ class SecurityService:
             .offset(offset)
             .limit(limit)
         )
-        rows = self._unwrap_all(list(self.db.exec(query).all()))
+        rows = self._unwrap_all(list((await self.db.exec(query)).all()))
         return rows, policy_bundle_id(self._document(entity).model_dump())
 
-    def get_revision(self, revision_id: str) -> PolicyRevision:
+    async def get_revision(self, revision_id: str) -> PolicyRevision:
         query = select(PolicyRevision).where(
             and_(
                 PolicyRevision.tenant_id == self.ctx.tenant_id,
                 PolicyRevision.id == revision_id,
             )
         )
-        rows = self._unwrap_all(list(self.db.exec(query).all()))
+        rows = self._unwrap_all(list((await self.db.exec(query)).all()))
         if not rows:
             raise NotFoundError(f"Policy revision not found: {revision_id}")
         revision = rows[0]
@@ -374,7 +370,7 @@ class SecurityService:
             raise NotFoundError(f"Policy revision not found: {revision_id}")
         return revision
 
-    def _revision_by_number(self, scope: str, scope_id: str, number: int) -> PolicyRevision:
+    async def _revision_by_number(self, scope: str, scope_id: str, number: int) -> PolicyRevision:
         query = select(PolicyRevision).where(
             and_(
                 PolicyRevision.tenant_id == self.ctx.tenant_id,
@@ -383,12 +379,12 @@ class SecurityService:
                 PolicyRevision.revision == number,
             )
         )
-        rows = self._unwrap_all(list(self.db.exec(query).all()))
+        rows = self._unwrap_all(list((await self.db.exec(query)).all()))
         if not rows:
             raise NotFoundError(f"Policy revision not found: {scope} r{number}")
         return rows[0]
 
-    def diff_revisions(
+    async def diff_revisions(
         self,
         scope: str,
         *,
@@ -396,9 +392,9 @@ class SecurityService:
         to_revision: int,
     ) -> PolicyRevisionDiff:
         """Report what changed between two revisions of one scope."""
-        entity = self._scope_entity(scope)
-        before = self._revision_by_number(scope, entity.id, from_revision)
-        after = self._revision_by_number(scope, entity.id, to_revision)
+        entity = await self._scope_entity(scope)
+        before = await self._revision_by_number(scope, entity.id, from_revision)
+        after = await self._revision_by_number(scope, entity.id, to_revision)
         before_doc = PolicyDocument(**(before.document_json or {})).model_dump()
         after_doc = PolicyDocument(**(after.document_json or {})).model_dump()
 
@@ -423,7 +419,7 @@ class SecurityService:
             changes=changes,
         )
 
-    def rollback_to_revision(
+    async def rollback_to_revision(
         self,
         revision_id: str,
         *,
@@ -435,8 +431,8 @@ class SecurityService:
         new revision naming what it restored. A history that could be edited
         would not be evidence of anything.
         """
-        source = self.get_revision(revision_id)
-        entity = self._scope_entity(source.scope)
+        source = await self.get_revision(revision_id)
+        entity = await self._scope_entity(source.scope)
         document = PolicyDocument(**(source.document_json or {}))
 
         entity.egress_allowlist = list(document.egress_allowlist)
@@ -446,49 +442,46 @@ class SecurityService:
         entity.llm_daily_quota = document.llm_daily_quota
         entity.tool_daily_quota = document.tool_daily_quota
         entity.updated_at = utc_now()
-        self.db.flush()
-        self.db.refresh(entity)
+        await self.db.flush()
 
-        self._log_audit(
+        await self._log_audit(
             scope=source.scope,
             workspace_id=entity.id if source.scope == "workspace" else None,
             allowlist=list(document.egress_allowlist),
             blocklist=list(document.egress_blocklist),
         )
-        self.record_revision(
+        await self.record_revision(
             source.scope,
             entity,
             note=note or f"Restored revision {source.revision}",
             restored_from_revision=source.revision,
         )
-        return self.active_bundle(source.scope)
+        return await self.active_bundle(source.scope)
 
-    def get_tenant_usage_policy(self):
-        tenant = self.get_tenant_policy()
+    async def get_tenant_usage_policy(self):
+        tenant = await self.get_tenant_policy()
         return tenant
 
-    def update_tenant_usage_policy(self, data: UsagePolicyUpdate):
-        tenant = self.get_tenant_policy()
+    async def update_tenant_usage_policy(self, data: UsagePolicyUpdate):
+        tenant = await self.get_tenant_policy()
         updates = data.model_dump(exclude_unset=True)
         for key, value in updates.items():
             setattr(tenant, key, value)
         tenant.updated_at = utc_now()
-        self.db.flush()
-        self.db.refresh(tenant)
-        self.record_revision("tenant", tenant)
+        await self.db.flush()
+        await self.record_revision("tenant", tenant)
         return tenant
 
-    def get_workspace_usage_policy(self):
-        workspace = self.get_workspace_policy()
+    async def get_workspace_usage_policy(self):
+        workspace = await self.get_workspace_policy()
         return workspace
 
-    def update_workspace_usage_policy(self, data: UsagePolicyUpdate):
-        workspace = self.get_workspace_policy()
+    async def update_workspace_usage_policy(self, data: UsagePolicyUpdate):
+        workspace = await self.get_workspace_policy()
         updates = data.model_dump(exclude_unset=True)
         for key, value in updates.items():
             setattr(workspace, key, value)
         workspace.updated_at = utc_now()
-        self.db.flush()
-        self.db.refresh(workspace)
-        self.record_revision("workspace", workspace)
+        await self.db.flush()
+        await self.record_revision("workspace", workspace)
         return workspace

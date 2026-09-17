@@ -8,7 +8,7 @@ from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apprise import Apprise
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ForbiddenError, NotFoundError, ValidationError
 from app.kernel.commons.ids import generate_notification_id, generate_ulid
@@ -57,7 +57,7 @@ class NotificationService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         repo: NotificationRepository,
         secrets_service: SecretsService | None = None,
@@ -67,7 +67,7 @@ class NotificationService:
         self.repo = repo
         self.secrets_service = secrets_service
 
-    def create_notification(self, data: NotificationCreate) -> Notification:
+    async def create_notification(self, data: NotificationCreate) -> Notification:
         target_user_id = data.user_id or self.ctx.user_id
         if target_user_id != self.ctx.user_id and not (
             self.ctx.is_workspace_admin() or self.ctx.is_workspace_owner()
@@ -92,7 +92,7 @@ class NotificationService:
             updated_at=now,
         )
         self.db.add(notification)
-        preference = self.repo.get_preference(target_user_id)
+        preference = await self.repo.get_preference(target_user_id)
         if preference and preference.delivery_mode != "in_app":
             category = (
                 "security"
@@ -101,18 +101,17 @@ class NotificationService:
             )
             category_enabled = True if category == "security" else preference.categories_json.get(category, True)
             if category_enabled:
-                endpoints = self.repo.list_endpoints(target_user_id, active_only=True)
+                endpoints = await self.repo.list_endpoints(target_user_id, active_only=True)
                 if preference.delivery_mode == "in_app_email":
                     endpoints = [endpoint for endpoint in endpoints if endpoint.kind == "email"]
                 available_at = self._next_delivery_time(preference, now)
                 for endpoint in endpoints:
                     self._stage_delivery(notification, endpoint, available_at)
-        self.db.commit()
-        self.db.refresh(notification)
+        await self.db.commit()
         return notification
 
-    def get_preferences(self) -> NotificationPreference:
-        preference = self.repo.get_preference(self.ctx.user_id)
+    async def get_preferences(self) -> NotificationPreference:
+        preference = await self.repo.get_preference(self.ctx.user_id)
         if preference:
             return preference
         now = utc_now()
@@ -126,16 +125,15 @@ class NotificationService:
             updated_at=now,
         )
         self.db.add(preference)
-        self.db.commit()
-        self.db.refresh(preference)
+        await self.db.commit()
         return preference
 
-    def update_preferences(self, data: NotificationPreferenceUpdate) -> NotificationPreference:
+    async def update_preferences(self, data: NotificationPreferenceUpdate) -> NotificationPreference:
         try:
             ZoneInfo(data.timezone)
         except ZoneInfoNotFoundError as exc:
             raise ValidationError("Unknown notification timezone") from exc
-        preference = self.get_preferences()
+        preference = await self.get_preferences()
         categories = {**self.DEFAULT_CATEGORIES, **data.categories}
         categories["security"] = True
         preference.delivery_mode = data.delivery_mode
@@ -146,8 +144,7 @@ class NotificationService:
         preference.timezone = data.timezone
         preference.updated_at = utc_now()
         self.db.add(preference)
-        self.db.commit()
-        self.db.refresh(preference)
+        await self.db.commit()
         return preference
 
     async def create_endpoint(self, data: NotificationEndpointCreate) -> NotificationEndpoint:
@@ -177,17 +174,16 @@ class NotificationService:
             updated_at=now,
         )
         self.db.add(endpoint)
-        self.db.commit()
-        self.db.refresh(endpoint)
+        await self.db.commit()
         return endpoint
 
-    def list_endpoints(self) -> list[NotificationEndpoint]:
-        return self.repo.list_endpoints(self.ctx.user_id)
+    async def list_endpoints(self) -> list[NotificationEndpoint]:
+        return await self.repo.list_endpoints(self.ctx.user_id)
 
     async def update_endpoint(
         self, endpoint_id: str, data: NotificationEndpointUpdate
     ) -> NotificationEndpoint:
-        endpoint = self.repo.get_endpoint(endpoint_id)
+        endpoint = await self.repo.get_endpoint(endpoint_id)
         if endpoint is None:
             raise NotFoundError("Notification endpoint not found")
         if data.url is not None:
@@ -207,26 +203,25 @@ class NotificationService:
             endpoint.status = data.status
         endpoint.updated_at = utc_now()
         self.db.add(endpoint)
-        self.db.commit()
-        self.db.refresh(endpoint)
+        await self.db.commit()
         return endpoint
 
     async def delete_endpoint(self, endpoint_id: str) -> None:
-        endpoint = self.repo.get_endpoint(endpoint_id)
+        endpoint = await self.repo.get_endpoint(endpoint_id)
         if endpoint is None:
             raise NotFoundError("Notification endpoint not found")
         if self.secrets_service is None:
             raise ValidationError("Notification secrets port is unavailable")
         await self.secrets_service.delete_secret(endpoint.secret_id)
-        self.db.delete(endpoint)
-        self.db.commit()
+        await self.db.delete(endpoint)
+        await self.db.commit()
 
-    def list_deliveries(self, notification_id: str) -> list[NotificationDelivery]:
-        self.get_notification(notification_id)
-        return self.repo.list_deliveries(notification_id, self.ctx.user_id)
+    async def list_deliveries(self, notification_id: str) -> list[NotificationDelivery]:
+        await self.get_notification(notification_id)
+        return await self.repo.list_deliveries(notification_id, self.ctx.user_id)
 
-    def test_endpoint(self, endpoint_id: str) -> NotificationDelivery:
-        endpoint = self.repo.get_endpoint(endpoint_id)
+    async def test_endpoint(self, endpoint_id: str) -> NotificationDelivery:
+        endpoint = await self.repo.get_endpoint(endpoint_id)
         if endpoint is None:
             raise NotFoundError("Notification endpoint not found")
         now = utc_now()
@@ -246,8 +241,7 @@ class NotificationService:
         )
         self.db.add(notification)
         delivery = self._stage_delivery(notification, endpoint, now)
-        self.db.commit()
-        self.db.refresh(delivery)
+        await self.db.commit()
         return delivery
 
     def _stage_delivery(
@@ -321,13 +315,13 @@ class NotificationService:
         local_end = datetime.combine(end_date, end, tzinfo=zone)
         return local_end.astimezone(UTC)
 
-    def get_notification(self, notification_id: str) -> Notification:
-        notification = self.repo.get_by_id(notification_id)
+    async def get_notification(self, notification_id: str) -> Notification:
+        notification = await self.repo.get_by_id(notification_id)
         if not notification:
             raise NotFoundError("Notification not found")
         return notification
 
-    def list_notifications(
+    async def list_notifications(
         self,
         *,
         limit: int = 20,
@@ -338,7 +332,7 @@ class NotificationService:
         source_module: str | None = None,
         include_archived: bool = False,
     ) -> list[Notification]:
-        return self.repo.list(
+        return await self.repo.list(
             limit=limit,
             offset=offset,
             status=status,
@@ -348,23 +342,23 @@ class NotificationService:
             include_archived=include_archived,
         )
 
-    def unread_count(self) -> int:
-        return self.repo.count_unread()
+    async def unread_count(self) -> int:
+        return await self.repo.count_unread()
 
-    def mark_read(self, notification_id: str) -> Notification:
-        notification = self.repo.mark_read(notification_id)
+    async def mark_read(self, notification_id: str) -> Notification:
+        notification = await self.repo.mark_read(notification_id)
         if not notification:
             raise NotFoundError("Notification not found")
         return notification
 
-    def mark_read_bulk(self, request: NotificationReadRequest) -> int:
+    async def mark_read_bulk(self, request: NotificationReadRequest) -> int:
         if request.all:
-            return self.repo.mark_all_read()
+            return await self.repo.mark_all_read()
         ids = request.ids or []
-        return self.repo.mark_read_bulk(ids)
+        return await self.repo.mark_read_bulk(ids)
 
-    def archive(self, notification_id: str) -> Notification:
-        notification = self.repo.archive(notification_id)
+    async def archive(self, notification_id: str) -> Notification:
+        notification = await self.repo.archive(notification_id)
         if not notification:
             raise NotFoundError("Notification not found")
         return notification

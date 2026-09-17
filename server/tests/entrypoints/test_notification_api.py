@@ -3,6 +3,7 @@
 Integration tests for Notification API endpoints.
 """
 
+import pytest
 from fastapi import status
 from sqlmodel import select
 
@@ -15,8 +16,9 @@ HEADERS = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 class TestNotificationAPI:
     """Test notification API endpoints."""
 
-    def test_create_and_list_notifications(self, client):
-        response = client.post(
+    @pytest.mark.asyncio
+    async def test_create_and_list_notifications(self, async_client):
+        response = await async_client.post(
             "/api/v1/notifications",
             json={
                 "title": "System update",
@@ -35,7 +37,7 @@ class TestNotificationAPI:
         assert payload["title"] == "System update"
         assert payload["status"] == "unread"
 
-        list_response = client.get(
+        list_response = await async_client.get(
             "/api/v1/notifications",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -46,8 +48,9 @@ class TestNotificationAPI:
         assert isinstance(items, list)
         assert any(item["id"] == payload["id"] for item in items)
 
-    def test_unread_count_and_mark_read(self, client):
-        create_response = client.post(
+    @pytest.mark.asyncio
+    async def test_unread_count_and_mark_read(self, async_client):
+        create_response = await async_client.post(
             "/api/v1/notifications",
             json={
                 "title": "Alert",
@@ -60,7 +63,7 @@ class TestNotificationAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
         notification_id = create_response.json()["data"]["id"]
 
-        count_response = client.get(
+        count_response = await async_client.get(
             "/api/v1/notifications/unread-count",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -69,7 +72,7 @@ class TestNotificationAPI:
         assert count_data["success"] is True
         assert count_data["data"]["count"] >= 1
 
-        read_response = client.post(
+        read_response = await async_client.post(
             f"/api/v1/notifications/{notification_id}/read",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -78,19 +81,20 @@ class TestNotificationAPI:
         assert read_data["success"] is True
         assert read_data["data"]["status"] == "read"
 
-    def test_mark_all_read(self, client):
-        client.post(
+    @pytest.mark.asyncio
+    async def test_mark_all_read(self, async_client):
+        await async_client.post(
             "/api/v1/notifications",
             json={"title": "Reminder", "type": "reminder"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
-        client.post(
+        await async_client.post(
             "/api/v1/notifications",
             json={"title": "Message", "type": "message"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
 
-        bulk_response = client.post(
+        bulk_response = await async_client.post(
             "/api/v1/notifications/read",
             json={"all": True},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -100,13 +104,14 @@ class TestNotificationAPI:
         assert bulk_data["success"] is True
         assert bulk_data["data"]["updated"] >= 1
 
-    def test_preferences_endpoints_and_delivery_queue(self, client, db):
-        default_response = client.get("/api/v1/notifications/preferences", headers=HEADERS)
+    @pytest.mark.asyncio
+    async def test_preferences_endpoints_and_delivery_queue(self, async_client, async_db):
+        default_response = await async_client.get("/api/v1/notifications/preferences", headers=HEADERS)
         assert default_response.status_code == status.HTTP_200_OK
         assert default_response.json()["data"]["delivery_mode"] == "in_app"
         assert default_response.json()["data"]["categories"]["security"] is True
 
-        endpoint_response = client.post(
+        endpoint_response = await async_client.post(
             "/api/v1/notifications/endpoints",
             headers=HEADERS,
             json={
@@ -121,16 +126,16 @@ class TestNotificationAPI:
         assert "password" not in endpoint["display_target"]
         assert "secret_ref" not in endpoint
         assert "secret_id" not in endpoint
-        endpoint_row = db.exec(
+        endpoint_row = (await async_db.exec(
             select(NotificationEndpoint).where(NotificationEndpoint.id == endpoint["id"])
-        ).one()
-        secret_row = db.exec(
+        )).one()
+        secret_row = (await async_db.exec(
             select(Secret).where(Secret.id == endpoint_row.secret_id)
-        ).one()
+        )).one()
         assert secret_row.tenant_id == endpoint_row.tenant_id
         assert secret_row.workspace_id == endpoint_row.workspace_id
 
-        preference_response = client.put(
+        preference_response = await async_client.put(
             "/api/v1/notifications/preferences",
             headers=HEADERS,
             json={
@@ -145,13 +150,13 @@ class TestNotificationAPI:
         assert preference_response.status_code == status.HTTP_200_OK
         assert preference_response.json()["data"]["categories"]["security"] is True
 
-        notification_response = client.post(
+        notification_response = await async_client.post(
             "/api/v1/notifications",
             headers=HEADERS,
             json={"title": "Outbound test", "type": "system", "content": "queued"},
         )
         notification_id = notification_response.json()["data"]["id"]
-        deliveries_response = client.get(
+        deliveries_response = await async_client.get(
             f"/api/v1/notifications/{notification_id}/deliveries",
             headers=HEADERS,
         )
@@ -161,7 +166,7 @@ class TestNotificationAPI:
         assert deliveries[0]["status"] == "queued"
         assert deliveries[0]["endpoint_id"] == endpoint["id"]
 
-        test_response = client.post(
+        test_response = await async_client.post(
             f"/api/v1/notifications/endpoints/{endpoint['id']}/test",
             headers=HEADERS,
         )
