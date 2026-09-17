@@ -23,20 +23,20 @@ class FakeAdapter(VersioningAdapter):
         self.releases: list[SimpleNamespace] = []
         self.counter = 0
 
-    def get_subject(self, subject_id: str):
+    async def get_subject(self, subject_id: str):
         return self.subject if subject_id == self.subject.id else None
 
-    def get_version(self, version_id: str):
+    async def get_version(self, version_id: str):
         return self.versions.get(version_id)
 
     def version_matches_subject(self, version, subject_id: str) -> bool:
         return version.subject_id == subject_id
 
-    def next_version_number(self, subject_id: str) -> int:
+    async def next_version_number(self, subject_id: str) -> int:
         self.counter += 1
         return self.counter
 
-    def create_version(self, subject_id: str, *, version_no: int, spec_schema: str, spec_json: dict, based_on_version_id: str | None, metadata: dict | None):
+    async def create_version(self, subject_id: str, *, version_no: int, spec_schema: str, spec_json: dict, based_on_version_id: str | None, metadata: dict | None):
         version = SimpleNamespace(
             id=f"ver_{version_no}",
             subject_id=subject_id,
@@ -49,19 +49,19 @@ class FakeAdapter(VersioningAdapter):
         self.versions[version.id] = version
         return version
 
-    def update_version(self, version):
+    async def update_version(self, version):
         self.versions[version.id] = version
         return version
 
-    def update_head(self, subject, version):
+    async def update_head(self, subject, version):
         subject.current_version_id = version.id
         return subject
 
-    def update_live(self, subject, version):
+    async def update_live(self, subject, version):
         subject.published_version_id = version.id
         return subject
 
-    def create_release(self, subject, version, *, scope: str, status: str, notes: str | None, previous_live_version_id: str | None, rollback_of_publish_id: str | None = None):
+    async def create_release(self, subject, version, *, scope: str, status: str, notes: str | None, previous_live_version_id: str | None, rollback_of_publish_id: str | None = None):
         release = SimpleNamespace(
             version_id=version.id,
             status=status,
@@ -70,10 +70,10 @@ class FakeAdapter(VersioningAdapter):
         self.releases.append(release)
         return release
 
-    def list_versions(self, subject_id: str, *, limit: int, offset: int):
+    async def list_versions(self, subject_id: str, *, limit: int, offset: int):
         return list(self.versions.values())[offset : offset + limit]
 
-    def list_releases(self, subject_id: str, *, limit: int, offset: int):
+    async def list_releases(self, subject_id: str, *, limit: int, offset: int):
         return self.releases[offset : offset + limit]
 
 
@@ -107,37 +107,39 @@ def _ctx() -> RequestContext:
     )
 
 
-def test_version_control_service_tracks_head_and_live_independently():
+@pytest.mark.asyncio
+async def test_version_control_service_tracks_head_and_live_independently():
     adapter = FakeAdapter()
     service = VersionControlService(adapter)
 
-    v1 = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
-    v2 = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 2})
+    v1 = await service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
+    v2 = await service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 2})
 
     assert adapter.subject.current_version_id == v2.id
     assert adapter.subject.published_version_id is None
     assert v2.based_on_version_id == v1.id
 
-    service.publish("subject_1", v2.id)
+    await service.publish("subject_1", v2.id)
     assert adapter.subject.current_version_id == v2.id
     assert adapter.subject.published_version_id == v2.id
     assert adapter.releases[-1].status == "published"
 
-    service.rollback("subject_1", v1.id)
+    await service.rollback("subject_1", v1.id)
     assert adapter.subject.current_version_id == v2.id
     assert adapter.subject.published_version_id == v1.id
     assert adapter.releases[-1].status == "rolled_back"
     assert adapter.releases[-1].previous_live_version_id == v2.id
 
 
-def test_version_control_service_blocks_publish_when_approval_required():
+@pytest.mark.asyncio
+async def test_version_control_service_blocks_publish_when_approval_required():
     adapter = FakeAdapter()
     gateway = RequiredPublishApprovalGateway(requires_approval=True)
     service = VersionControlService(adapter, ctx=_ctx(), approval_checkpoint_gateway=gateway)
-    version = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
+    version = await service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
 
     with pytest.raises(ValidationError) as exc:
-        service.publish("subject_1", version.id, notes="release candidate")
+        await service.publish("subject_1", version.id, notes="release candidate")
 
     assert exc.value.details["status"] == "waiting_approval"
     assert exc.value.details["policy_ref"] == "approval:publish"
@@ -167,13 +169,14 @@ def test_version_control_service_blocks_publish_when_approval_required():
     ]
 
 
-def test_version_control_service_publishes_when_approval_not_required():
+@pytest.mark.asyncio
+async def test_version_control_service_publishes_when_approval_not_required():
     adapter = FakeAdapter()
     gateway = RequiredPublishApprovalGateway(requires_approval=False)
     service = VersionControlService(adapter, ctx=_ctx(), approval_checkpoint_gateway=gateway)
-    version = service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
+    version = await service.create_draft("subject_1", spec_schema="fake.v1", spec_json={"value": 1})
 
-    service.publish("subject_1", version.id)
+    await service.publish("subject_1", version.id)
 
     assert adapter.subject.published_version_id == version.id
     assert adapter.releases[-1].status == "published"

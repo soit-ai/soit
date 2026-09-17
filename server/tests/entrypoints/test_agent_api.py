@@ -1,5 +1,6 @@
 """Entry-point tests for the Agent API."""
 
+import pytest
 from fastapi import status
 from sqlalchemy import select
 
@@ -58,7 +59,8 @@ class FailingLLMPort(LLMPort):
         raise NotImplementedError
 
 
-def test_agent_api_create_publish_and_execute(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_create_publish_and_execute(async_client, async_db, ctx):
     from app.main import app
 
     llm_port = QueueLLMPort(
@@ -96,7 +98,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=llm_port,
             tool_port=StubToolPort(),
@@ -105,7 +107,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent",
@@ -129,7 +131,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert created_agent["downloads_count"] == 0
         assert created_agent["reviews_count"] == 0
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "You are precise.",
@@ -147,7 +149,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        bindings_response = client.get(
+        bindings_response = await async_client.get(
             f"/api/v1/agents/{agent_id}/bindings",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -160,7 +162,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert "skill" in binding_types
         assert "plugin" not in binding_types
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -169,7 +171,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert publish_response.json()["data"]["published_version_id"] == version_id
         assert publish_response.json()["data"]["published_at"] is not None
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
                 "input": "Execute now",
@@ -183,16 +185,16 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert payload["response_id"].startswith("resp_")
         assert payload["thread_id"].startswith("thr_")
         assert payload["task_id"].startswith("task_")
-        task = db.get(Task, payload["task_id"])
+        task = await async_db.get(Task, payload["task_id"])
         assert task is not None
         assert task.run_id == payload["run_id"]
-        run = db.get(Run, payload["run_id"])
+        run = await async_db.get(Run, payload["run_id"])
         assert run is not None
         assert run.request_id == "req_execute_now"
         assert "run_id" not in (task.output_json or {})
         assert "thread_id" not in (task.output_json or {})
 
-        linked_response = client.get(
+        linked_response = await async_client.get(
             f"/api/v1/responses/{payload['response_id']}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -200,7 +202,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         assert linked_response.json()["data"]["run_id"] == payload["run_id"]
         assert linked_response.json()["data"]["request_id"] == "req_execute_now"
 
-        continued_response = client.post(
+        continued_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
                 "input": "Continue from the prior result",
@@ -226,7 +228,7 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
             "Continue from the prior result",
         ]
 
-        list_response = client.get(
+        list_response = await async_client.get(
             "/api/v1/agents",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -236,12 +238,13 @@ def test_agent_api_create_publish_and_execute(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_tool_calls_appear_in_response_detail(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
@@ -276,7 +279,7 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent-tools",
@@ -290,7 +293,7 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use tools carefully.",
@@ -305,14 +308,14 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
                 "input": "Use a tool",
@@ -324,7 +327,7 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         assert payload["output"] == "api tool done"
         assert payload["tool_calls"] == 1
 
-        detail_response = client.get(
+        detail_response = await async_client.get(
             f"/api/v1/responses/{payload['response_id']}/detail",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -345,9 +348,10 @@ def test_agent_api_tool_calls_appear_in_response_detail(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_explicit_cancel_closes_run_task_and_response(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_explicit_cancel_closes_run_task_and_response(async_client, async_db, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    create_response = client.post(
+    create_response = await async_client.post(
         "/api/v1/agents",
         json={"name": "cancelable-agent", "visibility": "private"},
         headers=headers,
@@ -355,8 +359,8 @@ def test_agent_api_explicit_cancel_closes_run_task_and_response(client, db, ctx)
     assert create_response.status_code == status.HTTP_201_CREATED
     agent_id = create_response.json()["data"]["id"]
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
@@ -364,30 +368,30 @@ def test_agent_api_explicit_cancel_closes_run_task_and_response(client, db, ctx)
         subject_version_id="agtv_cancel",
         request_id="req_cancel_agent",
     )
-    trace_writer.update_run_status(run.id, "running")
-    task_service = TaskService(db, ctx)
-    task = task_service.create_task(
+    await trace_writer.update_run_status(run.id, "running")
+    task_service = TaskService(async_db, ctx)
+    task = await task_service.create_task(
         task_type="agent.stream",
         agent_id=agent_id,
         run_id=run.id,
     )
-    task_service.transition_task(task_id=task.id, status="running")
+    await task_service.transition_task(task_id=task.id, status="running")
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    response = response_service.create_linked_response(
+    response = await response_service.create_linked_response(
         run_id=run.id,
         task_id=task.id,
         agent_id=agent_id,
         request_id="req_cancel_agent",
     )
-    response_service.mark_running(response)
+    await response_service.mark_running(response)
 
-    cancel_response = client.post(
+    cancel_response = await async_client.post(
         f"/api/v1/agents/{agent_id}/runs/{run.id}/cancel",
         headers=headers,
     )
@@ -397,20 +401,22 @@ def test_agent_api_explicit_cancel_closes_run_task_and_response(client, db, ctx)
     assert payload["status"] == "canceled"
     assert payload["task_ids"] == [task.id]
     assert payload["response_ids"] == [response.id]
-    db.expire_all()
-    assert db.get(Run, run.id).status == "canceled"
-    assert db.get(Task, task.id).status == "canceled"
-    assert ResponseRepository(db, ctx).get(response.id).status == "canceled"
+    for row in (run, task, response):
+        await async_db.refresh(row)
+    assert (await async_db.get(Run, run.id)).status == "canceled"
+    assert (await async_db.get(Task, task.id)).status == "canceled"
+    assert (await ResponseRepository(async_db, ctx).get(response.id)).status == "canceled"
 
 
-def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(async_client, async_db, ctx):
     from app.kernel.commons.time import utc_now
     from app.kernel.runtime.db.models.runs import Run
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -420,7 +426,7 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        published_response = client.post(
+        published_response = await async_client.post(
             "/api/v1/agents",
             json={"name": "Published Agent", "description": "Ready for runtime", "visibility": "private"},
             headers=headers,
@@ -428,14 +434,14 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
         assert published_response.status_code == status.HTTP_201_CREATED
         published_agent_id = published_response.json()["data"]["id"]
 
-        draft_response = client.post(
+        draft_response = await async_client.post(
             "/api/v1/agents",
             json={"name": "Draft Agent", "description": "Needs configuration", "visibility": "private"},
             headers=headers,
         )
         assert draft_response.status_code == status.HTTP_201_CREATED
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{published_agent_id}/versions",
             json={
                 "system_prompt": "Use configured capabilities.",
@@ -451,7 +457,7 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{published_agent_id}/publish",
             json={"version_id": version_id},
             headers=headers,
@@ -459,7 +465,7 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
         assert publish_response.status_code == status.HTTP_200_OK
 
         now = utc_now()
-        db.add_all(
+        async_db.add_all(
             [
                 Run(
                     id="run_workbench_success",
@@ -495,9 +501,9 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
                 ),
             ]
         )
-        db.commit()
+        await async_db.commit()
 
-        response = client.get("/api/v1/agents/workbench?page_size=20", headers=headers)
+        response = await async_client.get("/api/v1/agents/workbench?page_size=20", headers=headers)
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()["data"]
@@ -526,7 +532,7 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
         assert draft_row["status"] == "unconfigured"
         assert draft_row["action_enabled"] is False
 
-        items_response = client.get(
+        items_response = await async_client.get(
             "/api/v1/agents/workbench/items?tab=low-success&keyword=Published&page_size=1",
             headers=headers,
         )
@@ -537,21 +543,22 @@ def test_agent_api_workbench_returns_agent_rows_and_runtime_metrics(client, db, 
         assert items_payload["next_page_token"] is None
         assert [item["id"] for item in items_payload["items"]] == [published_agent_id]
 
-        paged_response = client.get("/api/v1/agents/workbench/items?page_size=1", headers=headers)
+        paged_response = await async_client.get("/api/v1/agents/workbench/items?page_size=1", headers=headers)
         assert paged_response.status_code == status.HTTP_200_OK
         assert paged_response.json()["data"]["next_page_token"] is not None
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_workflow_binding_executes_ticket_workflow(async_client, async_db, ctx):
     from app.main import app
 
     workflow_ref_holder = {"ref": ""}
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
@@ -578,7 +585,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        workflow_response = client.post(
+        workflow_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "agent-ticket-workflow", "description": "Agent workflow binding test"},
             headers=headers,
@@ -587,7 +594,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         workflow_id = workflow_response.json()["data"]["id"]
         workflow_ref_holder["ref"] = f"wf:{workflow_id}"
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -629,14 +636,14 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         )
         assert version_response.status_code == status.HTTP_201_CREATED
         workflow_version_id = version_response.json()["data"]["id"]
-        publish_workflow_response = client.post(
+        publish_workflow_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": workflow_version_id},
             headers=headers,
         )
         assert publish_workflow_response.status_code == status.HTTP_200_OK
 
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={"name": "api-agent-workflow", "description": "Agent workflow API test", "visibility": "private"},
             headers=headers,
@@ -644,7 +651,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        agent_version_response = client.post(
+        agent_version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use the ticket workflow when needed.",
@@ -658,14 +665,14 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         )
         assert agent_version_response.status_code == status.HTTP_201_CREATED
         agent_version_id = agent_version_response.json()["data"]["id"]
-        publish_agent_response = client.post(
+        publish_agent_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": agent_version_id},
             headers=headers,
         )
         assert publish_agent_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={"input": "Process ticket TCK-3001"},
             headers=headers,
@@ -675,7 +682,7 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         assert payload["output"] == "workflow ticket processed"
         assert payload["tool_calls"] == 1
 
-        detail_response = client.get(
+        detail_response = await async_client.get(
             f"/api/v1/responses/{payload['response_id']}/detail",
             headers=headers,
         )
@@ -691,7 +698,8 @@ def test_agent_api_workflow_binding_executes_ticket_workflow(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_and_run_detail(client, db, ctx, monkeypatch):
+@pytest.mark.asyncio
+async def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_and_run_detail(async_client, async_db, ctx, monkeypatch):
     """Enterprise demo path should link knowledge citations, external tool calls, workflow calls, and run detail."""
     from app.main import app
 
@@ -727,7 +735,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
@@ -768,7 +776,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
             tool_port=ToolPolicyGateway(
                 gateway=StubToolPort(),
                 ctx=ctx,
-                trace_writer=TraceWriter(db, ctx),
+                trace_writer=TraceWriter(async_db, ctx),
                 enable_egress_check=False,
             ),
             memory_service=None,
@@ -777,7 +785,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
     monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", fake_knowledge_query)
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        workflow_response = client.post(
+        workflow_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "enterprise-ticket-workflow", "description": "Enterprise demo ticket workflow"},
             headers=headers,
@@ -786,7 +794,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         workflow_id = workflow_response.json()["data"]["id"]
         workflow_ref_holder["ref"] = f"wf:{workflow_id}"
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -843,14 +851,14 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         )
         assert version_response.status_code == status.HTTP_201_CREATED
         workflow_version_id = version_response.json()["data"]["id"]
-        publish_workflow_response = client.post(
+        publish_workflow_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": workflow_version_id},
             headers=headers,
         )
         assert publish_workflow_response.status_code == status.HTTP_200_OK
 
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "enterprise-demo-agent",
@@ -862,7 +870,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        agent_version_response = client.post(
+        agent_version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use enterprise knowledge, then process the ticket workflow.",
@@ -878,14 +886,14 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         )
         assert agent_version_response.status_code == status.HTTP_201_CREATED
         agent_version_id = agent_version_response.json()["data"]["id"]
-        publish_agent_response = client.post(
+        publish_agent_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": agent_version_id},
             headers=headers,
         )
         assert publish_agent_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={"input": "Handle refund ticket TCK-DEMO-1"},
             headers=headers,
@@ -897,7 +905,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert payload["citations"][0]["knowledge_id"] == "kb_support"
         assert payload["citations"][0]["doc_key"] == "refund-policy.md"
 
-        messages = ThreadRepository(db, ctx).list_messages(payload["thread_id"])
+        messages = await ThreadRepository(async_db, ctx).list_messages(payload["thread_id"])
         assistant_message = next(message for message in messages if message.role == "assistant" and message.run_id == payload["run_id"])
         persisted_tool_calls = assistant_message.tool_calls_json
         assert len(persisted_tool_calls) == 2
@@ -908,7 +916,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert assistant_message.metadata_json["tool_calls"] == persisted_tool_calls
         assert assistant_message.metadata_json["tool_calls_count"] == 2
 
-        response_detail = client.get(
+        response_detail = await async_client.get(
             f"/api/v1/responses/{payload['response_id']}/detail",
             headers=headers,
         )
@@ -940,11 +948,11 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
                 "priority": "high",
             }
         }
-        durable_tool_calls = db.execute(
+        durable_tool_calls = (await async_db.execute(
             select(RunStepToolCall).where(
                 RunStepToolCall.run_id == payload["run_id"]
             )
-        ).scalars().all()
+        )).scalars().all()
         assert {item.tool_ref for item in durable_tool_calls} == {
             "tool:test:ticket_lookup",
             workflow_ref_holder["ref"],
@@ -954,7 +962,7 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         assert "tool.call.completed" in event_types
         assert "response.output_text.done" in event_types
 
-        run_detail = client.get(
+        run_detail = await async_client.get(
             f"/api/v1/runs/{payload['run_id']}",
             params={"include_steps": True, "include_cost": True, "include_artifacts": True},
             headers=headers,
@@ -972,7 +980,8 @@ def test_agent_api_enterprise_demo_smoke_links_knowledge_tool_workflow_response_
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_rejects_client_supplied_attachment_history(async_client, async_db, ctx):
     from app.main import app
 
     llm_port = QueueLLMPort(
@@ -983,7 +992,7 @@ def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=llm_port,
             tool_port=StubToolPort(),
@@ -993,7 +1002,7 @@ def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={"name": "api-agent-attachments", "description": "Agent attachment API test", "visibility": "private"},
             headers=headers,
@@ -1001,7 +1010,7 @@ def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use supplied attachment context.",
@@ -1012,14 +1021,14 @@ def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
         )
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
                 "input": "Summarize the attached support notes",
@@ -1033,12 +1042,13 @@ def test_agent_api_rejects_client_supplied_attachment_history(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_persists_budget_status_in_response_usage(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort(
                 [
@@ -1057,7 +1067,7 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent-budget",
@@ -1069,7 +1079,7 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Respect budgets.",
@@ -1085,14 +1095,14 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={"input": "Use a tool"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -1103,7 +1113,7 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
         assert payload["budget_reason"] == "tool_budget_exceeded"
         assert payload["tool_calls"] == 0
 
-        detail_response = client.get(
+        detail_response = await async_client.get(
             f"/api/v1/responses/{payload['response_id']}/detail",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -1115,12 +1125,13 @@ def test_agent_api_persists_budget_status_in_response_usage(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_persists_failed_assistant_message_for_chat_history(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=FailingLLMPort(),
             tool_port=StubToolPort(),
@@ -1130,7 +1141,7 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={"name": "api-agent-failure", "description": "Agent failure persistence test", "visibility": "private"},
             headers=headers,
@@ -1138,7 +1149,7 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Fail clearly.",
@@ -1150,22 +1161,22 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={"input": "Trigger a failure"},
             headers=headers,
         )
         assert execute_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
-        thread = ThreadRepository(db, ctx).list_threads(agent_id=agent_id)[0]
-        messages = ThreadRepository(db, ctx).list_messages(thread.id)
+        thread = (await ThreadRepository(async_db, ctx).list_threads(agent_id=agent_id))[0]
+        messages = await ThreadRepository(async_db, ctx).list_messages(thread.id)
         assistant_message = next(message for message in messages if message.role == "assistant")
         assert assistant_message.status == "failed"
         assert assistant_message.content == "Agent execution failed"
@@ -1178,7 +1189,7 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
         assert assistant_message.metadata_json["error_message"] == "Agent execution failed"
         assert assistant_message.metadata_json["tool_calls_count"] == 0
 
-        thread_response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
+        thread_response = await async_client.get(f"/api/v1/threads/{thread.id}", headers=headers)
         assert thread_response.status_code == status.HTTP_200_OK
         api_assistant_message = next(
             message for message in thread_response.json()["data"]["messages"] if message["role"] == "assistant"
@@ -1196,12 +1207,13 @@ def test_agent_api_persists_failed_assistant_message_for_chat_history(client, db
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -1210,7 +1222,7 @@ def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent-invalid-mcp",
@@ -1222,7 +1234,7 @@ def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "Use tools carefully.",
@@ -1236,7 +1248,7 @@ def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        bindings_response = client.get(
+        bindings_response = await async_client.get(
             f"/api/v1/agents/{agent_id}/bindings",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -1248,12 +1260,13 @@ def test_agent_api_accepts_mcp_tool_refs_via_tool_refs(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_publish_and_rollback_keep_head_and_live_separate(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -1262,7 +1275,7 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent-rollback",
@@ -1274,7 +1287,7 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version1 = client.post(
+        version1 = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "v1",
@@ -1286,14 +1299,14 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         assert version1.status_code == status.HTTP_201_CREATED
         version1_id = version1.json()["data"]["id"]
 
-        publish1 = client.post(
+        publish1 = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version1_id, "notes": "publish v1"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert publish1.status_code == status.HTTP_200_OK
 
-        version2 = client.post(
+        version2 = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "v2",
@@ -1305,14 +1318,14 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         assert version2.status_code == status.HTTP_201_CREATED
         version2_id = version2.json()["data"]["id"]
 
-        publish2 = client.post(
+        publish2 = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version2_id, "notes": "publish v2"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert publish2.status_code == status.HTTP_200_OK
 
-        rollback = client.post(
+        rollback = await async_client.post(
             f"/api/v1/agents/{agent_id}/rollback",
             json={"version_id": version1_id, "notes": "rollback v1"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -1322,7 +1335,7 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         assert payload["current_version_id"] == version2_id
         assert payload["published_version_id"] == version1_id
 
-        releases = client.get(
+        releases = await async_client.get(
             f"/api/v1/agents/{agent_id}/releases",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -1341,12 +1354,13 @@ def test_agent_api_publish_and_rollback_keep_head_and_live_separate(client, db, 
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_execute_rejects_forbidden_override_fields(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -1355,7 +1369,7 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
 
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/agents",
             json={
                 "name": "api-agent-execute-contract",
@@ -1367,7 +1381,7 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
         assert create_response.status_code == status.HTTP_201_CREATED
         agent_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "You are precise.",
@@ -1379,14 +1393,14 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/agents/{agent_id}/execute",
             json={
                 "input": "Execute now",
@@ -1399,13 +1413,14 @@ def test_agent_api_execute_rejects_forbidden_override_fields(client, db, ctx):
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_moves_a_draft_through_review(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_moves_a_draft_through_review(async_client, async_db, ctx):
     """A draft says whether somebody is waiting on it, and since when."""
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -1415,26 +1430,26 @@ def test_agent_api_moves_a_draft_through_review(client, db, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        agent_id = client.post(
+        agent_id = (await async_client.post(
             "/api/v1/agents",
             json={"name": "review-agent", "description": "draft review"},
             headers=headers,
-        ).json()["data"]["id"]
-        version_id = client.post(
+        )).json()["data"]["id"]
+        version_id = (await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "You are precise.",
                 "bindings": {"model_ref": "model:test:primary"},
             },
             headers=headers,
-        ).json()["data"]["id"]
+        )).json()["data"]["id"]
 
         # A new draft is not in review: nobody was asked to look at it.
-        assert client.get(
+        assert (await async_client.get(
             "/api/v1/agents/drafts/awaiting-review", headers=headers
-        ).json()["data"] == []
+        )).json()["data"] == []
 
-        requested = client.post(
+        requested = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
             json={"action": "request", "note": "scope change"},
             headers=headers,
@@ -1443,44 +1458,45 @@ def test_agent_api_moves_a_draft_through_review(client, db, ctx):
         assert requested.json()["data"]["review_status"] == "in_review"
         assert requested.json()["data"]["review_requested_at"] is not None
 
-        queue = client.get(
+        queue = (await async_client.get(
             "/api/v1/agents/drafts/awaiting-review", headers=headers
-        ).json()["data"]
+        )).json()["data"]
         assert len(queue) == 1
         assert queue[0]["agent_name"] == "review-agent"
         assert queue[0]["review_note"] == "scope change"
         assert queue[0]["version_id"] == version_id
 
-        changes = client.post(
+        changes = (await async_client.post(
             f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
             json={"action": "request_changes", "note": "tighten the prompt"},
             headers=headers,
-        ).json()["data"]
+        )).json()["data"]
         assert changes["review_status"] == "changes_requested"
         assert changes["reviewed_by"] == "test-user"
         # Still waiting: changes requested is an answer, not the end of the wait.
         assert changes["review_requested_at"] is not None
 
-        approved = client.post(
+        approved = (await async_client.post(
             f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
             json={"action": "approve"},
             headers=headers,
-        ).json()["data"]
+        )).json()["data"]
         assert approved["review_status"] == "approved"
 
-        assert client.get(
+        assert (await async_client.get(
             "/api/v1/agents/drafts/awaiting-review", headers=headers
-        ).json()["data"] == []
+        )).json()["data"] == []
     finally:
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
-def test_agent_api_refuses_to_review_a_version_that_is_already_live(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_api_refuses_to_review_a_version_that_is_already_live(async_client, async_db, ctx):
     from app.main import app
 
     async def _override_agent_application_service() -> AgentApplicationService:
         return AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=ctx,
             llm_port=QueueLLMPort([]),
             tool_port=StubToolPort(),
@@ -1490,26 +1506,26 @@ def test_agent_api_refuses_to_review_a_version_that_is_already_live(client, db, 
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     app.dependency_overrides[get_agent_application_service] = _override_agent_application_service
     try:
-        agent_id = client.post(
+        agent_id = (await async_client.post(
             "/api/v1/agents",
             json={"name": "published-agent", "description": "already live"},
             headers=headers,
-        ).json()["data"]["id"]
-        version_id = client.post(
+        )).json()["data"]["id"]
+        version_id = (await async_client.post(
             f"/api/v1/agents/{agent_id}/versions",
             json={
                 "system_prompt": "You are precise.",
                 "bindings": {"model_ref": "model:test:primary"},
             },
             headers=headers,
-        ).json()["data"]["id"]
-        client.post(
+        )).json()["data"]["id"]
+        await async_client.post(
             f"/api/v1/agents/{agent_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
 
-        refused = client.post(
+        refused = await async_client.post(
             f"/api/v1/agents/{agent_id}/versions/{version_id}/review",
             json={"action": "request"},
             headers=headers,

@@ -7,10 +7,9 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Protocol
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
-from sqlmodel import Session as SQLModelSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.responses import Response
 from app.kernel.runtime.responses.service import ResponseService
@@ -41,7 +40,7 @@ class AgentStreamExecutor(Protocol):
 
 def get_agent_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> AgentService:
     """Get agent service instance."""
     container = get_container()
@@ -61,7 +60,7 @@ def get_agent_service(
 
 def get_agent_application_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> AgentApplicationService:
     """Get agent application service instance."""
     return build_agent_service(db=db, ctx=ctx)
@@ -69,11 +68,15 @@ def get_agent_application_service(
 
 def get_agent_stream_executor(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> AgentStreamExecutor:
-    """Build stream executions on a session independent from the SSE request."""
+    """Build stream executions on a session independent from the SSE request.
 
-    bind = db.get_bind()
+    The worker session shares the request session's engine, so a test that
+    overrides the request session (an in-memory database) is honoured here too.
+    """
+
+    bind = db.bind
 
     async def execute(
         agent_id: str,
@@ -82,7 +85,7 @@ def get_agent_stream_executor(
         on_response_started: AgentResponseStarted | None = None,
         response_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        with SQLModelSession(bind=bind, expire_on_commit=False) as worker_db:
+        async with AsyncSession(bind=bind, expire_on_commit=False) as worker_db:
             service = build_agent_service(db=worker_db, ctx=ctx)
             try:
                 result = await service.execute_agent_streaming(
@@ -102,10 +105,10 @@ def get_agent_stream_executor(
                         "message": "Agent execution failed",
                     },
                 )
-                worker_db.commit()
+                await worker_db.commit()
                 raise
             await event_emitter("agent.interaction.finished", {"result": result})
-            worker_db.commit()
+            await worker_db.commit()
             return result
 
     return execute

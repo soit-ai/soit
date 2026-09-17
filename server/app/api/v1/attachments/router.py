@@ -51,7 +51,7 @@ async def get_attachment(
     service: AttachmentService = Depends(get_attachment_service),
 ):
     del ctx
-    return AttachmentRead.model_validate(service.get(attachment_id))
+    return AttachmentRead.model_validate(await service.get(attachment_id))
 
 
 @router.get("/{attachment_id}/content", response_class=Response)

@@ -25,7 +25,7 @@ class EvaluationHandlers:
         ctx: RequestContext,
         payload: RegressionCaseCreateFromRun,
     ) -> RegressionCaseResponse:
-        case = self.service.create_case_from_run(
+        case = await self.service.create_case_from_run(
             run_id=payload.run_id,
             name=payload.name,
             expected_features=payload.expected_features,
@@ -40,7 +40,7 @@ class EvaluationHandlers:
         subject_id: str,
         subject_version_id: str | None,
     ) -> RegressionReportResponse:
-        report = self.service.get_latest_report(
+        report = await self.service.get_latest_report(
             subject_kind=subject_kind,
             subject_id=subject_id,
             subject_version_id=subject_version_id,
@@ -54,7 +54,7 @@ class EvaluationHandlers:
         ctx: RequestContext,
         payload: RegressionAnnotationCreate,
     ) -> RegressionAnnotationResponse:
-        annotation = self.service.annotate_case(
+        annotation = await self.service.annotate_case(
             case_id=payload.case_id,
             verdict=payload.verdict,
             note=payload.note,
@@ -69,7 +69,7 @@ class EvaluationHandlers:
         case_id: str | None,
         report_id: str | None,
     ) -> list[RegressionAnnotationResponse]:
-        annotations = self.service.list_annotations(
+        annotations = await self.service.list_annotations(
             case_id=case_id, report_id=report_id
         )
         return [
@@ -85,7 +85,7 @@ class EvaluationHandlers:
         dataset: str | None,
         limit: int,
     ) -> RegressionTrendResponse:
-        points = self.service.report_trend(
+        points = await self.service.report_trend(
             subject_kind=subject_kind,
             subject_id=subject_id,
             dataset=dataset,

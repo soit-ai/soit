@@ -59,7 +59,7 @@ async def stream_claimed_interaction(
     """
     while True:
         response_service.db.expire_all()
-        interaction = response_service.get_interaction(interaction_id)
+        interaction = await response_service.get_interaction(interaction_id)
         if interaction is None:
             raise ValidationError("Claimed interaction no longer exists")
         if interaction.response_id:

@@ -68,7 +68,7 @@ class CapturingSkillRuntimePort(PluginRuntimePort):
     async def invoke(self, *, plugin_name, version, tool_name, input_json, ctx, timeout_s=None):
         raise AssertionError("Skill context resolution must not invoke a tool")
 
-    def resolve_skill_context(self, *, skill_refs, ctx):
+    async def resolve_skill_context(self, *, skill_refs, ctx):
         self.resolved_skill_refs.append(list(skill_refs))
         return "Bound skill context:\n[skill:triage]\nRuntime rendered triage policy."
 
@@ -107,10 +107,10 @@ class CapturingRunner:
 
 
 @pytest.mark.asyncio
-async def test_publish_agent_version_replays_regression_cases_before_publish(db, tenant1_ctx: RequestContext):
-    regression_service = RegressionEvaluationService(db=db, ctx=tenant1_ctx)
+async def test_publish_agent_version_replays_regression_cases_before_publish(async_db, tenant1_ctx: RequestContext):
+    regression_service = RegressionEvaluationService(db=async_db, ctx=tenant1_ctx)
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -134,21 +134,21 @@ async def test_publish_agent_version_replays_regression_cases_before_publish(db,
             verify=False,
         ),
     )
-    run = TraceWriter(db, tenant1_ctx).create_run(
+    run = await TraceWriter(async_db, tenant1_ctx).create_run(
         mode="agent",
         subject_kind="agent",
         subject_id=agent.id,
         subject_version_id="agent_version_old",
         input_summary='{"messages":[{"role":"user","content":"refund policy"}]}',
     )
-    regression_service.create_case_from_run(
+    await regression_service.create_case_from_run(
         run_id=run.id,
         name="refund-policy-regression",
         expected_features={"minimum_output_terms": ["refund policy"], "max_latency_ms": 1000},
     )
 
     published = await service.publish_version(agent.id, version.id)
-    report = regression_service.get_latest_report(
+    report = await regression_service.get_latest_report(
         subject_kind="agent",
         subject_id=agent.id,
         subject_version_id=version.id,
@@ -172,10 +172,10 @@ async def test_publish_agent_version_replays_regression_cases_before_publish(db,
 
 
 @pytest.mark.asyncio
-async def test_publish_agent_version_blocks_when_regression_report_fails(db, tenant1_ctx: RequestContext):
-    regression_service = RegressionEvaluationService(db=db, ctx=tenant1_ctx)
+async def test_publish_agent_version_blocks_when_regression_report_fails(async_db, tenant1_ctx: RequestContext):
+    regression_service = RegressionEvaluationService(db=async_db, ctx=tenant1_ctx)
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -199,14 +199,14 @@ async def test_publish_agent_version_blocks_when_regression_report_fails(db, ten
             verify=False,
         ),
     )
-    run = TraceWriter(db, tenant1_ctx).create_run(
+    run = await TraceWriter(async_db, tenant1_ctx).create_run(
         mode="agent",
         subject_kind="agent",
         subject_id=agent.id,
         subject_version_id="agent_version_old",
         input_summary='{"messages":[{"role":"user","content":"refund policy"}]}',
     )
-    regression_service.create_case_from_run(
+    await regression_service.create_case_from_run(
         run_id=run.id,
         name="refund-policy-regression",
         expected_features={"minimum_output_terms": ["refund policy"]},
@@ -214,7 +214,7 @@ async def test_publish_agent_version_blocks_when_regression_report_fails(db, ten
 
     with pytest.raises(ValidationError) as exc:
         await service.publish_version(agent.id, version.id)
-    report = regression_service.get_latest_report(
+    report = await regression_service.get_latest_report(
         subject_kind="agent",
         subject_id=agent.id,
         subject_version_id=version.id,
@@ -240,9 +240,9 @@ async def test_publish_agent_version_blocks_when_regression_report_fails(db, ten
 
 
 @pytest.mark.asyncio
-async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, tenant1_ctx: RequestContext):
+async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(async_db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -310,17 +310,17 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
         ).model_dump(exclude_none=True),
     )
 
-    binding_repo = AgentBindingRepository(db, tenant1_ctx)
-    bindings = binding_repo.list_for_version(version.id)
-    thread_repo = ThreadRepository(db, tenant1_ctx)
-    task_repo = TaskRepository(db, tenant1_ctx)
-    response_repo = ResponseRepository(db, tenant1_ctx)
-    response_event_repo = ResponseEventRepository(db, tenant1_ctx)
-    messages = thread_repo.list_messages(result["thread_id"])
-    task = task_repo.get_task(result["task_id"])
-    events = task_repo.list_events(result["task_id"])
-    response = response_repo.get(result["response_id"])
-    response_events = response_event_repo.list_for_response(result["response_id"], limit=20, offset=0)
+    binding_repo = AgentBindingRepository(async_db, tenant1_ctx)
+    bindings = await binding_repo.list_for_version(version.id)
+    thread_repo = ThreadRepository(async_db, tenant1_ctx)
+    task_repo = TaskRepository(async_db, tenant1_ctx)
+    response_repo = ResponseRepository(async_db, tenant1_ctx)
+    response_event_repo = ResponseEventRepository(async_db, tenant1_ctx)
+    messages = await thread_repo.list_messages(result["thread_id"])
+    task = await task_repo.get_task(result["task_id"])
+    events = await task_repo.list_events(result["task_id"])
+    response = await response_repo.get(result["response_id"])
+    response_events = await response_event_repo.list_for_response(result["response_id"], limit=20, offset=0)
 
     assert published.published_version_id == version.id
     assert published.default_model_ref == "model:test:primary"
@@ -381,9 +381,9 @@ async def test_publish_and_execute_agent_creates_bindings_threads_and_tasks(db, 
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_ctx: RequestContext):
+async def test_execute_agent_records_tool_calls_in_response_detail(async_db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -446,11 +446,11 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
         ).model_dump(exclude_none=True),
     )
 
-    response_repo = ResponseRepository(db, tenant1_ctx)
-    response_event_repo = ResponseEventRepository(db, tenant1_ctx)
-    response = response_repo.get(result["response_id"])
-    response_events = response_event_repo.list_for_response(result["response_id"], limit=20, offset=0)
-    _, _, tool_calls = service.response_service.get_response_detail(result["response_id"])
+    response_repo = ResponseRepository(async_db, tenant1_ctx)
+    response_event_repo = ResponseEventRepository(async_db, tenant1_ctx)
+    response = await response_repo.get(result["response_id"])
+    response_events = await response_event_repo.list_for_response(result["response_id"], limit=20, offset=0)
+    _, _, tool_calls = await service.response_service.get_response_detail(result["response_id"])
 
     assert result["output"] == "agent tool done"
     assert result["tool_calls"] == 1
@@ -475,7 +475,7 @@ async def test_execute_agent_records_tool_calls_in_response_detail(db, tenant1_c
 
 @pytest.mark.asyncio
 async def test_execute_agent_persists_knowledge_citations_in_response_output(
-    db,
+    async_db,
     tenant1_ctx: RequestContext,
     monkeypatch,
 ):
@@ -508,7 +508,7 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
     monkeypatch.setattr("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", fake_knowledge_query)
 
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -560,7 +560,7 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
         ).model_dump(exclude_none=True),
     )
 
-    response, _, _ = service.response_service.get_response_detail(result["response_id"])
+    response, _, _ = await service.response_service.get_response_detail(result["response_id"])
 
     assert result["citations"] == [
         {
@@ -576,7 +576,7 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
         }
     ]
     assert response.output_json["citations"] == result["citations"]
-    messages = ThreadRepository(db, tenant1_ctx).list_messages(result["thread_id"])
+    messages = await ThreadRepository(async_db, tenant1_ctx).list_messages(result["thread_id"])
     assistant_message = next(message for message in messages if message.role == "assistant")
     assert assistant_message.citations_json == result["citations"]
     assert assistant_message.tokens_prompt == 4
@@ -585,9 +585,9 @@ async def test_execute_agent_persists_knowledge_citations_in_response_output(
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_rejects_execution_override_keys_from_direct_service_call(db, tenant1_ctx: RequestContext):
+async def test_execute_agent_rejects_execution_override_keys_from_direct_service_call(async_db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(),
@@ -631,10 +631,10 @@ async def test_execute_agent_rejects_execution_override_keys_from_direct_service
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_resolves_runtime_request_from_published_version(db, tenant1_ctx: RequestContext, monkeypatch):
+async def test_execute_agent_resolves_runtime_request_from_published_version(async_db, tenant1_ctx: RequestContext, monkeypatch):
     skill_runtime = CapturingSkillRuntimePort()
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(),
@@ -663,9 +663,9 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
         publish_status="published",
         installed_count=1,
     )
-    db.add(plugin)
-    db.commit()
-    db.refresh(plugin)
+    async_db.add(plugin)
+    await async_db.commit()
+    await async_db.refresh(plugin)
     plugin_version = PluginVersion(
         tenant_id=tenant1_ctx.tenant_id,
         workspace_id=tenant1_ctx.workspace_id,
@@ -677,9 +677,9 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
         manifest_json={"spec": plugin_spec},
         artifact_summary_json={"skills": ["skill:triage"]},
     )
-    db.add(plugin_version)
-    db.commit()
-    db.refresh(plugin_version)
+    async_db.add(plugin_version)
+    await async_db.commit()
+    await async_db.refresh(plugin_version)
     plugin.current_version_id = plugin_version.id
     plugin.published_version_id = plugin_version.id
     installation = PluginInstallation(
@@ -691,10 +691,10 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
         state="installed",
         config_json={"enabled": True},
     )
-    db.add(installation)
-    db.commit()
-    db.refresh(installation)
-    db.add(
+    async_db.add(installation)
+    await async_db.commit()
+    await async_db.refresh(installation)
+    async_db.add(
         PluginInstalledArtifact(
             tenant_id=tenant1_ctx.tenant_id,
             workspace_id=tenant1_ctx.workspace_id,
@@ -717,7 +717,7 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
             },
         )
     )
-    db.commit()
+    await async_db.commit()
 
     agent = await service.create_agent(
         AgentCreate(
@@ -770,9 +770,9 @@ async def test_execute_agent_resolves_runtime_request_from_published_version(db,
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_requires_published_version(db, tenant1_ctx: RequestContext):
+async def test_execute_agent_requires_published_version(async_db, tenant1_ctx: RequestContext):
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(),
@@ -807,7 +807,7 @@ async def test_execute_agent_requires_published_version(db, tenant1_ctx: Request
 
 @pytest.mark.asyncio
 async def test_execute_agent_persists_a_replayable_interaction_snapshot(
-    db, tenant1_ctx: RequestContext
+    async_db, tenant1_ctx: RequestContext
 ):
     """The inline path must leave a snapshot a later retry can re-enqueue."""
     from sqlmodel import select
@@ -818,7 +818,7 @@ async def test_execute_agent_persists_a_replayable_interaction_snapshot(
     from app.wiring.task_drivers import drive_agent_task_retry
 
     service = AgentApplicationService(
-        db=db,
+        db=async_db,
         ctx=tenant1_ctx,
         llm_port=QueueLLMPort(
             [
@@ -867,11 +867,11 @@ async def test_execute_agent_persists_a_replayable_interaction_snapshot(
     result = await service.execute_agent(agent.id, request_inputs)
 
     snapshot = (
-        db.execute(
+        (await async_db.execute(
             select(ResponseInteraction).where(
                 ResponseInteraction.run_id == result["run_id"]
             )
-        )
+        ))
         .scalars()
         .first()
     )
@@ -884,17 +884,17 @@ async def test_execute_agent_persists_a_replayable_interaction_snapshot(
     assert snapshot.request_context_json["tenant_id"] == tenant1_ctx.tenant_id
 
     # A retry of this task re-enqueues the snapshot for the durable worker.
-    task_repo = _TaskRepository(db, tenant1_ctx)
-    task = task_repo.get_task(result["task_id"])
+    task_repo = _TaskRepository(async_db, tenant1_ctx)
+    task = await task_repo.get_task(result["task_id"])
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
-    drive_agent_task_retry(db, task)
+    async_db.add(task)
+    await async_db.commit()
+    await drive_agent_task_retry(async_db, task)
 
     replay = (
-        db.execute(
+        (await async_db.execute(
             select(ResponseInteraction).where(ResponseInteraction.status == "queued")
-        )
+        ))
         .scalars()
         .one()
     )
@@ -904,5 +904,5 @@ async def test_execute_agent_persists_a_replayable_interaction_snapshot(
         replay.execution_json["assistant_message_id"]
         != snapshot.execution_json["assistant_message_id"]
     )
-    db.refresh(task)
+    await async_db.refresh(task)
     assert task.status == TaskStatus.CANCELED.value

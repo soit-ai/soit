@@ -4,7 +4,7 @@ Memory domain service.
 """
 
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -29,7 +29,7 @@ class MemoryService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         memory_repo: MemoryRepository,
         llm_port: LLMPort | None = None,
@@ -70,7 +70,7 @@ class MemoryService:
         if self.trace_writer and not run_id:
             summary = data.content_summary or str(data.content)
             subject_id, subject_version_id = self._resolve_memory_trace_subject(data.user_id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="memory_write",
                 kind="batch",
                 subject_kind="memory",
@@ -80,7 +80,7 @@ class MemoryService:
             )
             run_id = run.id
             created_run = True
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         memory = MemoryItem(
             tenant_id=self.ctx.tenant_id,
@@ -94,16 +94,16 @@ class MemoryService:
         )
         step_id = None
         if self.trace_writer and run_id:
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="memory_write",
                 input_summary="create_memory",
             )
             step_id = step.id
-            self.trace_writer.update_step_status(step_id, "running")
+            await self.trace_writer.update_step_status(step_id, "running")
 
         try:
-            memory = self.memory_repo.create(memory)
+            memory = await self.memory_repo.create(memory)
             if self.llm_port and self.vector_port:
                 text = data.content_summary or str(data.content)
                 embedding_response = await self.llm_port.embed(
@@ -126,13 +126,13 @@ class MemoryService:
                     )
                     memory.vector_ref = memory.id
                     memory.updated_at = utc_now()
-                    self.db.commit()
-                    self.db.refresh(memory)
+                    await self.db.commit()
+                    await self.db.refresh(memory)
 
             if step_id and self.trace_writer:
-                self.trace_writer.update_step_status(step_id, "succeeded")
+                await self.trace_writer.update_step_status(step_id, "succeeded")
             if created_run and self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "succeeded",
                     output_summary=f"memory_id={memory.id}",
@@ -140,13 +140,13 @@ class MemoryService:
             return memory
         except Exception as exc:
             if step_id and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step_id,
                     "failed",
                     output_summary=str(exc)[:1024],
                 )
             if created_run and self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "failed",
                     output_summary=str(exc)[:8192],
@@ -165,7 +165,7 @@ class MemoryService:
         created_run = False
         if self.trace_writer and not run_id:
             subject_id, subject_version_id = self._resolve_memory_trace_subject(data.user_id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="memory_query",
                 kind="tool",
                 subject_kind="memory",
@@ -175,17 +175,17 @@ class MemoryService:
             )
             run_id = run.id
             created_run = True
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         step_id = None
         if self.trace_writer and run_id:
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="other",
                 input_summary="query_memory",
             )
             step_id = step.id
-            self.trace_writer.update_step_status(step_id, "running")
+            await self.trace_writer.update_step_status(step_id, "running")
 
         try:
             embedding_response = await self.llm_port.embed(
@@ -206,7 +206,7 @@ class MemoryService:
             )
 
             scores_map: dict[str, float] = dict(zip(results.ids, results.scores, strict=False))
-            items = self.memory_repo.list_by_ids(list(scores_map.keys()))
+            items = await self.memory_repo.list_by_ids(list(scores_map.keys()))
 
             filtered: list[MemoryItem] = []
             for item in items:
@@ -225,13 +225,13 @@ class MemoryService:
             ]
 
             if step_id and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step_id,
                     "succeeded",
                     output_summary=f"results={len(output)}",
                 )
             if created_run and self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "succeeded",
                     output_summary=f"results={len(output)}",
@@ -239,13 +239,13 @@ class MemoryService:
             return output
         except Exception as exc:
             if step_id and self.trace_writer:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step_id,
                     "failed",
                     output_summary=str(exc)[:1024],
                 )
             if created_run and self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "failed",
                     output_summary=str(exc)[:8192],
@@ -255,12 +255,12 @@ class MemoryService:
     @rbac_guard(RESOURCE_MEMORY, "read", resource_id_resolver=_resolve_memory_owner_id)
     async def list_memories(self, limit: int = 20, offset: int = 0) -> list[MemoryItem]:
         """List memories."""
-        return self.memory_repo.list(limit=limit, offset=offset)
+        return await self.memory_repo.list(limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_MEMORY, "read", resource_id_arg="memory_id")
     async def get_memory(self, memory_id: str) -> MemoryItem:
         """Get memory by id."""
-        memory = self.memory_repo.get_by_id(memory_id)
+        memory = await self.memory_repo.get_by_id(memory_id)
         if not memory or memory.deleted_at is not None:
             raise NotFoundError(f"Memory not found: {memory_id}")
         return memory
@@ -268,16 +268,16 @@ class MemoryService:
     @rbac_guard(RESOURCE_MEMORY, "delete", resource_id_arg="memory_id")
     async def delete_memory(self, memory_id: str, run_id: str | None = None) -> None:
         """Soft delete memory and remove vector."""
-        memory = self.get_memory(memory_id)
+        memory = await self.get_memory(memory_id)
         memory.deleted_at = utc_now()
         memory.updated_at = utc_now()
-        self.db.commit()
+        await self.db.commit()
 
         if self.vector_port:
             created_run = False
             if self.trace_writer and not run_id:
                 subject_id, subject_version_id = self._resolve_memory_trace_subject(memory.user_id)
-                run = self.trace_writer.create_run(
+                run = await self.trace_writer.create_run(
                     mode="memory_delete",
                     kind="batch",
                     subject_kind="memory",
@@ -287,7 +287,7 @@ class MemoryService:
                 )
                 run_id = run.id
                 created_run = True
-                self.trace_writer.update_run_status(run_id, "running")
+                await self.trace_writer.update_run_status(run_id, "running")
 
             try:
                 await self.vector_port.delete(
@@ -296,14 +296,14 @@ class MemoryService:
                     run_id=run_id,
                 )
                 if created_run and self.trace_writer:
-                    self.trace_writer.update_run_status(
+                    await self.trace_writer.update_run_status(
                         run_id,
                         "succeeded",
                         output_summary=f"memory_id={memory_id}",
                     )
             except Exception as exc:
                 if created_run and self.trace_writer:
-                    self.trace_writer.update_run_status(
+                    await self.trace_writer.update_run_status(
                         run_id,
                         "failed",
                         output_summary=str(exc)[:8192],

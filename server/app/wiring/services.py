@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.auth import JWTManager
@@ -364,7 +365,7 @@ def build_observe_service(*, db: Session, ctx: RequestContext) -> ObserveService
     return ObserveService(db=db, ctx=ctx)
 
 
-def build_evaluation_service(*, db: Session, ctx: RequestContext) -> RegressionEvaluationService:
+def build_evaluation_service(*, db: AsyncSession, ctx: RequestContext) -> RegressionEvaluationService:
     """Regression evaluation service factory."""
 
     judge = None
@@ -399,7 +400,7 @@ def build_workflow_service(*, db: Session, ctx: RequestContext) -> WorkflowServi
     )
 
 
-def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplicationService:
+def build_agent_service(*, db: AsyncSession, ctx: RequestContext) -> AgentApplicationService:
     from app.adapters.plugins.skill_runtime import DatabaseSkillRuntimePort
     from app.kernel.ports.plugins.policy import PluginRuntimePolicyGateway
     from app.modules.agent.infra.capability_catalog import SqlAgentCapabilityCatalog
@@ -437,7 +438,7 @@ def build_agent_service(*, db: Session, ctx: RequestContext) -> AgentApplication
     )
 
 
-def build_memory_service(*, db: Session, ctx: RequestContext) -> MemoryService:
+def build_memory_service(*, db: AsyncSession, ctx: RequestContext) -> MemoryService:
     memory_repo = MemoryRepository(db, ctx)
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
@@ -464,7 +465,7 @@ def build_notification_service(*, db: Session, ctx: RequestContext) -> Notificat
     )
 
 
-def build_run_service(*, db: Session, ctx: RequestContext) -> RunService:
+def build_run_service(*, db: AsyncSession, ctx: RequestContext) -> RunService:
     """RunService factory."""
     return RunService(db=db, ctx=ctx)
 
@@ -488,7 +489,7 @@ def build_secrets_service(*, db: Session, ctx: RequestContext) -> SecretsService
     return SecretsService(ctx=ctx, repo=secret_repo, value_store=value_store)
 
 
-def build_response_service(*, db: Session, ctx: RequestContext) -> ResponseService:
+def build_response_service(*, db: AsyncSession, ctx: RequestContext) -> ResponseService:
     """Response resource/projection service factory."""
 
     container = get_container()
@@ -502,7 +503,7 @@ def build_response_service(*, db: Session, ctx: RequestContext) -> ResponseServi
     )
 
 
-def build_response_projection_coordinator(*, db: Session, ctx: RequestContext) -> ResponseProjectionCoordinator:
+def build_response_projection_coordinator(*, db: AsyncSession, ctx: RequestContext) -> ResponseProjectionCoordinator:
     """Response semantic projection coordinator factory."""
 
     container = get_container()

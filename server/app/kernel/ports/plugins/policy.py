@@ -61,13 +61,13 @@ class PluginRuntimePolicyGateway(PluginRuntimePort):
     ) -> list[dict[str, Any]]:
         return self.gateway.list_tools(plugin_name=plugin_name, version=version, ctx=ctx)
 
-    def resolve_skill_context(
+    async def resolve_skill_context(
         self,
         *,
         skill_refs: list[str],
         ctx: RequestContext,
     ) -> str | None:
-        return self.gateway.resolve_skill_context(skill_refs=skill_refs, ctx=ctx)
+        return await self.gateway.resolve_skill_context(skill_refs=skill_refs, ctx=ctx)
 
     async def invoke(
         self,

@@ -54,16 +54,16 @@ class FailingToolPort(ToolPort):
 class InspectingLeaseToolPort(ToolPort):
     """Tool port that observes the durable lease at the outbound boundary."""
 
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, async_db):
+        self.db = async_db
         self.remaining_lease_seconds = 0.0
 
     async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
-        record_result = self.db.exec(
+        record_result = (await self.db.exec(
             select(RunStepToolCall).where(
                 RunStepToolCall.tool_call_id == kwargs["tool_call_id"]
             )
-        ).one()
+        )).one()
         record = (
             record_result
             if isinstance(record_result, RunStepToolCall)
@@ -108,11 +108,11 @@ def _audit_payload(audit_result) -> str:
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
+async def test_tool_policy_injects_and_redacts_secrets(async_db, ctx):
     """Secret refs are injected for execution and redacted in audit logs."""
     dummy_tool = DummyToolPort()
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
@@ -144,7 +144,7 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     assert dummy_tool.last_parameters["query"]["token"] == "supersecret"
     assert dummy_tool.last_parameters["body"]["payload"] == "supersecret"
 
-    result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
+    result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).first()
     if result is None:
         raise AssertionError("Expected run step for tool invocation")
     if not isinstance(result, RunStep):
@@ -154,22 +154,22 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
             result = result[0]
     step = result
 
-    audit = db.exec(
+    audit = (await async_db.exec(
         select(AuditEvent).where(
             AuditEvent.run_id == run.id,
             AuditEvent.step_id == step.id,
         )
-    ).first()
+    )).first()
     assert audit is not None
     audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json
     assert "sec_test_token" in audit_json
-    call_record_result = db.exec(
+    call_record_result = (await async_db.exec(
         select(RunStepToolCall).where(
             RunStepToolCall.run_id == run.id,
             RunStepToolCall.tool_call_id == "call-secret-redaction",
         )
-    ).one()
+    )).one()
     call_record = (
         call_record_result
         if isinstance(call_record_result, RunStepToolCall)
@@ -185,14 +185,14 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
     assert "supersecret" not in str(tool_call)
 
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    response = response_service.create_linked_response(run_id=run.id)
-    _, _, tool_calls = response_service.get_response_detail(response.id)
+    response = await response_service.create_linked_response(run_id=run.id)
+    _, _, tool_calls = await response_service.get_response_detail(response.id)
     assert len(tool_calls) == 1
     assert tool_calls[0]["tool_name"] == "tool:http:demo"
     assert tool_calls[0]["tool_call_id"] == "call-secret-redaction"
@@ -202,9 +202,9 @@ async def test_tool_policy_injects_and_redacts_secrets(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_finishes_ledger_when_adapter_raises(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(mode="workflow", kind="workflow")
+async def test_tool_policy_finishes_ledger_when_adapter_raises(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
     gateway = ToolPolicyGateway(
         gateway=FailingToolPort(),
         ctx=ctx,
@@ -221,11 +221,11 @@ async def test_tool_policy_finishes_ledger_when_adapter_raises(db, ctx):
             idempotency_key=f"tool:{run.id}:call-failed",
         )
 
-    record_result = db.exec(
+    record_result = (await async_db.exec(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).one()
+    )).one()
     record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
-    step_result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).one()
+    step_result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).one()
     step = step_result if isinstance(step_result, RunStep) else step_result[0]
     assert record.status == "failed"
     assert record.error_code == "TOOL_EXECUTION_FAILED"
@@ -234,10 +234,10 @@ async def test_tool_policy_finishes_ledger_when_adapter_raises(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_lease_outlives_the_bounded_outbound_call(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(mode="workflow", kind="workflow")
-    tool_port = InspectingLeaseToolPort(db)
+async def test_tool_policy_lease_outlives_the_bounded_outbound_call(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
+    tool_port = InspectingLeaseToolPort(async_db)
     gateway = ToolPolicyGateway(
         gateway=tool_port,
         ctx=ctx,
@@ -257,9 +257,9 @@ async def test_tool_policy_lease_outlives_the_bounded_outbound_call(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_retries_a_failed_call_only_when_explicitly_requested(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(mode="workflow", kind="workflow")
+async def test_tool_policy_retries_a_failed_call_only_when_explicitly_requested(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
     tool_port = RetryableToolPort()
     gateway = ToolPolicyGateway(
         gateway=tool_port,
@@ -290,9 +290,9 @@ async def test_tool_policy_retries_a_failed_call_only_when_explicitly_requested(
         **call_kwargs,
     )
 
-    record_result = db.exec(
+    record_result = (await async_db.exec(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).one()
+    )).one()
     record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
     assert failed.success is False
     assert replayed.success is False
@@ -301,11 +301,11 @@ async def test_tool_policy_retries_a_failed_call_only_when_explicitly_requested(
     assert tool_port.call_count == 2
     assert record.status == "succeeded"
     assert record.attempt_count == 2
-    assert len(db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()) == 1
+    assert len((await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()) == 1
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
+async def test_tool_policy_audits_egress_denials(async_db, ctx, monkeypatch):
     """Blocked egress attempts are auditable even when the tool is never invoked."""
     monkeypatch.setattr(settings, "enable_egress_policy", True)
     monkeypatch.setattr(settings, "egress_allowlist", ["api.example.com"])
@@ -314,8 +314,8 @@ async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
     _disable_db_policy_lookup(monkeypatch)
 
     dummy_tool = DummyToolPort()
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
@@ -336,7 +336,7 @@ async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
         )
 
     assert dummy_tool.last_parameters is None
-    result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
+    result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).first()
     if result is None:
         raise AssertionError("Expected run step for blocked egress")
     if not isinstance(result, RunStep):
@@ -346,12 +346,12 @@ async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
             result = result[0]
     step = result
     assert step.status == "failed"
-    audit = db.exec(
+    audit = (await async_db.exec(
         select(AuditEvent).where(
             AuditEvent.run_id == run.id,
             AuditEvent.step_id == step.id,
         )
-    ).first()
+    )).first()
     assert audit is not None
     audit_json = _audit_payload(audit)
     assert "https://evil.example/api" in audit_json
@@ -363,7 +363,7 @@ async def test_tool_policy_audits_egress_denials(db, ctx, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monkeypatch):
+async def test_builtin_ticket_tool_is_governed_and_redacts_secret(async_db, ctx, monkeypatch):
     """Ticket tool requires workspace context, applies egress, and audits redacted inputs."""
     monkeypatch.setattr(settings, "enable_egress_policy", True)
     monkeypatch.setattr(settings, "egress_allowlist", ["tickets.example.local"])
@@ -371,8 +371,8 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
     monkeypatch.setattr(egress, "_egress_policy", None)
     _disable_db_policy_lookup(monkeypatch)
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
@@ -414,7 +414,7 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
     assert response.result["review_url"] == "https://tickets.example.local/reviews/TICKET-A5EBADC2"
     assert "supersecret" not in str(response.result)
 
-    result = db.exec(select(RunStep).where(RunStep.run_id == run.id)).first()
+    result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).first()
     if result is None:
         raise AssertionError("Expected run step for ticket tool invocation")
     if not isinstance(result, RunStep):
@@ -424,12 +424,12 @@ async def test_builtin_ticket_tool_is_governed_and_redacts_secret(db, ctx, monke
             result = result[0]
     step = result
     assert step.status == "succeeded"
-    audit = db.exec(
+    audit = (await async_db.exec(
         select(AuditEvent).where(
             AuditEvent.run_id == run.id,
             AuditEvent.step_id == step.id,
         )
-    ).first()
+    )).first()
     assert audit is not None
     audit_json = _audit_payload(audit)
     assert "supersecret" not in audit_json

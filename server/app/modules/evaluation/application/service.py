@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -64,7 +64,7 @@ class RegressionEvaluationService:
     def __init__(
         self,
         *,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         judge: RegressionJudge | None = None,
     ) -> None:
@@ -72,14 +72,14 @@ class RegressionEvaluationService:
         self.ctx = ctx
         self.judge = judge
 
-    def create_case_from_run(
+    async def create_case_from_run(
         self,
         *,
         run_id: str,
         name: str,
         expected_features: dict[str, Any],
     ) -> RegressionCase:
-        run = self._get_run(run_id)
+        run = await self._get_run(run_id)
         case = RegressionCase(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
@@ -93,8 +93,8 @@ class RegressionEvaluationService:
             created_by=self.ctx.user_id,
         )
         self.db.add(case)
-        self.db.commit()
-        self.db.refresh(case)
+        await self.db.commit()
+        await self.db.refresh(case)
         return case
 
     async def evaluate_subject_version(
@@ -106,13 +106,13 @@ class RegressionEvaluationService:
         runner: RegressionRunner,
         dataset: str = "default",
     ) -> RegressionEvaluationResult:
-        cases = self.list_cases(
+        cases = await self.list_cases(
             subject_kind=subject_kind,
             subject_id=subject_id,
             dataset=dataset,
         )
         revision = self.dataset_revision(cases)
-        baseline = self.find_baseline(
+        baseline = await self.find_baseline(
             subject_kind=subject_kind,
             subject_id=subject_id,
             dataset=dataset,
@@ -150,8 +150,8 @@ class RegressionEvaluationService:
             created_by=self.ctx.user_id,
         )
         self.db.add(report)
-        self.db.commit()
-        self.db.refresh(report)
+        await self.db.commit()
+        await self.db.refresh(report)
         return RegressionEvaluationResult(
             report_id=report.id,
             passed=report.passed,
@@ -160,7 +160,7 @@ class RegressionEvaluationService:
             cases=case_results,
         )
 
-    def list_cases(
+    async def list_cases(
         self,
         *,
         subject_kind: str,
@@ -176,11 +176,11 @@ class RegressionEvaluationService:
         ]
         if dataset is not None:
             conditions.append(RegressionCase.dataset == dataset)
-        rows = self.db.exec(
+        rows = (await self.db.exec(
             select(RegressionCase)
             .where(and_(*conditions))
             .order_by(RegressionCase.created_at)
-        ).all()
+        )).all()
         return [_unwrap_row(row) for row in rows]
 
     def dataset_revision(self, cases: list[RegressionCase]) -> int:
@@ -191,7 +191,7 @@ class RegressionEvaluationService:
         """
         return max((int(case.dataset_revision or 1) for case in cases), default=1)
 
-    def find_baseline(
+    async def find_baseline(
         self,
         *,
         subject_kind: str,
@@ -217,11 +217,11 @@ class RegressionEvaluationService:
         if exclude_report_id is not None:
             conditions.append(RegressionReport.id != exclude_report_id)
         return _unwrap_row(
-            self.db.exec(
+            (await self.db.exec(
                 select(RegressionReport)
                 .where(and_(*conditions))
                 .order_by(desc(RegressionReport.created_at))
-            ).first()
+            )).first()
         )
 
     @staticmethod
@@ -255,7 +255,7 @@ class RegressionEvaluationService:
                 fixed.append(case_id)
         return regressed, fixed
 
-    def get_latest_report(
+    async def get_latest_report(
         self,
         *,
         subject_kind: str,
@@ -271,14 +271,14 @@ class RegressionEvaluationService:
         if subject_version_id is not None:
             conditions.append(RegressionReport.subject_version_id == subject_version_id)
         return _unwrap_row(
-            self.db.exec(
+            (await self.db.exec(
                 select(RegressionReport)
                 .where(and_(*conditions))
                 .order_by(desc(RegressionReport.created_at))
-            ).first()
+            )).first()
         )
 
-    def annotate_case(
+    async def annotate_case(
         self,
         *,
         case_id: str,
@@ -289,9 +289,9 @@ class RegressionEvaluationService:
         """Record a human verdict on a case, optionally tied to one report."""
         if verdict not in ("pass", "fail"):
             raise ValidationError("Annotation verdict must be 'pass' or 'fail'")
-        case = self._get_case(case_id)
+        case = await self._get_case(case_id)
         if report_id is not None:
-            self._get_report(report_id)
+            await self._get_report(report_id)
         annotation = RegressionAnnotation(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
@@ -302,11 +302,11 @@ class RegressionEvaluationService:
             annotated_by=self.ctx.user_id,
         )
         self.db.add(annotation)
-        self.db.commit()
-        self.db.refresh(annotation)
+        await self.db.commit()
+        await self.db.refresh(annotation)
         return annotation
 
-    def list_annotations(
+    async def list_annotations(
         self,
         *,
         case_id: str | None = None,
@@ -322,14 +322,14 @@ class RegressionEvaluationService:
             conditions.append(RegressionAnnotation.case_id == case_id)
         if report_id is not None:
             conditions.append(RegressionAnnotation.report_id == report_id)
-        rows = self.db.exec(
+        rows = (await self.db.exec(
             select(RegressionAnnotation)
             .where(and_(*conditions))
             .order_by(RegressionAnnotation.created_at)
-        ).all()
+        )).all()
         return [_unwrap_row(row) for row in rows]
 
-    def report_trend(
+    async def report_trend(
         self,
         *,
         subject_kind: str,
@@ -351,12 +351,12 @@ class RegressionEvaluationService:
         ]
         if dataset is not None:
             conditions.append(RegressionReport.dataset == dataset)
-        rows = self.db.exec(
+        rows = (await self.db.exec(
             select(RegressionReport)
             .where(and_(*conditions))
             .order_by(desc(RegressionReport.created_at))
             .limit(max(1, min(limit, 100)))
-        ).all()
+        )).all()
         reports = [_unwrap_row(row) for row in rows]
         reports.reverse()
         points: list[dict[str, Any]] = []
@@ -384,9 +384,9 @@ class RegressionEvaluationService:
             )
         return points
 
-    def _get_case(self, case_id: str) -> RegressionCase:
+    async def _get_case(self, case_id: str) -> RegressionCase:
         case = _unwrap_row(
-            self.db.exec(
+            (await self.db.exec(
                 select(RegressionCase).where(
                     and_(
                         RegressionCase.id == case_id,
@@ -394,15 +394,15 @@ class RegressionEvaluationService:
                         RegressionCase.workspace_id == self.ctx.workspace_id,
                     )
                 )
-            ).first()
+            )).first()
         )
         if case is None:
             raise NotFoundError(f"Regression case not found: {case_id}")
         return case
 
-    def _get_report(self, report_id: str) -> RegressionReport:
+    async def _get_report(self, report_id: str) -> RegressionReport:
         report = _unwrap_row(
-            self.db.exec(
+            (await self.db.exec(
                 select(RegressionReport).where(
                     and_(
                         RegressionReport.id == report_id,
@@ -410,7 +410,7 @@ class RegressionEvaluationService:
                         RegressionReport.workspace_id == self.ctx.workspace_id,
                     )
                 )
-            ).first()
+            )).first()
         )
         if report is None:
             raise NotFoundError(f"Regression report not found: {report_id}")
@@ -480,9 +480,9 @@ class RegressionEvaluationService:
             return payload, ["llm_judge_below_threshold"]
         return payload, []
 
-    def _get_run(self, run_id: str) -> Run:
+    async def _get_run(self, run_id: str) -> Run:
         run = _unwrap_row(
-            self.db.exec(
+            (await self.db.exec(
                 select(Run).where(
                     and_(
                         Run.id == run_id,
@@ -490,7 +490,7 @@ class RegressionEvaluationService:
                         Run.workspace_id == self.ctx.workspace_id,
                     )
                 )
-            ).first()
+            )).first()
         )
         if run is None:
             raise NotFoundError(f"Run not found: {run_id}")

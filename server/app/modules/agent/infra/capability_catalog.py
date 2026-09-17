@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.knowledge.domain.models import Knowledge, KnowledgeIndex
@@ -39,21 +39,18 @@ def _item(
 class SqlAgentCapabilityCatalog:
     """Project foreign domain rows into stable Agent capability records."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    @staticmethod
-    def _scalar(row: Any) -> Any:
-        if row is None:
-            return None
-        try:
-            return row[0]
-        except (KeyError, TypeError):
-            return row
+    async def _scalars(self, statement) -> list[Any]:
+        return list((await self.db.execute(statement)).scalars().all())
 
-    def list_model_capabilities(self) -> list[dict[str, Any]]:
-        rows = self.db.execute(
+    async def _scalar_one_or_none(self, statement) -> Any:
+        return (await self.db.execute(statement)).scalar_one_or_none()
+
+    async def list_model_capabilities(self) -> list[dict[str, Any]]:
+        rows = await self._scalars(
             select(ProviderModel).where(
                 and_(
                     ProviderModel.tenant_id == self.ctx.tenant_id,
@@ -61,7 +58,7 @@ class SqlAgentCapabilityCatalog:
                     ProviderModel.status == "active",
                 )
             )
-        ).scalars()
+        )
         return [
             _item(
                 ref=f"model:{model.provider_kind}:{model.model_id}",
@@ -86,8 +83,8 @@ class SqlAgentCapabilityCatalog:
             for model in rows
         ]
 
-    def list_knowledge_capabilities(self) -> list[dict[str, Any]]:
-        rows = self.db.execute(
+    async def list_knowledge_capabilities(self) -> list[dict[str, Any]]:
+        rows = await self._scalars(
             select(Knowledge).where(
                 and_(
                     Knowledge.tenant_id == self.ctx.tenant_id,
@@ -96,7 +93,7 @@ class SqlAgentCapabilityCatalog:
                     Knowledge.status != "archived",
                 )
             )
-        ).scalars()
+        )
         return [
             _item(
                 ref=f"knowledge:{knowledge.id}",
@@ -117,8 +114,8 @@ class SqlAgentCapabilityCatalog:
             for knowledge in rows
         ]
 
-    def list_workflow_capabilities(self) -> list[dict[str, Any]]:
-        rows = self.db.execute(
+    async def list_workflow_capabilities(self) -> list[dict[str, Any]]:
+        rows = await self._scalars(
             select(Workflow).where(
                 and_(
                     Workflow.tenant_id == self.ctx.tenant_id,
@@ -127,7 +124,7 @@ class SqlAgentCapabilityCatalog:
                     Workflow.status != "archived",
                 )
             )
-        ).scalars()
+        )
         return [
             _item(
                 ref=f"wf:{workflow.id}",
@@ -148,8 +145,8 @@ class SqlAgentCapabilityCatalog:
             for workflow in rows
         ]
 
-    def list_plugin_capabilities(self) -> list[dict[str, Any]]:
-        rows = self.db.execute(
+    async def list_plugin_capabilities(self) -> list[dict[str, Any]]:
+        rows = await self._scalars(
             select(PluginInstalledArtifact).where(
                 and_(
                     PluginInstalledArtifact.tenant_id == self.ctx.tenant_id,
@@ -158,7 +155,7 @@ class SqlAgentCapabilityCatalog:
                     PluginInstalledArtifact.state == "enabled",
                 )
             )
-        ).scalars()
+        )
         items: list[dict[str, Any]] = []
         for artifact in rows:
             metadata = artifact.metadata_json or {}
@@ -215,8 +212,8 @@ class SqlAgentCapabilityCatalog:
                         )
         return items
 
-    def resolve_skill_context(self, skill_refs: list[str]) -> str | None:
-        artifacts = self.db.execute(
+    async def resolve_skill_context(self, skill_refs: list[str]) -> str | None:
+        artifacts = await self._scalars(
             select(PluginInstalledArtifact).where(
                 and_(
                     PluginInstalledArtifact.tenant_id == self.ctx.tenant_id,
@@ -226,7 +223,7 @@ class SqlAgentCapabilityCatalog:
                     PluginInstalledArtifact.state == "enabled",
                 )
             )
-        ).scalars().all()
+        )
         blocks: list[str] = []
         for skill_ref in skill_refs:
             skill_key = skill_ref.split(":", 1)[1] if skill_ref.startswith("skill:") else skill_ref
@@ -253,10 +250,10 @@ class SqlAgentCapabilityCatalog:
             blocks.append(f"[{skill_ref}]\n{instruction}")
         return "Bound skill context:\n" + "\n\n".join(blocks) if blocks else None
 
-    def workflow_input_schema(self, workflow_ref: str) -> dict[str, Any]:
+    async def workflow_input_schema(self, workflow_ref: str) -> dict[str, Any]:
         fallback: dict[str, Any] = {"type": "object", "additionalProperties": True}
         workflow_id = workflow_ref.split(":")[-1]
-        workflow = self.db.execute(
+        workflow = await self._scalar_one_or_none(
             select(Workflow).where(
                 and_(
                     Workflow.tenant_id == self.ctx.tenant_id,
@@ -265,13 +262,13 @@ class SqlAgentCapabilityCatalog:
                     Workflow.deleted_at.is_(None),
                 )
             )
-        ).scalar_one_or_none()
+        )
         if not workflow:
             return fallback
         version_id = workflow.published_version_id or workflow.current_version_id
         if not version_id:
             return fallback
-        version = self.db.execute(
+        version = await self._scalar_one_or_none(
             select(WorkflowVersion).where(
                 and_(
                     WorkflowVersion.tenant_id == self.ctx.tenant_id,
@@ -280,12 +277,12 @@ class SqlAgentCapabilityCatalog:
                     WorkflowVersion.workflow_id == workflow.id,
                 )
             )
-        ).scalar_one_or_none()
+        )
         return ((version.spec_json or {}).get("inputs_schema") or fallback) if version else fallback
 
-    def knowledge_runtime_defaults(self, knowledge_ref: str) -> dict[str, str]:
+    async def knowledge_runtime_defaults(self, knowledge_ref: str) -> dict[str, str]:
         knowledge_id = knowledge_ref.split(":")[-1]
-        knowledge = self.db.execute(
+        knowledge = await self._scalar_one_or_none(
             select(Knowledge).where(
                 and_(
                     Knowledge.tenant_id == self.ctx.tenant_id,
@@ -294,7 +291,7 @@ class SqlAgentCapabilityCatalog:
                     Knowledge.deleted_at.is_(None),
                 )
             )
-        ).scalar_one_or_none()
+        )
         if not knowledge:
             return {}
         filters = [
@@ -308,7 +305,7 @@ class SqlAgentCapabilityCatalog:
                 else KnowledgeIndex.is_primary.is_(True)
             ),
         ]
-        index = self.db.execute(select(KnowledgeIndex).where(and_(*filters))).scalar_one_or_none()
+        index = await self._scalar_one_or_none(select(KnowledgeIndex).where(and_(*filters)))
         defaults: dict[str, str] = {}
         if knowledge.default_embedding_model_ref:
             defaults["embedding_model"] = knowledge.default_embedding_model_ref

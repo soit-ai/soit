@@ -34,7 +34,7 @@ class RecordingSecretValueStore(SecretValueStore):
 
 
 @pytest.mark.asyncio
-async def test_scoped_port_resolves_same_workspace_secret_by_opaque_id(db, ctx):
+async def test_scoped_port_resolves_same_workspace_secret_by_opaque_id(async_db, ctx):
     secret = Secret(
         id="sec_same_workspace",
         tenant_id=ctx.tenant_id,
@@ -42,11 +42,11 @@ async def test_scoped_port_resolves_same_workspace_secret_by_opaque_id(db, ctx):
         name="Runtime credential",
         secret_ref="secret:sec_same_workspace",
     )
-    db.add(secret)
-    db.commit()
+    async_db.add(secret)
+    await async_db.commit()
     store = RecordingSecretValueStore()
 
-    value = await ScopedSecretsPort(ctx=ctx, value_store=store, db=db).get_secret(
+    value = await ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db).get_secret(
         secret_id=secret.id
     )
 
@@ -57,8 +57,8 @@ async def test_scoped_port_resolves_same_workspace_secret_by_opaque_id(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_scoped_port_rejects_cross_workspace_secret_without_touching_store(db, ctx):
-    db.add(
+async def test_scoped_port_rejects_cross_workspace_secret_without_touching_store(async_db, ctx):
+    async_db.add(
         Secret(
             id="sec_other_workspace",
             tenant_id=ctx.tenant_id,
@@ -67,21 +67,21 @@ async def test_scoped_port_rejects_cross_workspace_secret_without_touching_store
             secret_ref="secret:sec_other_workspace",
         )
     )
-    db.commit()
+    await async_db.commit()
     store = RecordingSecretValueStore()
 
     with pytest.raises(NotFoundError, match="Secret not found") as exc_info:
-        await ScopedSecretsPort(ctx=ctx, value_store=store, db=db).get_secret(
+        await ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db).get_secret(
             secret_id="sec_other_workspace"
         )
 
     assert exc_info.value.message == "Secret not found"
     store.get_secret_value_mock.assert_not_awaited()
-    audit = db.exec(
+    audit = (await async_db.exec(
         select(AuditEvent).where(
             AuditEvent.event_type == "security.secret.access_denied"
         )
-    ).one()
+    )).one()
     assert audit.resource_id == "sec_other_workspace"
     assert audit.outcome == "denied"
     assert "secret_ref" not in audit.payload_json
@@ -97,20 +97,20 @@ async def test_scoped_port_rejects_cross_workspace_secret_without_touching_store
         "sec_same_workspace:value",
     ],
 )
-async def test_scoped_port_rejects_raw_locator_input_immediately(db, ctx, unsafe_value):
+async def test_scoped_port_rejects_raw_locator_input_immediately(async_db, ctx, unsafe_value):
     store = RecordingSecretValueStore()
 
     with pytest.raises(ValidationError, match="opaque secret_id"):
-        await ScopedSecretsPort(ctx=ctx, value_store=store, db=db).get_secret(
+        await ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db).get_secret(
             secret_id=unsafe_value
         )
 
     store.get_secret_value_mock.assert_not_awaited()
-    audit = db.exec(
+    audit = (await async_db.exec(
         select(AuditEvent).where(
             AuditEvent.event_type == "security.secret.access_denied"
         )
-    ).one()
+    )).one()
     assert audit.resource_id is None
     assert unsafe_value not in str(audit.payload_json)
 

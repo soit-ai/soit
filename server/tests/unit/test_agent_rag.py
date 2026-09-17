@@ -51,7 +51,7 @@ def _runtime_request(**kwargs):
 
 
 @pytest.mark.asyncio
-async def test_rag_system_message_strategy(db, ctx):
+async def test_rag_system_message_strategy(async_db, ctx):
     """RAG context is prepended as system message when strategy is system_message."""
     captured_messages = []
 
@@ -64,9 +64,9 @@ async def test_rag_system_message_strategy(db, ctx):
         ChatResponse(text="rag answer", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
     ])
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
         tool_resolver=_make_resolver(),
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
 
     expected_citation = {
@@ -111,9 +111,9 @@ async def test_rag_system_message_strategy(db, ctx):
     call_kwargs = mock_knowledge_query.call_args
     assert call_kwargs[1]["knowledge_id"] == "kb_support"
     assert call_kwargs[1]["top_k"] == 3
-    retrieval_step = db.execute(
+    retrieval_step = (await async_db.execute(
         select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:kb_support")
-    ).scalars().one()
+    )).scalars().one()
     assert retrieval_step.status == "succeeded"
     assert retrieval_step.metrics_json["knowledge_id"] == "kb_support"
     assert retrieval_step.metrics_json["result_count"] == 2
@@ -123,14 +123,14 @@ async def test_rag_system_message_strategy(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_rag_citation_inherits_source_metadata_from_matching_result(db, ctx):
+async def test_rag_citation_inherits_source_metadata_from_matching_result(async_db, ctx):
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(),
         tool_resolver=_make_resolver(),
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
     mock_knowledge_query = AsyncMock(
         return_value={
@@ -182,7 +182,7 @@ async def test_rag_citation_inherits_source_metadata_from_matching_result(db, ct
 
 
 @pytest.mark.asyncio
-async def test_rag_planner_context_strategy(db, ctx):
+async def test_rag_planner_context_strategy(async_db, ctx):
     """RAG context is passed to planner when strategy is planner_context."""
     captured_messages = []
 
@@ -195,9 +195,9 @@ async def test_rag_planner_context_strategy(db, ctx):
         ChatResponse(text="planner rag answer", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
     ])
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
         tool_resolver=_make_resolver(),
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
 
     mock_knowledge_query = AsyncMock(return_value={
@@ -223,15 +223,15 @@ async def test_rag_planner_context_strategy(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_rag_no_knowledge_refs_skips_retrieval(db, ctx):
+async def test_rag_no_knowledge_refs_skips_retrieval(async_db, ctx):
     """No RAG retrieval when knowledge_refs is empty."""
     llm_port = QueueLLMPort([
         ChatResponse(text="no rag", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
     ])
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
         tool_resolver=_make_resolver(),
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
 
     request = _runtime_request(
@@ -245,15 +245,15 @@ async def test_rag_no_knowledge_refs_skips_retrieval(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_rag_retrieval_failure_graceful(db, ctx):
+async def test_rag_retrieval_failure_graceful(async_db, ctx):
     """RAG retrieval failure is handled gracefully without stopping the agent."""
     llm_port = QueueLLMPort([
         ChatResponse(text="fallback", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
     ])
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
         tool_resolver=_make_resolver(),
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
 
     mock_knowledge_query = AsyncMock(side_effect=Exception("DB error"))
@@ -269,9 +269,9 @@ async def test_rag_retrieval_failure_graceful(db, ctx):
 
     # Agent should still produce output despite RAG failure
     assert result["output"] == "fallback"
-    retrieval_step = db.execute(
+    retrieval_step = (await async_db.execute(
         select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:broken_kb")
-    ).scalars().one()
+    )).scalars().one()
     assert retrieval_step.status == "failed"
     assert retrieval_step.metrics_json["knowledge_id"] == "broken_kb"
     assert retrieval_step.metrics_json["result_count"] == 0

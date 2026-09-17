@@ -192,10 +192,10 @@ def test_agent_merges_workflow_citations_without_duplicating_existing_rag_source
 
 
 @pytest.mark.asyncio
-async def test_agent_service_rejects_public_run_request(db, ctx):
+async def test_agent_service_rejects_public_run_request(async_db, ctx):
     """AgentService uses resolved runtime requests, not public API payloads."""
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -209,9 +209,10 @@ async def test_agent_service_rejects_public_run_request(db, ctx):
         await service.run(request)  # type: ignore[arg-type]
 
 
-def test_agent_context_window_preserves_system_prompt_and_current_input(db, ctx):
+@pytest.mark.asyncio
+async def test_agent_context_window_preserves_system_prompt_and_current_input(async_db, ctx):
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=QueueLLMPort([]),
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -236,19 +237,19 @@ def test_agent_context_window_preserves_system_prompt_and_current_input(db, ctx)
 
 
 @pytest.mark.asyncio
-async def test_agent_run_cooperatively_stops_after_explicit_cancellation(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+async def test_agent_run_cooperatively_stops_after_explicit_cancellation(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         subject_kind="agent",
         subject_id="agt_cancel",
         subject_version_id="agtv_cancel",
     )
-    trace_writer.update_run_status(run.id, "running")
+    await trace_writer.update_run_status(run.id, "running")
 
     class CancelingLLMPort(QueueLLMPort):
         async def chat(self, *args, **kwargs):
-            trace_writer.update_run_status(run.id, "canceled")
+            await trace_writer.update_run_status(run.id, "canceled")
             return ChatResponse(
                 text="must not be returned",
                 tokens_prompt=1,
@@ -258,7 +259,7 @@ async def test_agent_run_cooperatively_stops_after_explicit_cancellation(db, ctx
 
     emitter = CollectingEmitter()
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=CancelingLLMPort([]),
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -272,7 +273,7 @@ async def test_agent_run_cooperatively_stops_after_explicit_cancellation(db, ctx
             event_emitter=emitter,
         )
 
-    db.refresh(run)
+    await async_db.refresh(run)
     assert exc_info.value.code == "AGENT_RUN_CANCELED"
     assert run.status == "canceled"
     assert [event for event, _ in emitter.events].count("agent.run.canceled") == 1
@@ -280,7 +281,7 @@ async def test_agent_run_cooperatively_stops_after_explicit_cancellation(db, ctx
 
 
 @pytest.mark.asyncio
-async def test_agent_run_with_tool_success(db, ctx):
+async def test_agent_run_with_tool_success(async_db, ctx):
     """Agent calls tool via function calling then responds."""
     tc = ToolCall(id="call_1", name="tool:test:echo", arguments={"value": "hi"})
     llm_port = QueueLLMPort([
@@ -295,7 +296,7 @@ async def test_agent_run_with_tool_success(db, ctx):
     tool_port = StubToolPort(ToolResponse(result="done"))
     resolver = _make_stub_resolver()
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
         tool_resolver=resolver,
     )
 
@@ -309,7 +310,7 @@ async def test_agent_run_with_tool_success(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_rejects_tool_call_when_capability_bindings_are_empty(db, ctx):
+async def test_agent_rejects_tool_call_when_capability_bindings_are_empty(async_db, ctx):
     tool_call = ToolCall(
         id="call_unbound",
         name="tool:test:echo",
@@ -327,7 +328,7 @@ async def test_agent_rejects_tool_call_when_capability_bindings_are_empty(db, ct
     )
     tool_port = StubToolPort(ToolResponse(result="must-not-run"))
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -340,7 +341,7 @@ async def test_agent_rejects_tool_call_when_capability_bindings_are_empty(db, ct
 
 
 @pytest.mark.asyncio
-async def test_agent_run_emits_enabled_provider_reasoning(db, ctx):
+async def test_agent_run_emits_enabled_provider_reasoning(async_db, ctx):
     llm_port = QueueLLMPort(
         [
             ChatResponse(
@@ -354,7 +355,7 @@ async def test_agent_run_emits_enabled_provider_reasoning(db, ctx):
     )
     emitter = CollectingEmitter()
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -381,7 +382,7 @@ async def test_agent_run_emits_enabled_provider_reasoning(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, ctx):
+async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(async_db, ctx):
     tool_call = ToolCall(id="call_stable", name="tool:test:echo", arguments={"value": "first"})
     llm_port = QueueLLMPort(
         [
@@ -395,7 +396,7 @@ async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, 
             ChatResponse(text="done", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
         ]
     )
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     base_tool_port = StubToolPort(ToolResponse(result={"value": "done"}))
     governed_tool_port = ToolPolicyGateway(
         gateway=base_tool_port,
@@ -404,7 +405,7 @@ async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, 
         enable_egress_check=False,
     )
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=governed_tool_port,
@@ -414,15 +415,15 @@ async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, 
 
     result = await service.run(_runtime_request(tool_refs=["tool:test:echo"], verify=False))
 
-    step_rows = db.execute(
+    step_rows = (await async_db.execute(
         select(RunStep).where(
             RunStep.run_id == result["run_id"],
             RunStep.step_type == "tool",
         )
-    ).scalars().all()
-    call_rows = db.execute(
+    )).scalars().all()
+    call_rows = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == result["run_id"])
-    ).scalars().all()
+    )).scalars().all()
     assert len(step_rows) == 1
     assert len(call_rows) == 1
     assert call_rows[0].run_step_id == step_rows[0].id
@@ -430,7 +431,7 @@ async def test_agent_tool_call_uses_one_runtime_step_and_one_control_record(db, 
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_approval_interrupts_before_side_effect(db, ctx):
+async def test_agent_tool_approval_interrupts_before_side_effect(async_db, ctx):
     tc = ToolCall(id="call_approval", name="tool:test:echo", arguments={"value": "sensitive"})
     llm_port = QueueLLMPort(
         [
@@ -461,12 +462,12 @@ async def test_agent_tool_approval_interrupts_before_side_effect(db, ctx):
             )
 
     gateway = ApprovalGateway()
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run("agent", kind="agent")
-    trace_writer.update_run_status(run.id, "running")
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run("agent", kind="agent")
+    await trace_writer.update_run_status(run.id, "running")
     emitter = CollectingEmitter()
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -487,7 +488,7 @@ async def test_agent_tool_approval_interrupts_before_side_effect(db, ctx):
         event_emitter=emitter,
     )
 
-    db.refresh(run)
+    await async_db.refresh(run)
     assert result["status"] == "waiting_approval"
     assert result["interrupt"]["reason"] == "tool_call"
     assert result["interrupt"]["toolCallId"] == "call_approval"
@@ -500,7 +501,7 @@ async def test_agent_tool_approval_interrupts_before_side_effect(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_spec_approval_interrupts_without_optional_gateway(db, ctx):
+async def test_agent_tool_spec_approval_interrupts_without_optional_gateway(async_db, ctx):
     tool_ref = "tool:test:explicit_approval"
     get_registry().register(
         kind="tool",
@@ -537,11 +538,11 @@ async def test_agent_tool_spec_approval_interrupts_without_optional_gateway(db, 
         ]
     )
     tool_port = StubToolPort(ToolResponse(result="must not execute"))
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run("agent", kind="agent")
-    trace_writer.update_run_status(run.id, "running")
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run("agent", kind="agent")
+    await trace_writer.update_run_status(run.id, "running")
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -562,7 +563,7 @@ async def test_agent_tool_spec_approval_interrupts_without_optional_gateway(db, 
 
 
 @pytest.mark.asyncio
-async def test_agent_rejected_approval_cancels_record_without_side_effect(db, ctx):
+async def test_agent_rejected_approval_cancels_record_without_side_effect(async_db, ctx):
     tool_call = ToolCall(
         id="call_rejected",
         name="tool:test:echo",
@@ -596,11 +597,11 @@ async def test_agent_rejected_approval_cancels_record_without_side_effect(db, ct
                 approval_payload={"title": "Approve test tool"},
             )
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run("agent", kind="agent")
-    trace_writer.update_run_status(run.id, "running")
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run("agent", kind="agent")
+    await trace_writer.update_run_status(run.id, "running")
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -625,13 +626,13 @@ async def test_agent_rejected_approval_cancels_record_without_side_effect(db, ct
 
     result = await service.run(resumed, existing_run_id=run.id)
 
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(
             RunStepToolCall.run_id == run.id,
             RunStepToolCall.tool_call_id == "call_rejected",
         )
-    ).scalars().one()
-    step = db.get(RunStep, record.run_step_id)
+    )).scalars().one()
+    step = await async_db.get(RunStep, record.run_step_id)
     assert result["output"] == "The action was not executed."
     assert tool_port.calls == []
     assert record.status == "rejected"
@@ -640,7 +641,7 @@ async def test_agent_rejected_approval_cancels_record_without_side_effect(db, ct
 
 
 @pytest.mark.asyncio
-async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
+async def test_agent_approval_resume_continues_from_durable_checkpoint(async_db, ctx):
     first_call = ToolCall(id="call_first", name="tool:test:echo", arguments={"value": "first"})
     gated_call = ToolCall(id="call_gated", name="tool:test:echo", arguments={"value": "gated"})
     llm_port = QueueLLMPort(
@@ -671,17 +672,17 @@ async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
                 approval_payload={"title": "Approve gated tool"},
             )
 
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     tool_port = ToolPolicyGateway(
         gateway=base_tool_port,
         ctx=ctx,
         trace_writer=trace_writer,
         enable_egress_check=False,
     )
-    run = trace_writer.create_run("agent", kind="agent")
-    trace_writer.update_run_status(run.id, "running")
+    run = await trace_writer.create_run("agent", kind="agent")
+    await trace_writer.update_run_status(run.id, "running")
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -702,9 +703,9 @@ async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
     assert interrupted["status"] == "waiting_approval"
     assert interrupted["checkpoint"]["schema_version"] == 1
     assert base_tool_port.calls == [("tool:test:echo", {"value": "first"})]
-    interrupted_records = db.execute(
+    interrupted_records = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().all()
+    )).scalars().all()
     assert {record.tool_call_id: record.status for record in interrupted_records} == {
         "call_first": "succeeded",
         "call_gated": "waiting_approval",
@@ -732,9 +733,9 @@ async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
         ("tool:test:echo", {"value": "first"}),
         ("tool:test:echo", {"value": "gated"}),
     ]
-    resumed_records = db.execute(
+    resumed_records = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().all()
+    )).scalars().all()
     assert len(resumed_records) == 2
     resumed_gated = next(
         record for record in resumed_records if record.tool_call_id == "call_gated"
@@ -745,7 +746,7 @@ async def test_agent_approval_resume_continues_from_durable_checkpoint(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_approval_resume_rejects_edited_tool_arguments(db, ctx):
+async def test_agent_approval_resume_rejects_edited_tool_arguments(async_db, ctx):
     gated_call = ToolCall(
         id="call_gated_edit",
         name="tool:test:echo",
@@ -773,11 +774,11 @@ async def test_agent_approval_resume_rejects_edited_tool_arguments(db, ctx):
                 approval_payload={"title": "Approve gated tool"},
             )
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run("agent", kind="agent")
-    trace_writer.update_run_status(run.id, "running")
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run("agent", kind="agent")
+    await trace_writer.update_run_status(run.id, "running")
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -810,7 +811,7 @@ async def test_agent_approval_resume_rejects_edited_tool_arguments(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_emits_only_the_verified_authoritative_response(db, ctx):
+async def test_agent_emits_only_the_verified_authoritative_response(async_db, ctx):
     llm_port = QueueLLMPort(
         [
             ChatResponse(
@@ -836,7 +837,7 @@ async def test_agent_emits_only_the_verified_authoritative_response(db, ctx):
     )
     emitter = CollectingEmitter()
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -850,7 +851,7 @@ async def test_agent_emits_only_the_verified_authoritative_response(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_run_executes_plugin_exported_tool_ref(db, ctx):
+async def test_agent_run_executes_plugin_exported_tool_ref(async_db, ctx):
     """Agent executes plugin-exported tools through explicit tool_refs."""
     reg = get_registry()
     reg.register(
@@ -876,7 +877,7 @@ async def test_agent_run_executes_plugin_exported_tool_ref(db, ctx):
     ])
     tool_port = StubToolPort(ToolResponse(result={"ok": True}))
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -891,7 +892,7 @@ async def test_agent_run_executes_plugin_exported_tool_ref(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_details_use_plugin_source_kind(db, ctx):
+async def test_agent_tool_details_use_plugin_source_kind(async_db, ctx):
     """Agent records plugin-exported tool calls as plugin tool type."""
     tc = ToolCall(id="call_1", name="tool:http:plugin_echo", arguments={"value": "hi"})
     llm_port = QueueLLMPort([
@@ -911,7 +912,7 @@ async def test_agent_tool_details_use_plugin_source_kind(db, ctx):
         )
     )
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=tool_port,
@@ -925,7 +926,7 @@ async def test_agent_tool_details_use_plugin_source_kind(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_respects_tool_budget(db, ctx):
+async def test_agent_respects_tool_budget(async_db, ctx):
     """Agent stops when tool budget exceeded."""
     tc = ToolCall(id="call_1", name="tool:test:echo", arguments={"value": "hi"})
     llm_port = QueueLLMPort([
@@ -934,7 +935,7 @@ async def test_agent_respects_tool_budget(db, ctx):
     tool_port = StubToolPort(ToolResponse(result="done"))
     resolver = _make_stub_resolver()
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
         tool_resolver=resolver,
     )
 
@@ -949,7 +950,7 @@ async def test_agent_respects_tool_budget(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_emits_events(db, ctx):
+async def test_agent_emits_events(async_db, ctx):
     """EventEmitter receives lifecycle events."""
     llm_port = QueueLLMPort([
         ChatResponse(text="done", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
@@ -958,7 +959,7 @@ async def test_agent_emits_events(db, ctx):
     resolver = _make_stub_resolver()
     emitter = CollectingEmitter()
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
         tool_resolver=resolver,
     )
 
@@ -976,7 +977,7 @@ async def test_agent_emits_events(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_cost_budget(db, ctx, monkeypatch):
+async def test_agent_cost_budget(async_db, ctx, monkeypatch):
     """Agent stops when cost budget exceeded."""
     llm_port = QueueLLMPort([
         ChatResponse(text="ok", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
@@ -984,10 +985,13 @@ async def test_agent_cost_budget(db, ctx, monkeypatch):
     tool_port = StubToolPort(ToolResponse(result="done"))
     resolver = _make_stub_resolver()
     service = AgentService(
-        db=db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=tool_port,
         tool_resolver=resolver,
     )
-    monkeypatch.setattr(service, "_get_cost_total", lambda run_id, currency: 10.0)
+    async def _cost_total(_run_id, _currency):
+        return 10.0
+
+    monkeypatch.setattr(service, "_get_cost_total", _cost_total)
 
     request = _runtime_request(
         max_cost=1.0,
@@ -1000,7 +1004,7 @@ async def test_agent_cost_budget(db, ctx, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
+async def test_agent_does_not_duplicate_llm_policy_cost_entries(async_db, ctx):
     """Agent fallback cost recording should not duplicate entries from an LLM policy port."""
 
     class PolicyRecordingLLMPort(QueueLLMPort):
@@ -1014,7 +1018,7 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
                 tool_choice=tool_choice,
                 **kwargs,
             )
-            trace_writer.record_cost(
+            await trace_writer.record_cost(
                 run_id=kwargs["run_id"],
                 step_id=None,
                 billing_basis="tokens",
@@ -1026,12 +1030,12 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
             )
             return response
 
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     llm_port = PolicyRecordingLLMPort([
         ChatResponse(text="policy cost", tokens_prompt=2, tokens_completion=3, finish_reason="stop"),
     ])
     service = AgentService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         llm_port=llm_port,
         tool_port=StubToolPort(ToolResponse(result="done")),
@@ -1041,9 +1045,9 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(db, ctx):
 
     result = await service.run(_runtime_request(verify=False))
 
-    entries = db.exec(
+    entries = (await async_db.exec(
         select(RunCostEntry).where(RunCostEntry.run_id == result["run_id"], RunCostEntry.billing_basis == "tokens")
-    ).all()
+    )).all()
     entries = [entry if hasattr(entry, "id") else entry[0] for entry in entries]
     assert len(entries) == 1
     assert entries[0].prompt_tokens == 2

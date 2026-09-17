@@ -27,14 +27,14 @@ class _FakeResponseService:
             )
         ]
 
-    def list_response_events(self, response_id, *, limit, offset, after_sequence=None):
+    async def list_response_events(self, response_id, *, limit, offset, after_sequence=None):
         assert response_id == "resp_test"
         assert limit == 1000
         assert offset == 0
         cursor = after_sequence or 0
         return [event for event in self._events if event.sequence > cursor]
 
-    def get_response(self, response_id):
+    async def get_response(self, response_id):
         assert response_id == "resp_test"
         self._status_reads += 1
         status = "running" if self._status_reads == 1 else "succeeded"
@@ -63,7 +63,7 @@ class _AgUiTerminalWindowService(_FakeResponseService):
         self._event_reads = 0
         self._interaction_reads = 0
 
-    def list_response_events(self, response_id, *, limit, offset, after_sequence=None):
+    async def list_response_events(self, response_id, *, limit, offset, after_sequence=None):
         self._event_reads += 1
         events = list(self._events)
         if self._event_reads >= 2:
@@ -79,13 +79,13 @@ class _AgUiTerminalWindowService(_FakeResponseService):
         cursor = after_sequence or 0
         return [event for event in events if event.sequence > cursor]
 
-    def get_response(self, response_id):
+    async def get_response(self, response_id):
         return SimpleNamespace(
             status="succeeded",
             metadata_json={"interaction_id": "run"},
         )
 
-    def get_interaction(self, interaction_id):
+    async def get_interaction(self, interaction_id):
         assert interaction_id == "run"
         self._interaction_reads += 1
         return SimpleNamespace(
@@ -130,7 +130,7 @@ class _SegmentedResponseService(_FakeResponseService):
             ),
         ]
 
-    def list_response_events(
+    async def list_response_events(
         self,
         response_id,
         *,
@@ -146,13 +146,13 @@ class _SegmentedResponseService(_FakeResponseService):
             if event.sequence > cursor and event.interaction_id == interaction_id
         ]
 
-    def get_response(self, response_id):
+    async def get_response(self, response_id):
         return SimpleNamespace(
             status="succeeded",
             metadata_json={"interaction_id": "interaction_parent"},
         )
 
-    def get_interaction(self, interaction_id):
+    async def get_interaction(self, interaction_id):
         assert interaction_id == "interaction_child"
         return SimpleNamespace(status="succeeded")
 

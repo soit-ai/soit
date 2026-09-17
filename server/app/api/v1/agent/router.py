@@ -302,7 +302,7 @@ async def stream_agent(
     interaction_id = generate_response_interaction_id()
     agent_inputs = data.model_dump(exclude_none=True, exclude_unset=True)
     response_service = projection_coordinator.response_service
-    response_service.claim_interaction(
+    await response_service.claim_interaction(
         interaction_id=interaction_id,
         parent_interaction_id=None,
         thread_id="",

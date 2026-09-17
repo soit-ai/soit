@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -17,7 +17,7 @@ from app.modules.plugin.domain.models import PluginInstalledArtifact
 class DatabaseSkillRuntimePort(PluginRuntimePort):
     """Resolve installed plugin skills into agent runtime context."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
     def list_tools(self, *, plugin_name: str, version: str, ctx: RequestContext) -> list[dict[str, Any]]:
@@ -35,15 +35,18 @@ class DatabaseSkillRuntimePort(PluginRuntimePort):
     ) -> dict[str, Any]:
         raise ValidationError("Skill runtime does not invoke plugin tools")
 
-    def resolve_skill_context(
+    async def resolve_skill_context(
         self,
         *,
         skill_refs: list[str],
         ctx: RequestContext,
     ) -> str | None:
+        if not skill_refs:
+            return None
+        artifacts = await self._enabled_skills(ctx)
         blocks: list[str] = []
         for skill_ref in skill_refs:
-            artifact = self._find_enabled_skill(skill_ref=skill_ref, ctx=ctx)
+            artifact = self._match_skill(artifacts, skill_ref)
             if not artifact:
                 continue
             blocks.append(f"[{skill_ref}]\n{self._render_instruction(artifact)}")
@@ -51,8 +54,7 @@ class DatabaseSkillRuntimePort(PluginRuntimePort):
             return None
         return "Bound skill context:\n" + "\n\n".join(blocks)
 
-    def _find_enabled_skill(self, *, skill_ref: str, ctx: RequestContext) -> PluginInstalledArtifact | None:
-        skill_key = skill_ref.split(":", 1)[1] if skill_ref.startswith("skill:") else skill_ref
+    async def _enabled_skills(self, ctx: RequestContext) -> list[PluginInstalledArtifact]:
         query = select(PluginInstalledArtifact).where(
             and_(
                 PluginInstalledArtifact.tenant_id == ctx.tenant_id,
@@ -62,8 +64,14 @@ class DatabaseSkillRuntimePort(PluginRuntimePort):
                 PluginInstalledArtifact.state == "enabled",
             )
         )
-        for row in list(self.db.exec(query).all()):
-            artifact = row[0] if hasattr(row, "__getitem__") and not isinstance(row, PluginInstalledArtifact) else row
+        return list((await self.db.exec(query)).scalars().all())
+
+    @staticmethod
+    def _match_skill(
+        artifacts: list[PluginInstalledArtifact], skill_ref: str
+    ) -> PluginInstalledArtifact | None:
+        skill_key = skill_ref.split(":", 1)[1] if skill_ref.startswith("skill:") else skill_ref
+        for artifact in artifacts:
             skill = (artifact.metadata_json or {}).get("skill") or {}
             name = str(skill.get("name") or artifact.artifact_ref.split(":", 1)[-1])
             if artifact.artifact_ref == skill_ref or artifact.artifact_ref == f"skill:{skill_key}" or name == skill_key:

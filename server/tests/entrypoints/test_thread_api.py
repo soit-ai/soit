@@ -1,14 +1,16 @@
 """Entrypoint tests for runtime thread APIs."""
 
+import pytest
 from fastapi import status
 
 from app.kernel.runtime.threads.service import ThreadService
 
 
-def test_thread_api_create_get_update_and_delete(client):
+@pytest.mark.asyncio
+async def test_thread_api_create_get_update_and_delete(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-    create_response = client.post(
+    create_response = await async_client.post(
         "/api/v1/threads",
         json={
             "agent_id": "agent_demo",
@@ -29,11 +31,11 @@ def test_thread_api_create_get_update_and_delete(client):
     assert payload["message_count"] == 0
     assert payload["metadata_json"]["source"] == "responses.chat"
 
-    get_response = client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    get_response = await async_client.get(f"/api/v1/threads/{thread_id}", headers=headers)
     assert get_response.status_code == status.HTTP_200_OK
     assert get_response.json()["data"]["thread"]["id"] == thread_id
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/api/v1/threads/{thread_id}",
         json={"title": "Response chat renamed", "summary": "short summary"},
         headers=headers,
@@ -42,34 +44,36 @@ def test_thread_api_create_get_update_and_delete(client):
     assert update_response.json()["data"]["title"] == "Response chat renamed"
     assert update_response.json()["data"]["summary"] == "short summary"
 
-    delete_response = client.delete(f"/api/v1/threads/{thread_id}", headers=headers)
+    delete_response = await async_client.delete(f"/api/v1/threads/{thread_id}", headers=headers)
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_thread_api_searches_titles_and_message_content(client, db, ctx):
+@pytest.mark.asyncio
+async def test_thread_api_searches_titles_and_message_content(async_client, async_db, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    runtime = ThreadService(db, ctx)
-    billing_thread = runtime.create_thread(agent_id="agent_demo", title="Billing escalation")
-    runtime.append_message(
+    runtime = ThreadService(async_db, ctx)
+    billing_thread = await runtime.create_thread(agent_id="agent_demo", title="Billing escalation")
+    await runtime.append_message(
         thread_id=billing_thread.id,
         role="user",
         content="The enterprise ticket mentions an SSO outage in ACME.",
     )
-    runtime.create_thread(agent_id="agent_demo", title="Product notes")
+    await runtime.create_thread(agent_id="agent_demo", title="Product notes")
 
-    title_response = client.get("/api/v1/threads?search=billing", headers=headers)
+    title_response = await async_client.get("/api/v1/threads?search=billing", headers=headers)
     assert title_response.status_code == status.HTTP_200_OK
     assert [item["id"] for item in title_response.json()["data"]["items"]] == [billing_thread.id]
 
-    message_response = client.get("/api/v1/threads?search=sso%20outage", headers=headers)
+    message_response = await async_client.get("/api/v1/threads?search=sso%20outage", headers=headers)
     assert message_response.status_code == status.HTTP_200_OK
     assert [item["id"] for item in message_response.json()["data"]["items"]] == [billing_thread.id]
 
 
-def test_thread_api_returns_tool_call_details_for_chat_history(client, db, ctx):
+@pytest.mark.asyncio
+async def test_thread_api_returns_tool_call_details_for_chat_history(async_client, async_db, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    runtime = ThreadService(db, ctx)
-    thread = runtime.create_thread(agent_id="agent_demo", title="Tool call history")
+    runtime = ThreadService(async_db, ctx)
+    thread = await runtime.create_thread(agent_id="agent_demo", title="Tool call history")
     tool_calls = [
         {
             "tool_call_id": "call_ticket_lookup",
@@ -90,7 +94,7 @@ def test_thread_api_returns_tool_call_details_for_chat_history(client, db, ctx):
             "metadata_json": {},
         },
     ]
-    runtime.append_message(
+    await runtime.append_message(
         thread_id=thread.id,
         role="assistant",
         content="Verified account and opened the ticket workflow.",
@@ -103,7 +107,7 @@ def test_thread_api_returns_tool_call_details_for_chat_history(client, db, ctx):
         tool_calls_json=tool_calls,
     )
 
-    response = client.get(f"/api/v1/threads/{thread.id}", headers=headers)
+    response = await async_client.get(f"/api/v1/threads/{thread.id}", headers=headers)
     assert response.status_code == status.HTTP_200_OK
     messages = response.json()["data"]["messages"]
     assistant_message = next(message for message in messages if message["role"] == "assistant")

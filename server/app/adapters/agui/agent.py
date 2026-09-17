@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
@@ -28,7 +29,7 @@ class PersistentAgUiAgentEmitter:
         thread_id: str,
         assistant_message_id: str | None = None,
         queue: asyncio.Queue[dict[str, Any] | None] | None = None,
-        lease_guard: Callable[[], None] | None = None,
+        lease_guard: Callable[[], Awaitable[None] | None] | None = None,
     ) -> None:
         self.response_service = response_service
         self.interaction_id = interaction_id
@@ -46,15 +47,17 @@ class PersistentAgUiAgentEmitter:
         self.text_ended = False
         self.terminal_emitted = False
 
-    def _ensure_lease(self) -> None:
+    async def _ensure_lease(self) -> None:
         if self.lease_guard is not None:
-            self.lease_guard()
+            outcome = self.lease_guard()
+            if inspect.isawaitable(outcome):
+                await outcome
 
     async def _persist(self, event: InteractionProtocolEvent) -> None:
-        self._ensure_lease()
+        await self._ensure_lease()
         if self.response is None:
             raise RuntimeError("AG-UI Agent emitter is not bound to a response")
-        stored = self.response_service.append_event(
+        stored = await self.response_service.append_event(
             response=self.response,
             event_type=event.type,
             payload=event.payload,
@@ -62,7 +65,7 @@ class PersistentAgUiAgentEmitter:
             protocol_version=self.protocol.protocol_version,
             interaction_id=self.interaction_id,
         )
-        self.response_service.publish_persisted_event(stored)
+        await self.response_service.publish_persisted_event(stored)
         if self.queue is not None:
             await self.queue.put(
                 {
@@ -74,7 +77,7 @@ class PersistentAgUiAgentEmitter:
     async def bind_response(self, response: Response, *, request_hash: str = "") -> None:
         """Bind SOIT resources and emit the opening interaction events."""
 
-        self._ensure_lease()
+        await self._ensure_lease()
         response.metadata_json = {
             **(response.metadata_json or {}),
             "protocol": "ag-ui",
@@ -82,22 +85,22 @@ class PersistentAgUiAgentEmitter:
             "interaction_id": self.interaction_id,
             "parent_interaction_id": self.parent_interaction_id,
         }
-        response = self.response_service.save_response(response)
+        response = await self.response_service.save_response(response)
         self.response = response
-        self.response_service.create_interaction(
+        await self.response_service.create_interaction(
             interaction_id=self.interaction_id,
             parent_interaction_id=self.parent_interaction_id,
             response=response,
             request_hash=request_hash or self.interaction_id,
         )
         if self.parent_interaction_id:
-            parent = self.response_service.get_interaction(self.parent_interaction_id)
+            parent = await self.response_service.get_interaction(self.parent_interaction_id)
             if (
                 parent is not None
                 and parent.status == "resuming"
                 and parent.resume_interaction_id == self.interaction_id
             ):
-                self.response_service.update_interaction_status(
+                await self.response_service.update_interaction_status(
                     self.parent_interaction_id,
                     "succeeded",
                 )
@@ -113,7 +116,7 @@ class PersistentAgUiAgentEmitter:
         )
 
     async def __call__(self, event: str, data: dict[str, Any]) -> None:
-        self._ensure_lease()
+        await self._ensure_lease()
         if event == "agent.interaction.finished":
             result = dict(data.get("result") or {})
             if result.get("status") == "waiting_approval":
@@ -251,11 +254,11 @@ class PersistentAgUiAgentEmitter:
             )
 
     async def interrupt(self, result: dict[str, Any]) -> None:
-        self._ensure_lease()
+        await self._ensure_lease()
         if self.terminal_emitted:
             return
         interrupt = dict(result.get("interrupt") or {})
-        self.response_service.update_interaction_status(
+        await self.response_service.update_interaction_status(
             self.interaction_id,
             "waiting_approval",
         )
@@ -269,7 +272,7 @@ class PersistentAgUiAgentEmitter:
         self.terminal_emitted = True
 
     async def complete(self, result: dict[str, Any]) -> None:
-        self._ensure_lease()
+        await self._ensure_lease()
         if self.terminal_emitted:
             return
         if not self.text_started:
@@ -319,7 +322,7 @@ class PersistentAgUiAgentEmitter:
                 },
             )
         )
-        self.response_service.update_interaction_status(self.interaction_id, "succeeded")
+        await self.response_service.update_interaction_status(self.interaction_id, "succeeded")
         await self._persist(
             self.protocol.run_finished(
                 thread_id=self.thread_id,
@@ -337,7 +340,7 @@ class PersistentAgUiAgentEmitter:
         self.terminal_emitted = True
 
     async def fail(self, error: Exception) -> None:
-        self._ensure_lease()
+        await self._ensure_lease()
         if self.terminal_emitted:
             return
         if getattr(error, "code", None) == "AGENT_RUN_CANCELED":
@@ -353,7 +356,7 @@ class PersistentAgUiAgentEmitter:
     ) -> None:
         if self.response is None or self.terminal_emitted:
             return
-        self.response_service.update_interaction_status(self.interaction_id, "failed")
+        await self.response_service.update_interaction_status(self.interaction_id, "failed")
         if not self.text_started:
             await self._persist(
                 self.protocol.text_started(message_id=self.assistant_message_id)
@@ -383,10 +386,10 @@ class PersistentAgUiAgentEmitter:
     async def cancel(self) -> None:
         """Persist or forward the single cancellation terminal for this interaction."""
 
-        self._ensure_lease()
+        await self._ensure_lease()
         if self.response is None or self.terminal_emitted:
             return
-        events = self.response_service.list_response_events(
+        events = await self.response_service.list_response_events(
             self.response.id,
             limit=10_000,
             offset=0,
@@ -400,7 +403,7 @@ class PersistentAgUiAgentEmitter:
             ),
             None,
         )
-        self.response_service.update_interaction_status(self.interaction_id, "canceled")
+        await self.response_service.update_interaction_status(self.interaction_id, "canceled")
         if existing is None:
             if self.text_started and not self.text_ended:
                 await self._persist(
@@ -420,7 +423,7 @@ class PersistentAgUiAgentEmitter:
                     "data": existing.payload_json,
                 }
             )
-            self.response_service.db.commit()
+            await self.response_service.db.commit()
         self.terminal_emitted = True
 
     async def done(self) -> None:

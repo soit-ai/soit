@@ -1,8 +1,8 @@
 """Entry-point tests for the Responses API."""
 
-import asyncio
 import json
 
+import pytest
 from fastapi import status
 
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
@@ -61,21 +61,22 @@ def _parse_agui_sse(body: str) -> tuple[list[str], list[dict]]:
     return event_ids, events
 
 
-def _stream_agui_response(client, *, headers: dict, payload: dict) -> tuple[list[str], list[dict]]:
-    with client.stream(
+async def _stream_agui_response(async_client, *, headers: dict, payload: dict) -> tuple[list[str], list[dict]]:
+    async with async_client.stream(
         "POST",
         "/api/v1/responses",
         json=payload,
         headers=headers,
     ) as response:
         assert response.status_code == status.HTTP_200_OK
-        body = response.read().decode("utf-8")
+        body = (await response.aread()).decode("utf-8")
     return _parse_agui_sse(body)
 
 
-def test_responses_api_accepts_agui_run_input_and_streams_standard_events(client):
+@pytest.mark.asyncio
+async def test_responses_api_accepts_agui_run_input_and_streams_standard_events(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI contract"},
         headers=headers,
@@ -83,7 +84,7 @@ def test_responses_api_accepts_agui_run_input_and_streams_standard_events(client
     assert thread_response.status_code == status.HTTP_201_CREATED
     thread_id = thread_response.json()["data"]["id"]
 
-    with client.stream(
+    async with async_client.stream(
         "POST",
         "/api/v1/responses",
         json=_agui_run_input(
@@ -95,7 +96,7 @@ def test_responses_api_accepts_agui_run_input_and_streams_standard_events(client
     ) as response:
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["content-type"].startswith("text/event-stream")
-        body = response.read().decode("utf-8")
+        body = (await response.aread()).decode("utf-8")
 
     event_ids, events = _parse_agui_sse(body)
     event_types = [event["type"] for event in events]
@@ -121,15 +122,16 @@ def test_responses_api_accepts_agui_run_input_and_streams_standard_events(client
     ]
 
 
-def test_agui_request_resolves_governed_attachments_into_the_thread_ledger(client):
+@pytest.mark.asyncio
+async def test_agui_request_resolves_governed_attachments_into_the_thread_ledger(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    uploaded = client.post(
+    uploaded = await async_client.post(
         "/api/v1/attachments",
         files={"file": ("context.txt", b"governed attachment context", "text/plain")},
         headers=headers,
     )
     attachment_id = uploaded.json()["data"]["id"]
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI governed attachment"},
         headers=headers,
@@ -142,10 +144,10 @@ def test_agui_request_resolves_governed_attachments_into_the_thread_ledger(clien
     )
     payload["forwardedProps"]["soit"]["attachmentIds"] = [attachment_id]
 
-    _, events = _stream_agui_response(client, headers=headers, payload=payload)
+    _, events = await _stream_agui_response(async_client, headers=headers, payload=payload)
 
     assert events[-1]["type"] == "RUN_FINISHED"
-    detail = client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    detail = await async_client.get(f"/api/v1/threads/{thread_id}", headers=headers)
     user_message = detail.json()["data"]["messages"][0]
     assert user_message["attachments_json"] == [
         {
@@ -161,16 +163,17 @@ def test_agui_request_resolves_governed_attachments_into_the_thread_ledger(clien
     assert "governed attachment context" not in str(user_message["metadata_json"])
 
 
-def test_agui_regenerate_creates_an_assistant_branch_without_duplicating_the_user(client):
+@pytest.mark.asyncio
+async def test_agui_regenerate_creates_an_assistant_branch_without_duplicating_the_user(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI regenerate branch"},
         headers=headers,
     )
     thread_id = thread_response.json()["data"]["id"]
-    _, first_events = _stream_agui_response(
-        client,
+    _, first_events = await _stream_agui_response(
+        async_client,
         headers=headers,
         payload=_agui_run_input(
             thread_id=thread_id,
@@ -178,7 +181,7 @@ def test_agui_regenerate_creates_an_assistant_branch_without_duplicating_the_use
             content="Give me two alternatives",
         ),
     )
-    first_detail = client.get(f"/api/v1/threads/{thread_id}", headers=headers).json()["data"]
+    first_detail = (await async_client.get(f"/api/v1/threads/{thread_id}", headers=headers)).json()["data"]
     user = first_detail["messages"][0]
 
     regenerate_payload = _agui_run_input(
@@ -187,13 +190,13 @@ def test_agui_regenerate_creates_an_assistant_branch_without_duplicating_the_use
         content=user["content"],
     )
     regenerate_payload["messages"][0]["id"] = user["id"]
-    _, second_events = _stream_agui_response(
-        client,
+    _, second_events = await _stream_agui_response(
+        async_client,
         headers=headers,
         payload=regenerate_payload,
     )
 
-    detail = client.get(f"/api/v1/threads/{thread_id}", headers=headers).json()["data"]
+    detail = (await async_client.get(f"/api/v1/threads/{thread_id}", headers=headers)).json()["data"]
     users = [message for message in detail["messages"] if message["role"] == "user"]
     assistants = [message for message in detail["messages"] if message["role"] == "assistant"]
     assert [message["id"] for message in users] == [user["id"]]
@@ -205,13 +208,14 @@ def test_agui_regenerate_creates_an_assistant_branch_without_duplicating_the_use
     second_response_id = next(
         event["value"]["responseId"] for event in second_events if event.get("name") == "soit.resources"
     )
-    first_response = client.get(f"/api/v1/responses/{first_response_id}", headers=headers).json()["data"]
-    second_response = client.get(f"/api/v1/responses/{second_response_id}", headers=headers).json()["data"]
+    first_response = (await async_client.get(f"/api/v1/responses/{first_response_id}", headers=headers)).json()["data"]
+    second_response = (await async_client.get(f"/api/v1/responses/{second_response_id}", headers=headers)).json()["data"]
     assert first_response["metadata_json"]["branch_id"]
     assert second_response["metadata_json"]["branch_id"] == first_response["metadata_json"]["branch_id"]
 
 
-def test_agui_direct_mode_uses_the_detached_interaction_executor(client):
+@pytest.mark.asyncio
+async def test_agui_direct_mode_uses_the_detached_interaction_executor(async_client):
     from app.api.v1.responses.dependencies import get_response_interaction_executor
     from app.main import app
 
@@ -252,14 +256,14 @@ def test_agui_direct_mode_uses_the_detached_interaction_executor(client):
     app.dependency_overrides[get_response_interaction_executor] = lambda: execute_interaction
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     try:
-        thread_response = client.post(
+        thread_response = await async_client.post(
             "/api/v1/threads",
             json={"title": "Detached AG-UI direct contract"},
             headers=headers,
         )
         thread_id = thread_response.json()["data"]["id"]
-        event_ids, events = _stream_agui_response(
-            client,
+        event_ids, events = await _stream_agui_response(
+            async_client,
             headers=headers,
             payload=_agui_run_input(
                 thread_id=thread_id,
@@ -282,16 +286,17 @@ def test_agui_direct_mode_uses_the_detached_interaction_executor(client):
     assert [event["type"] for event in events] == ["RUN_STARTED", "RUN_FINISHED"]
 
 
-def test_agui_events_persist_envelope_and_replay_after_sequence(client):
+@pytest.mark.asyncio
+async def test_agui_events_persist_envelope_and_replay_after_sequence(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI replay"},
         headers=headers,
     )
     thread_id = thread_response.json()["data"]["id"]
-    event_ids, live_events = _stream_agui_response(
-        client,
+    event_ids, live_events = await _stream_agui_response(
+        async_client,
         headers=headers,
         payload=_agui_run_input(
             thread_id=thread_id,
@@ -302,7 +307,7 @@ def test_agui_events_persist_envelope_and_replay_after_sequence(client):
     resources_event = next(event for event in live_events if event.get("name") == "soit.resources")
     response_id = resources_event["value"]["responseId"]
 
-    events_response = client.get(
+    events_response = await async_client.get(
         f"/api/v1/responses/{response_id}/events",
         params={"after_sequence": 3, "page_size": 100},
         headers=headers,
@@ -315,7 +320,7 @@ def test_agui_events_persist_envelope_and_replay_after_sequence(client):
     assert all(event["interaction_id"] == "interaction_replay_1" for event in stored_events)
     assert all(event["visibility"] == "user" for event in stored_events)
 
-    replay_response = client.get(
+    replay_response = await async_client.get(
         f"/api/v1/responses/{response_id}/stream",
         params={"after_sequence": 3},
         headers=headers,
@@ -325,7 +330,7 @@ def test_agui_events_persist_envelope_and_replay_after_sequence(client):
     assert replay_ids == event_ids[3:]
     assert replay_events == live_events[3:]
 
-    header_replay_response = client.get(
+    header_replay_response = await async_client.get(
         f"/api/v1/responses/{response_id}/stream",
         headers={**headers, "Last-Event-ID": event_ids[2]},
     )
@@ -335,9 +340,10 @@ def test_agui_events_persist_envelope_and_replay_after_sequence(client):
     assert header_replay_events == live_events[3:]
 
 
-def test_agui_interaction_id_is_idempotent(client):
+@pytest.mark.asyncio
+async def test_agui_interaction_id_is_idempotent(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI idempotency"},
         headers=headers,
@@ -349,8 +355,8 @@ def test_agui_interaction_id_is_idempotent(client):
         content="run once",
     )
 
-    _, first_events = _stream_agui_response(client, headers=headers, payload=payload)
-    _, second_events = _stream_agui_response(client, headers=headers, payload=payload)
+    _, first_events = await _stream_agui_response(async_client, headers=headers, payload=payload)
+    _, second_events = await _stream_agui_response(async_client, headers=headers, payload=payload)
     first_resources = next(event for event in first_events if event.get("name") == "soit.resources")
     second_resources = next(event for event in second_events if event.get("name") == "soit.resources")
 
@@ -359,22 +365,23 @@ def test_agui_interaction_id_is_idempotent(client):
     assert second_events == first_events
 
 
-def test_agui_interaction_id_rejects_a_different_request_before_streaming(client):
+@pytest.mark.asyncio
+async def test_agui_interaction_id_rejects_a_different_request_before_streaming(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "AG-UI conflict"},
         headers=headers,
     )
     thread_id = thread_response.json()["data"]["id"]
     run_id = "interaction_conflict_1"
-    _stream_agui_response(
-        client,
+    await _stream_agui_response(
+        async_client,
         headers=headers,
         payload=_agui_run_input(thread_id=thread_id, run_id=run_id, content="first"),
     )
 
-    response = client.post(
+    response = await async_client.post(
         "/api/v1/responses",
         json=_agui_run_input(thread_id=thread_id, run_id=run_id, content="different"),
         headers=headers,
@@ -384,7 +391,8 @@ def test_agui_interaction_id_rejects_a_different_request_before_streaming(client
     assert response.json()["code"] == "CONFLICT"
 
 
-def test_agui_interaction_id_is_scoped_by_tenant_and_workspace(client):
+@pytest.mark.asyncio
+async def test_agui_interaction_id_is_scoped_by_tenant_and_workspace(async_client):
     from app.main import app
     from app.middleware.auth import get_current_context
 
@@ -411,15 +419,15 @@ def test_agui_interaction_id_is_scoped_by_tenant_and_workspace(client):
         )
         app.dependency_overrides[get_current_context] = context_override(current_context)
         headers = {"X-Tenant-Id": tenant_id, "X-Workspace-Id": workspace_id}
-        thread_response = client.post(
+        thread_response = await async_client.post(
             "/api/v1/threads",
             json={"title": "AG-UI scoped interaction"},
             headers=headers,
         )
         assert thread_response.status_code == status.HTTP_201_CREATED
         thread_id = thread_response.json()["data"]["id"]
-        _, events = _stream_agui_response(
-            client,
+        _, events = await _stream_agui_response(
+            async_client,
             headers=headers,
             payload=_agui_run_input(
                 thread_id=thread_id,
@@ -433,18 +441,19 @@ def test_agui_interaction_id_is_scoped_by_tenant_and_workspace(client):
     assert len(set(resource_ids)) == 3
 
 
-def test_agui_cancel_persists_a_replayable_terminal_event(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agui_cancel_persists_a_replayable_terminal_event(async_client, async_db, ctx):
     from app.kernel.runtime.responses.schemas import ResponseCreateRequest
 
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
     interaction_id = "interaction_cancel_contract"
-    response = service.create_response(
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             thread_id=None,
@@ -458,8 +467,8 @@ def test_agui_cancel_persists_a_replayable_terminal_event(client, db, ctx):
         ),
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    service.create_interaction(
+    response = await service.mark_running(response)
+    await service.create_interaction(
         interaction_id=interaction_id,
         parent_interaction_id=None,
         response=response,
@@ -467,7 +476,7 @@ def test_agui_cancel_persists_a_replayable_terminal_event(client, db, ctx):
     )
     protocol = AgUiInteractionProtocolAdapter()
     started = protocol.text_started(message_id="msg_cancel_contract")
-    service.append_event(
+    await service.append_event(
         response=response,
         event_type=started.type,
         payload=started.payload,
@@ -475,16 +484,16 @@ def test_agui_cancel_persists_a_replayable_terminal_event(client, db, ctx):
         protocol_version=protocol.protocol_version,
         interaction_id=interaction_id,
     )
-    db.commit()
+    await async_db.commit()
 
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    first = client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
-    second = client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
+    first = await async_client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
+    second = await async_client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
 
     assert first.status_code == status.HTTP_200_OK
     assert first.json()["data"]["response"]["status"] == "canceled"
     assert second.status_code == status.HTTP_200_OK
-    events_response = client.get(f"/api/v1/responses/{response.id}/events", headers=headers)
+    events_response = await async_client.get(f"/api/v1/responses/{response.id}/events", headers=headers)
     events = events_response.json()["data"]["items"]
     assert [event["type"] for event in events] == [
         "TEXT_MESSAGE_START",
@@ -502,33 +511,34 @@ def test_agui_cancel_persists_a_replayable_terminal_event(client, db, ctx):
         "runId": interaction_id,
         "result": {"status": "canceled", "finishReason": "cancelled"},
     }
-    replay = client.get(f"/api/v1/responses/{response.id}/stream", headers=headers)
+    replay = await async_client.get(f"/api/v1/responses/{response.id}/stream", headers=headers)
     _, replay_events = _parse_agui_sse(replay.text)
     assert replay_events == [event["payload_json"] for event in events]
-    assert service.get_interaction(interaction_id).status == "canceled"
+    assert (await service.get_interaction(interaction_id)).status == "canceled"
 
 
-def test_agui_cancel_cancels_a_queued_approval_resume_child(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agui_cancel_cancels_a_queued_approval_resume_child(async_client, async_db, ctx):
     from app.kernel.runtime.tasks.service import TaskService
 
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    run = service.trace_writer.create_run("agent", kind="agent")
-    service.trace_writer.update_run_status(run.id, "running")
-    task_service = TaskService(db, ctx)
-    task = task_service.create_task(
+    run = await service.trace_writer.create_run("agent", kind="agent")
+    await service.trace_writer.update_run_status(run.id, "running")
+    task_service = TaskService(async_db, ctx)
+    task = await task_service.create_task(
         task_type="agent.stream",
         status="running",
         agent_id="agent_cancel_resume",
         thread_id="thread_cancel_resume",
         run_id=run.id,
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id=run.id,
         thread_id="thread_cancel_resume",
         task_id=task.id,
@@ -540,8 +550,8 @@ def test_agui_cancel_cancels_a_queued_approval_resume_child(client, db, ctx):
         },
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    parent = service.create_interaction(
+    response = await service.mark_running(response)
+    parent = await service.create_interaction(
         interaction_id="interaction_cancel_resume_parent",
         parent_interaction_id=None,
         response=response,
@@ -549,29 +559,30 @@ def test_agui_cancel_cancels_a_queued_approval_resume_child(client, db, ctx):
     )
     parent.status = "resuming"
     parent.resume_interaction_id = "interaction_cancel_resume_child"
-    db.add(parent)
-    child, _ = service.claim_interaction(
+    async_db.add(parent)
+    child, _ = await service.claim_interaction(
         interaction_id="interaction_cancel_resume_child",
         parent_interaction_id=parent.interaction_id,
         thread_id="thread_cancel_resume",
         request_hash="hash_cancel_resume_child",
         execution_json={"mode": "agent"},
     )
-    task_service.transition_task(task_id=task.id, status="waiting_approval")
-    service.trace_writer.update_run_status(run.id, "waiting_approval")
-    db.commit()
+    await task_service.transition_task(task_id=task.id, status="waiting_approval")
+    await service.trace_writer.update_run_status(run.id, "waiting_approval")
+    await async_db.commit()
 
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    cancel = client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
+    cancel = await async_client.post(f"/api/v1/responses/{response.id}/cancel", headers=headers)
 
     assert cancel.status_code == status.HTTP_200_OK
-    db.expire_all()
-    assert service.get_response(response.id).status == "canceled"
-    assert task_service.get_task(task.id).status == "canceled"
-    assert db.get(Run, run.id).status == "canceled"
-    assert service.get_interaction(parent.interaction_id).status == "canceled"
-    assert service.get_interaction(child.interaction_id).status == "canceled"
-    events = service.list_response_events(
+    for row in (response, task, run, parent, child):
+        await async_db.refresh(row)
+    assert (await service.get_response(response.id)).status == "canceled"
+    assert (await task_service.get_task(task.id)).status == "canceled"
+    assert (await async_db.get(Run, run.id)).status == "canceled"
+    assert (await service.get_interaction(parent.interaction_id)).status == "canceled"
+    assert (await service.get_interaction(child.interaction_id)).status == "canceled"
+    events = await service.list_response_events(
         response.id,
         limit=100,
         offset=0,
@@ -581,7 +592,8 @@ def test_agui_cancel_cancels_a_queued_approval_resume_child(client, db, ctx):
     assert events[0].payload_json["result"]["status"] == "canceled"
 
 
-def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agui_agent_mode_uses_the_detached_agent_executor(async_client, async_db, ctx):
     from app.api.v1.agent.dependencies import get_agent_stream_executor
     from app.main import app
 
@@ -595,13 +607,13 @@ def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
         assert agent_id == "agent_contract"
         assert inputs["input"] == "use the time tool"
         service = ResponseService(
-            db=db,
+            db=async_db,
             ctx=ctx,
-            response_repo=ResponseRepository(db, ctx),
-            event_repo=ResponseEventRepository(db, ctx),
-            trace_writer=TraceWriter(db, ctx),
+            response_repo=ResponseRepository(async_db, ctx),
+            event_repo=ResponseEventRepository(async_db, ctx),
+            trace_writer=TraceWriter(async_db, ctx),
         )
-        response = service.create_linked_response(
+        response = await service.create_linked_response(
             run_id="run_agent_contract",
             thread_id=inputs["thread_id"],
             task_id="task_agent_contract",
@@ -610,7 +622,7 @@ def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
             metadata_json=response_metadata,
             emit_initial_events=False,
         )
-        response = service.mark_running(response)
+        response = await service.mark_running(response)
         assert on_response_started is not None
         await on_response_started(response, service)
         await event_emitter("agent.plan.started", {"iteration": 1})
@@ -634,7 +646,7 @@ def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
             },
         )
         await event_emitter("agent.response.succeeded", {"output": "It is 12:00."})
-        service.complete_response(
+        await service.complete_response(
             response=response,
             output_json={"text": "It is 12:00."},
             usage_json={"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
@@ -656,14 +668,14 @@ def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
     app.dependency_overrides[get_agent_stream_executor] = lambda: execute_agent
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     try:
-        thread_response = client.post(
+        thread_response = await async_client.post(
             "/api/v1/threads",
             json={"title": "AG-UI Agent contract"},
             headers=headers,
         )
         thread_id = thread_response.json()["data"]["id"]
-        _, events = _stream_agui_response(
-            client,
+        _, events = await _stream_agui_response(
+            async_client,
             headers=headers,
             payload=_agui_agent_run_input(
                 thread_id=thread_id,
@@ -687,7 +699,8 @@ def test_agui_agent_mode_uses_the_detached_agent_executor(client, db, ctx):
     assert resources["value"]["taskId"] == "task_agent_contract"
 
 
-def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agui_agent_approval_interrupt_resumes_the_same_resources(async_client, async_db, ctx):
     from app.api.v1.agent.dependencies import get_agent_stream_executor
     from app.kernel.runtime.tasks.service import TaskService
     from app.main import app
@@ -695,9 +708,9 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
     from app.modules.observe.application.service import ObserveService
 
     interrupt_id = "approval_contract_interrupt"
-    trace_writer = TraceWriter(db, ctx)
-    task_service = TaskService(db, ctx)
-    observe_service = ObserveService(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
+    task_service = TaskService(async_db, ctx)
+    observe_service = ObserveService(async_db, ctx)
     resource_ids: dict[str, str] = {}
 
     async def execute_agent(
@@ -708,30 +721,30 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
         response_metadata=None,
     ):
         service = ResponseService(
-            db=db,
+            db=async_db,
             ctx=ctx,
-            response_repo=ResponseRepository(db, ctx),
-            event_repo=ResponseEventRepository(db, ctx),
+            response_repo=ResponseRepository(async_db, ctx),
+            event_repo=ResponseEventRepository(async_db, ctx),
             trace_writer=trace_writer,
         )
         assert on_response_started is not None
         if not inputs.get("_agui_resume"):
-            run = trace_writer.create_run(
+            run = await trace_writer.create_run(
                 "agent",
                 kind="agent",
                 subject_kind="agent",
                 subject_id=agent_id,
                 subject_version_id="version_approval_contract",
             )
-            trace_writer.update_run_status(run.id, "running")
-            task = task_service.create_task(
+            await trace_writer.update_run_status(run.id, "running")
+            task = await task_service.create_task(
                 task_type="agent.stream",
                 status="running",
                 agent_id=agent_id,
                 thread_id=inputs["thread_id"],
                 run_id=run.id,
             )
-            response = service.create_linked_response(
+            response = await service.create_linked_response(
                 run_id=run.id,
                 thread_id=inputs["thread_id"],
                 task_id=task.id,
@@ -739,7 +752,7 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
                 metadata_json=response_metadata,
                 emit_initial_events=False,
             )
-            response = service.mark_running(response)
+            response = await service.mark_running(response)
             await on_response_started(response, service)
             approval = await observe_service.create_approval(
                 ApprovalCreate(
@@ -761,8 +774,8 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
                 response_id=response.id,
                 approval_id=approval.id,
             )
-            task_service.transition_task(task_id=task.id, status="waiting_approval")
-            trace_writer.update_run_status(run.id, "waiting_approval")
+            await task_service.transition_task(task_id=task.id, status="waiting_approval")
+            await trace_writer.update_run_status(run.id, "waiting_approval")
             interrupt = {
                 "id": interrupt_id,
                 "reason": "tool_call",
@@ -793,19 +806,19 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
             "response_id": resource_ids["response_id"],
         }
         assert inputs["_agui_resume"][0]["approval_status"] == "approved"
-        response = service.get_response(resource_ids["response_id"])
-        task_service.resume_task(task_id=resource_ids["task_id"])
-        trace_writer.update_run_status(resource_ids["run_id"], "running")
+        response = await service.get_response(resource_ids["response_id"])
+        await task_service.resume_task(task_id=resource_ids["task_id"])
+        await trace_writer.update_run_status(resource_ids["run_id"], "running")
         await on_response_started(response, service)
         await event_emitter("agent.response.succeeded", {"output": "Approved and completed."})
-        service.complete_response(
+        await service.complete_response(
             response=response,
             output_json={"text": "Approved and completed."},
             output_event_type=None,
             completed_event_type=None,
         )
-        task_service.transition_task(task_id=resource_ids["task_id"], status="succeeded")
-        trace_writer.update_run_status(resource_ids["run_id"], "succeeded")
+        await task_service.transition_task(task_id=resource_ids["task_id"], status="succeeded")
+        await trace_writer.update_run_status(resource_ids["run_id"], "succeeded")
         return {
             "run_id": resource_ids["run_id"],
             "response_id": response.id,
@@ -818,14 +831,14 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
     app.dependency_overrides[get_agent_stream_executor] = lambda: execute_agent
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
     try:
-        thread_response = client.post(
+        thread_response = await async_client.post(
             "/api/v1/threads",
             json={"title": "AG-UI approval contract"},
             headers=headers,
         )
         thread_id = thread_response.json()["data"]["id"]
-        _, interrupted_events = _stream_agui_response(
-            client,
+        _, interrupted_events = await _stream_agui_response(
+            async_client,
             headers=headers,
             payload=_agui_agent_run_input(
                 thread_id=thread_id,
@@ -834,15 +847,15 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
                 content="perform a sensitive action",
             ),
         )
-        decoy_run = trace_writer.create_run(
+        decoy_run = await trace_writer.create_run(
             "agent",
             kind="agent",
             subject_kind="agent",
             subject_id="agent_approval_contract",
         )
-        trace_writer.update_run_status(decoy_run.id, "running")
-        trace_writer.update_run_status(decoy_run.id, "waiting_approval")
-        decoy_task = task_service.create_task(
+        await trace_writer.update_run_status(decoy_run.id, "running")
+        await trace_writer.update_run_status(decoy_run.id, "waiting_approval")
+        decoy_task = await task_service.create_task(
             task_type="agent.stream",
             status="waiting_approval",
             agent_id="agent_approval_contract",
@@ -850,22 +863,22 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
             run_id=decoy_run.id,
         )
         response_service = ResponseService(
-            db=db,
+            db=async_db,
             ctx=ctx,
-            response_repo=ResponseRepository(db, ctx),
-            event_repo=ResponseEventRepository(db, ctx),
+            response_repo=ResponseRepository(async_db, ctx),
+            event_repo=ResponseEventRepository(async_db, ctx),
             trace_writer=trace_writer,
         )
-        decoy_response = response_service.create_linked_response(
+        decoy_response = await response_service.create_linked_response(
             run_id=decoy_run.id,
             thread_id=thread_id,
             task_id=decoy_task.id,
             agent_id="agent_approval_contract",
             emit_initial_events=False,
         )
-        response_service.mark_running(decoy_response)
-        decoy_approval = asyncio.run(
-            observe_service.create_approval(
+        await response_service.mark_running(decoy_response)
+        decoy_approval = (
+            await observe_service.create_approval(
                 ApprovalCreate(
                     run_id=decoy_run.id,
                     task_id=decoy_task.id,
@@ -876,7 +889,7 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
                 )
             )
         )
-        db.commit()
+        await async_db.commit()
         resume_payload = _agui_agent_run_input(
             thread_id=thread_id,
             run_id="interaction_approval_resume",
@@ -891,8 +904,8 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
                 "payload": {"decision": "approved"},
             }
         ]
-        _, resumed_events = _stream_agui_response(
-            client,
+        _, resumed_events = await _stream_agui_response(
+            async_client,
             headers=headers,
             payload=resume_payload,
         )
@@ -911,15 +924,16 @@ def test_agui_agent_approval_interrupt_resumes_the_same_resources(client, db, ct
     assert resumed_resources["taskId"] == resource_ids["task_id"]
     assert resumed_events[-1]["type"] == "RUN_FINISHED"
     assert resumed_events[-1]["result"]["status"] == "succeeded"
-    assert response_service.get_interaction("interaction_approval_first").status == "succeeded"
-    assert response_service.get_interaction("interaction_approval_resume").status == "succeeded"
+    assert (await response_service.get_interaction("interaction_approval_first")).status == "succeeded"
+    assert (await response_service.get_interaction("interaction_approval_resume")).status == "succeeded"
     assert observe_service.approval_repo.get_by_id(resource_ids["approval_id"]).status == "approved"
     assert observe_service.approval_repo.get_by_id(decoy_approval.id).status == "pending"
 
 
-def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
-    client,
-    db,
+@pytest.mark.asyncio
+async def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
+    async_client,
+    async_db,
     ctx,
     monkeypatch,
 ):
@@ -928,64 +942,64 @@ def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
     from app.modules.observe.application.service import ObserveService
 
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    thread_response = client.post(
+    thread_response = await async_client.post(
         "/api/v1/threads",
         json={"title": "Atomic approval resume"},
         headers=headers,
     )
     thread_id = thread_response.json()["data"]["id"]
-    trace_writer = TraceWriter(db, ctx)
-    task_service = TaskService(db, ctx)
-    observe_service = ObserveService(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
+    task_service = TaskService(async_db, ctx)
+    observe_service = ObserveService(async_db, ctx)
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         "agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_atomic_resume",
     )
-    trace_writer.update_run_status(run.id, "running")
-    task = task_service.create_task(
+    await trace_writer.update_run_status(run.id, "running")
+    task = await task_service.create_task(
         task_type="agent.stream",
         status="running",
         agent_id="agent_atomic_resume",
         thread_id=thread_id,
         run_id=run.id,
     )
-    response = response_service.create_linked_response(
+    response = await response_service.create_linked_response(
         run_id=run.id,
         thread_id=thread_id,
         task_id=task.id,
         agent_id="agent_atomic_resume",
         emit_initial_events=False,
     )
-    response = response_service.mark_running(response)
-    response_service.claim_interaction(
+    response = await response_service.mark_running(response)
+    await response_service.claim_interaction(
         interaction_id="interaction_atomic_parent",
         parent_interaction_id=None,
         thread_id=thread_id,
         request_hash="hash_atomic_parent",
     )
-    response_service.create_interaction(
+    await response_service.create_interaction(
         interaction_id="interaction_atomic_parent",
         parent_interaction_id=None,
         response=response,
         request_hash="hash_atomic_parent",
     )
-    response_service.update_interaction_status(
+    await response_service.update_interaction_status(
         "interaction_atomic_parent",
         "waiting_approval",
     )
-    task_service.transition_task(task_id=task.id, status="waiting_approval")
-    trace_writer.update_run_status(run.id, "waiting_approval")
-    approval = asyncio.run(
-        observe_service.create_approval(
+    await task_service.transition_task(task_id=task.id, status="waiting_approval")
+    await trace_writer.update_run_status(run.id, "waiting_approval")
+    approval = (
+        await observe_service.create_approval(
             ApprovalCreate(
                 run_id=run.id,
                 task_id=task.id,
@@ -996,7 +1010,7 @@ def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
             )
         )
     )
-    db.commit()
+    await async_db.commit()
 
     original_claim = ResponseService.claim_interaction
 
@@ -1021,23 +1035,24 @@ def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
         }
     ]
 
-    failed_response = client.post(
+    failed_response = await async_client.post(
         "/api/v1/responses",
         json=resume_payload,
         headers=headers,
     )
     assert failed_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
-    db.expire_all()
-    assert response_service.get_interaction("interaction_atomic_parent").status == "waiting_approval"
-    assert response_service.get_interaction("interaction_atomic_child") is None
+    await async_db.refresh(approval)
+    assert (await response_service.get_interaction("interaction_atomic_parent")).status == "waiting_approval"
+    assert await response_service.get_interaction("interaction_atomic_child") is None
     assert observe_service.approval_repo.get_by_id(approval.id).status == "pending"
 
 
-def test_responses_api_create_get_events_and_cancel(client):
+@pytest.mark.asyncio
+async def test_responses_api_create_get_events_and_cancel(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-    create_response = client.post(
+    create_response = await async_client.post(
         "/api/v1/responses",
         json={
             "model": "model:openai:gpt-5.1",
@@ -1063,11 +1078,11 @@ def test_responses_api_create_get_events_and_cancel(client):
 
     response_id = payload["id"]
 
-    get_response = client.get(f"/api/v1/responses/{response_id}", headers=headers)
+    get_response = await async_client.get(f"/api/v1/responses/{response_id}", headers=headers)
     assert get_response.status_code == status.HTTP_200_OK
     assert get_response.json()["data"]["id"] == response_id
 
-    events_response = client.get(f"/api/v1/responses/{response_id}/events", headers=headers)
+    events_response = await async_client.get(f"/api/v1/responses/{response_id}/events", headers=headers)
     assert events_response.status_code == status.HTTP_200_OK
     events_payload = events_response.json()["data"]
     assert len(events_payload["items"]) == 4
@@ -1076,13 +1091,13 @@ def test_responses_api_create_get_events_and_cancel(client):
     assert events_payload["items"][2]["type"] == "response.output_text.done"
     assert events_payload["items"][3]["type"] == "response.succeeded"
 
-    cancel_response = client.post(f"/api/v1/responses/{response_id}/cancel", headers=headers)
+    cancel_response = await async_client.post(f"/api/v1/responses/{response_id}/cancel", headers=headers)
     assert cancel_response.status_code == status.HTTP_200_OK
     cancel_payload = cancel_response.json()["data"]
     assert cancel_payload["action"] == "cancel"
     assert cancel_payload["response"]["status"] == "succeeded"
 
-    events_after_cancel = client.get(f"/api/v1/responses/{response_id}/events", headers=headers)
+    events_after_cancel = await async_client.get(f"/api/v1/responses/{response_id}/events", headers=headers)
     assert events_after_cancel.status_code == status.HTTP_200_OK
     event_types = [item["type"] for item in events_after_cancel.json()["data"]["items"]]
     assert event_types == [
@@ -1093,10 +1108,11 @@ def test_responses_api_create_get_events_and_cancel(client):
     ]
 
 
-def test_responses_api_rejects_removed_request_bound_stream_field(client):
+@pytest.mark.asyncio
+async def test_responses_api_rejects_removed_request_bound_stream_field(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-    response = client.post(
+    response = await async_client.post(
         "/api/v1/responses",
         json={
             "model": "model:openai:gpt-5.1",
@@ -1112,10 +1128,11 @@ def test_responses_api_rejects_removed_request_bound_stream_field(client):
     assert any(error["field"].endswith("stream") for error in errors)
 
 
-def test_responses_api_run_timeline(client):
+@pytest.mark.asyncio
+async def test_responses_api_run_timeline(async_client):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-    create_response = client.post(
+    create_response = await async_client.post(
         "/api/v1/responses",
         json={
             "model": "model:openai:gpt-5.1",
@@ -1127,7 +1144,7 @@ def test_responses_api_run_timeline(client):
     assert create_response.status_code == status.HTTP_201_CREATED
     payload = create_response.json()["data"]
 
-    timeline_response = client.get(
+    timeline_response = await async_client.get(
         f"/api/v1/responses/by-run/{payload['run_id']}",
         headers=headers,
     )

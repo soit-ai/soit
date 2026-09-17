@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
 from app.api.v1.responses.router import _DisconnectAwareQueue
@@ -20,19 +20,20 @@ from app.kernel.runtime.tasks.service import TaskService
 from app.wiring.response_interaction_worker import GlobalResponseInteractionWorker
 
 
-def _response_service(db, ctx) -> ResponseService:
+def _response_service(async_db, ctx) -> ResponseService:
     return ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
 
 
-def test_worker_claims_one_persisted_queued_interaction(db, ctx):
-    service = _response_service(db, ctx)
-    queued, owns_claim = service.claim_interaction(
+@pytest.mark.asyncio
+async def test_worker_claims_one_persisted_queued_interaction(async_db, ctx):
+    service = _response_service(async_db, ctx)
+    queued, owns_claim = await service.claim_interaction(
         interaction_id="interaction_worker_queue",
         parent_interaction_id=None,
         thread_id="thread_worker_queue",
@@ -45,11 +46,11 @@ def test_worker_claims_one_persisted_queued_interaction(db, ctx):
         },
     )
     worker = GlobalResponseInteractionWorker(
-        db_factory=lambda: db,
+        db_factory=lambda: async_db,
         worker_id="worker-test",
     )
 
-    claimed = worker._claim_next(db)
+    claimed = await worker._claim_next(async_db)
 
     assert owns_claim is True
     assert claimed is not None and claimed.id == queued.id
@@ -75,12 +76,12 @@ async def test_inline_event_queue_releases_blocked_producer_after_disconnect():
 
 @pytest.mark.asyncio
 async def test_worker_terminalizes_response_when_setup_fails_after_binding(
-    db,
+    async_db,
     ctx,
     monkeypatch,
 ):
-    service = _response_service(db, ctx)
-    response = service.create_response(
+    service = _response_service(async_db, ctx)
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             thread_id="thread_worker_setup_failure",
@@ -88,9 +89,9 @@ async def test_worker_terminalizes_response_when_setup_fails_after_binding(
         ),
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    service.trace_writer.update_run_status(response.run_id, "running")
-    interaction, _ = service.claim_interaction(
+    response = await service.mark_running(response)
+    await service.trace_writer.update_run_status(response.run_id, "running")
+    interaction, _ = await service.claim_interaction(
         interaction_id="interaction_worker_setup_failure",
         parent_interaction_id=None,
         thread_id="thread_worker_setup_failure",
@@ -106,13 +107,13 @@ async def test_worker_terminalizes_response_when_setup_fails_after_binding(
     response_run_id = response.run_id
     interaction_id = interaction.interaction_id
 
-    worker = GlobalResponseInteractionWorker(db_factory=lambda: db)
+    worker = GlobalResponseInteractionWorker(db_factory=lambda: async_db)
 
     async def fail_after_binding(session, claimed):
         claimed.response_id = response.id
         claimed.run_id = response.run_id
         session.add(claimed)
-        session.commit()
+        await session.commit()
         raise RuntimeError("setup failed after binding")
 
     worker._execute = fail_after_binding  # type: ignore[method-assign]
@@ -123,11 +124,10 @@ async def test_worker_terminalizes_response_when_setup_fails_after_binding(
 
     await worker.run_once()
 
-    db.expire_all()
-    assert service.get_response(response_id).status == "failed"
-    assert db.get(Run, response_run_id).status == "failed"
-    assert service.get_interaction(interaction_id).status == "failed"
-    events = service.list_response_events(
+    assert (await service.get_response(response_id)).status == "failed"
+    assert (await async_db.get(Run, response_run_id)).status == "failed"
+    assert (await service.get_interaction(interaction_id)).status == "failed"
+    events = await service.list_response_events(
         response_id,
         limit=100,
         offset=0,
@@ -138,12 +138,12 @@ async def test_worker_terminalizes_response_when_setup_fails_after_binding(
 
 @pytest.mark.asyncio
 async def test_worker_recovery_preserves_a_succeeded_response_terminal(
-    db,
+    async_db,
     ctx,
     monkeypatch,
 ):
-    service = _response_service(db, ctx)
-    response = service.create_response(
+    service = _response_service(async_db, ctx)
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             thread_id="thread_recovery_success",
@@ -152,38 +152,39 @@ async def test_worker_recovery_preserves_a_succeeded_response_terminal(
         ),
         emit_initial_events=False,
     )
-    interaction = service.create_interaction(
+    interaction = await service.create_interaction(
         interaction_id="interaction_recovery_success",
         parent_interaction_id=None,
         response=response,
         request_hash="hash_recovery_success",
     )
-    response = service.mark_running(response)
-    service.trace_writer.update_run_status(response.run_id, "running")
-    response = service.complete_response(
+    response = await service.mark_running(response)
+    await service.trace_writer.update_run_status(response.run_id, "running")
+    response = await service.complete_response(
         response=response,
         output_json={"text": "done"},
         output_event_type=None,
         completed_event_type=None,
     )
-    service.trace_writer.update_run_status(response.run_id, "succeeded")
+    await service.trace_writer.update_run_status(response.run_id, "succeeded")
     interaction.status = "running"
-    db.add(interaction)
-    db.commit()
+    async_db.add(interaction)
+    await async_db.commit()
 
     monkeypatch.setattr(
         "app.wiring.response_interaction_worker.build_response_projection_coordinator",
         lambda **_: SimpleNamespace(response_service=service),
     )
-    worker = GlobalResponseInteractionWorker(db_factory=lambda: db)
+    worker = GlobalResponseInteractionWorker(db_factory=lambda: async_db)
 
-    await worker._terminalize_orphan(db, interaction, ctx)
+    await worker._terminalize_orphan(async_db, interaction, ctx)
 
-    db.expire_all()
-    recovered_response = service.get_response(response.id)
-    recovered_interaction = service.get_interaction(interaction.interaction_id)
-    run = db.get(Run, response.run_id)
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    await async_db.refresh(response)
+    await async_db.refresh(interaction)
+    recovered_response = await service.get_response(response.id)
+    recovered_interaction = await service.get_interaction(interaction.interaction_id)
+    run = await async_db.get(Run, response.run_id)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     assert recovered_response.status == "succeeded"
     assert recovered_interaction is not None
     assert recovered_interaction.status == "succeeded"
@@ -193,12 +194,12 @@ async def test_worker_recovery_preserves_a_succeeded_response_terminal(
 
 @pytest.mark.asyncio
 async def test_resume_orphan_checks_terminal_events_in_its_own_segment(
-    db,
+    async_db,
     ctx,
     monkeypatch,
 ):
-    service = _response_service(db, ctx)
-    response = service.create_response(
+    service = _response_service(async_db, ctx)
+    response = await service.create_response(
         ResponseCreateRequest(
             model="model:openai:gpt-5.1",
             thread_id="thread_segmented_orphan",
@@ -206,45 +207,45 @@ async def test_resume_orphan_checks_terminal_events_in_its_own_segment(
         ),
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    response = service.complete_response(
+    response = await service.mark_running(response)
+    response = await service.complete_response(
         response=response,
         output_json={"text": "done"},
         output_event_type=None,
         completed_event_type=None,
     )
-    service.create_interaction(
+    await service.create_interaction(
         interaction_id="interaction_orphan_parent",
         parent_interaction_id=None,
         response=response,
         request_hash="hash_orphan_parent",
     )
-    parent_event = service.append_event(
+    parent_event = await service.append_event(
         response=response,
         event_type="RUN_FINISHED",
         payload={"type": "RUN_FINISHED", "runId": "interaction_orphan_parent"},
         interaction_id="interaction_orphan_parent",
     )
     assert parent_event.interaction_id == "interaction_orphan_parent"
-    child = service.create_interaction(
+    child = await service.create_interaction(
         interaction_id="interaction_orphan_child",
         parent_interaction_id="interaction_orphan_parent",
         response=response,
         request_hash="hash_orphan_child",
     )
     child.status = "running"
-    db.add(child)
-    db.commit()
+    async_db.add(child)
+    await async_db.commit()
 
     monkeypatch.setattr(
         "app.wiring.response_interaction_worker.build_response_projection_coordinator",
         lambda **_: SimpleNamespace(response_service=service),
     )
-    worker = GlobalResponseInteractionWorker(db_factory=lambda: db)
+    worker = GlobalResponseInteractionWorker(db_factory=lambda: async_db)
 
-    await worker._terminalize_orphan(db, child, ctx)
+    await worker._terminalize_orphan(async_db, child, ctx)
 
-    child_events = service.list_response_events(
+    child_events = await service.list_response_events(
         response.id,
         limit=100,
         offset=0,
@@ -256,31 +257,31 @@ async def test_resume_orphan_checks_terminal_events_in_its_own_segment(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel_during_claim", [False, True])
 async def test_worker_terminalizes_resume_failure_before_response_binding(
-    db,
+    async_db,
     ctx,
     monkeypatch,
     cancel_during_claim,
 ):
-    service = _response_service(db, ctx)
-    run = service.trace_writer.create_run("agent", kind="agent")
-    service.trace_writer.update_run_status(run.id, "running")
-    task_service = TaskService(db, ctx)
-    task = task_service.create_task(
+    service = _response_service(async_db, ctx)
+    run = await service.trace_writer.create_run("agent", kind="agent")
+    await service.trace_writer.update_run_status(run.id, "running")
+    task_service = TaskService(async_db, ctx)
+    task = await task_service.create_task(
         task_type="agent.stream",
         status="running",
         agent_id="agent_resume_failure",
         thread_id="thread_resume_failure",
         run_id=run.id,
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id=run.id,
         thread_id="thread_resume_failure",
         task_id=task.id,
         agent_id="agent_resume_failure",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
-    parent = service.create_interaction(
+    response = await service.mark_running(response)
+    parent = await service.create_interaction(
         interaction_id="interaction_resume_failure_parent",
         parent_interaction_id=None,
         response=response,
@@ -288,10 +289,10 @@ async def test_worker_terminalizes_resume_failure_before_response_binding(
     )
     parent.status = "resuming"
     parent.resume_interaction_id = "interaction_resume_failure_child"
-    db.add(parent)
-    task_service.transition_task(task_id=task.id, status="waiting_approval")
-    service.trace_writer.update_run_status(run.id, "waiting_approval")
-    child, _ = service.claim_interaction(
+    async_db.add(parent)
+    await task_service.transition_task(task_id=task.id, status="waiting_approval")
+    await service.trace_writer.update_run_status(run.id, "waiting_approval")
+    child, _ = await service.claim_interaction(
         interaction_id="interaction_resume_failure_child",
         parent_interaction_id=parent.interaction_id,
         thread_id="thread_resume_failure",
@@ -324,13 +325,13 @@ async def test_worker_terminalizes_resume_failure_before_response_binding(
         "app.wiring.response_interaction_worker.build_agent_service",
         lambda **_: FailingAgentService(),
     )
-    worker = GlobalResponseInteractionWorker(db_factory=lambda: db)
-    claimed = worker._claim_next(db)
+    worker = GlobalResponseInteractionWorker(db_factory=lambda: async_db)
+    claimed = await worker._claim_next(async_db)
     assert claimed is not None and claimed.id == child.id
     if cancel_during_claim:
         protocol = AgUiInteractionProtocolAdapter()
         started = protocol.text_started(message_id="msg_resume_failure")
-        service.append_event(
+        await service.append_event(
             response=response,
             event_type=started.type,
             payload=started.payload,
@@ -338,23 +339,24 @@ async def test_worker_terminalizes_resume_failure_before_response_binding(
             protocol_version=protocol.protocol_version,
             interaction_id=child.interaction_id,
         )
-        service.cancel_response(response.id, emit_event=False)
-        task_service.cancel_task(task_id=task.id)
-        service.update_interaction_status(parent.interaction_id, "canceled")
-        service.update_interaction_status(child.interaction_id, "canceled")
-        db.commit()
+        await service.cancel_response(response.id, emit_event=False)
+        await task_service.cancel_task(task_id=task.id)
+        await service.update_interaction_status(parent.interaction_id, "canceled")
+        await service.update_interaction_status(child.interaction_id, "canceled")
+        await async_db.commit()
 
     with pytest.raises(RuntimeError, match="before response binding"):
-        await worker._execute(db, claimed)
+        await worker._execute(async_db, claimed)
 
-    db.expire_all()
+    for row in (response, task, run, parent, child):
+        await async_db.refresh(row)
     terminal_status = "canceled" if cancel_during_claim else "failed"
-    assert service.get_response(response.id).status == terminal_status
-    assert task_service.get_task(task.id).status == terminal_status
-    assert db.get(Run, run.id).status == terminal_status
-    assert service.get_interaction(parent.interaction_id).status == terminal_status
-    assert service.get_interaction(child.interaction_id).status == terminal_status
-    child_events = service.list_response_events(
+    assert (await service.get_response(response.id)).status == terminal_status
+    assert (await task_service.get_task(task.id)).status == terminal_status
+    assert (await async_db.get(Run, run.id)).status == terminal_status
+    assert (await service.get_interaction(parent.interaction_id)).status == terminal_status
+    assert (await service.get_interaction(child.interaction_id)).status == terminal_status
+    child_events = await service.list_response_events(
         response.id,
         limit=100,
         offset=0,
@@ -372,8 +374,8 @@ async def test_worker_terminalizes_resume_failure_before_response_binding(
 
 
 @pytest.mark.asyncio
-async def test_worker_loop_recovers_after_a_transient_poll_failure(db):
-    worker = GlobalResponseInteractionWorker(db_factory=lambda: db)
+async def test_worker_loop_recovers_after_a_transient_poll_failure(async_db):
+    worker = GlobalResponseInteractionWorker(db_factory=lambda: async_db)
     recovered = asyncio.Event()
     attempts = 0
 
@@ -396,9 +398,9 @@ async def test_worker_loop_recovers_after_a_transient_poll_failure(db):
 
 
 @pytest.mark.asyncio
-async def test_worker_heartbeat_signals_when_the_lease_is_lost(db, ctx):
-    service = _response_service(db, ctx)
-    interaction, _ = service.claim_interaction(
+async def test_worker_heartbeat_signals_when_the_lease_is_lost(async_db, ctx):
+    service = _response_service(async_db, ctx)
+    interaction, _ = await service.claim_interaction(
         interaction_id="interaction_worker_lease_loss",
         parent_interaction_id=None,
         thread_id="thread_worker_lease_loss",
@@ -410,17 +412,17 @@ async def test_worker_heartbeat_signals_when_the_lease_is_lost(db, ctx):
             "user_id": ctx.user_id,
         },
     )
-    bind = db.get_bind()
+    bind = async_db.bind
     worker = GlobalResponseInteractionWorker(
-        db_factory=lambda: Session(bind=bind),
+        db_factory=lambda: AsyncSession(bind=bind),
         worker_id="worker-original",
         heartbeat_interval_seconds=0.01,
     )
-    claimed = worker._claim_next(db)
+    claimed = await worker._claim_next(async_db)
     assert claimed is not None
     claimed.lease_owner = "worker-replacement"
-    db.add(claimed)
-    db.commit()
+    async_db.add(claimed)
+    await async_db.commit()
 
     stop = asyncio.Event()
     lease_lost = asyncio.Event()

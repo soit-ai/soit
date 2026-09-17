@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, desc, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -15,24 +15,32 @@ from app.modules.agent.domain.models import (
 )
 
 
+def _scalar(value):
+    if hasattr(value, "_mapping"):
+        return value[0]
+    if isinstance(value, tuple):
+        return value[0]
+    return value
+
+
 class AgentRepository:
     """Repository for Agent aggregate operations."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, agent: Agent) -> Agent:
+    async def create(self, agent: Agent) -> Agent:
         agent.tenant_id = self.ctx.tenant_id
         agent.workspace_id = self.ctx.workspace_id
         agent.created_by = self.ctx.user_id
         agent.updated_by = self.ctx.user_id
         self.db.add(agent)
-        self.db.commit()
-        self.db.refresh(agent)
+        await self.db.commit()
+        await self.db.refresh(agent)
         return agent
 
-    def get_by_id(self, agent_id: str) -> Agent | None:
+    async def get_by_id(self, agent_id: str) -> Agent | None:
         query = select(Agent).where(
             and_(
                 Agent.id == agent_id,
@@ -41,10 +49,9 @@ class AgentRepository:
                 Agent.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
-        return result if isinstance(result, Agent) else result[0] if result else None
+        return (await self.db.exec(query)).scalars().first()
 
-    def get_by_name(self, name: str) -> Agent | None:
+    async def get_by_name(self, name: str) -> Agent | None:
         query = select(Agent).where(
             and_(
                 Agent.name == name,
@@ -53,10 +60,9 @@ class AgentRepository:
                 Agent.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
-        return result if isinstance(result, Agent) else result[0] if result else None
+        return (await self.db.exec(query)).scalars().first()
 
-    def list(self, limit: int = 20, offset: int = 0) -> list[Agent]:
+    async def list(self, limit: int = 20, offset: int = 0) -> list[Agent]:
         query = (
             select(Agent)
             .where(
@@ -70,18 +76,17 @@ class AgentRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, Agent) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())
 
-    def update(self, agent: Agent) -> Agent:
+    async def update(self, agent: Agent) -> Agent:
         agent.updated_at = utc_now()
         agent.updated_by = self.ctx.user_id
         self.db.add(agent)
-        self.db.commit()
-        self.db.refresh(agent)
+        await self.db.commit()
+        await self.db.refresh(agent)
         return agent
 
-    def next_version_number(self, agent_id: str) -> int:
+    async def next_version_number(self, agent_id: str) -> int:
         query = select(func.max(AgentVersion.version)).where(
             and_(
                 AgentVersion.agent_id == agent_id,
@@ -89,31 +94,27 @@ class AgentRepository:
                 AgentVersion.workspace_id == self.ctx.workspace_id,
             )
         )
-        max_value = self.db.exec(query).one()
-        if hasattr(max_value, "_mapping"):
-            max_value = max_value[0]
-        elif isinstance(max_value, tuple):
-            max_value = max_value[0]
+        max_value = _scalar((await self.db.exec(query)).one())
         return int(max_value or 0) + 1
 
 
 class AgentVersionRepository:
     """Repository for AgentVersion snapshots."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, version: AgentVersion) -> AgentVersion:
+    async def create(self, version: AgentVersion) -> AgentVersion:
         version.tenant_id = self.ctx.tenant_id
         version.workspace_id = self.ctx.workspace_id
         version.created_by = self.ctx.user_id
         self.db.add(version)
-        self.db.commit()
-        self.db.refresh(version)
+        await self.db.commit()
+        await self.db.refresh(version)
         return version
 
-    def get_by_id(self, version_id: str) -> AgentVersion | None:
+    async def get_by_id(self, version_id: str) -> AgentVersion | None:
         query = select(AgentVersion).where(
             and_(
                 AgentVersion.id == version_id,
@@ -121,10 +122,9 @@ class AgentVersionRepository:
                 AgentVersion.workspace_id == self.ctx.workspace_id,
             )
         )
-        result = self.db.exec(query).first()
-        return result if isinstance(result, AgentVersion) else result[0] if result else None
+        return (await self.db.exec(query)).scalars().first()
 
-    def list_by_agent(self, agent_id: str, *, limit: int = 20, offset: int = 0) -> list[AgentVersion]:
+    async def list_by_agent(self, agent_id: str, *, limit: int = 20, offset: int = 0) -> list[AgentVersion]:
         query = (
             select(AgentVersion)
             .where(
@@ -138,10 +138,9 @@ class AgentVersionRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, AgentVersion) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())
 
-    def list_awaiting_review(self, *, limit: int = 20) -> list[AgentVersion]:
+    async def list_awaiting_review(self, *, limit: int = 20) -> list[AgentVersion]:
         """Drafts somebody is waiting on, oldest wait first.
 
         Oldest first because the useful question is which one has been sitting
@@ -159,42 +158,41 @@ class AgentVersionRepository:
             .order_by(AgentVersion.review_requested_at)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, AgentVersion) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())
 
-    def update(self, version: AgentVersion) -> AgentVersion:
+    async def update(self, version: AgentVersion) -> AgentVersion:
         self.db.add(version)
-        self.db.commit()
-        self.db.refresh(version)
+        await self.db.commit()
+        await self.db.refresh(version)
         return version
 
 
 class AgentBindingRepository:
     """Repository for Agent bindings."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, binding: AgentBinding) -> AgentBinding:
+    async def create(self, binding: AgentBinding) -> AgentBinding:
         binding.tenant_id = self.ctx.tenant_id
         binding.workspace_id = self.ctx.workspace_id
         self.db.add(binding)
-        self.db.commit()
-        self.db.refresh(binding)
+        await self.db.commit()
+        await self.db.refresh(binding)
         return binding
 
-    def create_many(self, bindings: list[AgentBinding]) -> list[AgentBinding]:
+    async def create_many(self, bindings: list[AgentBinding]) -> list[AgentBinding]:
         for binding in bindings:
             binding.tenant_id = self.ctx.tenant_id
             binding.workspace_id = self.ctx.workspace_id
         self.db.add_all(bindings)
-        self.db.commit()
+        await self.db.commit()
         for binding in bindings:
-            self.db.refresh(binding)
+            await self.db.refresh(binding)
         return bindings
 
-    def list_for_version(self, agent_version_id: str) -> list[AgentBinding]:
+    async def list_for_version(self, agent_version_id: str) -> list[AgentBinding]:
         query = (
             select(AgentBinding)
             .where(
@@ -206,18 +204,17 @@ class AgentBindingRepository:
             )
             .order_by(AgentBinding.sort_order.asc(), AgentBinding.created_at.asc())
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, AgentBinding) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())
 
 
 class AgentPublishRepository:
     """Repository for Agent publish records."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, publish: AgentPublish) -> AgentPublish:
+    async def create(self, publish: AgentPublish) -> AgentPublish:
         publish.tenant_id = self.ctx.tenant_id
         publish.workspace_id = self.ctx.workspace_id
         publish.created_by = self.ctx.user_id
@@ -228,18 +225,14 @@ class AgentPublishRepository:
                 AgentPublish.workspace_id == self.ctx.workspace_id,
             )
         )
-        max_value = self.db.exec(query).one()
-        if hasattr(max_value, "_mapping"):
-            max_value = max_value[0]
-        elif isinstance(max_value, tuple):
-            max_value = max_value[0]
+        max_value = _scalar((await self.db.exec(query)).one())
         publish.sequence = int(max_value or 0) + 1
         self.db.add(publish)
-        self.db.commit()
-        self.db.refresh(publish)
+        await self.db.commit()
+        await self.db.refresh(publish)
         return publish
 
-    def list_by_agent(self, agent_id: str) -> list[AgentPublish]:
+    async def list_by_agent(self, agent_id: str) -> list[AgentPublish]:
         query = (
             select(AgentPublish)
             .where(
@@ -251,5 +244,4 @@ class AgentPublishRepository:
             )
             .order_by(desc(AgentPublish.sequence))
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, AgentPublish) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())

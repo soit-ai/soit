@@ -5,12 +5,15 @@ from typing import Annotated
 import pytest
 from fastapi import Depends, status
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Session as SQLModelSession
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.agent.dependencies import get_agent_application_service
-from app.infra.db.session import get_db
-from app.infra.db.transaction import SQLAlchemyUnitOfWork
+from app.infra.db.session import get_async_db, get_db
+from app.infra.db.transaction import AsyncSQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -42,18 +45,45 @@ class JourneyToolPort(ToolPort):
 
 
 @pytest.fixture
-def empty_workspace_client(db, monkeypatch):
+def empty_workspace_client(tmp_path, monkeypatch):
+    """A TestClient whose sync and async routes share one SQLite file.
+
+    Identity still resolves on the sync session while the agent path runs on
+    the async one; a file-backed database is what lets both see the rows the
+    other wrote.
+    """
+    import app.kernel.runtime.db.models  # noqa: F401
+    import app.modules  # noqa: F401
     from app import middleware
     from app.main import app
     from app.modules.identity.infra import workspace_access
     from app.settings.settings import settings
 
+    database_path = tmp_path / "journey.db"
+    engine = create_engine(
+        f"sqlite:///{database_path}", connect_args={"check_same_thread": False}
+    )
+    async_engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    SQLModel.metadata.create_all(engine)
+
     def override_get_db():
-        with SQLAlchemyUnitOfWork(db):
-            yield db
+        session = SQLModelSession(engine, expire_on_commit=False)
+        try:
+            with SQLAlchemyUnitOfWork(session):
+                yield session
+        finally:
+            session.close()
+
+    async def override_get_async_db():
+        session = AsyncSession(async_engine, expire_on_commit=False)
+        try:
+            async with AsyncSQLAlchemyUnitOfWork(session):
+                yield session
+        finally:
+            await session.close()
 
     def scoped_session():
-        return SQLModelSession(bind=db.get_bind(), expire_on_commit=False)
+        return SQLModelSession(bind=engine, expire_on_commit=False)
 
     previous_registration = settings.allow_public_registration
     previous_ingest_worker = settings.knowledge_ingest_worker_enabled
@@ -64,15 +94,18 @@ def empty_workspace_client(db, monkeypatch):
     monkeypatch.setattr(workspace_access, "get_db_sync", scoped_session)
     monkeypatch.setattr(middleware.auth, "_context_resolver", None)
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = override_get_async_db
 
     try:
         with TestClient(app) as client:
             yield client
     finally:
+        engine.dispose()
         settings.allow_public_registration = previous_registration
         settings.knowledge_ingest_worker_enabled = previous_ingest_worker
         settings.outbox_dispatcher_enabled = previous_dispatcher
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_async_db, None)
         app.dependency_overrides.pop(get_agent_application_service, None)
 
 
@@ -156,7 +189,7 @@ def test_new_workspace_completes_governed_main_journeys_without_seed_data(
 
     async def override_agent_service(
         ctx: Annotated[RequestContext, Depends(get_current_context)],
-        session: Annotated[Session, Depends(get_db)],
+        session: Annotated[AsyncSession, Depends(get_async_db)],
     ) -> AgentApplicationService:
         return AgentApplicationService(
             db=session,

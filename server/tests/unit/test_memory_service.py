@@ -57,10 +57,10 @@ class StubVectorPort(VectorPort):
 
 
 @pytest.mark.asyncio
-async def test_memory_create_and_list(db, ctx):
+async def test_memory_create_and_list(async_db, ctx):
     """Memory creation persists and lists items."""
-    repo = MemoryRepository(db, ctx)
-    service = MemoryService(db, ctx, repo)
+    repo = MemoryRepository(async_db, ctx)
+    service = MemoryService(async_db, ctx, repo)
 
     created = await service.create_memory(
         MemoryCreate(content={"text": "hello"}, memory_type="long")
@@ -73,20 +73,20 @@ async def test_memory_create_and_list(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_memory_query_requires_ports(db, ctx):
+async def test_memory_query_requires_ports(async_db, ctx):
     """Memory query needs LLM and vector ports."""
-    repo = MemoryRepository(db, ctx)
-    service = MemoryService(db, ctx, repo)
+    repo = MemoryRepository(async_db, ctx)
+    service = MemoryService(async_db, ctx, repo)
 
     with pytest.raises(ValidationError):
         await service.query_memory(MemoryQuery(query="hello"))
 
 
 @pytest.mark.asyncio
-async def test_memory_query_filters(db, ctx):
+async def test_memory_query_filters(async_db, ctx):
     """Memory query filters by user and type."""
-    repo = MemoryRepository(db, ctx)
-    item1 = repo.create(
+    repo = MemoryRepository(async_db, ctx)
+    item1 = await repo.create(
         MemoryItem(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -95,7 +95,7 @@ async def test_memory_query_filters(db, ctx):
             content={"text": "alpha"},
         )
     )
-    item2 = repo.create(
+    item2 = await repo.create(
         MemoryItem(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -106,7 +106,7 @@ async def test_memory_query_filters(db, ctx):
     )
 
     service = MemoryService(
-        db,
+        async_db,
         ctx,
         repo,
         llm_port=StubLLMPort(),

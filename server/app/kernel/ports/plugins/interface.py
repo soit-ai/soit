@@ -40,7 +40,7 @@ class PluginRuntimePort(ABC):
     ) -> dict[str, Any]:
         """Invoke a plugin tool and return output JSON."""
 
-    def resolve_skill_context(
+    async def resolve_skill_context(
         self,
         *,
         skill_refs: list[str],

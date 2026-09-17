@@ -43,32 +43,33 @@ def _passing_runner(output: str = "ok"):
     return runner
 
 
-def _create_run(
+async def _create_run(
     trace_writer: TraceWriter, *, input_payload: dict[str, Any], output: str
 ) -> str:
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         mode="agent",
         subject_kind="agent",
         subject_id="agent_eval",
         subject_version_id="agent_version_1",
         input_summary=json.dumps(input_payload),
     )
-    trace_writer.update_run_status(run.id, status="running")
-    trace_writer.update_run_status(run.id, status="succeeded", output_summary=output)
+    await trace_writer.update_run_status(run.id, status="running")
+    await trace_writer.update_run_status(run.id, status="succeeded", output_summary=output)
     return run.id
 
 
-def test_create_case_from_historical_run_freezes_input_and_expected_features(
-    db, ctx
+@pytest.mark.asyncio
+async def test_create_case_from_historical_run_freezes_input_and_expected_features(
+    async_db, ctx
 ) -> None:
-    run_id = _create_run(
-        TraceWriter(db, ctx),
+    run_id = await _create_run(
+        TraceWriter(async_db, ctx),
         input_payload={"messages": [{"role": "user", "content": "refund policy"}]},
         output="Refund approval requires account verification.",
     )
-    service = RegressionEvaluationService(db=db, ctx=ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
 
-    case = service.create_case_from_run(
+    case = await service.create_case_from_run(
         run_id=run_id,
         name="refund-policy-answer",
         expected_features={
@@ -92,18 +93,18 @@ def test_create_case_from_historical_run_freezes_input_and_expected_features(
 
 @pytest.mark.asyncio
 async def test_evaluate_subject_version_persists_report_with_success_cost_and_latency(
-    db, ctx
+    async_db, ctx
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    run_id = _create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run_id = await _create_run(
         trace_writer,
         input_payload={
             "messages": [{"role": "user", "content": "create refund review ticket"}]
         },
         output="A review ticket was created using refund policy evidence.",
     )
-    service = RegressionEvaluationService(db=db, ctx=ctx)
-    service.create_case_from_run(
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
+    await service.create_case_from_run(
         run_id=run_id,
         name="refund-ticket-workflow",
         expected_features={
@@ -127,7 +128,7 @@ async def test_evaluate_subject_version_persists_report_with_success_cost_and_la
         subject_version_id="agent_version_2",
         runner=runner,
     )
-    latest = service.get_latest_report(
+    latest = await service.get_latest_report(
         subject_kind="agent",
         subject_id="agent_eval",
         subject_version_id="agent_version_2",
@@ -155,13 +156,13 @@ async def test_evaluate_subject_version_persists_report_with_success_cost_and_la
     assert latest.summary_json == result.summary
 
 
-def _judge_case(service: RegressionEvaluationService, trace_writer, *, min_score=0.7):
-    run_id = _create_run(
+async def _judge_case(service: RegressionEvaluationService, trace_writer, *, min_score=0.7):
+    run_id = await _create_run(
         trace_writer,
         input_payload={"messages": [{"role": "user", "content": "summarize policy"}]},
         output="The policy covers refunds.",
     )
-    return service.create_case_from_run(
+    return await service.create_case_from_run(
         run_id=run_id,
         name="judged-summary",
         expected_features={
@@ -174,11 +175,11 @@ def _judge_case(service: RegressionEvaluationService, trace_writer, *, min_score
 
 
 @pytest.mark.asyncio
-async def test_llm_judge_gates_cases_on_min_score(db, ctx) -> None:
-    trace_writer = TraceWriter(db, ctx)
+async def test_llm_judge_gates_cases_on_min_score(async_db, ctx) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
     judge = _StubJudge(score=0.4)
-    service = RegressionEvaluationService(db=db, ctx=ctx, judge=judge)
-    _judge_case(service, trace_writer, min_score=0.7)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx, judge=judge)
+    await _judge_case(service, trace_writer, min_score=0.7)
 
     failing = await service.evaluate_subject_version(
         subject_kind="agent",
@@ -206,10 +207,10 @@ async def test_llm_judge_gates_cases_on_min_score(db, ctx) -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_judge_fails_closed_when_unconfigured(db, ctx) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    service = RegressionEvaluationService(db=db, ctx=ctx)
-    _judge_case(service, trace_writer)
+async def test_llm_judge_fails_closed_when_unconfigured(async_db, ctx) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
+    await _judge_case(service, trace_writer)
 
     result = await service.evaluate_subject_version(
         subject_kind="agent",
@@ -223,11 +224,11 @@ async def test_llm_judge_fails_closed_when_unconfigured(db, ctx) -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_judge_errors_fail_the_case_not_the_report(db, ctx) -> None:
-    trace_writer = TraceWriter(db, ctx)
+async def test_llm_judge_errors_fail_the_case_not_the_report(async_db, ctx) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
     judge = _StubJudge(error=JudgeError("judge model call failed: boom"))
-    service = RegressionEvaluationService(db=db, ctx=ctx, judge=judge)
-    _judge_case(service, trace_writer)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx, judge=judge)
+    await _judge_case(service, trace_writer)
 
     result = await service.evaluate_subject_version(
         subject_kind="agent",
@@ -244,13 +245,13 @@ async def test_llm_judge_errors_fail_the_case_not_the_report(db, ctx) -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_judge_criteria_fail_the_case(db, ctx) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    service = RegressionEvaluationService(db=db, ctx=ctx, judge=_StubJudge())
-    run_id = _create_run(
+async def test_invalid_judge_criteria_fail_the_case(async_db, ctx) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx, judge=_StubJudge())
+    run_id = await _create_run(
         trace_writer, input_payload={"q": "x"}, output="anything"
     )
-    service.create_case_from_run(
+    await service.create_case_from_run(
         run_id=run_id,
         name="empty-rubric",
         expected_features={"llm_judge": {"rubric": "  "}},
@@ -268,12 +269,12 @@ async def test_invalid_judge_criteria_fail_the_case(db, ctx) -> None:
 
 @pytest.mark.asyncio
 async def test_annotations_record_human_verdicts_scoped_to_case_and_report(
-    db, ctx
+    async_db, ctx
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    service = RegressionEvaluationService(db=db, ctx=ctx)
-    run_id = _create_run(trace_writer, input_payload={"q": "x"}, output="answer")
-    case = service.create_case_from_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
+    run_id = await _create_run(trace_writer, input_payload={"q": "x"}, output="answer")
+    case = await service.create_case_from_run(
         run_id=run_id, name="annotated", expected_features={}
     )
     report = await service.evaluate_subject_version(
@@ -283,7 +284,7 @@ async def test_annotations_record_human_verdicts_scoped_to_case_and_report(
         runner=_passing_runner(),
     )
 
-    annotation = service.annotate_case(
+    annotation = await service.annotate_case(
         case_id=case.id,
         verdict="fail",
         note="Output is fluent but factually wrong.",
@@ -292,35 +293,35 @@ async def test_annotations_record_human_verdicts_scoped_to_case_and_report(
 
     assert annotation.verdict == "fail"
     assert annotation.annotated_by == ctx.user_id
-    by_case = service.list_annotations(case_id=case.id)
-    by_report = service.list_annotations(report_id=report.report_id)
+    by_case = await service.list_annotations(case_id=case.id)
+    by_report = await service.list_annotations(report_id=report.report_id)
     assert [item.id for item in by_case] == [annotation.id]
     assert [item.id for item in by_report] == [annotation.id]
 
     with pytest.raises(ValidationError):
-        service.annotate_case(case_id=case.id, verdict="maybe")
+        await service.annotate_case(case_id=case.id, verdict="maybe")
     with pytest.raises(NotFoundError):
-        service.annotate_case(case_id="regcase_missing", verdict="pass")
+        await service.annotate_case(case_id="regcase_missing", verdict="pass")
     with pytest.raises(NotFoundError):
-        service.annotate_case(
+        await service.annotate_case(
             case_id=case.id, verdict="pass", report_id="regrep_missing"
         )
     with pytest.raises(ValidationError):
-        service.list_annotations()
+        await service.list_annotations()
 
 
 @pytest.mark.asyncio
 async def test_report_trend_returns_versions_oldest_first_with_pass_rates(
-    db, ctx
+    async_db, ctx
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    service = RegressionEvaluationService(db=db, ctx=ctx)
-    run_id = _create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
+    run_id = await _create_run(
         trace_writer,
         input_payload={"q": "refund"},
         output="Refund policy answer.",
     )
-    service.create_case_from_run(
+    await service.create_case_from_run(
         run_id=run_id,
         name="trend-case",
         expected_features={"minimum_output_terms": ["refund"]},
@@ -339,7 +340,7 @@ async def test_report_trend_returns_versions_oldest_first_with_pass_rates(
         runner=_passing_runner("No matching terms here."),
     )
 
-    points = service.report_trend(subject_kind="agent", subject_id="agent_eval")
+    points = await service.report_trend(subject_kind="agent", subject_id="agent_eval")
 
     assert [point["subject_version_id"] for point in points] == ["v1", "v2"]
     assert points[0]["passed"] is True
@@ -351,10 +352,10 @@ async def test_report_trend_returns_versions_oldest_first_with_pass_rates(
 
 
 @pytest.mark.asyncio
-async def test_three_scenario_datasets_evaluate_independently(db, ctx) -> None:
+async def test_three_scenario_datasets_evaluate_independently(async_db, ctx) -> None:
     """Regression suites for distinct scenarios must not bleed into each other."""
-    trace_writer = TraceWriter(db, ctx)
-    service = RegressionEvaluationService(db=db, ctx=ctx, judge=_StubJudge(score=0.95))
+    trace_writer = TraceWriter(async_db, ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx, judge=_StubJudge(score=0.95))
     scenarios = {
         "support-ticket": {
             "input": {"messages": [{"role": "user", "content": "open refund ticket"}]},
@@ -375,15 +376,15 @@ async def test_three_scenario_datasets_evaluate_independently(db, ctx) -> None:
         },
     }
     for dataset, scenario in scenarios.items():
-        run_id = _create_run(
+        run_id = await _create_run(
             trace_writer, input_payload=scenario["input"], output=scenario["output"]
         )
-        case = service.create_case_from_run(
+        case = await service.create_case_from_run(
             run_id=run_id, name=f"{dataset}-case", expected_features=scenario["expected"]
         )
         case.dataset = dataset
-        db.add(case)
-        db.commit()
+        async_db.add(case)
+        await async_db.commit()
 
     results = {}
     for dataset, scenario in scenarios.items():
@@ -400,7 +401,7 @@ async def test_three_scenario_datasets_evaluate_independently(db, ctx) -> None:
         assert result.summary["total"] == 1, dataset
         assert result.summary["dataset"] == dataset
     trends = {
-        dataset: service.report_trend(
+        dataset: await service.report_trend(
             subject_kind="agent", subject_id="agent_eval", dataset=dataset
         )
         for dataset in scenarios

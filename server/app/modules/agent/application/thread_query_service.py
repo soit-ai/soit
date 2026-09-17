@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, desc, or_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError
 from app.kernel.contracts.context import RequestContext
@@ -14,12 +14,12 @@ from app.kernel.runtime.threads.repository import ThreadRepository
 class AgentThreadQueryService:
     """Read-side queries for agent-backed runtime threads."""
 
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
         self.thread_repo = ThreadRepository(db, ctx)
 
-    def list_threads(
+    async def list_threads(
         self,
         *,
         limit: int = 20,
@@ -30,7 +30,7 @@ class AgentThreadQueryService:
     ) -> list[Thread]:
         normalized_search = (search or "").strip()
         if not normalized_search:
-            return self.thread_repo.list_threads(
+            return await self.thread_repo.list_threads(
                 limit=limit,
                 offset=offset,
                 status=status,
@@ -79,15 +79,14 @@ class AgentThreadQueryService:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
-        return [item if isinstance(item, Thread) else item[0] for item in results]
+        return list((await self.db.exec(query)).scalars().all())
 
-    def get_thread(self, thread_id: str) -> Thread:
-        thread = self.thread_repo.get_thread(thread_id)
+    async def get_thread(self, thread_id: str) -> Thread:
+        thread = await self.thread_repo.get_thread(thread_id)
         if not thread:
             raise NotFoundError(f"Thread not found: {thread_id}")
         return thread
 
-    def list_thread_messages(self, thread_id: str) -> list[ThreadMessage]:
-        self.get_thread(thread_id)
-        return self.thread_repo.list_messages(thread_id)
+    async def list_thread_messages(self, thread_id: str) -> list[ThreadMessage]:
+        await self.get_thread(thread_id)
+        return await self.thread_repo.list_messages(thread_id)

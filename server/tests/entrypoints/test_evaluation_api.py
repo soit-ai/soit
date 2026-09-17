@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi import status
 
 from app.kernel.runtime.runs.writer import TraceWriter
@@ -17,10 +18,11 @@ def _headers() -> dict[str, str]:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def test_regression_case_api_freezes_historical_run_and_exposes_latest_report(
-    client, db, ctx
+@pytest.mark.asyncio
+async def test_regression_case_api_freezes_historical_run_and_exposes_latest_report(
+    async_client, async_db, ctx
 ) -> None:
-    run = TraceWriter(db, ctx).create_run(
+    run = await TraceWriter(async_db, ctx).create_run(
         mode="agent",
         subject_kind="agent",
         subject_id="agent_eval_api",
@@ -29,9 +31,9 @@ def test_regression_case_api_freezes_historical_run_and_exposes_latest_report(
             {"messages": [{"role": "user", "content": "refund policy"}]}
         ),
     )
-    service = RegressionEvaluationService(db=db, ctx=ctx)
+    service = RegressionEvaluationService(db=async_db, ctx=ctx)
 
-    response = client.post(
+    response = await async_client.post(
         "/api/v1/evaluations/regression-cases/from-run",
         json={
             "run_id": run.id,
@@ -60,15 +62,13 @@ def test_regression_case_api_freezes_historical_run_and_exposes_latest_report(
             run_id="run_replayed_api",
         )
 
-    report = client.portal.call(
-        lambda: service.evaluate_subject_version(
+    report = await service.evaluate_subject_version(
             subject_kind="agent",
             subject_id="agent_eval_api",
             subject_version_id="agent_version_2",
             runner=runner,
         )
-    )
-    latest_response = client.get(
+    latest_response = await async_client.get(
         "/api/v1/evaluations/regression-reports/latest",
         params={
             "subject_kind": "agent",

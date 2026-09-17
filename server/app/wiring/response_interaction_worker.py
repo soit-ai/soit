@@ -7,11 +7,11 @@ import logging
 import uuid
 from collections.abc import Callable
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.agui.agent import PersistentAgUiAgentEmitter
 from app.adapters.agui.responses import AgUiInteractionProtocolAdapter
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.errors import ConflictError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -28,26 +28,30 @@ from app.wiring.services import (
 logger = logging.getLogger(__name__)
 
 
+def _default_session_factory() -> AsyncSession:
+    return get_async_session_local()()
+
+
 class GlobalResponseInteractionWorker:
     """Lease and execute persisted interaction jobs across API restarts."""
 
     def __init__(
         self,
-        db_factory: Callable[[], Session] = get_db_sync,
+        db_factory: Callable[[], AsyncSession] | None = None,
         *,
         worker_id: str | None = None,
         lease_seconds: int | None = None,
         heartbeat_interval_seconds: float | None = None,
     ) -> None:
-        self.db_factory = db_factory
+        self.db_factory = db_factory or _default_session_factory
         self.worker_id = worker_id or f"response-worker-{uuid.uuid4()}"
         self.lease_seconds = lease.normalize_lease_seconds(
             lease_seconds or settings.response_interaction_lease_seconds
         )
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
 
-    def _claim_next(self, db: Session) -> ResponseInteraction | None:
-        return lease.claim_next(
+    async def _claim_next(self, db: AsyncSession) -> ResponseInteraction | None:
+        return await lease.claim_next(
             db,
             ResponseInteraction,
             worker_id=self.worker_id,
@@ -73,10 +77,10 @@ class GlobalResponseInteractionWorker:
             log_label=f"Durable response interaction lease {interaction_id}",
         ).run(stop, lease_lost)
 
-    def _assert_lease(self, interaction_pk: str, attempt_count: int) -> None:
+    async def _assert_lease(self, interaction_pk: str, attempt_count: int) -> None:
         db = self.db_factory()
         try:
-            if not lease.holds_lease(
+            if not await lease.holds_lease(
                 db,
                 ResponseInteraction,
                 interaction_pk,
@@ -85,7 +89,7 @@ class GlobalResponseInteractionWorker:
             ):
                 raise ConflictError("Interaction execution lease was lost")
         finally:
-            db.close()
+            await db.close()
 
     @staticmethod
     def _context(interaction: ResponseInteraction) -> RequestContext:
@@ -94,15 +98,15 @@ class GlobalResponseInteractionWorker:
 
     async def _terminalize_orphan(
         self,
-        db: Session,
+        db: AsyncSession,
         interaction: ResponseInteraction,
         ctx: RequestContext,
     ) -> None:
         coordinator = build_response_projection_coordinator(db=db, ctx=ctx)
         service = coordinator.response_service
-        response = coordinator.response_service.get_response(str(interaction.response_id))
+        response = await coordinator.response_service.get_response(str(interaction.response_id))
         protocol = AgUiInteractionProtocolAdapter()
-        events = service.list_response_events(
+        events = await service.list_response_events(
             response.id,
             limit=10_000,
             offset=0,
@@ -114,7 +118,7 @@ class GlobalResponseInteractionWorker:
         if not has_terminal_event:
             for message_id in protocol.active_text_message_ids(events):
                 text_end = protocol.text_ended(message_id=message_id)
-                stored = service.append_event(
+                stored = await service.append_event(
                     response=response,
                     event_type=text_end.type,
                     payload=text_end.payload,
@@ -122,12 +126,12 @@ class GlobalResponseInteractionWorker:
                     protocol_version=protocol.protocol_version,
                     interaction_id=interaction.interaction_id,
                 )
-                service.publish_persisted_event(stored)
+                await service.publish_persisted_event(stored)
 
         if response.status == "succeeded":
-            service.update_interaction_status(interaction.interaction_id, "succeeded")
+            await service.update_interaction_status(interaction.interaction_id, "succeeded")
             if not has_terminal_event:
-                stored = service.append_event(
+                stored = await service.append_event(
                     response=response,
                     event_type="RUN_FINISHED",
                     payload=protocol.run_finished(
@@ -144,13 +148,13 @@ class GlobalResponseInteractionWorker:
                     protocol_version=protocol.protocol_version,
                     interaction_id=interaction.interaction_id,
                 )
-                service.publish_persisted_event(stored)
+                await service.publish_persisted_event(stored)
             return
 
         if response.status == "canceled":
-            service.update_interaction_status(interaction.interaction_id, "canceled")
+            await service.update_interaction_status(interaction.interaction_id, "canceled")
             if not has_terminal_event:
-                stored = service.append_event(
+                stored = await service.append_event(
                     response=response,
                     event_type="RUN_FINISHED",
                     payload=protocol.run_cancelled(
@@ -161,18 +165,18 @@ class GlobalResponseInteractionWorker:
                     protocol_version=protocol.protocol_version,
                     interaction_id=interaction.interaction_id,
                 )
-                service.publish_persisted_event(stored)
+                await service.publish_persisted_event(stored)
             return
 
         if response.status != "failed":
-            response = service.fail_response(
+            response = await service.fail_response(
                 response=response,
                 error_code="interaction_worker_lost",
                 error_message="Response execution was interrupted",
                 failed_event_type=None,
             )
         if response.run_id:
-            service.trace_writer.update_run_status(
+            await service.trace_writer.update_run_status(
                 response.run_id,
                 "failed",
                 error_code="interaction_worker_lost",
@@ -180,17 +184,17 @@ class GlobalResponseInteractionWorker:
             )
         if response.task_id:
             task_service = TaskService(db, ctx)
-            task = task_service.get_task(response.task_id)
+            task = await task_service.get_task(response.task_id)
             if task.status not in {"succeeded", "failed", "canceled", "expired"}:
-                task_service.transition_task(
+                await task_service.transition_task(
                     task_id=task.id,
                     status="failed",
                     error_code="interaction_worker_lost",
                     error_message="Response execution was interrupted",
                 )
-        service.update_interaction_status(interaction.interaction_id, "failed")
+        await service.update_interaction_status(interaction.interaction_id, "failed")
         if not has_terminal_event:
-            stored = service.append_event(
+            stored = await service.append_event(
                 response=response,
                 event_type="RUN_ERROR",
                 payload=protocol.run_error(
@@ -201,21 +205,21 @@ class GlobalResponseInteractionWorker:
                 protocol_version=protocol.protocol_version,
                 interaction_id=interaction.interaction_id,
             )
-            service.publish_persisted_event(stored)
+            await service.publish_persisted_event(stored)
 
     async def _terminalize_prebind_resume_failure(
         self,
-        db: Session,
+        db: AsyncSession,
         interaction: ResponseInteraction,
         ctx: RequestContext,
         resume_execution: dict,
     ) -> None:
         coordinator = build_response_projection_coordinator(db=db, ctx=ctx)
         service = coordinator.response_service
-        response = service.get_response(str(resume_execution.get("response_id") or ""))
+        response = await service.get_response(str(resume_execution.get("response_id") or ""))
         canceled = response.status == "canceled"
         if response.status not in {"succeeded", "failed", "canceled"}:
-            response = service.fail_response(
+            response = await service.fail_response(
                 response=response,
                 error_code="agent_execution_failed",
                 error_message="Agent execution failed",
@@ -223,7 +227,7 @@ class GlobalResponseInteractionWorker:
             )
         run_id = str(resume_execution.get("run_id") or response.run_id or "")
         if run_id and not canceled:
-            service.trace_writer.update_run_status(
+            await service.trace_writer.update_run_status(
                 run_id,
                 "failed",
                 error_code="agent_execution_failed",
@@ -232,32 +236,32 @@ class GlobalResponseInteractionWorker:
         task_id = str(resume_execution.get("task_id") or response.task_id or "")
         if task_id:
             task_service = TaskService(db, ctx)
-            task = task_service.get_task(task_id)
+            task = await task_service.get_task(task_id)
             if task.status not in {"succeeded", "failed", "canceled", "expired"}:
                 if canceled:
-                    task_service.cancel_task(task_id=task.id)
+                    await task_service.cancel_task(task_id=task.id)
                 else:
-                    task_service.transition_task(
+                    await task_service.transition_task(
                         task_id=task.id,
                         status="failed",
                         error_code="agent_execution_failed",
                         error_message="Agent execution failed",
                     )
-        service.create_interaction(
+        await service.create_interaction(
             interaction_id=interaction.interaction_id,
             parent_interaction_id=interaction.parent_interaction_id,
             response=response,
             request_hash=interaction.request_hash,
         )
         terminal_status = "canceled" if canceled else "failed"
-        service.update_interaction_status(interaction.interaction_id, terminal_status)
+        await service.update_interaction_status(interaction.interaction_id, terminal_status)
         if interaction.parent_interaction_id:
-            service.update_interaction_status(
+            await service.update_interaction_status(
                 interaction.parent_interaction_id,
                 terminal_status,
             )
         protocol = AgUiInteractionProtocolAdapter()
-        events = service.list_response_events(
+        events = await service.list_response_events(
             response.id,
             limit=10_000,
             offset=0,
@@ -269,7 +273,7 @@ class GlobalResponseInteractionWorker:
         if not has_terminal_event:
             for message_id in protocol.active_text_message_ids(events):
                 text_end = protocol.text_ended(message_id=message_id)
-                stored = service.append_event(
+                stored = await service.append_event(
                     response=response,
                     event_type=text_end.type,
                     payload=text_end.payload,
@@ -277,7 +281,7 @@ class GlobalResponseInteractionWorker:
                     protocol_version=protocol.protocol_version,
                     interaction_id=interaction.interaction_id,
                 )
-                service.publish_persisted_event(stored)
+                await service.publish_persisted_event(stored)
             event = (
                 protocol.run_cancelled(
                     thread_id=interaction.thread_id,
@@ -289,7 +293,7 @@ class GlobalResponseInteractionWorker:
                     message="Agent execution failed",
                 )
             )
-            stored = service.append_event(
+            stored = await service.append_event(
                 response=response,
                 event_type=event.type,
                 payload=event.payload,
@@ -297,10 +301,10 @@ class GlobalResponseInteractionWorker:
                 protocol_version=protocol.protocol_version,
                 interaction_id=interaction.interaction_id,
             )
-            service.publish_persisted_event(stored)
-        db.commit()
+            await service.publish_persisted_event(stored)
+        await db.commit()
 
-    async def _execute(self, db: Session, interaction: ResponseInteraction) -> None:
+    async def _execute(self, db: AsyncSession, interaction: ResponseInteraction) -> None:
         ctx = self._context(interaction)
         job = dict(interaction.execution_json or {})
         if interaction.response_id:
@@ -318,12 +322,12 @@ class GlobalResponseInteractionWorker:
             )
             iterator = aiter(stream)
             while True:
-                self._assert_lease(interaction.id, interaction.attempt_count)
+                await self._assert_lease(interaction.id, interaction.attempt_count)
                 try:
                     await anext(iterator)
                 except StopAsyncIteration:
                     break
-            db.commit()
+            await db.commit()
             return
         if mode != "agent":
             raise ValueError("Interaction job mode is invalid")
@@ -384,7 +388,7 @@ class GlobalResponseInteractionWorker:
         if emitter is None:
             raise RuntimeError("Agent execution did not bind a Response")
         await emitter("agent.interaction.finished", {"result": result})
-        db.commit()
+        await db.commit()
 
     async def run_once(self) -> ResponseInteraction | None:
         db = self.db_factory()
@@ -395,7 +399,7 @@ class GlobalResponseInteractionWorker:
         execute_task: asyncio.Task | None = None
         lease_wait_task: asyncio.Task | None = None
         try:
-            interaction = self._claim_next(db)
+            interaction = await self._claim_next(db)
             if interaction is None:
                 return None
             heartbeat_task = asyncio.create_task(
@@ -420,7 +424,7 @@ class GlobalResponseInteractionWorker:
                         await execute_task
                     except asyncio.CancelledError:
                         pass
-                    db.rollback()
+                    await db.rollback()
                     return interaction
                 lease_wait_task.cancel()
                 try:
@@ -433,9 +437,8 @@ class GlobalResponseInteractionWorker:
                     "Durable response interaction failed",
                     extra={"interaction_id": interaction.interaction_id},
                 )
-                db.rollback()
-                db.expire_all()
-                current = db.get(ResponseInteraction, interaction.id)
+                await db.rollback()
+                current = await db.get(ResponseInteraction, interaction.id)
                 if (
                     current is not None
                     and current.lease_owner == self.worker_id
@@ -460,7 +463,7 @@ class GlobalResponseInteractionWorker:
                         current.lease_expires_at = None
                         current.updated_at = utc_now()
                         db.add(current)
-                    db.commit()
+                    await db.commit()
             return interaction
         finally:
             heartbeat_stop.set()
@@ -485,7 +488,7 @@ class GlobalResponseInteractionWorker:
                             )
                         },
                     )
-            db.close()
+            await db.close()
 
     async def run_loop(self, poll_interval: float = 0.25) -> None:
         while True:

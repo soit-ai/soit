@@ -2,15 +2,17 @@
 
 from dataclasses import replace
 
+import pytest
 from fastapi import status
 
 from app.main import app
 from app.middleware.auth import get_current_context
 
 
-def test_attachment_upload_download_and_workspace_scope(client, ctx):
+@pytest.mark.asyncio
+async def test_attachment_upload_download_and_workspace_scope(async_client, ctx):
     headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-    uploaded = client.post(
+    uploaded = await async_client.post(
         "/api/v1/attachments",
         files={"file": ("support-notes.txt", b"refund policy", "text/plain")},
         headers=headers,
@@ -26,7 +28,7 @@ def test_attachment_upload_download_and_workspace_scope(client, ctx):
     assert attachment["checksum"].startswith("sha256:")
     assert "storage_key" not in attachment
 
-    downloaded = client.get(
+    downloaded = await async_client.get(
         f"/api/v1/attachments/{attachment['id']}/content",
         headers=headers,
     )
@@ -43,14 +45,15 @@ def test_attachment_upload_download_and_workspace_scope(client, ctx):
 
     app.dependency_overrides[get_current_context] = _other_workspace_context
     try:
-        wrong_workspace = client.get(f"/api/v1/attachments/{attachment['id']}")
+        wrong_workspace = await async_client.get(f"/api/v1/attachments/{attachment['id']}")
     finally:
         app.dependency_overrides[get_current_context] = original_context_override
     assert wrong_workspace.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_attachment_upload_rejects_executable_content(client):
-    response = client.post(
+@pytest.mark.asyncio
+async def test_attachment_upload_rejects_executable_content(async_client):
+    response = await async_client.post(
         "/api/v1/attachments",
         files={"file": ("payload.exe", b"MZ-not-allowed", "application/octet-stream")},
         headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},

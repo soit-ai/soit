@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.commons.ids import generate_run_id
@@ -61,16 +61,16 @@ class _AgentApprovalInterrupt(Exception):
 class AgentService:
     """Agent service for plan-execute-verify."""
 
-    def _ensure_run_active(self, run_id: str) -> None:
+    async def _ensure_run_active(self, run_id: str) -> None:
         if not self.trace_writer:
             return
-        run_status = self.trace_writer.db.execute(
+        run_status = (await self.trace_writer.db.execute(
             select(Run.status).where(
                 Run.id == run_id,
                 Run.tenant_id == self.ctx.tenant_id,
                 Run.workspace_id == self.ctx.workspace_id,
             )
-        ).scalar_one_or_none()
+        )).scalar_one_or_none()
         if run_status == "canceled":
             raise KernelError(
                 "AGENT_RUN_CANCELED",
@@ -80,7 +80,7 @@ class AgentService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         llm_port: LLMPort,
         tool_port: ToolPort,
@@ -430,11 +430,11 @@ class AgentService:
             )
         if self.trace_writer:
             if existing_run_id:
-                self._ensure_run_active(run_id)
-                self.trace_writer.update_run_status(run_id, "running")
+                await self._ensure_run_active(run_id)
+                await self.trace_writer.update_run_status(run_id, "running")
             else:
                 subject_id, subject_version_id = self._resolve_agent_trace_subject()
-                run = self.trace_writer.create_run(
+                run = await self.trace_writer.create_run(
                     mode="agent",
                     subject_kind="agent",
                     subject_id=subject_id,
@@ -444,7 +444,7 @@ class AgentService:
                     request_id=data.request_id,
                 )
                 run_id = run.id
-                self.trace_writer.update_run_status(run_id, "running")
+                await self.trace_writer.update_run_status(run_id, "running")
 
         messages = [
             ChatMessage(
@@ -577,11 +577,11 @@ class AgentService:
                 return True
             return False
 
-        def check_cost_budget() -> bool:
+        async def check_cost_budget() -> bool:
             nonlocal cost_total
             if data.max_cost is None:
                 return False
-            cost_total = self._get_cost_total(run_id, data.cost_currency)
+            cost_total = await self._get_cost_total(run_id, data.cost_currency)
             if cost_total >= data.max_cost:
                 set_budget("cost_budget_exceeded")
                 return True
@@ -635,7 +635,7 @@ class AgentService:
                 ToolDefinition(
                     name=ref,
                     description=f"Execute bound workflow {ref}",
-                    parameters=self._workflow_tool_parameters(ref),
+                    parameters=await self._workflow_tool_parameters(ref),
                 )
                 for ref in data.workflow_refs
             ]
@@ -651,7 +651,7 @@ class AgentService:
         try:
             await emit("agent.run.started", {"run_id": run_id})
             while pending_tool_calls or iterations < data.max_iterations:
-                self._ensure_run_active(run_id)
+                await self._ensure_run_active(run_id)
                 if check_runtime_budget():
                     break
                 resuming_pending_tools = bool(pending_tool_calls)
@@ -673,16 +673,16 @@ class AgentService:
                     iterations += 1
                     plan_step_id = None
                     if self.trace_writer:
-                        step = self.trace_writer.create_step(
+                        step = await self.trace_writer.create_step(
                             run_id=run_id,
                             step_type="agent_plan",
                             input_summary=f"iteration={iterations}",
                         )
                         plan_step_id = step.id
-                        self.trace_writer.update_step_status(plan_step_id, "running")
+                        await self.trace_writer.update_step_status(plan_step_id, "running")
 
                     await emit("agent.plan.started", {"iteration": iterations})
-                    llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
+                    llm_cost_count_before = await self._count_llm_token_cost_entries(run_id)
                     try:
                         plan = await self.planner.plan(
                             messages=messages,
@@ -696,14 +696,14 @@ class AgentService:
                         )
                     except Exception as exc:
                         if self.trace_writer and plan_step_id:
-                            self.trace_writer.update_step_status(
+                            await self.trace_writer.update_step_status(
                                 plan_step_id,
                                 "failed",
                                 error_message=str(exc),
                             )
                         raise
                     llm_calls += 1
-                    self._ensure_run_active(run_id)
+                    await self._ensure_run_active(run_id)
                     tokens_prompt += plan.tokens_prompt
                     tokens_completion += plan.tokens_completion
                     finish_reason = plan.finish_reason or finish_reason
@@ -724,9 +724,9 @@ class AgentService:
                         self.trace_writer
                         and plan_step_id
                         and (plan.tokens_prompt or plan.tokens_completion)
-                        and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
+                        and await self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
                     ):
-                        self.trace_writer.record_cost(
+                        await self.trace_writer.record_cost(
                             run_id=run_id,
                             step_id=plan_step_id,
                             billing_basis="tokens",
@@ -740,11 +740,11 @@ class AgentService:
                             completion_tokens=plan.tokens_completion,
                             total_tokens=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
                         )
-                    if check_cost_budget():
+                    if await check_cost_budget():
                         break
 
                     if self.trace_writer and plan_step_id:
-                        self.trace_writer.update_step_status(
+                        await self.trace_writer.update_step_status(
                             plan_step_id,
                             "succeeded",
                             output_summary=f"action={plan.action}",
@@ -783,13 +783,13 @@ class AgentService:
 
                     tool_failed_break = False
                     for tool_call_index, tc in enumerate(plan.tool_calls):
-                        self._ensure_run_active(run_id)
+                        await self._ensure_run_active(run_id)
                         if tc.name not in allowed_action_refs:
                             raise ValidationError(f"Tool not allowed: {tc.name}")
                         is_workflow_call = tc.name in (data.workflow_refs or [])
                         tool_type = "workflow" if is_workflow_call else "builtin"
                         tool_arguments = (
-                            self._workflow_arguments_with_defaults(tc.arguments or {}, data)
+                            await self._workflow_arguments_with_defaults(tc.arguments or {}, data)
                             if is_workflow_call
                             else (tc.arguments or {})
                         )
@@ -807,7 +807,7 @@ class AgentService:
                             )
                         except _AgentApprovalInterrupt as approval_interrupt:
                             if runtime_tool_execution is not None:
-                                waiting_claim = runtime_tool_execution.prepare_waiting_approval(
+                                waiting_claim = await runtime_tool_execution.prepare_waiting_approval(
                                     ToolExecutionCommand(
                                         run_id=run_id,
                                         tool_call_id=tc.id,
@@ -859,7 +859,7 @@ class AgentService:
 
                         tool_step_id = None
                         existing_tool_claim = (
-                            runtime_tool_execution.get_by_call(
+                            await runtime_tool_execution.get_by_call(
                                 run_id=run_id,
                                 tool_call_id=tc.id,
                             )
@@ -876,7 +876,7 @@ class AgentService:
                             and runtime_tool_execution is not None
                             and existing_tool_claim is not None
                         ):
-                            rejected_claim = runtime_tool_execution.reject_approval(
+                            rejected_claim = await runtime_tool_execution.reject_approval(
                                 ToolExecutionCommand(
                                     run_id=run_id,
                                     run_step_id=tool_step_id,
@@ -890,14 +890,14 @@ class AgentService:
                             tool_step_id = rejected_claim.run_step.id
                         if self.trace_writer:
                             if tool_step_id is None:
-                                step = self.trace_writer.create_step(
+                                step = await self.trace_writer.create_step(
                                     run_id=run_id,
                                     step_type="tool",
                                     input_summary=f"tool_ref={tc.name}",
                                 )
                                 tool_step_id = step.id
                         if runtime_tool_execution is not None and not approval_rejected:
-                            direct_tool_claim = runtime_tool_execution.claim(
+                            direct_tool_claim = await runtime_tool_execution.claim(
                                 ToolExecutionCommand(
                                     run_id=run_id,
                                     run_step_id=tool_step_id,
@@ -925,7 +925,7 @@ class AgentService:
                         )
 
                         if self.trace_writer and tool_step_id:
-                            self.trace_writer.update_step_metrics(
+                            await self.trace_writer.update_step_metrics(
                                 tool_step_id,
                                 build_tool_metrics(
                                     tool_ref=tc.name,
@@ -936,8 +936,8 @@ class AgentService:
                                 ),
                             )
                         if emit_response_events and self.response_service and response_id:
-                            response = self.response_service.get_response(response_id)
-                            self.response_service.append_event(
+                            response = await self.response_service.get_response(response_id)
+                            await self.response_service.append_event(
                                 response=response,
                                 event_type="tool.call.requested",
                                 payload={
@@ -953,7 +953,7 @@ class AgentService:
                                 source="agent",
                             )
                             if not approval_rejected:
-                                self.response_service.append_event(
+                                await self.response_service.append_event(
                                     response=response,
                                     event_type="tool.call.started",
                                     payload={
@@ -987,7 +987,7 @@ class AgentService:
                                     tool_response = cached_response
                                 else:
                                     if direct_tool_claim is not None:
-                                        runtime_tool_execution.mark_running(
+                                        await runtime_tool_execution.mark_running(
                                             direct_tool_claim.record.id
                                         )
                                     workflow_result = await self.workflow_executor(
@@ -1009,7 +1009,7 @@ class AgentService:
                                     )
                             else:
                                 if direct_tool_claim is not None and not direct_tool_claim.replayed:
-                                    runtime_tool_execution.mark_running(
+                                    await runtime_tool_execution.mark_running(
                                         direct_tool_claim.record.id
                                     )
                                 tool_response = await self.executor.execute_tool(
@@ -1047,12 +1047,12 @@ class AgentService:
                                 and direct_tool_claim is not None
                                 and not direct_tool_claim.replayed
                             ):
-                                runtime_tool_execution.fail(
+                                await runtime_tool_execution.fail(
                                     direct_tool_claim.record.id,
                                     exc,
                                 )
                             if self.trace_writer and tool_step_id:
-                                self.trace_writer.update_step_status(
+                                await self.trace_writer.update_step_status(
                                     tool_step_id,
                                     "failed",
                                     metrics=build_tool_metrics(
@@ -1067,8 +1067,8 @@ class AgentService:
                                     error_message=str(exc),
                                 )
                             if emit_response_events and self.response_service and response_id:
-                                response = self.response_service.get_response(response_id)
-                                self.response_service.append_event(
+                                response = await self.response_service.get_response(response_id)
+                                await self.response_service.append_event(
                                     response=response,
                                     event_type="tool.call.failed",
                                     payload={
@@ -1142,7 +1142,7 @@ class AgentService:
 
                         if self.trace_writer and tool_step_id and not approval_rejected:
                             status = "succeeded" if tool_response.success else "failed"
-                            self.trace_writer.update_step_status(
+                            await self.trace_writer.update_step_status(
                                 tool_step_id,
                                 status,
                                 output_summary=json.dumps(
@@ -1170,8 +1170,8 @@ class AgentService:
                                 error_message=None if tool_response.success else tool_response.error,
                             )
                         if emit_response_events and self.response_service and response_id:
-                            response = self.response_service.get_response(response_id)
-                            self.response_service.append_event(
+                            response = await self.response_service.get_response(response_id)
+                            await self.response_service.append_event(
                                 response=response,
                                 event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
                                 payload={
@@ -1207,7 +1207,7 @@ class AgentService:
 
                     if tool_failed_break:
                         break
-                    if check_cost_budget():
+                    if await check_cost_budget():
                         break
                     continue
 
@@ -1227,22 +1227,22 @@ class AgentService:
                 finish_reason = finish_reason or "max_iterations"
 
             if data.verify and not budget_exceeded and not check_runtime_budget():
-                self._ensure_run_active(run_id)
+                await self._ensure_run_active(run_id)
                 if data.max_llm_calls is not None and llm_calls >= data.max_llm_calls:
                     set_budget("llm_budget_exceeded")
                 else:
                     verify_step_id = None
                     if self.trace_writer:
-                        step = self.trace_writer.create_step(
+                        step = await self.trace_writer.create_step(
                             run_id=run_id,
                             step_type="other",
                             input_summary="verify_response",
                         )
                         verify_step_id = step.id
-                        self.trace_writer.update_step_status(verify_step_id, "running")
+                        await self.trace_writer.update_step_status(verify_step_id, "running")
 
                     try:
-                        llm_cost_count_before = self._count_llm_token_cost_entries(run_id)
+                        llm_cost_count_before = await self._count_llm_token_cost_entries(run_id)
                         verify_result = await self.verifier.verify(
                             messages,
                             final_response,
@@ -1251,7 +1251,7 @@ class AgentService:
                         )
                     except Exception as exc:
                         if self.trace_writer and verify_step_id:
-                            self.trace_writer.update_step_status(
+                            await self.trace_writer.update_step_status(
                                 verify_step_id,
                                 "failed",
                                 error_message=str(exc),
@@ -1265,9 +1265,9 @@ class AgentService:
                         self.trace_writer
                         and verify_step_id
                         and (verify_result.tokens_prompt or verify_result.tokens_completion)
-                        and self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
+                        and await self._count_llm_token_cost_entries(run_id) == llm_cost_count_before
                     ):
-                        self.trace_writer.record_cost(
+                        await self.trace_writer.record_cost(
                             run_id=run_id,
                             step_id=verify_step_id,
                             billing_basis="tokens",
@@ -1281,7 +1281,7 @@ class AgentService:
                             completion_tokens=verify_result.tokens_completion,
                             total_tokens=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
                         )
-                    check_cost_budget()
+                    await check_cost_budget()
 
                     if data.max_tokens_total is not None:
                         total_tokens = tokens_prompt + tokens_completion
@@ -1290,7 +1290,7 @@ class AgentService:
 
                     if self.trace_writer and verify_step_id:
                         status = "succeeded" if verify_result.ok else "failed"
-                        self.trace_writer.update_step_status(
+                        await self.trace_writer.update_step_status(
                             verify_step_id,
                             status,
                             output_summary="ok" if verify_result.ok else "not_ok",
@@ -1309,18 +1309,18 @@ class AgentService:
                             final_response = "Agent verification failed."
                         finish_reason = "verification_failed"
 
-            self._ensure_run_active(run_id)
+            await self._ensure_run_active(run_id)
             await emit("agent.response.succeeded", {"output": final_response})
             await emit("agent.run.succeeded", {"run_id": run_id, "status": "succeeded"})
             if self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "succeeded",
                     output_summary=final_response[:8192],
                 )
         except _AgentApprovalInterrupt as exc:
             if self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "waiting_approval",
                     output_summary=str(exc)[:8192],
@@ -1352,7 +1352,7 @@ class AgentService:
             if canceled:
                 await emit("agent.run.canceled", {"run_id": run_id, "status": "canceled"})
             elif self.trace_writer:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run_id,
                     "failed",
                     output_summary=str(exc)[:8192],
@@ -1379,7 +1379,7 @@ class AgentService:
             "citations": rag_citations,
         }
 
-    def _get_cost_total(self, run_id: str, currency: str) -> float:
+    async def _get_cost_total(self, run_id: str, currency: str) -> float:
         """Get total cost for a run."""
         from sqlalchemy import func
 
@@ -1393,11 +1393,11 @@ class AgentService:
                 RunCostEntry.currency == currency,
             )
         )
-        result = self.db.exec(query).one()
+        result = (await self.db.exec(query)).one()
         value = self._scalar_value(result)
         return float(value or 0)
 
-    def _count_llm_token_cost_entries(self, run_id: str) -> int:
+    async def _count_llm_token_cost_entries(self, run_id: str) -> int:
         """Count LLM token cost entries already written for this run."""
         if not self.trace_writer:
             return 0
@@ -1414,7 +1414,7 @@ class AgentService:
                 RunCostEntry.model_ref.is_not(None),
             )
         )
-        result = self.db.exec(query).one()
+        result = (await self.db.exec(query)).one()
         value = self._scalar_value(result)
         return int(value or 0)
 
@@ -1428,10 +1428,10 @@ class AgentService:
         except Exception:
             return result
 
-    def _workflow_tool_parameters(self, workflow_ref: str) -> dict[str, Any]:
-        return self.capability_catalog.workflow_input_schema(workflow_ref)
+    async def _workflow_tool_parameters(self, workflow_ref: str) -> dict[str, Any]:
+        return await self.capability_catalog.workflow_input_schema(workflow_ref)
 
-    def _workflow_arguments_with_defaults(
+    async def _workflow_arguments_with_defaults(
         self,
         arguments: dict[str, Any],
         data: AgentRuntimeRequest,
@@ -1439,7 +1439,7 @@ class AgentService:
         merged = dict(arguments or {})
         merged.setdefault("model_ref", data.model_ref)
         if data.knowledge_refs:
-            defaults = self.capability_catalog.knowledge_runtime_defaults(
+            defaults = await self.capability_catalog.knowledge_runtime_defaults(
                 data.knowledge_refs[0]
             )
             for key, value in defaults.items():
@@ -1463,7 +1463,7 @@ class AgentService:
             kb_id = ref.split(":")[-1] if ":" in ref else ref
             step_id = None
             if self.trace_writer and run_id:
-                step = self.trace_writer.create_step(
+                step = await self.trace_writer.create_step(
                     run_id=run_id,
                     step_type="retrieval",
                     step_id=f"rag:{kb_id}",
@@ -1471,7 +1471,7 @@ class AgentService:
                     input_summary=query,
                 )
                 step_id = step.id
-                self.trace_writer.update_step_status(step_id, "running")
+                await self.trace_writer.update_step_status(step_id, "running")
             try:
                 response = await knowledge_query(
                     knowledge_id=kb_id,
@@ -1539,7 +1539,7 @@ class AgentService:
                                     normalized[field] = value
                         citations.append(normalized)
                 if self.trace_writer and step_id:
-                    self.trace_writer.update_step_status(
+                    await self.trace_writer.update_step_status(
                         step_id,
                         "succeeded",
                         output_summary=f"{len(results)} result(s), {len(response_citations)} citation(s)",
@@ -1554,7 +1554,7 @@ class AgentService:
                     )
             except Exception:
                 if self.trace_writer and step_id:
-                    self.trace_writer.update_step_status(
+                    await self.trace_writer.update_step_status(
                         step_id,
                         "failed",
                         output_summary="RAG retrieval failed",

@@ -55,20 +55,20 @@ async def tail_response_events(
             }
             if interaction_id is not None:
                 list_kwargs["interaction_id"] = interaction_id
-            events = service.list_response_events(response_id, **list_kwargs)
+            events = await service.list_response_events(response_id, **list_kwargs)
             for event in events:
                 cursor = max(cursor, event.sequence)
                 yield {"kind": "event", "event": event}
             if len(events) >= 1000:
                 continue
 
-            response = service.get_response(response_id)
+            response = await service.get_response(response_id)
             active_interaction_id = interaction_id or str(
                 (getattr(response, "metadata_json", None) or {}).get("interaction_id")
                 or ""
             )
             interaction = (
-                service.get_interaction(active_interaction_id)
+                await service.get_interaction(active_interaction_id)
                 if active_interaction_id and hasattr(service, "get_interaction")
                 else None
             )

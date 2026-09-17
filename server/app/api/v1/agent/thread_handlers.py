@@ -76,7 +76,7 @@ class ThreadHandlers:
     ) -> PaginatedResponse[ThreadResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        threads = self.query_service.list_threads(
+        threads = await self.query_service.list_threads(
             limit=limit,
             offset=offset,
             status=status,
@@ -92,7 +92,7 @@ class ThreadHandlers:
         del ctx
         if not self.runtime_service:
             raise RuntimeError("Thread runtime service is not configured")
-        thread = self.runtime_service.create_thread(
+        thread = await self.runtime_service.create_thread(
             agent_id=payload.agent_id,
             title=payload.title,
             metadata=payload.metadata_json,
@@ -114,8 +114,8 @@ class ThreadHandlers:
         return self._serialize_thread(thread)
 
     async def get_thread(self, ctx: RequestContext, thread_id: str) -> ThreadDetailResponse:
-        thread = self.query_service.get_thread(thread_id)
-        messages = self.query_service.list_thread_messages(thread_id)
+        thread = await self.query_service.get_thread(thread_id)
+        messages = await self.query_service.list_thread_messages(thread_id)
         return ThreadDetailResponse(
             thread=self._serialize_thread(thread),
             messages=[ThreadMessageResponse.model_validate(item) for item in messages],
@@ -130,7 +130,7 @@ class ThreadHandlers:
         if not self.runtime_service:
             raise RuntimeError("Thread runtime service is not configured")
         pinned_at = payload.pinned_at if "pinned_at" in payload.model_fields_set else ...
-        thread = self.runtime_service.update_thread(
+        thread = await self.runtime_service.update_thread(
             thread_id=thread_id,
             title=payload.title,
             status=payload.status,
@@ -156,4 +156,4 @@ class ThreadHandlers:
         del ctx
         if not self.runtime_service:
             raise RuntimeError("Thread runtime service is not configured")
-        self.runtime_service.delete_thread(thread_id=thread_id)
+        await self.runtime_service.delete_thread(thread_id=thread_id)

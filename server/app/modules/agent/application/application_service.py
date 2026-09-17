@@ -13,7 +13,7 @@ from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
     KernelError,
@@ -91,7 +91,7 @@ from app.modules.evaluation.application.service import (
     RegressionEvaluationService,
     RegressionRunResult,
 )
-from app.modules.identity.application.display import resolve_user_display_names
+from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.memory.application.service import MemoryService
 from app.modules.versioning.application.service import VersionControlService
 
@@ -125,7 +125,7 @@ class AgentApplicationService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         *,
         llm_port: LLMPort,
@@ -251,17 +251,17 @@ class AgentApplicationService:
             metadata_json=metadata,
         )
 
-    def _model_capabilities(self) -> list[dict[str, Any]]:
-        return self.capability_catalog.list_model_capabilities()
+    async def _model_capabilities(self) -> list[dict[str, Any]]:
+        return await self.capability_catalog.list_model_capabilities()
 
-    def _knowledge_capabilities(self) -> list[dict[str, Any]]:
-        return self.capability_catalog.list_knowledge_capabilities()
+    async def _knowledge_capabilities(self) -> list[dict[str, Any]]:
+        return await self.capability_catalog.list_knowledge_capabilities()
 
-    def _workflow_capabilities(self) -> list[dict[str, Any]]:
-        return self.capability_catalog.list_workflow_capabilities()
+    async def _workflow_capabilities(self) -> list[dict[str, Any]]:
+        return await self.capability_catalog.list_workflow_capabilities()
 
-    def _plugin_artifact_capabilities(self) -> list[dict[str, Any]]:
-        return self.capability_catalog.list_plugin_capabilities()
+    async def _plugin_artifact_capabilities(self) -> list[dict[str, Any]]:
+        return await self.capability_catalog.list_plugin_capabilities()
 
     def _tool_capabilities(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -277,38 +277,38 @@ class AgentApplicationService:
     def _resolve_agent_create_id(self, data: AgentCreate, **kwargs) -> str:
         return data.name or f"new:{self.ctx.workspace_id}"
 
-    def _get_agent(self, agent_id: str) -> Agent:
-        agent = self.agent_repo.get_by_id(agent_id)
+    async def _get_agent(self, agent_id: str) -> Agent:
+        agent = await self.agent_repo.get_by_id(agent_id)
         if not agent:
             raise NotFoundError(f"Agent not found: {agent_id}")
         return agent
 
-    def _get_version(self, version_id: str) -> AgentVersion:
-        version = self.version_repo.get_by_id(version_id)
+    async def _get_version(self, version_id: str) -> AgentVersion:
+        version = await self.version_repo.get_by_id(version_id)
         if not version:
             raise NotFoundError(f"Version not found: {version_id}")
         return version
 
-    def _resolve_execution_version(self, agent: Agent) -> AgentVersion:
+    async def _resolve_execution_version(self, agent: Agent) -> AgentVersion:
         version_id = agent.published_version_id
         if not version_id:
             raise ValidationError(f"Agent has no published version to execute: {agent.id}")
-        version = self._get_version(version_id)
+        version = await self._get_version(version_id)
         if version.agent_id != agent.id:
             raise ValidationError(f"Version {version.id} does not belong to agent {agent.id}")
         return version
 
-    def published_model_ref(self, agent_id: str) -> str | None:
+    async def published_model_ref(self, agent_id: str) -> str | None:
         """Return the model the agent's published version binds, if any.
 
         Callers that name an agent but no model -- `/responses` is the one that
         matters -- would otherwise fall back to a hardcoded default that no
         workspace is obliged to have a route for.
         """
-        agent = self.agent_repo.get_by_id(agent_id)
+        agent = await self.agent_repo.get_by_id(agent_id)
         if agent is None or not agent.published_version_id:
             return None
-        version = self.version_repo.get_by_id(agent.published_version_id)
+        version = await self.version_repo.get_by_id(agent.published_version_id)
         if version is None or version.agent_id != agent.id:
             return None
         bindings = (version.spec_json or {}).get("bindings") or {}
@@ -374,7 +374,7 @@ class AgentApplicationService:
         payload = json.dumps(spec, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def _sync_bindings(
+    async def _sync_bindings(
         self,
         agent: Agent,
         version: AgentVersion,
@@ -417,9 +417,9 @@ class AgentApplicationService:
                 )
 
         if bindings_to_create:
-            self.binding_repo.create_many(bindings_to_create)
+            await self.binding_repo.create_many(bindings_to_create)
 
-    def _request_from_version(self, version: AgentVersion, inputs: dict[str, Any]) -> AgentRuntimeRequest:
+    async def _request_from_version(self, version: AgentVersion, inputs: dict[str, Any]) -> AgentRuntimeRequest:
         spec = version.spec_json or {}
         binding_spec = spec.get("bindings") or {}
         memory_spec = spec.get("memory") or {}
@@ -445,7 +445,7 @@ class AgentApplicationService:
         system_prompt = spec.get("system_prompt")
         if system_prompt and not any(message.get("role") == "system" for message in messages):
             messages = [{"role": "system", "content": system_prompt}] + messages
-        skill_context = self._resolve_skill_context(binding_spec.get("skill_refs") or [])
+        skill_context = await self._resolve_skill_context(binding_spec.get("skill_refs") or [])
         if skill_context:
             if messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0].get('content') or ''}\n\n{skill_context}".strip()
@@ -486,13 +486,13 @@ class AgentApplicationService:
         }
         return AgentRuntimeRequest.model_validate(payload)
 
-    def _resolve_skill_context(self, skill_refs: list[str]) -> str | None:
+    async def _resolve_skill_context(self, skill_refs: list[str]) -> str | None:
         if self.plugin_runtime_port:
-            return self.plugin_runtime_port.resolve_skill_context(skill_refs=skill_refs, ctx=self.ctx)
-        return self._resolve_skill_context_from_artifacts(skill_refs)
+            return await self.plugin_runtime_port.resolve_skill_context(skill_refs=skill_refs, ctx=self.ctx)
+        return await self._resolve_skill_context_from_artifacts(skill_refs)
 
-    def _resolve_skill_context_from_artifacts(self, skill_refs: list[str]) -> str | None:
-        return self.capability_catalog.resolve_skill_context(skill_refs)
+    async def _resolve_skill_context_from_artifacts(self, skill_refs: list[str]) -> str | None:
+        return await self.capability_catalog.resolve_skill_context(skill_refs)
 
     def _build_runner(self, *, sandbox: bool = False) -> AgentService:
         async def execute_workflow_binding(workflow_ref: str, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -544,7 +544,7 @@ class AgentApplicationService:
                 return message
         raise ValidationError("Agent turn requires one current user input")
 
-    def _with_thread_history(
+    async def _with_thread_history(
         self,
         request: AgentRuntimeRequest,
         thread: Any,
@@ -557,10 +557,10 @@ class AgentApplicationService:
 
         system_messages = [message for message in request.messages if message.role == "system"]
         history: list[ChatMessageInput] = []
-        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
         resolved_head_id = head_message_id or (ledger_messages[-1].id if ledger_messages else None)
         branch_messages = (
-            self.thread_service.thread_repo.message_lineage(thread.id, resolved_head_id)
+            await self.thread_service.thread_repo.message_lineage(thread.id, resolved_head_id)
             if resolved_head_id
             else []
         )
@@ -651,8 +651,8 @@ class AgentApplicationService:
             if key != "_attachment_context" and key != "_context_text"
         }
 
-    def _run_artifact_descriptors(self, run_id: str) -> list[dict[str, Any]]:
-        rows = self.db.execute(
+    async def _run_artifact_descriptors(self, run_id: str) -> list[dict[str, Any]]:
+        rows = (await self.db.execute(
             select(RunArtifact)
             .where(
                 RunArtifact.run_id == run_id,
@@ -660,7 +660,7 @@ class AgentApplicationService:
                 RunArtifact.workspace_id == self.ctx.workspace_id,
             )
             .order_by(RunArtifact.created_at)
-        ).scalars()
+        )).scalars()
         descriptors: list[dict[str, Any]] = []
         for artifact in rows:
             metadata = artifact.meta_json or {}
@@ -733,7 +733,7 @@ class AgentApplicationService:
             metadata["reasoning"] = result["reasoning"]
         return metadata
 
-    def _append_failed_assistant_message(
+    async def _append_failed_assistant_message(
         self,
         *,
         thread_id: str,
@@ -758,7 +758,7 @@ class AgentApplicationService:
             "tool_calls_count": 0,
             "citations": [],
         }
-        self.thread_service.append_message(
+        await self.thread_service.append_message(
             thread_id=thread_id,
             role="assistant",
             content=error_message,
@@ -772,18 +772,18 @@ class AgentApplicationService:
             error_code=error_code,
             error_message=error_message,
         )
-        self.thread_service.thread_repo.touch_thread(
-            self.thread_service.thread_repo.get_thread(thread_id),
+        await self.thread_service.thread_repo.touch_thread(
+            await self.thread_service.thread_repo.get_thread(thread_id),
             latest_run_id=run_id,
         )
 
     @rbac_guard(RESOURCE_AGENT, "create", resource_id_resolver=_resolve_agent_create_id)
     async def create_agent(self, data: AgentCreate) -> Agent:
-        existing = self.agent_repo.get_by_name(data.name)
+        existing = await self.agent_repo.get_by_name(data.name)
         if existing:
             raise ValidationError(f"Agent with name '{data.name}' already exists")
 
-        return self.agent_repo.create(
+        return await self.agent_repo.create(
             Agent(
                 name=data.name,
                 description=data.description,
@@ -798,9 +798,9 @@ class AgentApplicationService:
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def update_agent(self, agent_id: str, data: AgentUpdate) -> Agent:
-        agent = self._get_agent(agent_id)
+        agent = await self._get_agent(agent_id)
         if data.name and data.name != agent.name:
-            existing = self.agent_repo.get_by_name(data.name)
+            existing = await self.agent_repo.get_by_name(data.name)
             if existing and existing.id != agent.id:
                 raise ValidationError(f"Agent with name '{data.name}' already exists")
             agent.name = data.name
@@ -821,15 +821,15 @@ class AgentApplicationService:
             agent.featured = data.featured
         if data.tags is not None:
             agent.tags = data.tags
-        return self.agent_repo.update(agent)
+        return await self.agent_repo.update(agent)
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def get_agent(self, agent_id: str) -> Agent:
-        return self._get_agent(agent_id)
+        return await self._get_agent(agent_id)
 
     @workspace_guard("read")
     async def list_agents(self, limit: int = 20, offset: int = 0) -> list[Agent]:
-        return self.agent_repo.list(limit=limit, offset=offset)
+        return await self.agent_repo.list(limit=limit, offset=offset)
 
     @workspace_guard("read")
     async def list_capabilities(
@@ -839,11 +839,11 @@ class AgentApplicationService:
         source_kind: str | None = None,
     ) -> list[dict[str, Any]]:
         items = [
-            *self._model_capabilities(),
-            *self._knowledge_capabilities(),
-            *self._workflow_capabilities(),
+            *await self._model_capabilities(),
+            *await self._knowledge_capabilities(),
+            *await self._workflow_capabilities(),
             *self._tool_capabilities(),
-            *self._plugin_artifact_capabilities(),
+            *await self._plugin_artifact_capabilities(),
         ]
         deduped: dict[str, dict[str, Any]] = {}
         for item in items:
@@ -859,16 +859,16 @@ class AgentApplicationService:
     @workspace_guard("read")
     async def capability_labels(self) -> dict[str, str]:
         """Public map of capability refs to display names."""
-        return self._capability_name_map()
+        return await self._capability_name_map()
 
-    def _capability_name_map(self) -> dict[str, str]:
+    async def _capability_name_map(self) -> dict[str, str]:
         """Map capability refs to display names for binding labels."""
         items = [
-            *self._model_capabilities(),
-            *self._knowledge_capabilities(),
-            *self._workflow_capabilities(),
+            *await self._model_capabilities(),
+            *await self._knowledge_capabilities(),
+            *await self._workflow_capabilities(),
             *self._tool_capabilities(),
-            *self._plugin_artifact_capabilities(),
+            *await self._plugin_artifact_capabilities(),
         ]
         mapping: dict[str, str] = {}
         for item in items:
@@ -880,7 +880,7 @@ class AgentApplicationService:
 
     @workspace_guard("read")
     async def get_workbench(self, limit: int = 20, offset: int = 0) -> AgentWorkbenchResponse:
-        rows, runs_by_agent = self._build_workbench_rows()
+        rows, runs_by_agent = await self._build_workbench_rows()
         all_today_runs = [
             run
             for agent_runs in runs_by_agent.values()
@@ -915,7 +915,7 @@ class AgentApplicationService:
         tab: str | None = None,
         keyword: str | None = None,
     ) -> AgentWorkbenchItemsResponse:
-        rows, _ = self._build_workbench_rows()
+        rows, _ = await self._build_workbench_rows()
         filtered_rows = self._filter_workbench_rows(rows, tab=tab, keyword=keyword)
         visible_rows = filtered_rows[offset: offset + limit]
         has_next = offset + len(visible_rows) < len(filtered_rows)
@@ -926,14 +926,14 @@ class AgentApplicationService:
             page_size=len(visible_rows),
         )
 
-    def _build_workbench_rows(self) -> tuple[list[AgentWorkbenchRow], dict[str, list[Run]]]:
-        agents = self._list_workbench_agents()
+    async def _build_workbench_rows(self) -> tuple[list[AgentWorkbenchRow], dict[str, list[Run]]]:
+        agents = await self._list_workbench_agents()
         agent_ids = [agent.id for agent in agents]
-        runs_by_agent = self._workbench_runs_by_agent(agent_ids)
-        bindings_by_version = self._workbench_bindings_by_version(
+        runs_by_agent = await self._workbench_runs_by_agent(agent_ids)
+        bindings_by_version = await self._workbench_bindings_by_version(
             [agent.published_version_id for agent in agents if agent.published_version_id]
         )
-        capability_names = self._capability_name_map()
+        capability_names = await self._capability_name_map()
         rows = [
             self._build_workbench_row(
                 agent,
@@ -943,7 +943,7 @@ class AgentApplicationService:
             )
             for agent in agents
         ]
-        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        owner_names = await resolve_user_display_names_async(self.db, (row.owner for row in rows))
         for row in rows:
             if row.owner:
                 row.owner = owner_names.get(row.owner, row.owner)
@@ -993,7 +993,7 @@ class AgentApplicationService:
 
         return [row for row in rows if tab_matches(row) and keyword_matches(row)]
 
-    def _list_workbench_agents(self) -> list[Agent]:
+    async def _list_workbench_agents(self) -> list[Agent]:
         query = (
             select(Agent)
             .where(
@@ -1005,10 +1005,10 @@ class AgentApplicationService:
             )
             .order_by(desc(Agent.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, Agent) else item[0] for item in results]
 
-    def _workbench_runs_by_agent(self, agent_ids: list[str]) -> dict[str, list[Run]]:
+    async def _workbench_runs_by_agent(self, agent_ids: list[str]) -> dict[str, list[Run]]:
         if not agent_ids:
             return {}
         query = (
@@ -1023,7 +1023,7 @@ class AgentApplicationService:
             )
             .order_by(desc(Run.started_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         grouped: dict[str, list[Run]] = defaultdict(list)
         for item in results:
             run = item if isinstance(item, Run) else item[0]
@@ -1031,7 +1031,7 @@ class AgentApplicationService:
                 grouped[run.subject_id].append(run)
         return grouped
 
-    def _workbench_bindings_by_version(self, version_ids: list[str]) -> dict[str, list[AgentBinding]]:
+    async def _workbench_bindings_by_version(self, version_ids: list[str]) -> dict[str, list[AgentBinding]]:
         if not version_ids:
             return {}
         query = (
@@ -1045,7 +1045,7 @@ class AgentApplicationService:
             )
             .order_by(AgentBinding.sort_order.asc(), AgentBinding.created_at.asc())
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         grouped: dict[str, list[AgentBinding]] = defaultdict(list)
         for item in results:
             binding = item if isinstance(item, AgentBinding) else item[0]
@@ -1148,16 +1148,16 @@ class AgentApplicationService:
 
     @rbac_guard(RESOURCE_AGENT, "delete", resource_id_arg="agent_id")
     async def delete_agent(self, agent_id: str) -> None:
-        agent = self._get_agent(agent_id)
+        agent = await self._get_agent(agent_id)
         agent.status = "archived"
         agent.deleted_at = utc_now()
-        self.agent_repo.update(agent)
+        await self.agent_repo.update(agent)
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def create_version(self, agent_id: str, data: AgentVersionCreate) -> AgentVersion:
         spec = self._build_spec(data)
         validate_runtime_spec("agent.v1", spec, raise_on_error=True)
-        return self.versioning.create_draft(
+        return await self.versioning.create_draft(
             agent_id,
             spec_schema="agent.v1",
             spec_json=spec,
@@ -1166,7 +1166,7 @@ class AgentApplicationService:
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_versions(self, agent_id: str, limit: int = 20, offset: int = 0) -> list[AgentVersion]:
-        return self.versioning.list_versions(agent_id, limit=limit, offset=offset)
+        return await self.versioning.list_versions(agent_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def review_version(
@@ -1183,8 +1183,8 @@ class AgentApplicationService:
         into review: what would be reviewed is already live, and the answer to
         wanting a change is a new draft.
         """
-        agent = self._get_agent(agent_id)
-        version = self._get_version(version_id)
+        agent = await self._get_agent(agent_id)
+        version = await self._get_version(version_id)
         if version.agent_id != agent.id:
             raise NotFoundError(f"Version not found: {version_id}")
         if version.status == "published":
@@ -1228,11 +1228,11 @@ class AgentApplicationService:
         else:
             raise ValidationError("Unknown review action", {"action": action})
 
-        return self.version_repo.update(version)
+        return await self.version_repo.update(version)
 
     async def list_drafts_awaiting_review(self, *, limit: int = 20) -> list[AgentVersion]:
         """Every draft in the workspace that is waiting on somebody."""
-        return self.version_repo.list_awaiting_review(limit=limit)
+        return await self.version_repo.list_awaiting_review(limit=limit)
 
     async def agent_names(self, agent_ids: list[str]) -> dict[str, str]:
         """Resolve agent names for a set of ids, skipping any that are gone.
@@ -1242,30 +1242,30 @@ class AgentApplicationService:
         """
         names: dict[str, str] = {}
         for agent_id in dict.fromkeys(agent_ids):
-            agent = self.agent_repo.get_by_id(agent_id)
+            agent = await self.agent_repo.get_by_id(agent_id)
             if agent is not None:
                 names[agent_id] = agent.name
         return names
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_releases(self, agent_id: str, limit: int = 20, offset: int = 0) -> list[AgentPublish]:
-        return self.versioning.list_releases(agent_id, limit=limit, offset=offset)
+        return await self.versioning.list_releases(agent_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_bindings(self, agent_id: str, version_id: str | None = None) -> list[AgentBinding]:
-        agent = self._get_agent(agent_id)
+        agent = await self._get_agent(agent_id)
         resolved_version_id = version_id or agent.current_version_id or agent.published_version_id
         if not resolved_version_id:
             return []
-        version = self._get_version(resolved_version_id)
+        version = await self._get_version(resolved_version_id)
         if version.agent_id != agent.id:
             raise NotFoundError(f"Version not found: {resolved_version_id}")
-        return self.binding_repo.list_for_version(version.id)
+        return await self.binding_repo.list_for_version(version.id)
 
     async def _evaluate_regressions_before_publish(self, agent_id: str, version_id: str) -> None:
         if self.regression_evaluator is None:
             return
-        cases = self.regression_evaluator.list_cases(subject_kind="agent", subject_id=agent_id)
+        cases = await self.regression_evaluator.list_cases(subject_kind="agent", subject_id=agent_id)
         if not cases:
             return
         result = await self.regression_evaluator.evaluate_subject_version(
@@ -1336,35 +1336,35 @@ class AgentApplicationService:
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def publish_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
         await self._evaluate_regressions_before_publish(agent_id, version_id)
-        return self.versioning.publish(agent_id, version_id, notes=notes)
+        return await self.versioning.publish(agent_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_AGENT, "update", resource_id_arg="agent_id")
     async def rollback_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
-        return self.versioning.rollback(agent_id, version_id, notes=notes)
+        return await self.versioning.rollback(agent_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
     async def execute_agent(self, agent_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
-        agent = self._get_agent(agent_id)
+        agent = await self._get_agent(agent_id)
         inputs = dict(inputs)
         sandbox = bool(inputs.pop(self._INTERNAL_SANDBOX_KEY, False))
         version_override_id = inputs.pop(self._INTERNAL_VERSION_OVERRIDE_KEY, None)
         if version_override_id:
-            version = self._get_version(version_override_id)
+            version = await self._get_version(version_override_id)
             if version.agent_id != agent.id:
                 raise NotFoundError(f"Version not found: {version_override_id}")
         else:
-            version = self._resolve_execution_version(agent)
-        request = self._request_from_version(version, inputs)
+            version = await self._resolve_execution_version(agent)
+        request = await self._request_from_version(version, inputs)
         current_message = self._current_user_message(request)
         linked_response = None
 
-        thread = self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
+        thread = await self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
         if request.thread_id and not thread:
             raise NotFoundError(f"Thread not found: {request.thread_id}")
         if thread and thread.agent_id and thread.agent_id != agent.id:
             raise ValidationError(f"Thread {thread.id} does not belong to agent {agent.id}")
         if thread is None:
-            thread = self.thread_service.create_thread(
+            thread = await self.thread_service.create_thread(
                 agent_id=agent.id,
                 title=self._resolve_thread_title(request),
                 system_prompt=((version.spec_json or {}).get("system_prompt") if isinstance(version.spec_json, dict) else None),
@@ -1375,15 +1375,15 @@ class AgentApplicationService:
                 metadata={"source": "agent.execute", "agent_version_id": version.id},
             )
 
-        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
         user_parent_message_id = ledger_messages[-1].id if ledger_messages else None
-        request = self._with_thread_history(
+        request = await self._with_thread_history(
             request,
             thread,
             current_message,
             head_message_id=user_parent_message_id,
         )
-        stored_user_message = self.thread_service.append_message(
+        stored_user_message = await self.thread_service.append_message(
             thread_id=thread.id,
             role="user",
             content=current_message.content,
@@ -1395,7 +1395,7 @@ class AgentApplicationService:
             },
         )
 
-        run = self.trace_writer.create_run(
+        run = await self.trace_writer.create_run(
             mode="agent",
             kind="agent",
             subject_kind="agent",
@@ -1407,7 +1407,7 @@ class AgentApplicationService:
             # rehearsal without having to work out afterwards what it was.
             sandbox=sandbox,
         )
-        task = self.task_service.create_task(
+        task = await self.task_service.create_task(
             task_type="agent.execute",
             status=TaskStatus.PREPARING.value,
             agent_id=agent.id,
@@ -1420,7 +1420,7 @@ class AgentApplicationService:
                 "request_id": request.request_id,
             },
         )
-        self.task_service.transition_task(
+        await self.task_service.transition_task(
             task_id=task.id,
             status=TaskStatus.RUNNING.value,
             progress={"phase": "agent_loop"},
@@ -1458,7 +1458,7 @@ class AgentApplicationService:
             self.db.add(snapshot_interaction)
 
         if self.response_service:
-            linked_response = self.response_service.create_linked_response(
+            linked_response = await self.response_service.create_linked_response(
                 run_id=run.id,
                 thread_id=thread.id,
                 task_id=task.id,
@@ -1474,11 +1474,11 @@ class AgentApplicationService:
                     "task_id": task.id,
                 },
             )
-            linked_response = self.response_service.mark_running(linked_response)
+            linked_response = await self.response_service.mark_running(linked_response)
 
         # Publish the execution linkage before the first remote call so an explicit
         # cancellation request can resolve and close the active lifecycle.
-        self.db.commit()
+        await self.db.commit()
 
         request = request.model_copy(update={"task_id": task.id, "agent_id": agent.id})
         runner = self._build_runner(sandbox=sandbox)
@@ -1488,8 +1488,8 @@ class AgentApplicationService:
             if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
                 _finalize_snapshot("canceled")
                 if linked_response:
-                    self.response_service.cancel_response(linked_response.id)
-                self.task_service.cancel_task(task_id=task.id)
+                    await self.response_service.cancel_response(linked_response.id)
+                await self.task_service.cancel_task(task_id=task.id)
                 raise
             logger.exception(
                 "Agent execution failed",
@@ -1498,13 +1498,13 @@ class AgentApplicationService:
             _finalize_snapshot("failed")
             error_message = public_error_message(exc, _PUBLIC_AGENT_EXECUTION_ERROR)
             if linked_response:
-                linked_response = self.response_service.fail_response(
+                linked_response = await self.response_service.fail_response(
                     response=linked_response,
                     error_code="agent_execution_failed",
                     error_message=error_message,
                     source="agent",
                 )
-            self._append_failed_assistant_message(
+            await self._append_failed_assistant_message(
                 thread_id=thread.id,
                 task_id=task.id,
                 run_id=run.id,
@@ -1515,7 +1515,7 @@ class AgentApplicationService:
                 error_message=error_message,
                 parent_message_id=stored_user_message.id,
             )
-            self.task_service.transition_task(
+            await self.task_service.transition_task(
                 task_id=task.id,
                 status=TaskStatus.FAILED.value,
                 error_code="agent_execution_failed",
@@ -1528,14 +1528,14 @@ class AgentApplicationService:
             # Deliberately left "inline": the attempt is still in flight through
             # approval, and "waiting_approval" would collide with the resume
             # claim that targets durable worker interactions in that status.
-            current_task = self.task_service.get_task(task.id)
+            current_task = await self.task_service.get_task(task.id)
             if current_task.status != TaskStatus.WAITING_APPROVAL.value:
-                self.task_service.transition_task(
+                await self.task_service.transition_task(
                     task_id=task.id,
                     status=TaskStatus.WAITING_APPROVAL.value,
                     progress={"phase": "approval", "interrupt": result.get("interrupt")},
                 )
-            self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+            await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
             return {
                 **result,
                 "thread_id": thread.id,
@@ -1547,9 +1547,9 @@ class AgentApplicationService:
         _finalize_snapshot("succeeded")
         result = {
             **result,
-            "artifacts": self._run_artifact_descriptors(run.id),
+            "artifacts": await self._run_artifact_descriptors(run.id),
         }
-        self.thread_service.append_message(
+        await self.thread_service.append_message(
             thread_id=thread.id,
             role="assistant",
             content=result.get("output") or "",
@@ -1566,15 +1566,15 @@ class AgentApplicationService:
             finish_reason=result.get("finish_reason"),
             tool_calls_json=result.get("tool_call_details") or [],
         )
-        self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
-        self.task_service.transition_task(
+        await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+        await self.task_service.transition_task(
             task_id=task.id,
             status=TaskStatus.SUCCEEDED.value,
             progress={"phase": "completed"},
             output_payload=self._task_output_payload(result, response_id=response_id),
         )
         if linked_response:
-            linked_response = self.response_service.complete_response(
+            linked_response = await self.response_service.complete_response(
                 response=linked_response,
                 output_json=self._response_output_payload(result),
                 usage_json=self._response_usage_payload(result),
@@ -1605,8 +1605,8 @@ class AgentApplicationService:
     async def cancel_agent_execution(self, agent_id: str, run_id: str) -> dict[str, Any]:
         """Explicitly close the Run, Task, and Response lifecycle for one execution."""
 
-        self._get_agent(agent_id)
-        run = self.db.get(Run, run_id)
+        await self._get_agent(agent_id)
+        run = await self.db.get(Run, run_id)
         if (
             run is None
             or run.tenant_id != self.ctx.tenant_id
@@ -1617,14 +1617,14 @@ class AgentApplicationService:
             raise NotFoundError(f"Agent run not found: {run_id}")
 
         responses = (
-            self.response_service.response_repo.list_for_run(run_id)
+            await self.response_service.response_repo.list_for_run(run_id)
             if self.response_service is not None
             else []
         )
         for response in responses:
-            self.response_service.cancel_response(response.id)
+            await self.response_service.cancel_response(response.id)
         if run.status not in {"succeeded", "failed", "canceled", "expired"}:
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 "canceled",
                 output_summary="Agent execution canceled",
@@ -1633,17 +1633,17 @@ class AgentApplicationService:
             )
 
         tasks = list(
-            self.db.execute(
+            (await self.db.execute(
                 select(Task).where(
                     Task.tenant_id == self.ctx.tenant_id,
                     Task.workspace_id == self.ctx.workspace_id,
                     Task.run_id == run_id,
                 )
-            ).scalars()
+            )).scalars()
         )
         for task in tasks:
-            self.task_service.cancel_task(task_id=task.id)
-        self.db.refresh(run)
+            await self.task_service.cancel_task(task_id=task.id)
+        await self.db.refresh(run)
         return {
             "run_id": run.id,
             "status": run.status,
@@ -1665,7 +1665,7 @@ class AgentApplicationService:
         Same lifecycle as execute_agent but passes event_emitter to the runner
         so callers can observe events in real time (e.g. SSE).
         """
-        agent = self._get_agent(agent_id)
+        agent = await self._get_agent(agent_id)
         internal_inputs = dict(inputs)
         attachments = list(internal_inputs.pop("_attachments", []) or [])
         attachment_context = list(internal_inputs.pop("_attachment_context", []) or [])
@@ -1675,7 +1675,7 @@ class AgentApplicationService:
         approval_responses = list(internal_inputs.pop("_agui_resume", []) or [])
         resume_execution = internal_inputs.pop("_resume_execution", None)
         if resume_execution:
-            run = self.db.get(Run, str(resume_execution.get("run_id") or ""))
+            run = await self.db.get(Run, str(resume_execution.get("run_id") or ""))
             if (
                 run is None
                 or run.tenant_id != self.ctx.tenant_id
@@ -1683,9 +1683,9 @@ class AgentApplicationService:
                 or run.subject_id != agent.id
             ):
                 raise NotFoundError("Approval execution run not found")
-            version = self._get_version(str(run.subject_version_id or ""))
+            version = await self._get_version(str(run.subject_version_id or ""))
         else:
-            version = self._resolve_execution_version(agent)
+            version = await self._resolve_execution_version(agent)
         request_updates: dict[str, Any] = {
             "approval_responses": approval_responses,
             "show_reasoning": bool(agui_options.get("show_reasoning")),
@@ -1693,18 +1693,18 @@ class AgentApplicationService:
         reasoning_effort = agui_options.get("reasoning_effort")
         if isinstance(reasoning_effort, str) and reasoning_effort:
             request_updates["reasoning_effort"] = reasoning_effort
-        request = self._request_from_version(version, internal_inputs).model_copy(
+        request = await self._request_from_version(version, internal_inputs).model_copy(
             update=request_updates
         )
         linked_response = None
 
-        thread = self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
+        thread = await self.thread_service.thread_repo.get_thread(request.thread_id) if request.thread_id else None
         if request.thread_id and not thread:
             raise NotFoundError(f"Thread not found: {request.thread_id}")
         if thread and thread.agent_id and thread.agent_id != agent.id:
             raise ValidationError(f"Thread {thread.id} does not belong to agent {agent.id}")
         if thread is None:
-            thread = self.thread_service.create_thread(
+            thread = await self.thread_service.create_thread(
                 agent_id=agent.id,
                 title=self._resolve_thread_title(request),
                 system_prompt=((version.spec_json or {}).get("system_prompt") if isinstance(version.spec_json, dict) else None),
@@ -1757,7 +1757,7 @@ class AgentApplicationService:
 
         agui_message_id = str(agui_context.get("message_id") or "")
         existing_user_message = (
-            self.thread_service.thread_repo.get_message(thread.id, agui_message_id)
+            await self.thread_service.thread_repo.get_message(thread.id, agui_message_id)
             if agui_message_id
             else None
         )
@@ -1765,14 +1765,14 @@ class AgentApplicationService:
             existing_user_message = next(
                 (
                     message
-                    for message in self.thread_service.thread_repo.list_messages(thread.id)
+                    for message in await self.thread_service.thread_repo.list_messages(thread.id)
                     if (message.metadata_json or {}).get("agui_message_id") == agui_message_id
                 ),
                 None,
             )
         if existing_user_message is not None and existing_user_message.role != "user":
             raise ValidationError("AG-UI message reuse requires an existing user message")
-        ledger_messages = self.thread_service.thread_repo.list_messages(thread.id)
+        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
         requested_parent_id = agui_context.get("parent_message_id")
         if requested_parent_id is not None and not isinstance(requested_parent_id, str):
             raise ValidationError("AG-UI parent message ID must be a string")
@@ -1787,7 +1787,7 @@ class AgentApplicationService:
         history_head_message_id = (
             existing_user_message.id if existing_user_message is not None else user_parent_message_id
         )
-        request = self._with_thread_history(
+        request = await self._with_thread_history(
             request,
             thread,
             current_message,
@@ -1795,19 +1795,19 @@ class AgentApplicationService:
             head_message_id=history_head_message_id,
         )
         if resume_execution:
-            task = self.task_service.get_task(str(resume_execution.get("task_id") or ""))
+            task = await self.task_service.get_task(str(resume_execution.get("task_id") or ""))
             if task.run_id != run.id or task.agent_id != agent.id or task.thread_id != thread.id:
                 raise ValidationError("Approval resume resources do not belong to the Agent run")
             approval_checkpoint = (task.progress_json or {}).get("checkpoint")
             if not isinstance(approval_checkpoint, dict):
                 raise ValidationError("Agent approval run has no durable checkpoint")
             if task.status == TaskStatus.WAITING_APPROVAL.value:
-                task = self.task_service.resume_task(task_id=task.id)
+                task = await self.task_service.resume_task(task_id=task.id)
             elif task.status != TaskStatus.RUNNING.value:
                 raise ValidationError(f"Agent approval run cannot resume from task status {task.status}")
-            self.trace_writer.update_run_status(run.id, "running")
+            await self.trace_writer.update_run_status(run.id, "running")
             if self.response_service:
-                linked_response = self.response_service.get_response(
+                linked_response = await self.response_service.get_response(
                     str(resume_execution.get("response_id") or "")
                 )
                 if (
@@ -1817,10 +1817,10 @@ class AgentApplicationService:
                     or linked_response.agent_id != agent.id
                 ):
                     raise ValidationError("Approval resume response does not belong to the Agent run")
-                linked_response = self.response_service.mark_running(linked_response)
+                linked_response = await self.response_service.mark_running(linked_response)
         else:
             if existing_user_message is None:
-                stored_user_message = self.thread_service.append_message(
+                stored_user_message = await self.thread_service.append_message(
                     thread_id=thread.id,
                     role="user",
                     content=current_message.content,
@@ -1835,7 +1835,7 @@ class AgentApplicationService:
                 )
                 current_user_message_id = stored_user_message.id
 
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="agent",
                 kind="agent",
                 subject_kind="agent",
@@ -1844,7 +1844,7 @@ class AgentApplicationService:
                 input_summary=current_message.content[:8192],
                 request_id=request.request_id,
             )
-            task = self.task_service.create_task(
+            task = await self.task_service.create_task(
                 task_type="agent.stream",
                 status=TaskStatus.PREPARING.value,
                 agent_id=agent.id,
@@ -1857,14 +1857,14 @@ class AgentApplicationService:
                     "request_id": request.request_id,
                 },
             )
-            self.task_service.transition_task(
+            await self.task_service.transition_task(
                 task_id=task.id,
                 status=TaskStatus.RUNNING.value,
                 progress={"phase": "agent_loop"},
             )
 
             if self.response_service:
-                linked_response = self.response_service.create_linked_response(
+                linked_response = await self.response_service.create_linked_response(
                     run_id=run.id,
                     thread_id=thread.id,
                     task_id=task.id,
@@ -1882,11 +1882,11 @@ class AgentApplicationService:
                     },
                     emit_initial_events=on_response_started is None,
                 )
-                linked_response = self.response_service.mark_running(linked_response)
+                linked_response = await self.response_service.mark_running(linked_response)
 
         # The detached stream uses a worker session. Commit its execution linkage
         # before remote calls so the cancel endpoint can observe it immediately.
-        self.db.commit()
+        await self.db.commit()
         if linked_response is not None and on_response_started is not None:
             await on_response_started(linked_response, self.response_service)
 
@@ -1906,11 +1906,11 @@ class AgentApplicationService:
         except Exception as exc:
             if isinstance(exc, KernelError) and exc.code == "AGENT_RUN_CANCELED":
                 if linked_response:
-                    self.response_service.cancel_response(
+                    await self.response_service.cancel_response(
                         linked_response.id,
                         emit_event=on_response_started is None,
                     )
-                self.task_service.cancel_task(task_id=task.id)
+                await self.task_service.cancel_task(task_id=task.id)
                 raise
             logger.exception(
                 "Agent streaming execution failed",
@@ -1918,14 +1918,14 @@ class AgentApplicationService:
             )
             error_message = public_error_message(exc, _PUBLIC_AGENT_EXECUTION_ERROR)
             if linked_response:
-                linked_response = self.response_service.fail_response(
+                linked_response = await self.response_service.fail_response(
                     response=linked_response,
                     error_code="agent_execution_failed",
                     error_message=error_message,
                     source="agent",
                     failed_event_type=None if on_response_started is not None else "response.failed",
                 )
-            self._append_failed_assistant_message(
+            await self._append_failed_assistant_message(
                 thread_id=thread.id,
                 task_id=task.id,
                 run_id=run.id,
@@ -1947,7 +1947,7 @@ class AgentApplicationService:
                     "error_message": error_message,
                 },
             )
-            self.task_service.transition_task(
+            await self.task_service.transition_task(
                 task_id=task.id,
                 status=TaskStatus.FAILED.value,
                 error_code="agent_execution_failed",
@@ -1957,9 +1957,9 @@ class AgentApplicationService:
 
         response_id = linked_response.id if linked_response else None
         if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
-            current_task = self.task_service.get_task(task.id)
+            current_task = await self.task_service.get_task(task.id)
             if current_task.status != TaskStatus.WAITING_APPROVAL.value:
-                self.task_service.transition_task(
+                await self.task_service.transition_task(
                     task_id=task.id,
                     status=TaskStatus.WAITING_APPROVAL.value,
                     progress={
@@ -1968,7 +1968,7 @@ class AgentApplicationService:
                         "checkpoint": result.get("checkpoint"),
                     },
                 )
-            self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+            await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
             return {
                 **result,
                 "thread_id": thread.id,
@@ -1979,10 +1979,10 @@ class AgentApplicationService:
 
         result = {
             **result,
-            "artifacts": self._run_artifact_descriptors(run.id),
+            "artifacts": await self._run_artifact_descriptors(run.id),
             "branch_id": agui_context.get("branch_id"),
         }
-        self.thread_service.append_message(
+        await self.thread_service.append_message(
             thread_id=thread.id,
             message_id=(
                 str(agui_context.get("assistant_message_id"))
@@ -2004,15 +2004,15 @@ class AgentApplicationService:
             finish_reason=result.get("finish_reason"),
             tool_calls_json=result.get("tool_call_details") or [],
         )
-        self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
-        self.task_service.transition_task(
+        await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+        await self.task_service.transition_task(
             task_id=task.id,
             status=TaskStatus.SUCCEEDED.value,
             progress={"phase": "completed"},
             output_payload=self._task_output_payload(result, response_id=response_id),
         )
         if linked_response:
-            self.response_service.complete_response(
+            await self.response_service.complete_response(
                 response=linked_response,
                 output_json=self._response_output_payload(result),
                 usage_json=self._response_usage_payload(result),

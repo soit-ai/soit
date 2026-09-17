@@ -4,9 +4,9 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Protocol
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.responses.interaction import InteractionProtocolAdapter
 from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
@@ -34,7 +34,7 @@ class ResponseInteractionExecutor(Protocol):
 
 def get_response_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> ResponseService:
     """Resolve the response resource/projection service."""
 
@@ -43,7 +43,7 @@ def get_response_service(
 
 def get_response_projection_coordinator(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> ResponseProjectionCoordinator:
     """Resolve the response semantic projection coordinator."""
 
@@ -52,13 +52,11 @@ def get_response_projection_coordinator(
 
 def get_response_interaction_executor(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> ResponseInteractionExecutor:
     """Build direct interactions on a worker session independent from SSE."""
 
-    from sqlmodel import Session as SQLModelSession
-
-    bind = db.get_bind()
+    bind = db.bind
 
     async def execute(
         payload: ResponseCreateRequest,
@@ -67,7 +65,7 @@ def get_response_interaction_executor(
         parent_interaction_id: str | None,
         protocol: InteractionProtocolAdapter,
     ) -> AsyncIterator[dict]:
-        with SQLModelSession(bind=bind, expire_on_commit=False) as worker_db:
+        async with AsyncSession(bind=bind, expire_on_commit=False) as worker_db:
             coordinator = build_response_projection_coordinator(db=worker_db, ctx=ctx)
             try:
                 async for item in coordinator.execute_interaction_stream(
@@ -78,6 +76,6 @@ def get_response_interaction_executor(
                 ):
                     yield item
             finally:
-                worker_db.commit()
+                await worker_db.commit()
 
     return execute

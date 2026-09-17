@@ -1,5 +1,7 @@
 """Tests for runtime service entrypoint wiring after kernel migration."""
 
+import pytest
+
 from app.api.v1.agent.thread_dependencies import (
     get_thread_query_service,
     get_thread_runtime_service,
@@ -31,25 +33,29 @@ class FakeContainer:
         return object()
 
 
-def test_task_api_dependencies_use_runtime_task_services(db, ctx):
-    assert isinstance(get_task_service(ctx=ctx, db=db), TaskQueryService)
-    assert isinstance(get_task_runtime_service(ctx=ctx, db=db), TaskService)
+@pytest.mark.asyncio
+async def test_task_api_dependencies_use_runtime_task_services(async_db, ctx):
+    assert isinstance(get_task_service(ctx=ctx, db=async_db), TaskQueryService)
+    assert isinstance(get_task_runtime_service(ctx=ctx, db=async_db), TaskService)
 
 
-def test_thread_api_dependencies_use_runtime_thread_service(db, ctx):
-    assert isinstance(get_thread_query_service(ctx=ctx, db=db), AgentThreadQueryService)
-    assert isinstance(get_thread_runtime_service(ctx=ctx, db=db), ThreadService)
+@pytest.mark.asyncio
+async def test_thread_api_dependencies_use_runtime_thread_service(async_db, ctx):
+    assert isinstance(get_thread_query_service(ctx=ctx, db=async_db), AgentThreadQueryService)
+    assert isinstance(get_thread_runtime_service(ctx=ctx, db=async_db), ThreadService)
 
 
-def test_run_api_dependency_uses_runtime_run_service(db, ctx):
-    assert isinstance(get_run_service(ctx=ctx, db=db), RunService)
+@pytest.mark.asyncio
+async def test_run_api_dependency_uses_runtime_run_service(async_db, ctx):
+    assert isinstance(get_run_service(ctx=ctx, db=async_db), RunService)
 
 
-def test_response_api_dependencies_use_runtime_response_services(db, ctx, monkeypatch):
+@pytest.mark.asyncio
+async def test_response_api_dependencies_use_runtime_response_services(async_db, ctx, monkeypatch):
     monkeypatch.setattr(service_wiring, "get_container", lambda: FakeContainer())
 
-    response_service = get_response_service(ctx=ctx, db=db)
-    projection_coordinator = get_response_projection_coordinator(ctx=ctx, db=db)
+    response_service = get_response_service(ctx=ctx, db=async_db)
+    projection_coordinator = get_response_projection_coordinator(ctx=ctx, db=async_db)
 
     assert isinstance(response_service, ResponseService)
     assert isinstance(projection_coordinator, ResponseProjectionCoordinator)

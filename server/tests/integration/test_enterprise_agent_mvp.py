@@ -103,20 +103,20 @@ def _unwrap(row: Any) -> Any:
 
 @pytest.mark.asyncio
 async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workflow_tool_and_trace(
-    db,
+    async_db,
     tenant1_ctx: RequestContext,
 ):
     reset_container()
     register_preapproved_evaluation_tool(tenant1_ctx)
     try:
-        knowledge_service = build_knowledge_runtime_service(db=db, ctx=tenant1_ctx)
+        knowledge_service = build_knowledge_runtime_service(db=async_db, ctx=tenant1_ctx)
         modelhub_service = ModelHubService(
-            db=db,
+            db=async_db,
             ctx=tenant1_ctx,
-            provider_repo=ProviderRepository(db, tenant1_ctx),
-            platform_model_repo=PlatformModelRepository(db, tenant1_ctx),
-            provider_model_repo=ProviderModelRepository(db, tenant1_ctx),
-            sync_job_repo=SyncJobRepository(db, tenant1_ctx),
+            provider_repo=ProviderRepository(async_db, tenant1_ctx),
+            platform_model_repo=PlatformModelRepository(async_db, tenant1_ctx),
+            provider_model_repo=ProviderModelRepository(async_db, tenant1_ctx),
+            sync_job_repo=SyncJobRepository(async_db, tenant1_ctx),
             secrets_port=EmptySecretsPort(),
             catalog_adapter=ProviderCatalogAdapter(),
         )
@@ -159,7 +159,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             file_content=b"Refund escalations require account verification before a review ticket is created.",
         )
         index = _unwrap(
-            db.exec(
+            (await async_db.exec(
                 select(KnowledgeIndex).where(
                     and_(
                         KnowledgeIndex.tenant_id == tenant1_ctx.tenant_id,
@@ -168,7 +168,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                         KnowledgeIndex.status == "ready",
                     )
                 )
-            ).first()
+            )).first()
         )
         assert document.status == "indexed"
         assert index is not None
@@ -180,7 +180,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             ctx=tenant1_ctx,
         )
         workflow_service = WorkflowService(
-            db=db,
+            db=async_db,
             ctx=tenant1_ctx,
             workflow_knowledge_query_port=workflow_knowledge_query_port,
         )
@@ -212,8 +212,8 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             created_by=tenant1_ctx.user_id,
             updated_by=tenant1_ctx.user_id,
         )
-        db.add(ticket_secret)
-        db.commit()
+        async_db.add(ticket_secret)
+        await async_db.commit()
         await get_container().get_secret_value_store().set_secret_value(
             locator=SecretLocator(ticket_secret.secret_ref),
             value="enterprise-mvp-token",
@@ -250,7 +250,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             ]
         )
         agent_service = AgentApplicationService(
-            db=db,
+            db=async_db,
             ctx=tenant1_ctx,
             llm_port=agent_llm,
             tool_port=RegistryToolRouterPort(),
@@ -266,7 +266,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             )
         )
         active_provider_model = _unwrap(
-            db.exec(
+            (await async_db.exec(
                 select(ProviderModel).where(
                     and_(
                         ProviderModel.tenant_id == tenant1_ctx.tenant_id,
@@ -276,7 +276,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                         ProviderModel.status == "active",
                     )
                 )
-            ).first()
+            )).first()
         )
         version = await agent_service.create_version(
             agent.id,
@@ -305,16 +305,16 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             ).model_dump(exclude_none=True),
         )
 
-        response, _, agent_tool_calls = agent_service.response_service.get_response_detail(result["response_id"])
+        response, _, agent_tool_calls = await agent_service.response_service.get_response_detail(result["response_id"])
         workflow_tool_call = next(call for call in agent_tool_calls if call["tool_name"] == workflow_ref)
         workflow_run_id = workflow_tool_call["result_json"]["result"]["workflow_run_id"]
         workflow_output = workflow_tool_call["result_json"]["result"]["output"]
         workflow_citations = workflow_output["value"]["citations"]
 
-        workflow_run = _unwrap(db.exec(select(WorkflowRun).where(WorkflowRun.run_id == workflow_run_id)).first())
-        workflow_trace = _unwrap(db.exec(select(Run).where(Run.id == workflow_run_id)).first())
-        agent_trace = _unwrap(db.exec(select(Run).where(Run.id == result["run_id"])).first())
-        workflow_steps = list(db.exec(select(RunStep).where(RunStep.run_id == workflow_run_id)).all())
+        workflow_run = _unwrap((await async_db.exec(select(WorkflowRun).where(WorkflowRun.run_id == workflow_run_id))).first())
+        workflow_trace = _unwrap((await async_db.exec(select(Run).where(Run.id == workflow_run_id))).first())
+        agent_trace = _unwrap((await async_db.exec(select(Run).where(Run.id == result["run_id"]))).first())
+        workflow_steps = list((await async_db.exec(select(RunStep).where(RunStep.run_id == workflow_run_id))).all())
         tool_steps = [
             _unwrap(step)
             for step in workflow_steps
@@ -328,7 +328,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
             and (step.metrics_json or {}).get("tool_call", {}).get("status") == "completed"
         ]
         cost_entries = list(
-            db.exec(
+            (await async_db.exec(
                 select(RunCostEntry).where(
                     and_(
                         RunCostEntry.tenant_id == tenant1_ctx.tenant_id,
@@ -336,9 +336,9 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                         RunCostEntry.run_id.in_([result["run_id"], workflow_run_id]),
                     )
                 )
-            ).all()
+            )).all()
         )
-        response_events = ResponseEventRepository(db, tenant1_ctx).list_for_response(
+        response_events = ResponseEventRepository(async_db, tenant1_ctx).list_for_response(
             result["response_id"],
             limit=50,
             offset=0,

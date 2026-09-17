@@ -132,10 +132,10 @@ async def _resolve_agui_approval_resumes(
 
     if not run_input.parent_run_id:
         raise ValidationError("Approval resume requires parentRunId")
-    parent_interaction = response_service.get_interaction(run_input.parent_run_id)
+    parent_interaction = await response_service.get_interaction(run_input.parent_run_id)
     if parent_interaction is None or parent_interaction.status != "waiting_approval":
         raise ValidationError("Approval resume parent is not waiting for approval")
-    linked_response = response_service.get_response(parent_interaction.response_id)
+    linked_response = await response_service.get_response(parent_interaction.response_id)
     if (
         linked_response.status != "running"
         or not linked_response.run_id
@@ -239,11 +239,11 @@ async def create_response(
             internal_payload = request_adapter.to_internal(payload)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
-        projection_coordinator.validate_interaction_request(internal_payload, payload.run_id)
-        existing_interaction = projection_coordinator.response_service.get_interaction(
+        await projection_coordinator.validate_interaction_request(internal_payload, payload.run_id)
+        existing_interaction = await projection_coordinator.response_service.get_interaction(
             payload.run_id
         )
-        attachment_service.validate_thread_target(
+        await attachment_service.validate_thread_target(
             payload.thread_id,
             agent_id=internal_payload.agent_id,
         )
@@ -317,7 +317,7 @@ async def create_response(
                     "Approval resume requires one atomic database transaction"
                 )
             try:
-                response_service.claim_interaction_resume(
+                await response_service.claim_interaction_resume(
                     parent_interaction_id=payload.parent_run_id or "",
                     resume_interaction_id=payload.run_id,
                 )
@@ -325,7 +325,7 @@ async def create_response(
                     pending_approval_resolutions,
                     commit=False,
                 )
-                _, owns_claim = response_service.claim_interaction(
+                _, owns_claim = await response_service.claim_interaction(
                     interaction_id=payload.run_id,
                     parent_interaction_id=payload.parent_run_id,
                     thread_id=payload.thread_id,
@@ -334,12 +334,12 @@ async def create_response(
                     request_context_json=asdict(ctx),
                     commit=False,
                 )
-                response_service.db.commit()
+                await response_service.db.commit()
             except Exception:
-                response_service.db.rollback()
+                await response_service.db.rollback()
                 raise
         else:
-            _, owns_claim = response_service.claim_interaction(
+            _, owns_claim = await response_service.claim_interaction(
                 interaction_id=payload.run_id,
                 parent_interaction_id=payload.parent_run_id,
                 thread_id=payload.thread_id,
@@ -419,7 +419,7 @@ async def create_response(
                         if not emitter.terminal_emitted:
                             await emitter.fail(exc)
                     else:
-                        projection_coordinator.response_service.update_interaction_status(
+                        await projection_coordinator.response_service.update_interaction_status(
                             payload.run_id,
                             "failed",
                         )
@@ -486,7 +486,7 @@ async def create_response(
                     code=error_code,
                     message="Response execution failed",
                 )
-                stored = projection_coordinator.response_service.fail_interaction_execution(
+                stored = await projection_coordinator.response_service.fail_interaction_execution(
                     payload.run_id,
                     error_code=error_code,
                     error_message="Response execution failed",
@@ -538,7 +538,7 @@ async def create_response(
     # default: the agent's published version is what the caller asked for, and
     # a workspace owes no route to whatever the default happens to be.
     if payload.agent_id and not payload.model:
-        published_model = agent_application_service.published_model_ref(payload.agent_id)
+        published_model = await agent_application_service.published_model_ref(payload.agent_id)
         if published_model:
             payload = payload.model_copy(update={"model": published_model})
 
@@ -626,7 +626,7 @@ async def stream_response_events(
     del ctx
 
     cursor = _resolve_after_sequence(response_id, after_sequence, last_event_id)
-    response = service.get_response(response_id)
+    response = await service.get_response(response_id)
     is_agui = (response.metadata_json or {}).get("protocol") == "ag-ui"
 
     async def generate():
@@ -663,27 +663,27 @@ async def cancel_response(
 ):
     """Cancel a response resource projection."""
 
-    response = service.get_response(response_id)
+    response = await service.get_response(response_id)
     if response.metadata_json.get("protocol") == "ag-ui":
         was_active = response.status not in {"succeeded", "failed", "canceled"}
         interaction_id = str(response.metadata_json.get("interaction_id") or "")
         active_interaction_id = interaction_id
-        interaction = service.get_interaction(interaction_id) if interaction_id else None
+        interaction = await service.get_interaction(interaction_id) if interaction_id else None
         if (
             interaction is not None
             and interaction.status == "resuming"
             and interaction.resume_interaction_id
         ):
             active_interaction_id = interaction.resume_interaction_id
-        response = service.cancel_response(response_id, emit_event=False)
+        response = await service.cancel_response(response_id, emit_event=False)
         if was_active and response.status == "canceled" and active_interaction_id:
             if response.task_id:
-                TaskService(service.db, ctx).cancel_task(task_id=response.task_id)
+                await TaskService(service.db, ctx).cancel_task(task_id=response.task_id)
             if interaction_id and interaction_id != active_interaction_id:
-                service.update_interaction_status(interaction_id, "canceled")
-            service.update_interaction_status(active_interaction_id, "canceled")
+                await service.update_interaction_status(interaction_id, "canceled")
+            await service.update_interaction_status(active_interaction_id, "canceled")
             protocol = AgUiInteractionProtocolAdapter()
-            events = service.list_response_events(
+            events = await service.list_response_events(
                 response.id,
                 limit=10_000,
                 offset=0,
@@ -691,7 +691,7 @@ async def cancel_response(
             )
             for message_id in protocol.active_text_message_ids(events):
                 text_end = protocol.text_ended(message_id=message_id)
-                stored = service.append_event(
+                stored = await service.append_event(
                     response=response,
                     event_type=text_end.type,
                     payload=text_end.payload,
@@ -699,12 +699,12 @@ async def cancel_response(
                     protocol_version=protocol.protocol_version,
                     interaction_id=active_interaction_id,
                 )
-                service.publish_persisted_event(stored)
+                await service.publish_persisted_event(stored)
             event = protocol.run_cancelled(
                 thread_id=response.thread_id,
                 interaction_id=active_interaction_id,
             )
-            stored = service.append_event(
+            stored = await service.append_event(
                 response=response,
                 event_type=event.type,
                 payload=event.payload,
@@ -712,7 +712,7 @@ async def cancel_response(
                 protocol_version=protocol.protocol_version,
                 interaction_id=active_interaction_id,
             )
-            service.publish_persisted_event(stored)
+            await service.publish_persisted_event(stored)
         return ResponseCancelResult(
             response=ResponseRead.model_validate(response),
             action="cancel",

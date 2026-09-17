@@ -24,11 +24,11 @@ class ResponseHandlers:
 
     async def get_response(self, ctx: RequestContext, response_id: str) -> ResponseRead:
         del ctx
-        return ResponseRead.model_validate(self.service.get_response(response_id))
+        return ResponseRead.model_validate(await self.service.get_response(response_id))
 
     async def get_response_detail(self, ctx: RequestContext, response_id: str) -> ResponseDetailRead:
         del ctx
-        response, events, tool_calls = self.service.get_response_detail(response_id)
+        response, events, tool_calls = await self.service.get_response_detail(response_id)
         return ResponseDetailRead(
             response=ResponseRead.model_validate(response),
             events=[ResponseEventRead.model_validate(item) for item in events],
@@ -37,7 +37,7 @@ class ResponseHandlers:
 
     async def get_run_timeline(self, ctx: RequestContext, run_id: str) -> RunResponseTimelineRead:
         del ctx
-        timeline = self.service.get_run_timeline(run_id)
+        timeline = await self.service.get_run_timeline(run_id)
         return RunResponseTimelineRead(
             run_id=timeline["run_id"],
             items=[
@@ -63,7 +63,7 @@ class ResponseHandlers:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
-        events = self.service.list_response_events(
+        events = await self.service.list_response_events(
             response_id,
             limit=limit_plus,
             offset=offset,
@@ -81,7 +81,7 @@ class ResponseHandlers:
 
     async def cancel_response(self, ctx: RequestContext, response_id: str) -> ResponseCancelResult:
         del ctx
-        response = self.service.cancel_response(response_id)
+        response = await self.service.cancel_response(response_id)
         return ResponseCancelResult(
             response=ResponseRead.model_validate(response),
             action="cancel",

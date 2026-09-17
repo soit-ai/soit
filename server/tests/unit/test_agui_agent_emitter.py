@@ -3,8 +3,9 @@
 import asyncio
 
 import pytest
-from sqlalchemy import create_engine
-from sqlmodel import Session, SQLModel
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.agui.agent import PersistentAgUiAgentEmitter
 from app.api.v1.agent import dependencies as agent_dependencies
@@ -19,7 +20,7 @@ from app.kernel.runtime.runs.writer import TraceWriter
 
 @pytest.mark.asyncio
 async def test_detached_agent_executor_emits_terminal_before_worker_session_closes(
-    db,
+    async_db,
     ctx,
     monkeypatch,
 ):
@@ -37,7 +38,7 @@ async def test_detached_agent_executor_emits_terminal_before_worker_session_clos
     async def emit(event, data):
         emitted.append((event, data))
 
-    executor = agent_dependencies.get_agent_stream_executor(ctx=ctx, db=db)
+    executor = agent_dependencies.get_agent_stream_executor(ctx=ctx, db=async_db)
     result = await executor("agent_worker", {"input": "hello"}, emit)
 
     assert result["run_id"] == "run_worker"
@@ -46,10 +47,11 @@ async def test_detached_agent_executor_emits_terminal_before_worker_session_clos
 
 @pytest.mark.asyncio
 async def test_agent_emitter_commits_events_before_transport(tmp_path, ctx):
-    engine = create_engine(f"sqlite:///{tmp_path / 'agent-events.db'}")
-    SQLModel.metadata.create_all(engine)
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'agent-events.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
 
-    with Session(engine, expire_on_commit=False) as writer_db:
+    async with AsyncSession(engine, expire_on_commit=False) as writer_db:
         writer_service = ResponseService(
             db=writer_db,
             ctx=ctx,
@@ -57,15 +59,15 @@ async def test_agent_emitter_commits_events_before_transport(tmp_path, ctx):
             event_repo=ResponseEventRepository(writer_db, ctx),
             trace_writer=TraceWriter(writer_db, ctx),
         )
-        run = writer_service.trace_writer.create_run("agent", kind="agent")
-        response = writer_service.create_linked_response(
+        run = await writer_service.trace_writer.create_run("agent", kind="agent")
+        response = await writer_service.create_linked_response(
             run_id=run.id,
             thread_id="thread_durable_agent",
             agent_id="agent_durable",
             emit_initial_events=False,
         )
-        response = writer_service.mark_running(response)
-        writer_db.commit()
+        response = await writer_service.mark_running(response)
+        await writer_db.commit()
 
         emitter = PersistentAgUiAgentEmitter(
             response_service=writer_service,
@@ -75,7 +77,7 @@ async def test_agent_emitter_commits_events_before_transport(tmp_path, ctx):
         )
         await emitter.bind_response(response)
 
-        with Session(engine) as reader_db:
+        async with AsyncSession(engine) as reader_db:
             reader_service = ResponseService(
                 db=reader_db,
                 ctx=ctx,
@@ -83,28 +85,29 @@ async def test_agent_emitter_commits_events_before_transport(tmp_path, ctx):
                 event_repo=ResponseEventRepository(reader_db, ctx),
                 trace_writer=TraceWriter(reader_db, ctx),
             )
-            interaction = reader_service.get_interaction("interaction_durable_agent")
+            interaction = await reader_service.get_interaction("interaction_durable_agent")
             assert interaction is not None
             assert [
                 event.type
-                for event in reader_service.list_response_events(
+                for event in await reader_service.list_response_events(
                     response.id,
                     limit=10,
                     offset=0,
                 )
             ] == ["RUN_STARTED", "CUSTOM"]
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_agent_emitter_persists_tools_sources_usage_and_governance(db, ctx):
+async def test_agent_emitter_persists_tools_sources_usage_and_governance(async_db, ctx):
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id="run_agent_agui",
         thread_id="thread_agent_agui",
         task_id="task_agent_agui",
@@ -112,7 +115,7 @@ async def test_agent_emitter_persists_tools_sources_usage_and_governance(db, ctx
         model="model:openai:gpt-5.1",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
+    response = await service.mark_running(response)
     queue: asyncio.Queue = asyncio.Queue()
     emitter = PersistentAgUiAgentEmitter(
         response_service=service,
@@ -176,7 +179,7 @@ async def test_agent_emitter_persists_tools_sources_usage_and_governance(db, ctx
         }
     )
 
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     event_types = [event.type for event in events]
     assert event_types[0] == "RUN_STARTED"
     assert "ACTIVITY_SNAPSHOT" in event_types
@@ -209,21 +212,21 @@ async def test_agent_emitter_persists_tools_sources_usage_and_governance(db, ctx
 
 
 @pytest.mark.asyncio
-async def test_agent_emitter_maps_reasoning_before_answer_text(db, ctx):
+async def test_agent_emitter_maps_reasoning_before_answer_text(async_db, ctx):
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id="run_agent_reasoning",
         thread_id="thread_agent_reasoning",
         agent_id="agent_reasoning",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
+    response = await service.mark_running(response)
     emitter = PersistentAgUiAgentEmitter(
         response_service=service,
         interaction_id="interaction_agent_reasoning",
@@ -239,7 +242,7 @@ async def test_agent_emitter_maps_reasoning_before_answer_text(db, ctx):
     await emitter("agent.response.succeeded", {"output": "Done."})
     await emitter.complete({"run_id": "run_agent_reasoning", "output": "Done."})
 
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     event_types = [event.type for event in events]
     assert event_types.index("REASONING_START") < event_types.index("TEXT_MESSAGE_START")
     reasoning_content = next(
@@ -251,23 +254,23 @@ async def test_agent_emitter_maps_reasoning_before_answer_text(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_agent_emitter_maps_explicit_cancellation_to_cancel_terminal(db, ctx):
+async def test_agent_emitter_maps_explicit_cancellation_to_cancel_terminal(async_db, ctx):
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    run = service.trace_writer.create_run("agent", kind="agent")
-    response = service.create_linked_response(
+    run = await service.trace_writer.create_run("agent", kind="agent")
+    response = await service.create_linked_response(
         run_id=run.id,
         thread_id="thread_agent_cancel",
         task_id="task_agent_cancel",
         agent_id="agent_cancel",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
+    response = await service.mark_running(response)
     emitter = PersistentAgUiAgentEmitter(
         response_service=service,
         interaction_id="interaction_agent_cancel",
@@ -276,36 +279,36 @@ async def test_agent_emitter_maps_explicit_cancellation_to_cancel_terminal(db, c
     )
     await emitter.bind_response(response)
     await emitter("agent.response.succeeded", {"output": "Partial answer"})
-    service.cancel_response(response.id, emit_event=False)
+    await service.cancel_response(response.id, emit_event=False)
 
     await emitter.fail(
         KernelError("AGENT_RUN_CANCELED", "Agent execution was explicitly canceled")
     )
 
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     assert [event.type for event in events][-1] == "RUN_FINISHED"
     assert [event.type for event in events][-2] == "TEXT_MESSAGE_END"
     assert events[-1].payload_json["result"]["status"] == "canceled"
     assert "RUN_ERROR" not in [event.type for event in events]
-    assert service.get_interaction("interaction_agent_cancel").status == "canceled"
+    assert (await service.get_interaction("interaction_agent_cancel")).status == "canceled"
 
 
 @pytest.mark.asyncio
-async def test_agent_emitter_failure_emits_visible_message_before_single_terminal(db, ctx):
+async def test_agent_emitter_failure_emits_visible_message_before_single_terminal(async_db, ctx):
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id="run_agent_failure",
         thread_id="thread_agent_failure",
         agent_id="agent_failure",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
+    response = await service.mark_running(response)
     emitter = PersistentAgUiAgentEmitter(
         response_service=service,
         interaction_id="interaction_agent_failure",
@@ -317,7 +320,7 @@ async def test_agent_emitter_failure_emits_visible_message_before_single_termina
     await emitter.fail(RuntimeError("provider leaked secret"))
     await emitter.fail(RuntimeError("duplicate failure"))
 
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     event_types = [event.type for event in events]
     assert event_types[-4:] == [
         "TEXT_MESSAGE_START",
@@ -331,25 +334,25 @@ async def test_agent_emitter_failure_emits_visible_message_before_single_termina
     )
     assert content_event.payload_json["delta"] == "Agent execution failed"
     assert "provider leaked secret" not in str(content_event.payload_json)
-    assert service.get_interaction("interaction_agent_failure").status == "failed"
+    assert (await service.get_interaction("interaction_agent_failure")).status == "failed"
 
 
 @pytest.mark.asyncio
-async def test_agent_emitter_rejects_events_after_execution_lease_is_lost(db, ctx):
+async def test_agent_emitter_rejects_events_after_execution_lease_is_lost(async_db, ctx):
     service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
-        trace_writer=TraceWriter(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
     )
-    response = service.create_linked_response(
+    response = await service.create_linked_response(
         run_id="run_agent_fenced",
         thread_id="thread_agent_fenced",
         agent_id="agent_fenced",
         emit_initial_events=False,
     )
-    response = service.mark_running(response)
+    response = await service.mark_running(response)
     lease_active = True
 
     def assert_lease() -> None:
@@ -369,6 +372,6 @@ async def test_agent_emitter_rejects_events_after_execution_lease_is_lost(db, ct
     with pytest.raises(ConflictError, match="lease was lost"):
         await emitter.complete({"output": "must not be persisted"})
 
-    events = service.list_response_events(response.id, limit=100, offset=0)
+    events = await service.list_response_events(response.id, limit=100, offset=0)
     assert "RUN_FINISHED" not in [event.type for event in events]
-    assert service.get_interaction("interaction_agent_fenced").status == "running"
+    assert (await service.get_interaction("interaction_agent_fenced")).status == "running"
