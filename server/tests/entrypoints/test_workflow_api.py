@@ -981,20 +981,11 @@ class TestWorkflowAPI:
         assert get_response.status_code in [status.HTTP_404_NOT_FOUND, status.HTTP_200_OK]
 
     @pytest.mark.asyncio
-    async def test_viewer_cannot_create_workflow(self, async_db):
+    async def test_viewer_cannot_create_workflow(self, async_client):
         """Viewer role should not be able to create workflows."""
-        from fastapi.testclient import TestClient
-
-        from app.infra.db.session import get_db
         from app.kernel.contracts.context import RequestContext
         from app.main import app
         from app.middleware.auth import get_current_context
-
-        def _override_get_db():
-            try:
-                yield async_db
-            finally:
-                pass
 
         async def _override_get_current_context() -> RequestContext:
             return RequestContext(
@@ -1005,20 +996,17 @@ class TestWorkflowAPI:
                 workspace_role="Viewer",
             )
 
-        app.dependency_overrides[get_db] = _override_get_db
+        # The async_client fixture restores its own override on teardown.
         app.dependency_overrides[get_current_context] = _override_get_current_context
-        with TestClient(app) as test_client:
-            response = test_client.post(
-                "/api/v1/workflows",
-                json={
-                    "name": "viewer_workflow",
-                    "description": "should be forbidden",
-                },
-                headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
-            )
-            assert response.status_code == status.HTTP_403_FORBIDDEN
-        app.dependency_overrides.pop(get_db, None)
-        app.dependency_overrides.pop(get_current_context, None)
+        response = await async_client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "viewer_workflow",
+                "description": "should be forbidden",
+            },
+            headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @pytest.mark.asyncio
     async def test_list_runs(self, async_client):

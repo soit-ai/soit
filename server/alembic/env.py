@@ -1,26 +1,30 @@
 """Alembic environment configuration."""
-from logging.config import fileConfig
 import sys
+from logging.config import fileConfig
 from pathlib import Path
+
+from sqlalchemy import (
+    Column,
+    MetaData,
+    PrimaryKeyConstraint,
+    String,
+    Table,
+    create_engine,
+    pool,
+)
 
 from alembic import context
 from alembic.ddl.impl import DefaultImpl
-from sqlalchemy import Column
-from sqlalchemy import MetaData
-from sqlalchemy import PrimaryKeyConstraint
-from sqlalchemy import String
-from sqlalchemy import Table
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
 
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.infra.db.session import get_engine
+from sqlmodel import SQLModel
+
 import app.kernel.runtime.db.models  # noqa: F401
 import app.modules  # noqa: F401
 from app.modules.modelhub.domain import models as modelhub_models  # noqa: F401
-from sqlmodel import SQLModel
+from app.settings.settings import settings
 
 # this is the Alembic Config object
 config = context.config
@@ -36,7 +40,7 @@ target_metadata = SQLModel.metadata
 def _patch_alembic_version_table_length() -> None:
     """Allow long timestamp-prefixed revision ids in alembic_version."""
 
-    def version_table_impl(
+    def version_table_impl(  # noqa: ARG001
         self,
         *,
         version_table: str,
@@ -76,8 +80,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    connectable = get_engine()
+    """Run migrations in 'online' mode.
+
+    Alembic runs synchronously in its own process, so it builds its own sync
+    engine from the configured URL; the application itself is async-only.
+    """
+    database_url = settings.database_url or ""
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    connectable = create_engine(database_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(

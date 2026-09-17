@@ -7,82 +7,74 @@ from app.infra.db import transaction as transaction_module
 from app.modules.identity.domain.models import Tenant
 
 
-def test_transaction_module_exposes_sqlalchemy_unit_of_work() -> None:
-    assert hasattr(transaction_module, "SQLAlchemyUnitOfWork")
+def test_transaction_module_exposes_async_unit_of_work() -> None:
+    assert hasattr(transaction_module, "AsyncSQLAlchemyUnitOfWork")
 
 
-def test_unit_of_work_commits_successful_transaction(db) -> None:
+@pytest.mark.asyncio
+async def test_unit_of_work_commits_successful_transaction(async_db) -> None:
     tenant = Tenant(id="tenant-uow", name="Unit of Work")
 
-    with transaction_module.SQLAlchemyUnitOfWork(db):
-        db.add(tenant)
+    async with transaction_module.AsyncSQLAlchemyUnitOfWork(async_db):
+        async_db.add(tenant)
 
-    db.expire_all()
-    assert db.get(Tenant, tenant.id) is not None
+    await async_db.refresh(tenant)
+    assert tenant.name == "Unit of Work"
 
 
-def test_unit_of_work_rolls_back_failed_transaction(db) -> None:
+@pytest.mark.asyncio
+async def test_unit_of_work_rolls_back_failed_transaction(async_db) -> None:
     tenant = Tenant(id="tenant-uow-rollback", name="Rollback")
 
     with pytest.raises(RuntimeError, match="abort"):
-        with transaction_module.SQLAlchemyUnitOfWork(db):
-            db.add(tenant)
-            db.flush()
+        async with transaction_module.AsyncSQLAlchemyUnitOfWork(async_db):
+            async_db.add(tenant)
+            await async_db.flush()
             raise RuntimeError("abort")
 
-    assert db.get(Tenant, tenant.id) is None
+    assert await async_db.get(Tenant, tenant.id) is None
 
 
-def test_request_session_commits_at_dependency_boundary(monkeypatch) -> None:
-    class _Session:
-        commits = 0
-        rollbacks = 0
-        closes = 0
+class _Session:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+        self.closes = 0
 
-        def commit(self) -> None:
-            self.commits += 1
+    async def commit(self) -> None:
+        self.commits += 1
 
-        def rollback(self) -> None:
-            self.rollbacks += 1
+    async def rollback(self) -> None:
+        self.rollbacks += 1
 
-        def close(self) -> None:
-            self.closes += 1
+    async def close(self) -> None:
+        self.closes += 1
 
+
+@pytest.mark.asyncio
+async def test_request_session_commits_at_dependency_boundary(monkeypatch) -> None:
     db = _Session()
-    monkeypatch.setattr(session_module, "get_session_local", lambda: lambda: db)
-    dependency = session_module.get_db()
+    monkeypatch.setattr(session_module, "get_async_session_local", lambda: lambda: db)
+    dependency = session_module.get_async_db()
 
-    assert next(dependency) is db
-    with pytest.raises(StopIteration):
-        next(dependency)
+    assert await dependency.__anext__() is db
+    with pytest.raises(StopAsyncIteration):
+        await dependency.__anext__()
 
     assert db.commits == 1
     assert db.rollbacks == 0
     assert db.closes == 1
 
 
-def test_request_session_rolls_back_dependency_failure(monkeypatch) -> None:
-    class _Session:
-        commits = 0
-        rollbacks = 0
-        closes = 0
-
-        def commit(self) -> None:
-            self.commits += 1
-
-        def rollback(self) -> None:
-            self.rollbacks += 1
-
-        def close(self) -> None:
-            self.closes += 1
-
+@pytest.mark.asyncio
+async def test_request_session_rolls_back_dependency_failure(monkeypatch) -> None:
     db = _Session()
-    monkeypatch.setattr(session_module, "get_session_local", lambda: lambda: db)
-    dependency = session_module.get_db()
-    next(dependency)
+    monkeypatch.setattr(session_module, "get_async_session_local", lambda: lambda: db)
+    dependency = session_module.get_async_db()
 
-    with pytest.raises(RuntimeError, match="request failed"):
-        dependency.throw(RuntimeError("request failed"))
+    await dependency.__anext__()
+    with pytest.raises(RuntimeError, match="boom"):
+        await dependency.athrow(RuntimeError("boom"))
 
     assert db.commits == 0
     assert db.rollbacks == 1

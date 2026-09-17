@@ -81,7 +81,6 @@ async def lifespan(app: FastAPI):
     app_settings.validate_runtime_requirements()
     # Startup
     # Create database tables if needed
-    # create_tables()
 
     # Load installed plugins into runtime registry
     try:

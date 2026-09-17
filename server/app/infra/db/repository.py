@@ -10,7 +10,6 @@ a subclass moves between them by changing the base class and awaiting.
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -120,142 +119,12 @@ class _ScopedRepositoryBase(Generic[ModelType]):
         )
 
 
-class Repository(_ScopedRepositoryBase[ModelType]):
-    """Base repository with scope-aware queries.
-
-    All queries automatically filter by tenant_id and workspace_id
-    from RequestContext.
-    """
-
-    def __init__(self, model: type[ModelType], db: Session, ctx: RequestContext):
-        """Initialize repository.
-
-        Args:
-            model: SQLModel class.
-            db: Database session.
-            ctx: Request context.
-        """
-        super().__init__(model, ctx)
-        self.db = db
-
-    def get_by_id(self, id: str) -> ModelType | None:
-        """Get model by ID (with scope check).
-
-        Args:
-            id: Model ID.
-
-        Returns:
-            Model instance or None if not found.
-        """
-        result = self.db.exec(self._scoped_by_id_query(id)).first()
-        return self._unwrap_result(result)
-
-    def get_all(
-        self,
-        page_token: str | None = None,
-        page_size: int = 20,
-        order_by: str | None = None,
-    ) -> PaginatedResponse[ModelType]:
-        """Get all models (paginated, with scope check).
-
-        Args:
-            page_token: Optional page token for pagination.
-            page_size: Page size.
-            order_by: Optional column name to order by (default: created_at DESC).
-
-        Returns:
-            PaginatedResponse with models.
-        """
-        limit, token_obj = parse_page_params(page_token, page_size)
-        offset = token_obj.offset if token_obj else 0
-        query = self._scoped_page_query(order_by, offset, limit)
-        results = list(self.db.exec(query).all())
-        return self._page(results, offset=offset, limit=limit)
-
-    def list(
-        self,
-        page_token: str | None = None,
-        page_size: int = 20,
-        order_by: str | None = None,
-    ) -> PaginatedResponse[ModelType]:
-        """List models (alias for get_all).
-
-        Args:
-            page_token: Optional page token.
-            page_size: Page size.
-            order_by: Optional column name to order by.
-
-        Returns:
-            PaginatedResponse with models.
-        """
-        return self.get_all(page_token=page_token, page_size=page_size, order_by=order_by)
-
-    def create(self, model: ModelType) -> ModelType:
-        """Create a new model (with scope enforcement).
-
-        Args:
-            model: Model instance to create.
-
-        Returns:
-            Created model instance.
-        """
-        self._stamp_scope(model)
-        self.db.add(model)
-        self.db.commit()
-        self.db.refresh(model)
-        return model
-
-    def update(self, model: ModelType) -> ModelType:
-        """Update an existing model (with scope check).
-
-        Args:
-            model: Model instance to update.
-
-        Returns:
-            Updated model instance.
-        """
-        # Verify scope before update
-        existing = self.get_by_id(model.id)
-        if not existing:
-            raise ValueError(f"{self.model.__name__} not found: {model.id}")
-
-        # Update fields (excluding id and scope fields)
-        for key, value in model.model_dump(exclude={"id", "tenant_id", "workspace_id"}).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
-
-        self.db.commit()
-        self.db.refresh(existing)
-        return existing
-
-    def delete(self, id: str) -> bool:
-        """Delete a model by ID (with scope check).
-
-        Args:
-            id: Model ID.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        model = self.get_by_id(id)
-        if not model:
-            return False
-
-        self.db.delete(model)
-        self.db.commit()
-        return True
-
-    def count(self) -> int:
-        """Count models (with scope check).
-
-        Returns:
-            Total count.
-        """
-        return self.db.exec(self._scoped_count_query()).one()
-
-
 class AsyncRepository(_ScopedRepositoryBase[ModelType]):
-    """`Repository` for an `AsyncSession`; same scope rules, awaited IO."""
+    """Scope-aware repository on an `AsyncSession`.
+
+    Every query filters by tenant_id and workspace_id from the request
+    context; every write stamps the same scope.
+    """
 
     def __init__(self, model: type[ModelType], db: AsyncSession, ctx: RequestContext):
         super().__init__(model, ctx)

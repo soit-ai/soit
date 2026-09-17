@@ -3,107 +3,22 @@
 DB engine/session management.
 """
 
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 
-from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.settings.settings import settings
 
-# Global engine instance
-_engine: Engine | None = None
-_SessionLocal: sessionmaker | None = None
-
-# Async engine and session factory (the target stack; the sync pair above
-# stays only until every caller has moved over).
+# Async engine and session factory: the only database stack the app uses.
 _async_engine: AsyncEngine | None = None
 _AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
 
-# Pool sizing is shared by both engines and comes from settings so an
-# operator can size the per-process connection budget against
+# Pool sizing comes from settings so an operator can size the
+# per-process connection budget against
 # PostgreSQL's max_connections (see docs/operations/database-connections.md).
 _POOL_SIZE = settings.database_pool_size
 _MAX_OVERFLOW = settings.database_max_overflow
-
-
-def get_engine() -> Engine:
-    """Get or create database engine.
-
-    Returns:
-        SQLAlchemy engine instance.
-    """
-    global _engine
-    if _engine is None:
-        database_url = settings.database_url
-        # Prefer psycopg (v3) driver when using PostgreSQL.
-        if database_url.startswith("postgresql://"):
-            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-        # Use echo=True for SQL logging in development
-        _engine = create_engine(
-            database_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=_POOL_SIZE,
-            max_overflow=_MAX_OVERFLOW,
-        )
-    return _engine
-
-
-def get_session_local() -> sessionmaker:
-    """Get or create session factory.
-
-    Returns:
-        Session factory.
-    """
-    global _SessionLocal
-    if _SessionLocal is None:
-        engine = get_engine()
-        _SessionLocal = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=engine,
-            class_=Session,
-        )
-    return _SessionLocal
-
-
-def create_tables() -> None:
-    """Create all database tables.
-
-    This should be called after all models are imported.
-    """
-    engine = get_engine()
-    SQLModel.metadata.create_all(engine)
-
-
-def get_db() -> Generator[Session, None, None]:
-    """Dependency for FastAPI to get database session.
-
-    Yields:
-        Database session.
-    """
-    SessionLocal = get_session_local()
-    db = SessionLocal()
-    try:
-        from app.infra.db.transaction import SQLAlchemyUnitOfWork
-
-        with SQLAlchemyUnitOfWork(db):
-            yield db
-    finally:
-        db.close()
-
-
-def get_db_sync() -> Session:
-    """Get a synchronous database session (for non-async contexts).
-
-    Returns:
-        Database session.
-    """
-    SessionLocal = get_session_local()
-    return SessionLocal()
 
 
 def _async_database_url(url: str) -> str:

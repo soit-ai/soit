@@ -97,7 +97,7 @@ def _disable_db_policy_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         db_session,
-        "get_db_sync",
+        "get_async_session_local",
         lambda: (_ for _ in ()).throw(RuntimeError("DB disabled in unit test")),
     )
 

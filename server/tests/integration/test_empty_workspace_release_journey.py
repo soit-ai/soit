@@ -7,13 +7,12 @@ from fastapi import Depends, status
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import Session as SQLModelSession
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.agent.dependencies import get_agent_application_service
-from app.infra.db.session import get_async_db, get_db
-from app.infra.db.transaction import AsyncSQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork
+from app.infra.db.session import get_async_db
+from app.infra.db.transaction import AsyncSQLAlchemyUnitOfWork
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import ChatResponse, LLMPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -65,14 +64,6 @@ def empty_workspace_client(tmp_path, monkeypatch):
     async_engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     SQLModel.metadata.create_all(engine)
 
-    def override_get_db():
-        session = SQLModelSession(engine, expire_on_commit=False)
-        try:
-            with SQLAlchemyUnitOfWork(session):
-                yield session
-        finally:
-            session.close()
-
     async def override_get_async_db():
         session = AsyncSession(async_engine, expire_on_commit=False)
         try:
@@ -92,7 +83,6 @@ def empty_workspace_client(tmp_path, monkeypatch):
     settings.outbox_dispatcher_enabled = False
     monkeypatch.setattr(workspace_access, "get_async_session_local", scoped_session_factory)
     monkeypatch.setattr(middleware.auth, "_context_resolver", None)
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_async_db] = override_get_async_db
 
     try:
@@ -103,7 +93,6 @@ def empty_workspace_client(tmp_path, monkeypatch):
         settings.allow_public_registration = previous_registration
         settings.knowledge_ingest_worker_enabled = previous_ingest_worker
         settings.outbox_dispatcher_enabled = previous_dispatcher
-        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_async_db, None)
         app.dependency_overrides.pop(get_agent_application_service, None)
 
