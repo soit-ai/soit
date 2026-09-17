@@ -6,7 +6,10 @@ Base node executor interface.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
+
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import LLMPort
@@ -49,6 +52,8 @@ class ExecutionContext:
         resume_tool_run_step_id: str | None = None,
         resume_response_id: str | None = None,
         workflow_inputs: dict[str, Any] | None = None,
+        node_context_factory: Callable[[], Awaitable[ExecutionContext]] | None = None,
+        owned_session: AsyncSession | None = None,
     ):
         """Initialize execution context.
 
@@ -70,6 +75,11 @@ class ExecutionContext:
             thread_id: Optional runtime thread id for checkpoint context.
             agent_id: Optional agent id for checkpoint context.
             workflow_inputs: Validated workflow invocation payload.
+            node_context_factory: Builds a context on its own session for one
+                node, so nodes can run concurrently; without it nodes run one
+                at a time on this context's session.
+            owned_session: The session a node context was built on; the
+                executor commits and closes it when the node is done.
         """
         self.run_id = run_id
         self.step_id = step_id
@@ -94,6 +104,8 @@ class ExecutionContext:
         self.resume_tool_call_id = resume_tool_call_id
         self.resume_tool_run_step_id = resume_tool_run_step_id
         self.resume_response_id = resume_response_id
+        self.node_context_factory = node_context_factory
+        self.owned_session = owned_session
 
 
 class NodeExecutor(ABC):

@@ -396,6 +396,12 @@ def build_workflow_service(*, db: AsyncSession, ctx: RequestContext) -> Workflow
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
             ctx=ctx,
         ),
+        # Concurrent workflow nodes run on their own sessions; the knowledge
+        # port a node queries through has to be built on that session too.
+        node_knowledge_query_port_factory=lambda session: KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=build_knowledge_runtime_service(db=session, ctx=ctx),
+            ctx=ctx,
+        ),
     )
 
 

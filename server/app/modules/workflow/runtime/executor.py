@@ -7,8 +7,12 @@ import asyncio
 import logging
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
+
+from sqlalchemy import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.commons.time import utc_now
@@ -50,24 +54,30 @@ class WorkflowApprovalRequired(Exception):
 
 async def _stage_workflow_checkpoint(
     context: ExecutionContext,
-    checkpoint: dict[str, Any] | None,
+    checkpoint: dict[str, Any] | Callable[[], dict[str, Any]] | None,
 ) -> None:
     """Stage the crash checkpoint so it commits with the node outbox event.
 
     Sharing the transaction is the point: progress and its notification are
     either both durable or neither, so a crash can never leave a checkpoint
     claiming more (or less) than the ledger saw.
-    """
 
+    The workflow_runs row is locked first and the snapshot is built under
+    that lock: nodes running on their own sessions commit in any order, and
+    a snapshot taken after the lock can only add to the one committed before.
+    """
     if checkpoint is None:
         return
     wid = getattr(context, "workflow_run_id", None)
     if not wid:
         return
-    row = await context.trace_writer.db.get(WorkflowRun, wid)
+    db = context.trace_writer.db
+    row = (
+        await db.exec(select(WorkflowRun).where(WorkflowRun.id == wid).with_for_update())
+    ).scalars().first()
     if row is None or row.status not in {"running", "queued"}:
         return
-    row.checkpoint_json = checkpoint
+    row.checkpoint_json = checkpoint() if callable(checkpoint) else checkpoint
     row.updated_at = utc_now()
     context.trace_writer.db.add(row)
 
@@ -78,7 +88,7 @@ async def _emit_workflow_node_completed_outbox(
     node_id: str,
     run_step: RunStep,
     next_node_id: str | None = None,
-    checkpoint: dict[str, Any] | None = None,
+    checkpoint: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -107,7 +117,7 @@ async def _emit_workflow_node_failed_outbox(
     run_step: RunStep,
     error_code: str | None,
     error_message: str | None,
-    checkpoint: dict[str, Any] | None = None,
+    checkpoint: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
 ) -> None:
     if not getattr(context, "workflow_run_id", None):
         return
@@ -182,6 +192,23 @@ class WorkflowExecutor:
             for node_id, output in dict(checkpoint.get("node_outputs") or {}).items()
             if isinstance(output, dict)
         }
+        # Progress the ledger has committed. A node stages its checkpoint from
+        # this plus itself, under the workflow_runs row lock, so a crash never
+        # leaves a checkpoint claiming a node the step ledger has not seen.
+        durable_states: dict[str, str] = dict(node_states)
+        durable_outputs: dict[str, dict[str, Any]] = {
+            node_id: dict(output) for node_id, output in node_outputs.items()
+        }
+
+        def _snapshot_with(
+            node_id: str, state: str, output: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            states = {**durable_states, node_id: state}
+            outputs = dict(durable_outputs)
+            if output is not None:
+                outputs[node_id] = output
+            return build_checkpoint_snapshot(plan.inputs, states, outputs)
+
         resume_node_id = str(checkpoint.get("waiting_node_id") or "") or None
         resume_workflow_step_id = (
             str(checkpoint.get("workflow_run_step_id") or "") or None
@@ -216,13 +243,13 @@ class WorkflowExecutor:
                 cleaned.pop(key, None)
             return cleaned
 
-        # Every node writes through the same AsyncSession, and a session must
-        # not be driven from two tasks at once. Nodes therefore run one at a
-        # time; the spec's concurrency is honoured once nodes get their own
-        # sessions.
+        # A session must not be driven from two tasks at once, so concurrent
+        # nodes each need their own: the spec's concurrency is honoured when
+        # the context can build node sessions, otherwise nodes run one at a
+        # time on the shared one.
         requested_concurrency = int(semantics.get("concurrency", 1) or 1)
-        concurrency = 1
-        if requested_concurrency > 1:
+        concurrency = requested_concurrency if context.node_context_factory is not None else 1
+        if requested_concurrency > 1 and concurrency == 1:
             logger.debug(
                 "workflow concurrency clamped to 1 on a shared session",
                 extra={"run_id": context.run_id, "requested": requested_concurrency},
@@ -239,17 +266,18 @@ class WorkflowExecutor:
             resolved = resolver.resolve(condition)
             return self._evaluate_condition(resolved, {})
 
-        async def mark_skipped(node_id: str) -> None:
+        async def mark_skipped(node_id: str, node_ctx: ExecutionContext = context) -> None:
             if node_states.get(node_id):
                 return
             node_states[node_id] = "skipped"
-            run_step = await context.trace_writer.create_step(
-                run_id=context.run_id,
+            durable_states[node_id] = "skipped"
+            run_step = await node_ctx.trace_writer.create_step(
+                run_id=node_ctx.run_id,
                 step_type="workflow_node",
                 step_id=f"st_{node_id}",
                 node_id=node_id,
             )
-            await context.trace_writer.update_step_status(
+            await node_ctx.trace_writer.update_step_status(
                 run_step.id,
                 status="skipped",
                 output_summary="skipped",
@@ -258,9 +286,11 @@ class WorkflowExecutor:
                     "node_id": node_id,
                 },
             )
-            await resolve_outgoing_edges(node_id, allow_edges=False)
+            await resolve_outgoing_edges(node_id, allow_edges=False, node_ctx=node_ctx)
 
-        async def resolve_outgoing_edges(node_id: str, allow_edges: bool) -> None:
+        async def resolve_outgoing_edges(
+            node_id: str, allow_edges: bool, node_ctx: ExecutionContext = context
+        ) -> None:
             for edge in edge_map.get(node_id, []):
                 to_id = edge["to"]
                 if in_degree[to_id] <= 0:
@@ -276,7 +306,7 @@ class WorkflowExecutor:
                             ready_queue.append(to_id)
                             queued_nodes.add(to_id)
                     else:
-                        await mark_skipped(to_id)
+                        await mark_skipped(to_id, node_ctx)
 
         for node_id, degree in in_degree.items():
             if degree == 0 and node_id not in node_states:
@@ -290,294 +320,317 @@ class WorkflowExecutor:
                     allow_edges=restored_status == "succeeded",
                 )
 
-        async def execute_node(node_id: str):
-            """Execute a single node."""
-            async with semaphore:
-                if node_states.get(node_id) == "skipped":
-                    return
-                node = nodes[node_id]
-                node_type = node["type"]
-                step_id_base = f"st_{node_id}"
+        async def _execute_node_with(node_id: str, node_ctx: ExecutionContext) -> None:
+            """Run one node on ``node_ctx``, which may own its own session."""
+            if node_states.get(node_id) == "skipped":
+                return
+            node = nodes[node_id]
+            node_type = node["type"]
+            step_id_base = f"st_{node_id}"
 
-                pause_wait_ms = 0
-                wait_started = time.monotonic()
-                await self._wait_for_resume(context.run_id, semantics)
-                pause_wait_ms = int((time.monotonic() - wait_started) * 1000)
+            pause_wait_ms = 0
+            wait_started = time.monotonic()
+            await self._wait_for_resume(node_ctx.run_id, semantics, node_ctx.trace_writer.db)
+            pause_wait_ms = int((time.monotonic() - wait_started) * 1000)
 
-                # Get executor
-                executor_class = get_executor(node_type)
-                executor = executor_class()
+            # Get executor
+            executor_class = get_executor(node_type)
+            executor = executor_class()
 
-                # Resolve inputs
-                # Build steps_outputs mapping: node_id -> output
-                steps_outputs_map = {}
-                for nid in execution_order:
-                    if nid in node_outputs:
-                        steps_outputs_map[nid] = node_outputs[nid]
+            # Resolve inputs
+            # Build steps_outputs mapping: node_id -> output
+            steps_outputs_map = {}
+            for nid in execution_order:
+                if nid in node_outputs:
+                    steps_outputs_map[nid] = node_outputs[nid]
 
-                skipped_steps = {nid for nid, state in node_states.items() if state == "skipped"}
-                resolver = VariableResolver(
-                    plan.inputs,
-                    steps_outputs_map,
-                    context=context_payload,
-                    skipped_steps=skipped_steps,
-                )
-                inputs = _strip_control_keys(resolver.resolve(node.get("input", {})))
+            skipped_steps = {nid for nid, state in node_states.items() if state == "skipped"}
+            resolver = VariableResolver(
+                plan.inputs,
+                steps_outputs_map,
+                context=context_payload,
+                skipped_steps=skipped_steps,
+            )
+            inputs = _strip_control_keys(resolver.resolve(node.get("input", {})))
 
-                async def create_attempt_step(attempt: int):
-                    """Create a run step for this attempt."""
-                    if (
-                        attempt == 1
-                        and node_id == resume_node_id
-                        and resume_workflow_step_id
-                    ):
-                        resumed_step = await context.trace_writer.db.get(
-                            RunStep,
-                            resume_workflow_step_id,
-                        )
-                        if (
-                            resumed_step is None
-                            or resumed_step.run_id != context.run_id
-                            or resumed_step.node_id != node_id
-                            or resumed_step.status != "waiting_approval"
-                        ):
-                            raise ValidationError(
-                                "Workflow approval checkpoint is not resumable"
-                            )
-                        return await context.trace_writer.update_step_status(
-                            resumed_step.id,
-                            status="running",
-                        )
-                    step_key = step_id_base if attempt == 1 else f"{step_id_base}_retry{attempt}"
-                    run_step = await context.trace_writer.create_step(
-                        run_id=context.run_id,
-                        step_type="workflow_node",
-                        step_id=step_key,
-                        node_id=node_id,
-                        input_summary=str(inputs)[:8192] if inputs else None,
+            async def create_attempt_step(attempt: int):
+                """Create a run step for this attempt."""
+                if (
+                    attempt == 1
+                    and node_id == resume_node_id
+                    and resume_workflow_step_id
+                ):
+                    resumed_step = await node_ctx.trace_writer.db.get(
+                        RunStep,
+                        resume_workflow_step_id,
                     )
-                    await context.trace_writer.update_step_status(
-                        run_step.id,
+                    if (
+                        resumed_step is None
+                        or resumed_step.run_id != node_ctx.run_id
+                        or resumed_step.node_id != node_id
+                        or resumed_step.status != "waiting_approval"
+                    ):
+                        raise ValidationError(
+                            "Workflow approval checkpoint is not resumable"
+                        )
+                    return await node_ctx.trace_writer.update_step_status(
+                        resumed_step.id,
                         status="running",
                     )
-                    return run_step
-
-                attempt = 1
-                attempts = 0
-                run_step = await create_attempt_step(attempt)
-
-                # Create step context after initial step is created.
-                step_context = ExecutionContext(
-                    run_id=context.run_id,
-                    step_id=run_step.id,
-                    ctx=context.ctx,
-                    trace_writer=context.trace_writer,
-                    llm_port=context.llm_port,
-                    tool_port=context.tool_port,
-                    vector_port=context.vector_port,
-                    workflow_knowledge_query_port=context.workflow_knowledge_query_port,
-                    plugin_runtime_port=context.plugin_runtime_port,
-                    response_service=context.response_service,
-                    workflow_policy=context.workflow_policy,
-                    workflow_inputs=context.workflow_inputs,
-                    steps_outputs=node_outputs,
-                    workflow_run_id=context.workflow_run_id,
-                    approval_checkpoint_gateway=context.approval_checkpoint_gateway,
-                    approval_ledger=context.approval_ledger,
-                    task_id=context.task_id,
-                    thread_id=context.thread_id,
-                    agent_id=context.agent_id,
-                    resume_approval_node_id=resume_node_id,
-                    resume_tool_call_id=checkpoint.get("tool_call_id"),
-                    resume_tool_run_step_id=checkpoint.get("tool_run_step_id"),
-                    resume_response_id=checkpoint.get("response_id"),
+                step_key = step_id_base if attempt == 1 else f"{step_id_base}_retry{attempt}"
+                run_step = await node_ctx.trace_writer.create_step(
+                    run_id=node_ctx.run_id,
+                    step_type="workflow_node",
+                    step_id=step_key,
+                    node_id=node_id,
+                    input_summary=str(inputs)[:8192] if inputs else None,
                 )
-                final_error_recorded = False
-                try:
-                    # Execute node with retry/timeout
-                    retry_policy = node.get("retry_policy") or policy.get("default_retry_policy") or {}
-                    max_retries = int(retry_policy.get("max_retries", 0) or 0)
-                    backoff_ms = retry_policy.get("backoff_ms")
-                    timeout_ms = node.get("timeout_ms") or policy.get("default_timeout_ms")
+                await node_ctx.trace_writer.update_step_status(
+                    run_step.id,
+                    status="running",
+                )
+                return run_step
 
-                    async def _run_once():
-                        if timeout_ms:
-                            return await asyncio.wait_for(
-                                executor.execute(node, step_context, inputs),
-                                timeout=timeout_ms / 1000,
+            attempt = 1
+            attempts = 0
+            run_step = await create_attempt_step(attempt)
+
+            # Create step context after initial step is created.
+            step_context = ExecutionContext(
+                run_id=node_ctx.run_id,
+                step_id=run_step.id,
+                ctx=node_ctx.ctx,
+                trace_writer=node_ctx.trace_writer,
+                llm_port=node_ctx.llm_port,
+                tool_port=node_ctx.tool_port,
+                vector_port=node_ctx.vector_port,
+                workflow_knowledge_query_port=node_ctx.workflow_knowledge_query_port,
+                plugin_runtime_port=node_ctx.plugin_runtime_port,
+                response_service=node_ctx.response_service,
+                workflow_policy=node_ctx.workflow_policy,
+                workflow_inputs=node_ctx.workflow_inputs,
+                steps_outputs=node_outputs,
+                workflow_run_id=node_ctx.workflow_run_id,
+                approval_checkpoint_gateway=node_ctx.approval_checkpoint_gateway,
+                approval_ledger=node_ctx.approval_ledger,
+                task_id=node_ctx.task_id,
+                thread_id=node_ctx.thread_id,
+                agent_id=node_ctx.agent_id,
+                resume_approval_node_id=resume_node_id,
+                resume_tool_call_id=checkpoint.get("tool_call_id"),
+                resume_tool_run_step_id=checkpoint.get("tool_run_step_id"),
+                resume_response_id=checkpoint.get("response_id"),
+            )
+            final_error_recorded = False
+            try:
+                # Execute node with retry/timeout
+                retry_policy = node.get("retry_policy") or policy.get("default_retry_policy") or {}
+                max_retries = int(retry_policy.get("max_retries", 0) or 0)
+                backoff_ms = retry_policy.get("backoff_ms")
+                timeout_ms = node.get("timeout_ms") or policy.get("default_timeout_ms")
+
+                async def _run_once():
+                    if timeout_ms:
+                        return await asyncio.wait_for(
+                            executor.execute(node, step_context, inputs),
+                            timeout=timeout_ms / 1000,
+                        )
+                    return await executor.execute(node, step_context, inputs)
+
+                while True:
+                    exec_started = time.monotonic()
+                    try:
+                        step_context.step_id = run_step.id
+                        output = await _run_once()
+                        if (
+                            isinstance(output, dict)
+                            and output.get("status") == "waiting_approval"
+                        ):
+                            raise WorkflowApprovalRequired(
+                                node_id=node_id,
+                                run_step_id=run_step.id,
+                                output=output,
                             )
-                        return await executor.execute(node, step_context, inputs)
-
-                    while True:
-                        exec_started = time.monotonic()
-                        try:
-                            step_context.step_id = run_step.id
-                            output = await _run_once()
-                            if (
-                                isinstance(output, dict)
-                                and output.get("status") == "waiting_approval"
-                            ):
-                                raise WorkflowApprovalRequired(
-                                    node_id=node_id,
-                                    run_step_id=run_step.id,
-                                    output=output,
-                                )
-                            break
-                        except WorkflowApprovalRequired:
+                        break
+                    except WorkflowApprovalRequired:
+                        raise
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        attempts += 1
+                        elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                        await node_ctx.trace_writer.update_step_status(
+                            run_step.id,
+                            status="failed",
+                            output_summary=str(exc)[:8192],
+                            error_code="NODE_EXECUTION_ERROR",
+                            error_message=str(exc),
+                            error_details={
+                                "node_id": node_id,
+                                "node_type": node_type,
+                                "attempt": attempt,
+                                "error_type": type(exc).__name__,
+                            },
+                            metrics={
+                                "attempt": attempt,
+                                "node_type": node_type,
+                                "node_id": node_id,
+                                "latency_ms": elapsed_ms,
+                                "pause_wait_ms": pause_wait_ms,
+                                "max_retries": max_retries,
+                            },
+                        )
+                        if attempts > max_retries:
+                            final_error_recorded = True
                             raise
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            attempts += 1
-                            elapsed_ms = int((time.monotonic() - exec_started) * 1000)
-                            await context.trace_writer.update_step_status(
-                                run_step.id,
-                                status="failed",
-                                output_summary=str(exc)[:8192],
-                                error_code="NODE_EXECUTION_ERROR",
-                                error_message=str(exc),
-                                error_details={
-                                    "node_id": node_id,
-                                    "node_type": node_type,
-                                    "attempt": attempt,
-                                    "error_type": type(exc).__name__,
-                                },
-                                metrics={
-                                    "attempt": attempt,
-                                    "node_type": node_type,
-                                    "node_id": node_id,
-                                    "latency_ms": elapsed_ms,
-                                    "pause_wait_ms": pause_wait_ms,
-                                    "max_retries": max_retries,
-                                },
-                            )
-                            if attempts > max_retries:
-                                final_error_recorded = True
-                                raise
-                            if backoff_ms:
-                                await asyncio.sleep(backoff_ms / 1000)
-                            attempt += 1
-                            run_step = await create_attempt_step(attempt)
+                        if backoff_ms:
+                            await asyncio.sleep(backoff_ms / 1000)
+                        attempt += 1
+                        run_step = await create_attempt_step(attempt)
 
-                    node_outputs[node_id] = output
-                    node_states[node_id] = "succeeded"
+                node_outputs[node_id] = output
+                node_states[node_id] = "succeeded"
 
-                    # Update step status to succeeded
-                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
-                    metrics = {
+                # Update step status to succeeded
+                elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                metrics = {
+                    "attempts": attempt,
+                    "node_type": node_type,
+                    "node_id": node_id,
+                    "latency_ms": elapsed_ms,
+                    "pause_wait_ms": pause_wait_ms,
+                    "max_retries": max_retries,
+                }
+                if timeout_ms is not None:
+                    metrics["timeout_ms"] = int(timeout_ms)
+                run_step = await node_ctx.trace_writer.update_step_status(
+                    run_step.id,
+                    status="succeeded",
+                    output_summary=str(output)[:8192] if output else None,
+                    metrics=metrics,
+                )
+                await _emit_workflow_node_completed_outbox(
+                    context,
+                    node_id=node_id,
+                    run_step=run_step,
+                    checkpoint=lambda: _snapshot_with(node_id, "succeeded", output),
+                )
+                durable_states[node_id] = "succeeded"
+                durable_outputs[node_id] = output
+
+                await resolve_outgoing_edges(node_id, allow_edges=True, node_ctx=node_ctx)
+
+            except WorkflowApprovalRequired:
+                node_states[node_id] = "waiting_approval"
+                await node_ctx.trace_writer.update_step_status(
+                    run_step.id,
+                    status="waiting_approval",
+                    output_summary="waiting_approval",
+                    metrics={
+                        "attempts": attempt,
+                        "node_type": node_type,
+                        "node_id": node_id,
+                        "max_retries": max_retries,
+                    },
+                )
+                raise
+            except asyncio.CancelledError:
+                node_states[node_id] = "canceled"
+                elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                await node_ctx.trace_writer.update_step_status(
+                    run_step.id,
+                    status="canceled",
+                    output_summary="canceled",
+                    metrics={
                         "attempts": attempt,
                         "node_type": node_type,
                         "node_id": node_id,
                         "latency_ms": elapsed_ms,
                         "pause_wait_ms": pause_wait_ms,
                         "max_retries": max_retries,
+                    },
+                    error_code="NODE_CANCELED",
+                    error_message="Node execution canceled",
+                )
+                raise
+            except Exception as e:
+                node_states[node_id] = "failed"
+
+                # Update step status to failed
+                error_message = str(e)
+                elapsed_ms = int((time.monotonic() - exec_started) * 1000)
+                if not final_error_recorded:
+                    metrics = {
+                        "node_type": node_type,
+                        "node_id": node_id,
+                        "attempts": attempt,
+                        "latency_ms": elapsed_ms,
+                        "pause_wait_ms": pause_wait_ms,
+                        "max_retries": max_retries,
                     }
                     if timeout_ms is not None:
                         metrics["timeout_ms"] = int(timeout_ms)
-                    run_step = await context.trace_writer.update_step_status(
+                    run_step = await node_ctx.trace_writer.update_step_status(
                         run_step.id,
-                        status="succeeded",
-                        output_summary=str(output)[:8192] if output else None,
+                        status="failed",
+                        output_summary=error_message[:8192],
+                        error_code="NODE_EXECUTION_ERROR",
+                        error_message=error_message,
+                        error_details={
+                            "node_id": node_id,
+                            "node_type": node_type,
+                            "attempts": attempts + 1,
+                            "error_type": type(e).__name__,
+                        },
                         metrics=metrics,
                     )
-                    await _emit_workflow_node_completed_outbox(
-                        context,
-                        node_id=node_id,
-                        run_step=run_step,
-                        checkpoint=build_checkpoint_snapshot(
-                            plan.inputs, node_states, node_outputs
-                        ),
-                    )
 
-                    await resolve_outgoing_edges(node_id, allow_edges=True)
+                await _emit_workflow_node_failed_outbox(
+                    context,
+                    node_id=node_id,
+                    run_step=run_step,
+                    error_code="NODE_EXECUTION_ERROR",
+                    error_message=error_message[:8192],
+                    checkpoint=lambda: _snapshot_with(node_id, "failed"),
+                )
 
-                except WorkflowApprovalRequired:
-                    node_states[node_id] = "waiting_approval"
-                    await context.trace_writer.update_step_status(
-                        run_step.id,
-                        status="waiting_approval",
-                        output_summary="waiting_approval",
-                        metrics={
-                            "attempts": attempt,
-                            "node_type": node_type,
-                            "node_id": node_id,
-                            "max_retries": max_retries,
-                        },
-                    )
-                    raise
-                except asyncio.CancelledError:
-                    node_states[node_id] = "canceled"
-                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
-                    await context.trace_writer.update_step_status(
-                        run_step.id,
-                        status="canceled",
-                        output_summary="canceled",
-                        metrics={
-                            "attempts": attempt,
-                            "node_type": node_type,
-                            "node_id": node_id,
-                            "latency_ms": elapsed_ms,
-                            "pause_wait_ms": pause_wait_ms,
-                            "max_retries": max_retries,
-                        },
-                        error_code="NODE_CANCELED",
-                        error_message="Node execution canceled",
-                    )
-                    raise
-                except Exception as e:
-                    node_states[node_id] = "failed"
+                error_strategy = semantics.get("on_error", "fail_fast")
 
-                    # Update step status to failed
-                    error_message = str(e)
-                    elapsed_ms = int((time.monotonic() - exec_started) * 1000)
-                    if not final_error_recorded:
-                        metrics = {
-                            "node_type": node_type,
-                            "node_id": node_id,
-                            "attempts": attempt,
-                            "latency_ms": elapsed_ms,
-                            "pause_wait_ms": pause_wait_ms,
-                            "max_retries": max_retries,
-                        }
-                        if timeout_ms is not None:
-                            metrics["timeout_ms"] = int(timeout_ms)
-                        run_step = await context.trace_writer.update_step_status(
-                            run_step.id,
-                            status="failed",
-                            output_summary=error_message[:8192],
-                            error_code="NODE_EXECUTION_ERROR",
-                            error_message=error_message,
-                            error_details={
-                                "node_id": node_id,
-                                "node_type": node_type,
-                                "attempts": attempts + 1,
-                                "error_type": type(e).__name__,
-                            },
-                            metrics=metrics,
-                        )
+                if error_strategy == "fail_fast":
+                    raise ValidationError(f"Node {node_id} failed: {error_message}")
+                elif error_strategy == "continue":
+                    # Continue execution, mark node as failed
+                    node_outputs[node_id] = {"error": error_message}
+                    await resolve_outgoing_edges(node_id, allow_edges=True, node_ctx=node_ctx)
+                elif error_strategy == "compensate":
+                    raise CompensationRequested(node_id=node_id, error_message=error_message)
+                # other strategies: ignore
 
-                    await _emit_workflow_node_failed_outbox(
-                        context,
-                        node_id=node_id,
-                        run_step=run_step,
-                        error_code="NODE_EXECUTION_ERROR",
-                        error_message=error_message[:8192],
-                        checkpoint=build_checkpoint_snapshot(
-                            plan.inputs, node_states, node_outputs
-                        ),
-                    )
+        async def _release_node_context(node_ctx: ExecutionContext) -> None:
+            session = node_ctx.owned_session
+            if session is None:
+                return
+            try:
+                await session.commit()
+            except Exception:
+                logger.exception(
+                    "Node session commit failed", extra={"run_id": context.run_id}
+                )
+                await session.rollback()
+            finally:
+                await session.close()
 
-                    error_strategy = semantics.get("on_error", "fail_fast")
-
-                    if error_strategy == "fail_fast":
-                        raise ValidationError(f"Node {node_id} failed: {error_message}")
-                    elif error_strategy == "continue":
-                        # Continue execution, mark node as failed
-                        node_outputs[node_id] = {"error": error_message}
-                        await resolve_outgoing_edges(node_id, allow_edges=True)
-                    elif error_strategy == "compensate":
-                        raise CompensationRequested(node_id=node_id, error_message=error_message)
-                    # other strategies: ignore
+        async def execute_node(node_id: str):
+            """Execute a single node."""
+            async with semaphore:
+                node_ctx = context
+                if concurrency > 1 and context.node_context_factory is not None:
+                    node_ctx = await context.node_context_factory()
+                    node_ctx.workflow_inputs = context.workflow_inputs
+                try:
+                    await _execute_node_with(node_id, node_ctx)
+                finally:
+                    await _release_node_context(node_ctx)
 
         def _collect_compensation_nodes() -> list[str]:
             compensation_nodes: list[str] = []
@@ -771,14 +824,22 @@ class WorkflowExecutor:
 
         return {}
 
-    async def _wait_for_resume(self, run_id: str, semantics: dict[str, Any]) -> None:
+    async def _wait_for_resume(
+        self,
+        run_id: str,
+        semantics: dict[str, Any],
+        db: AsyncSession | None = None,
+    ) -> None:
         """Block execution while run is paused."""
         poll_ms = semantics.get("pause_poll_ms", 500)
+        session = db if db is not None else self.execution_engine.db
+        run = await session.get(Run, run_id)
         while True:
-            run = await self.execution_engine.db.get(Run, run_id)
             status = getattr(run, "status", None)
             if status == "paused":
                 await asyncio.sleep(poll_ms / 1000)
+                if run is not None:
+                    await session.refresh(run)
                 continue
             if status == "canceled":
                 raise asyncio.CancelledError()

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -17,6 +18,10 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.execution.state_machine import RunStatus, StateMachine
 from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.responses.repository import (
+    ResponseEventRepository,
+    ResponseRepository,
+)
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.tool_calls import (
     summarize_parameters,
@@ -40,6 +45,8 @@ class ExecutionEngine:
         approval_checkpoint_gateway: Any | None = None,
         approval_ledger: Any | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
+        node_knowledge_query_port_factory: Callable[[AsyncSession], WorkflowKnowledgeQueryPort]
+        | None = None,
     ):
         """Initialize execution engine.
 
@@ -47,6 +54,9 @@ class ExecutionEngine:
             db: Database session.
             ctx: Request context.
             trace_writer: Trace writer.
+            node_knowledge_query_port_factory: Builds a knowledge query port on
+                a node's own session; without it concurrent nodes share the
+                engine's port (and its session) for knowledge queries.
         """
         self.db = db
         self.ctx = ctx
@@ -55,6 +65,7 @@ class ExecutionEngine:
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
         self.approval_ledger = approval_ledger
         self.workflow_knowledge_query_port = workflow_knowledge_query_port
+        self.node_knowledge_query_port_factory = node_knowledge_query_port_factory
         self.state_machine = StateMachine()
 
     @staticmethod
@@ -560,6 +571,52 @@ class ExecutionEngine:
         # Initialize workflow executor
         workflow_executor = WorkflowExecutor(self)
 
+        async def build_node_context() -> ExecutionContext:
+            """A context on its own session, so nodes can run concurrently.
+
+            Everything that writes (trace writer, the ports that record cost,
+            the response service) is rebuilt on the node session; the
+            executor commits and closes it when the node finishes.
+            """
+            session = AsyncSession(bind=self.db.bind, expire_on_commit=False)
+            writer = TraceWriter(
+                session,
+                self.ctx,
+                event_bus=self.trace_writer.event_bus,
+                sandbox=self.trace_writer.sandbox,
+            )
+            response_service = None
+            if self.response_service is not None:
+                response_service = ResponseService(
+                    db=session,
+                    ctx=self.ctx,
+                    response_repo=ResponseRepository(session, self.ctx),
+                    event_repo=ResponseEventRepository(session, self.ctx),
+                    trace_writer=writer,
+                )
+            knowledge_port = self.workflow_knowledge_query_port
+            if self.node_knowledge_query_port_factory is not None:
+                knowledge_port = self.node_knowledge_query_port_factory(session)
+            return ExecutionContext(
+                run_id=plan.run_id,
+                step_id=None,
+                ctx=self.ctx,
+                trace_writer=writer,
+                llm_port=container.get_llm_port(ctx=self.ctx, trace_writer=writer),
+                tool_port=container.get_tool_port(ctx=self.ctx, trace_writer=writer),
+                vector_port=container.get_vector_port(ctx=self.ctx, trace_writer=writer),
+                workflow_knowledge_query_port=knowledge_port,
+                plugin_runtime_port=container.get_plugin_runtime_port(
+                    ctx=self.ctx, trace_writer=writer
+                ),
+                response_service=response_service,
+                workflow_policy=plan.plan_data.get("policy", {}),
+                workflow_run_id=workflow_run_id,
+                approval_checkpoint_gateway=self.approval_checkpoint_gateway,
+                approval_ledger=self.approval_ledger,
+                owned_session=session,
+            )
+
         # Create execution context
         context = ExecutionContext(
             run_id=plan.run_id,
@@ -576,6 +633,7 @@ class ExecutionEngine:
             workflow_run_id=workflow_run_id,
             approval_checkpoint_gateway=self.approval_checkpoint_gateway,
             approval_ledger=self.approval_ledger,
+            node_context_factory=build_node_context,
         )
 
         try:

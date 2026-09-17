@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 from typing import Any
@@ -90,6 +91,8 @@ class WorkflowService:
         approval_checkpoint_gateway: Any | None = None,
         approval_ledger: Any | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
+        node_knowledge_query_port_factory: Callable[[AsyncSession], WorkflowKnowledgeQueryPort]
+        | None = None,
         **_: Any,
     ):
         self.db = db
@@ -120,6 +123,7 @@ class WorkflowService:
             approval_checkpoint_gateway=approval_checkpoint_gateway,
             approval_ledger=approval_ledger,
             workflow_knowledge_query_port=workflow_knowledge_query_port,
+            node_knowledge_query_port_factory=node_knowledge_query_port_factory,
         )
 
     def _resolve_workflow_create_id(self, data: WorkflowCreate, **kwargs) -> str:
