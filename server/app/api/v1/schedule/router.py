@@ -32,7 +32,7 @@ async def list_schedules(
     """List the workspace's schedules."""
     return [
         ScheduleResponse.model_validate(row)
-        for row in service.list(enabled=enabled, limit=limit, offset=offset)
+        for row in await service.list(enabled=enabled, limit=limit, offset=offset)
     ]
 
 
@@ -60,7 +60,7 @@ async def create_schedule(
     """Create a schedule. An expression that cannot fire is refused here."""
     try:
         return ScheduleResponse.model_validate(
-            service.create(
+            await service.create(
                 name=payload.name,
                 target_kind=payload.target_kind,
                 target_id=payload.target_id,
@@ -84,7 +84,7 @@ async def get_schedule(
 ):
     """Read one schedule."""
     try:
-        return ScheduleResponse.model_validate(service.get(schedule_id))
+        return ScheduleResponse.model_validate(await service.get(schedule_id))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -99,7 +99,7 @@ async def update_schedule(
     """Change a schedule. Pausing or editing it recomputes the next firing."""
     try:
         return ScheduleResponse.model_validate(
-            service.update(
+            await service.update(
                 schedule_id,
                 name=payload.name,
                 description=payload.description,
@@ -124,7 +124,7 @@ async def delete_schedule(
 ):
     """Delete a schedule."""
     try:
-        service.delete(schedule_id)
+        await service.delete(schedule_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -144,7 +144,7 @@ async def run_schedule_now(
     from app.wiring.schedule_worker import ScheduleWorker
 
     try:
-        schedule = service.get(schedule_id)
+        schedule = await service.get(schedule_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -152,4 +152,4 @@ async def run_schedule_now(
     # advance=False: asking for a run now is not the same as moving the
     # schedule, so the next occurrence stays where it was.
     await worker.fire_schedule(schedule, db=service.db, advance=False)
-    return ScheduleResponse.model_validate(service.get(schedule_id))
+    return ScheduleResponse.model_validate(await service.get(schedule_id))

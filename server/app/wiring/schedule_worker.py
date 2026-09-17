@@ -23,7 +23,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy import and_
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -52,7 +52,7 @@ def _context(schedule: Schedule) -> RequestContext:
     )
 
 
-def _enqueue_agent_interaction(db: Session, schedule: Schedule) -> str:
+async def _enqueue_agent_interaction(db: AsyncSession, schedule: Schedule) -> str:
     """Queue an agent run on the durable interaction path.
 
     The interaction worker claims queued rows, so the schedule's job is done
@@ -91,11 +91,11 @@ def _enqueue_agent_interaction(db: Session, schedule: Schedule) -> str:
             created_by=_context(schedule).user_id,
         )
     )
-    db.commit()
+    await db.commit()
     return interaction_id
 
 
-async def _start_workflow(db: Session, schedule: Schedule) -> str:
+async def _start_workflow(db: AsyncSession, schedule: Schedule) -> str:
     """Start a workflow run the way the API starts one."""
     from app.wiring.services import build_workflow_service
 
@@ -131,7 +131,7 @@ class ScheduleWorker:
 
     def __init__(
         self,
-        db_factory: Callable[[], Session],
+        db_factory: Callable[[], AsyncSession],
         *,
         worker_id: str | None = None,
         lease_seconds: int = 60,
@@ -140,8 +140,8 @@ class ScheduleWorker:
         self.worker_id = worker_id or f"scheduler-{generate_ulid()}"
         self.lease_seconds = lease.normalize_lease_seconds(lease_seconds)
 
-    def _claim_due(self, db: Session, now: datetime) -> Schedule | None:
-        return lease.claim_next(
+    async def _claim_due(self, db: AsyncSession, now: datetime) -> Schedule | None:
+        return await lease.claim_next(
             db,
             Schedule,
             worker_id=self.worker_id,
@@ -166,20 +166,20 @@ class ScheduleWorker:
         db = self.db_factory()
         try:
             now = utc_now()
-            schedule = self._claim_due(db, now)
+            schedule = await self._claim_due(db, now)
             if schedule is None:
                 return None
 
             await self.fire_schedule(schedule, db=db, now=now)
             return schedule.id
         finally:
-            db.close()
+            await db.close()
 
     async def fire_schedule(
         self,
         schedule: Schedule,
         *,
-        db: Session | None = None,
+        db: AsyncSession | None = None,
         now: datetime | None = None,
         advance: bool = True,
     ) -> Schedule:
@@ -198,7 +198,7 @@ class ScheduleWorker:
                 if schedule.target_kind == "workflow":
                     run_id = await _start_workflow(session, schedule)
                 else:
-                    run_id = _enqueue_agent_interaction(session, schedule)
+                    run_id = await _enqueue_agent_interaction(session, schedule)
                 schedule.last_status = "started"
                 schedule.last_run_id = run_id or None
                 schedule.last_error = None
@@ -218,11 +218,11 @@ class ScheduleWorker:
             schedule.lease_expires_at = None
             schedule.updated_at = utc_now()
             session.add(schedule)
-            session.commit()
+            await session.commit()
             return schedule
         finally:
             if owns_session:
-                session.close()
+                await session.close()
 
     async def run_loop(self, *, poll_interval: float = 15.0) -> None:
         """Fire due schedules until cancelled.

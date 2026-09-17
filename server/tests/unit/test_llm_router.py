@@ -1,6 +1,6 @@
 """Unit tests for LLMRouterPort."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -475,7 +475,7 @@ async def test_llm_policy_records_runtime_identity_separately_from_upstream_mode
         ),
         litellm_factory=lambda config, api_key: port,
     )
-    writer = MagicMock()
+    writer = AsyncMock()
     step = MagicMock()
     step.id = "step-runtime-identity"
     writer.create_step.return_value = step
@@ -526,7 +526,7 @@ async def test_llm_policy_records_one_priced_usage_row_for_valid_model_pricing(c
         ),
         litellm_factory=lambda config, credentials: port,
     )
-    writer = MagicMock()
+    writer = AsyncMock()
     writer.create_step.return_value.id = "step-priced"
     gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
 
@@ -587,7 +587,7 @@ async def test_llm_policy_keeps_unpriced_usage_when_chat_pricing_is_incomplete(c
         ),
         litellm_factory=lambda config, credentials: port,
     )
-    writer = MagicMock()
+    writer = AsyncMock()
     writer.create_step.return_value.id = "step-partial"
     gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
 
@@ -647,7 +647,7 @@ async def test_llm_policy_records_one_priced_embed_usage_row(ctx):
         ),
         litellm_factory=lambda config, credentials: port,
     )
-    writer = MagicMock()
+    writer = AsyncMock()
     writer.create_step.return_value.id = "step-embed-priced"
     gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
 
@@ -706,7 +706,7 @@ async def test_llm_policy_records_one_priced_rerank_usage_row(ctx):
         ),
         litellm_factory=lambda config, credentials: port,
     )
-    writer = MagicMock()
+    writer = AsyncMock()
     writer.create_step.return_value.id = "step-rerank-priced"
     gateway = LLMPolicyGateway(router, ctx, trace_writer=writer)
 

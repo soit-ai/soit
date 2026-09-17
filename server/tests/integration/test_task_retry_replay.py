@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.responses import ResponseInteraction
@@ -26,22 +26,22 @@ def _drivers():
     drivers.clear_task_drivers()
 
 
-def _failed_agent_task(db: Session, ctx: RequestContext, *, run_id: str) -> Task:
-    service = TaskService(db, ctx)
-    task = service.create_task(
+async def _failed_agent_task(async_db, ctx: RequestContext, *, run_id: str) -> Task:
+    service = TaskService(async_db, ctx)
+    task = await service.create_task(
         task_type="agent.stream",
         agent_id="agt_retry",
         thread_id="thread_retry",
         run_id=run_id,
     )
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
-    db.refresh(task)
+    async_db.add(task)
+    await async_db.commit()
+    await async_db.refresh(task)
     return task
 
 
-def _snapshot(db: Session, ctx: RequestContext, *, run_id: str) -> ResponseInteraction:
+async def _snapshot(async_db, ctx: RequestContext, *, run_id: str) -> ResponseInteraction:
     interaction = ResponseInteraction(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -64,17 +64,17 @@ def _snapshot(db: Session, ctx: RequestContext, *, run_id: str) -> ResponseInter
         },
         status="failed",
     )
-    db.add(interaction)
-    db.commit()
-    db.refresh(interaction)
+    async_db.add(interaction)
+    await async_db.commit()
+    await async_db.refresh(interaction)
     return interaction
 
 
-def _queued_replays(db: Session) -> list[ResponseInteraction]:
+async def _queued_replays(async_db) -> list[ResponseInteraction]:
     return list(
-        db.execute(
+        (await async_db.execute(
             select(ResponseInteraction).where(ResponseInteraction.status == "queued")
-        )
+        ))
         .scalars()
         .all()
     )
@@ -88,19 +88,20 @@ def test_agent_execute_tasks_are_registered_as_retryable():
     assert drivers.is_drivable("agent.execute")
 
 
-def test_retry_replays_an_inline_execute_snapshot(db, ctx):
+@pytest.mark.asyncio
+async def test_retry_replays_an_inline_execute_snapshot(async_db, ctx):
     """The non-streaming path persists an "inline" snapshot; retry replays it."""
-    service = TaskService(db, ctx)
-    task = service.create_task(
+    service = TaskService(async_db, ctx)
+    task = await service.create_task(
         task_type="agent.execute",
         agent_id="agt_retry",
         thread_id="thread_retry",
         run_id="run_inline_retry",
     )
     task.status = TaskStatus.QUEUED.value
-    db.add(task)
-    db.commit()
-    db.refresh(task)
+    async_db.add(task)
+    await async_db.commit()
+    await async_db.refresh(task)
     interaction = ResponseInteraction(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -124,29 +125,30 @@ def test_retry_replays_an_inline_execute_snapshot(db, ctx):
         # must still be replayable.
         status="inline",
     )
-    db.add(interaction)
-    db.commit()
+    async_db.add(interaction)
+    await async_db.commit()
 
-    drive_agent_task_retry(db, task)
+    await drive_agent_task_retry(async_db, task)
 
-    replays = _queued_replays(db)
+    replays = await _queued_replays(async_db)
     assert len(replays) == 1
     replay = replays[0]
     assert replay.execution_json["agent_inputs"] == {"input": "run the task"}
     assert replay.execution_json["assistant_message_id"] != "thmsg_inline"
     assert replay.response_id is None
-    db.refresh(task)
+    await async_db.refresh(task)
     assert task.status == TaskStatus.CANCELED.value
     assert task.progress_json["retried_as_interaction_id"] == replay.interaction_id
 
 
-def test_retry_enqueues_a_replay_the_durable_worker_can_claim(db, ctx):
-    task = _failed_agent_task(db, ctx, run_id="run_retry_replay")
-    _snapshot(db, ctx, run_id="run_retry_replay")
+@pytest.mark.asyncio
+async def test_retry_enqueues_a_replay_the_durable_worker_can_claim(async_db, ctx):
+    task = await _failed_agent_task(async_db, ctx, run_id="run_retry_replay")
+    await _snapshot(async_db, ctx, run_id="run_retry_replay")
 
-    drive_agent_task_retry(db, task)
+    await drive_agent_task_retry(async_db, task)
 
-    replays = _queued_replays(db)
+    replays = await _queued_replays(async_db)
     assert len(replays) == 1
     replay = replays[0]
     assert replay.status == "queued"
@@ -159,26 +161,28 @@ def test_retry_enqueues_a_replay_the_durable_worker_can_claim(db, ctx):
     assert replay.run_id is None
 
 
-def test_replay_does_not_reuse_the_previous_attempt_identifiers(db, ctx):
-    task = _failed_agent_task(db, ctx, run_id="run_retry_ids")
-    _snapshot(db, ctx, run_id="run_retry_ids")
+@pytest.mark.asyncio
+async def test_replay_does_not_reuse_the_previous_attempt_identifiers(async_db, ctx):
+    task = await _failed_agent_task(async_db, ctx, run_id="run_retry_ids")
+    await _snapshot(async_db, ctx, run_id="run_retry_ids")
 
-    drive_agent_task_retry(db, task)
+    await drive_agent_task_retry(async_db, task)
 
-    replay = _queued_replays(db)[0]
+    replay = (await _queued_replays(async_db))[0]
     assert replay.interaction_id != "rint_original"
     assert replay.execution_json["assistant_message_id"] != "thmsg_original"
     assert "task_id" not in replay.execution_json["payload"]
 
 
-def test_retried_task_is_closed_out_and_points_at_the_replay(db, ctx):
-    task = _failed_agent_task(db, ctx, run_id="run_retry_closeout")
-    _snapshot(db, ctx, run_id="run_retry_closeout")
+@pytest.mark.asyncio
+async def test_retried_task_is_closed_out_and_points_at_the_replay(async_db, ctx):
+    task = await _failed_agent_task(async_db, ctx, run_id="run_retry_closeout")
+    await _snapshot(async_db, ctx, run_id="run_retry_closeout")
 
-    drive_agent_task_retry(db, task)
+    await drive_agent_task_retry(async_db, task)
 
-    db.refresh(task)
-    replay = _queued_replays(db)[0]
+    await async_db.refresh(task)
+    replay = (await _queued_replays(async_db))[0]
     # Replaying creates a new run and task, so this attempt must reach a
     # terminal state instead of waiting for work it will never perform.
     assert task.status == TaskStatus.CANCELED.value
@@ -186,12 +190,13 @@ def test_retried_task_is_closed_out_and_points_at_the_replay(db, ctx):
     assert task.progress_json["retried_as_interaction_id"] == replay.interaction_id
 
 
-def test_retry_fails_explicitly_when_no_snapshot_was_persisted(db, ctx):
-    task = _failed_agent_task(db, ctx, run_id="run_retry_missing")
+@pytest.mark.asyncio
+async def test_retry_fails_explicitly_when_no_snapshot_was_persisted(async_db, ctx):
+    task = await _failed_agent_task(async_db, ctx, run_id="run_retry_missing")
 
-    drive_agent_task_retry(db, task)
+    await drive_agent_task_retry(async_db, task)
 
-    db.refresh(task)
+    await async_db.refresh(task)
     assert task.status == TaskStatus.FAILED.value
     assert task.error_code == SNAPSHOT_MISSING_ERROR_CODE
-    assert _queued_replays(db) == []
+    assert await _queued_replays(async_db) == []

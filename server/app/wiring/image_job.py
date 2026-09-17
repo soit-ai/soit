@@ -21,7 +21,7 @@ import asyncio
 import logging
 from typing import Any
 
-from sqlmodel import Session as SQLModelSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.images.service import ImageJobRequest, execute_image_job
@@ -45,12 +45,12 @@ async def run_image_job_detached(
     """Execute one image job on its own session and close its run."""
     from app.wiring import get_container
 
-    with SQLModelSession(bind=bind, expire_on_commit=False) as db:
+    async with AsyncSession(bind=bind, expire_on_commit=False) as db:
         container = get_container()
         trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
         try:
-            trace_writer.update_run_status(run_id, "running")
-            db.commit()
+            await trace_writer.update_run_status(run_id, "running")
+            await db.commit()
 
             outcome = await execute_image_job(
                 request,
@@ -64,22 +64,22 @@ async def run_image_job_detached(
             summary = f"images={len(outcome.results)}"
             if outcome.safety:
                 summary = f"{summary}, safety_findings={len(outcome.safety)}"
-            trace_writer.update_run_status(
+            await trace_writer.update_run_status(
                 run_id,
                 "succeeded",
                 output_summary=summary,
             )
-            db.commit()
+            await db.commit()
         except Exception as exc:
             logger.exception("Async image job failed", extra={"run_id": run_id})
             try:
-                trace_writer.update_run_status(
+                await trace_writer.update_run_status(
                     run_id,
                     "failed",
                     error_code="IMAGE_ERROR",
                     error_message=str(exc)[:2000],
                 )
-                db.commit()
+                await db.commit()
             except Exception:
                 # The run is the caller's only signal. Losing the failure
                 # transition strands it as "running" forever, so say so loudly

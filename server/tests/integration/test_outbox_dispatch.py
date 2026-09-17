@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.events.dispatcher import OutboxDispatcher, OutboxDispatcherService
 from app.kernel.events.envelope import DomainEventEnvelope
@@ -24,7 +24,7 @@ def _env(eid: str, etype: str = "integration.demo") -> DomainEventEnvelope:
 
 
 @pytest.mark.asyncio
-async def test_enqueue_publish_dispatch_marks_done(db: Session) -> None:
+async def test_enqueue_publish_dispatch_marks_done(async_db) -> None:
     """A8: same transaction path as callers (publisher → commit → dispatcher)."""
     reg = OutboxHandlerRegistry()
     seen: list[str] = []
@@ -33,21 +33,21 @@ async def test_enqueue_publish_dispatch_marks_done(db: Session) -> None:
         seen.append(row.event_id)
 
     reg.register("integration.demo", "integration.consumer", h)
-    pub = OutboxPublisher(OutboxRepository(db))
+    pub = OutboxPublisher(OutboxRepository(async_db))
     row = pub.publish(_env("evt_int_1"))
-    db.commit()
+    await async_db.commit()
 
-    d = OutboxDispatcher(db, reg)
+    d = OutboxDispatcher(async_db, reg)
     n = await d.run_once(batch_limit=10)
-    db.commit()
+    await async_db.commit()
 
     assert n == 1
     assert seen == ["evt_int_1"]
-    assert OutboxRepository(db).get(row.id).status == "done"
+    assert (await OutboxRepository(async_db).get(row.id)).status == "done"
 
 
 @pytest.mark.asyncio
-async def test_second_tick_does_not_reprocess_done_row(db: Session) -> None:
+async def test_second_tick_does_not_reprocess_done_row(async_db) -> None:
     reg = OutboxHandlerRegistry()
     calls: list[int] = []
 
@@ -55,21 +55,21 @@ async def test_second_tick_does_not_reprocess_done_row(db: Session) -> None:
         calls.append(1)
 
     reg.register("integration.demo", "c", h)
-    OutboxRepository(db).enqueue_from_envelope(_env("evt_tick"))
-    db.commit()
+    OutboxRepository(async_db).enqueue_from_envelope(_env("evt_tick"))
+    await async_db.commit()
 
-    d = OutboxDispatcher(db, reg)
+    d = OutboxDispatcher(async_db, reg)
     assert await d.run_once(batch_limit=10) == 1
-    db.commit()
+    await async_db.commit()
     assert len(calls) == 1
 
     assert await d.run_once(batch_limit=10) == 0
-    db.commit()
+    await async_db.commit()
     assert len(calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_requeued_pending_skips_handler_when_checkpoint_exists(db: Session) -> None:
+async def test_requeued_pending_skips_handler_when_checkpoint_exists(async_db) -> None:
     """A10: forced re-delivery still skips completed consumer (checkpoint)."""
     reg = OutboxHandlerRegistry()
     calls: list[str] = []
@@ -78,50 +78,50 @@ async def test_requeued_pending_skips_handler_when_checkpoint_exists(db: Session
         calls.append(row.event_id)
 
     reg.register("integration.demo", "c_once", h)
-    out = OutboxRepository(db)
+    out = OutboxRepository(async_db)
     row = out.enqueue_from_envelope(_env("evt_requeue"))
-    db.commit()
+    await async_db.commit()
 
-    d = OutboxDispatcher(db, reg)
+    d = OutboxDispatcher(async_db, reg)
     await d.run_once(batch_limit=10)
-    db.commit()
+    await async_db.commit()
     assert calls == ["evt_requeue"]
 
-    r = out.get(row.id)
+    r = await out.get(row.id)
     r.status = "pending"
     r.processed_at = None
-    db.add(r)
-    db.commit()
+    async_db.add(r)
+    await async_db.commit()
 
     await d.run_once(batch_limit=10)
-    db.commit()
+    await async_db.commit()
     assert calls == ["evt_requeue"]
-    assert out.get(row.id).status == "done"
+    assert (await out.get(row.id)).status == "done"
 
 
 @pytest.mark.asyncio
-async def test_outbox_dispatcher_service_commits_per_tick(db: Session) -> None:
+async def test_outbox_dispatcher_service_commits_per_tick(async_db) -> None:
     """OutboxDispatcherService uses a fresh session per tick (mirrors API worker)."""
-    bind = db.get_bind()
+    bind = async_db.bind
     reg = OutboxHandlerRegistry()
     reg.register("integration.demo", "svc_c", lambda _s, _r: None)
 
-    out = OutboxRepository(db)
+    out = OutboxRepository(async_db)
     row = out.enqueue_from_envelope(_env("evt_svc"))
-    db.commit()
+    await async_db.commit()
 
-    def factory() -> Session:
-        return Session(bind)
+    def factory() -> AsyncSession:
+        return AsyncSession(bind=bind, expire_on_commit=False)
 
     svc = OutboxDispatcherService(reg, db_factory=factory, batch_limit=10)
     n = await svc.run_once()
     assert n == 1
 
-    s2 = Session(bind)
+    s2 = AsyncSession(bind=bind, expire_on_commit=False)
     try:
-        assert OutboxRepository(s2).get(row.id).status == "done"
+        assert (await OutboxRepository(s2).get(row.id)).status == "done"
     finally:
-        s2.close()
+        await s2.close()
 
 
 def test_wiring_register_outbox_handlers_is_idempotent() -> None:

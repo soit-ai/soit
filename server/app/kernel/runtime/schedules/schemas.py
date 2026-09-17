@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ScheduleCreate(BaseModel):
@@ -59,6 +59,19 @@ class ScheduleResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @field_validator("next_fire_at", "last_fired_at", "created_at", "updated_at", mode="after")
+    @classmethod
+    def _as_utc(cls, value: datetime | None) -> datetime | None:
+        """Present every moment in UTC, whether it came from the row or from memory.
+
+        The database stores naive UTC; a value computed in this process is
+        aware. Without this the same schedule would read with and without a
+        ``Z`` depending on which path produced the response.
+        """
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class SchedulePreviewRequest(BaseModel):

@@ -10,6 +10,7 @@ import base64
 import io
 from typing import Any
 
+import pytest
 from fastapi import status
 from PIL import Image
 from sqlmodel import select
@@ -42,20 +43,20 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
 
 
-def _edit(client, **overrides):
+async def _edit(async_client, **overrides):
     payload: dict[str, Any] = {
         "model": "model:test:seedream",
         "prompt": "a red dot",
         "image_b64": _b64(_png()),
     }
     payload.update(overrides)
-    return client.post("/api/v1/images/edits", json=payload)
+    return await async_client.post("/api/v1/images/edits", json=payload)
 
 
-def _run_records(db, run_id: str) -> tuple[Run, list[RunStep], list[RunCostEntry]]:
-    run = db.get(Run, run_id)
-    steps = list(db.exec(select(RunStep).where(RunStep.run_id == run_id)).all())
-    costs = list(db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id)).all())
+async def _run_records(async_db, run_id: str) -> tuple[Run, list[RunStep], list[RunCostEntry]]:
+    run = await async_db.get(Run, run_id)
+    steps = list((await async_db.exec(select(RunStep).where(RunStep.run_id == run_id))).all())
+    costs = list((await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all())
     return run, steps, costs
 
 
@@ -70,15 +71,16 @@ class _FailingLLMPort:
 
 
 class TestGovernanceEvidence:
-    def test_edit_records_run_step_and_image_usage(self, client, db, ctx):
-        response = _edit(client, n=2, size="1024x1024", mask_b64=_b64(_mask_png()))
+    @pytest.mark.asyncio
+    async def test_edit_records_run_step_and_image_usage(self, async_client, async_db, ctx):
+        response = await _edit(async_client, n=2, size="1024x1024", mask_b64=_b64(_mask_png()))
 
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()["data"]
         assert len(body["data"]) == 2
         assert all(image["b64_json"] for image in body["data"])
 
-        run, steps, costs = _run_records(db, body["run_id"])
+        run, steps, costs = await _run_records(async_db, body["run_id"])
         assert (run.tenant_id, run.workspace_id) == (ctx.tenant_id, ctx.workspace_id)
         assert run.mode == "image"
         assert run.status == "succeeded"
@@ -97,31 +99,34 @@ class TestGovernanceEvidence:
         # The ledger must tell an edit apart from a generation.
         assert usage.operation == "edit_image"
 
-    def test_cost_snapshot_records_the_request_shape(self, client, db):
+    @pytest.mark.asyncio
+    async def test_cost_snapshot_records_the_request_shape(self, async_client, async_db):
         # M4(2): four 4096px images and four 256px images bill identically per
         # image, so the snapshot has to carry what was actually asked for.
-        response = _edit(client, size="1024x1024")
-        _, _, costs = _run_records(db, response.json()["data"]["run_id"])
+        response = await _edit(async_client, size="1024x1024")
+        _, _, costs = await _run_records(async_db, response.json()["data"]["run_id"])
 
         quantities = costs[0].pricing_snapshot_json["quantities"]
         assert quantities["images"] == 1
         assert quantities["size"] == "1024x1024"
 
-    def test_edit_run_export_matches_runtrace_contract(self, client, db):
-        response = _edit(client)
-        run, steps, costs = _run_records(db, response.json()["data"]["run_id"])
+    @pytest.mark.asyncio
+    async def test_edit_run_export_matches_runtrace_contract(self, async_client, async_db):
+        response = await _edit(async_client)
+        run, steps, costs = await _run_records(async_db, response.json()["data"]["run_id"])
 
         document = to_runtrace_spec(run, steps, cost_entries=costs)
         assert document["run"]["kind"] == "image"
         assert validate_spec(document, "runtrace_spec") is True
 
-    def test_failure_fails_the_run_without_re_billing(self, client, db):
+    @pytest.mark.asyncio
+    async def test_failure_fails_the_run_without_re_billing(self, async_client, async_db):
         container = get_container()
         original = container.get("llm_port")
         failing = _FailingLLMPort()
         container.register_singleton("llm_port", failing)
         try:
-            response = _edit(client)
+            response = await _edit(async_client)
         finally:
             container.register_singleton("llm_port", original)
 
@@ -129,82 +134,91 @@ class TestGovernanceEvidence:
         # An image call the provider may already have billed is never retried.
         assert failing.calls == 1
 
-        run = db.exec(select(Run).where(Run.mode == "image")).one()
+        run = (await async_db.exec(select(Run).where(Run.mode == "image"))).one()
         assert run.status == "failed"
         assert run.error_code == "IMAGE_ERROR"
-        assert db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run.id)).all() == []
+        assert (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run.id))).all() == []
 
 
 class TestMaskContract:
-    def test_response_states_the_mask_convention(self, client):
+    @pytest.mark.asyncio
+    async def test_response_states_the_mask_convention(self, async_client):
         # The convention is published with the result so a caller never has to
         # guess which way round their mask should be drawn.
-        response = _edit(client, mask_b64=_b64(_mask_png()))
+        response = await _edit(async_client, mask_b64=_b64(_mask_png()))
         assert response.json()["data"]["mask_convention"] == "white_is_edit_region"
 
-    def test_mask_reaches_the_adapter(self, client):
+    @pytest.mark.asyncio
+    async def test_mask_reaches_the_adapter(self, async_client):
         container = get_container()
         port = container.get("llm_port")
         port.last_edit = None
 
-        _edit(client, mask_b64=_b64(_mask_png()))
+        await _edit(async_client, mask_b64=_b64(_mask_png()))
 
         assert port.last_edit is not None
         assert port.last_edit["mask_bytes"] > 0
 
-    def test_edit_without_a_mask_is_accepted(self, client):
+    @pytest.mark.asyncio
+    async def test_edit_without_a_mask_is_accepted(self, async_client):
         # Reference editing: the whole image is the subject, no selection.
         container = get_container()
         port = container.get("llm_port")
         port.last_edit = None
 
-        response = _edit(client)
+        response = await _edit(async_client)
 
         assert response.status_code == status.HTTP_201_CREATED
         assert port.last_edit["mask_bytes"] == 0
 
-    def test_mask_of_a_different_size_is_refused(self, client, db):
-        response = _edit(client, mask_b64=_b64(_mask_png((32, 32))))
+    @pytest.mark.asyncio
+    async def test_mask_of_a_different_size_is_refused(self, async_client, async_db):
+        response = await _edit(async_client, mask_b64=_b64(_mask_png((32, 32))))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "must match" in response.json()["message"]
         # Refused before any run was opened, so nothing was billed.
-        assert db.exec(select(Run).where(Run.mode == "image")).all() == []
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
 
 
 class TestInputResolution:
-    def test_image_is_required(self, client):
-        response = client.post(
+    @pytest.mark.asyncio
+    async def test_image_is_required(self, async_client):
+        response = await async_client.post(
             "/api/v1/images/edits",
             json={"model": "model:test:m", "prompt": "hi"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "VALIDATION_ERROR"
 
-    def test_two_image_sources_are_refused(self, client):
+    @pytest.mark.asyncio
+    async def test_two_image_sources_are_refused(self, async_client):
         # Ambiguous input is refused rather than one source silently winning.
-        response = _edit(client, image_attachment_id="att_1")
+        response = await _edit(async_client, image_attachment_id="att_1")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_two_mask_sources_are_refused(self, client):
-        response = _edit(
-            client, mask_b64=_b64(_mask_png()), mask_attachment_id="att_1"
+    @pytest.mark.asyncio
+    async def test_two_mask_sources_are_refused(self, async_client):
+        response = await _edit(
+            async_client, mask_b64=_b64(_mask_png()), mask_attachment_id="att_1"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_malformed_base64_is_refused(self, client):
-        response = _edit(client, image_b64="!!!not base64!!!")
+    @pytest.mark.asyncio
+    async def test_malformed_base64_is_refused(self, async_client):
+        response = await _edit(async_client, image_b64="!!!not base64!!!")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_image_can_come_from_an_attachment(self, client):
-        upload = client.post(
+    @pytest.mark.asyncio
+    async def test_image_can_come_from_an_attachment(self, async_client):
+        upload = await async_client.post(
             "/api/v1/attachments",
             files={"file": ("source.png", _png(), "image/png")},
         )
         assert upload.status_code == status.HTTP_201_CREATED
         attachment_id = upload.json()["data"]["id"]
 
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/images/edits",
             json={
                 "model": "model:test:m",
@@ -215,17 +229,18 @@ class TestInputResolution:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["data"]["data"][0]["b64_json"]
 
-    def test_mask_can_come_from_an_attachment(self, client):
-        source = client.post(
+    @pytest.mark.asyncio
+    async def test_mask_can_come_from_an_attachment(self, async_client):
+        source = (await async_client.post(
             "/api/v1/attachments",
             files={"file": ("source.png", _png(), "image/png")},
-        ).json()["data"]["id"]
-        mask = client.post(
+        )).json()["data"]["id"]
+        mask = (await async_client.post(
             "/api/v1/attachments",
             files={"file": ("mask.png", _mask_png(), "image/png")},
-        ).json()["data"]["id"]
+        )).json()["data"]["id"]
 
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/images/edits",
             json={
                 "model": "model:test:m",
@@ -236,13 +251,14 @@ class TestInputResolution:
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_non_image_attachment_is_refused(self, client):
-        attachment_id = client.post(
+    @pytest.mark.asyncio
+    async def test_non_image_attachment_is_refused(self, async_client):
+        attachment_id = (await async_client.post(
             "/api/v1/attachments",
             files={"file": ("notes.txt", b"plain text", "text/plain")},
-        ).json()["data"]["id"]
+        )).json()["data"]["id"]
 
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/images/edits",
             json={
                 "model": "model:test:m",
@@ -255,15 +271,16 @@ class TestInputResolution:
 
 
 class TestPassThroughParameters:
-    def test_reproducibility_parameters_reach_the_adapter(self, client):
+    @pytest.mark.asyncio
+    async def test_reproducibility_parameters_reach_the_adapter(self, async_client):
         # Dropping a seed in silence would make a request the caller believes
         # is reproducible quietly not be.
         container = get_container()
         port = container.get("llm_port")
         port.last_edit = None
 
-        _edit(
-            client,
+        await _edit(
+            async_client,
             seed=1234,
             strength=0.65,
             negative_prompt="blurry",
@@ -278,19 +295,21 @@ class TestPassThroughParameters:
         assert passed["background"] == "transparent"
         assert passed["output_format"] == "webp"
 
-    def test_unset_parameters_are_not_invented(self, client):
+    @pytest.mark.asyncio
+    async def test_unset_parameters_are_not_invented(self, async_client):
         container = get_container()
         port = container.get("llm_port")
         port.last_edit = None
 
-        _edit(client)
+        await _edit(async_client)
 
         passed = port.last_edit["kwargs"]
         for name in ("seed", "strength", "negative_prompt", "background"):
             assert name not in passed
 
-    def test_out_of_range_values_are_refused(self, client):
+    @pytest.mark.asyncio
+    async def test_out_of_range_values_are_refused(self, async_client):
         for overrides in ({"strength": 1.5}, {"n": 99}, {"size": "16x16"}):
-            response = _edit(client, **overrides)
+            response = await _edit(async_client, **overrides)
             assert response.status_code == status.HTTP_400_BAD_REQUEST, overrides
             assert response.json()["code"] == "VALIDATION_ERROR"

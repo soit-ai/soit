@@ -18,23 +18,19 @@ from app.kernel.runtime.schedules.service import ScheduleService
 from app.wiring.schedule_worker import ScheduleWorker
 
 
-def _service(db, ctx) -> ScheduleService:
-    return ScheduleService(db, ctx)
+def _service(async_db, ctx) -> ScheduleService:
+    return ScheduleService(async_db, ctx)
 
 
-def _factory(db):
-    """Hand the worker its own session on this test's engine.
+def _factory(async_db):
+    """A session factory that shares this test's in-memory database."""
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
-    The worker closes the session it was given, which is right in production
-    and would detach this test's objects if it were handed the shared one.
-    """
-    from sqlmodel import Session
-
-    engine = db.get_bind()
-    return lambda: Session(engine)
+    engine = async_db.bind
+    return lambda: AsyncSession(bind=engine, expire_on_commit=False)
 
 
-def _due_schedule(db, ctx, **overrides) -> Schedule:
+async def _due_schedule(async_db, ctx, **overrides) -> Schedule:
     fields = {
         "tenant_id": ctx.tenant_id,
         "workspace_id": ctx.workspace_id,
@@ -49,9 +45,9 @@ def _due_schedule(db, ctx, **overrides) -> Schedule:
     }
     fields.update(overrides)
     schedule = Schedule(**fields)
-    db.add(schedule)
-    db.commit()
-    db.refresh(schedule)
+    async_db.add(schedule)
+    await async_db.commit()
+    await async_db.refresh(schedule)
     return schedule
 
 
@@ -62,21 +58,21 @@ def _aware(moment):
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
-def _interactions(db) -> list[ResponseInteraction]:
-    rows = db.exec(select(ResponseInteraction)).all()
+async def _interactions(async_db) -> list[ResponseInteraction]:
+    rows = (await async_db.exec(select(ResponseInteraction))).all()
     return [row if hasattr(row, "id") else row[0] for row in rows]
 
 
 @pytest.mark.asyncio
-async def test_firing_an_agent_queues_work_rather_than_running_it(db, ctx):
+async def test_firing_an_agent_queues_work_rather_than_running_it(async_db, ctx):
     """The scheduler must not execute: a crash mid-run would lose the run."""
-    schedule = _due_schedule(db, ctx)
-    worker = ScheduleWorker(_factory(db))
+    schedule = await _due_schedule(async_db, ctx)
+    worker = ScheduleWorker(_factory(async_db))
 
     fired = await worker.fire_once()
 
     assert fired == schedule.id
-    queued = _interactions(db)
+    queued = await _interactions(async_db)
     assert len(queued) == 1
     assert queued[0].status == "queued"
     job = queued[0].execution_json
@@ -88,60 +84,60 @@ async def test_firing_an_agent_queues_work_rather_than_running_it(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_an_occurrence_fires_once_even_with_two_workers(db, ctx):
-    _due_schedule(db, ctx)
-    first = ScheduleWorker(_factory(db), worker_id="worker-a")
-    second = ScheduleWorker(_factory(db), worker_id="worker-b")
+async def test_an_occurrence_fires_once_even_with_two_workers(async_db, ctx):
+    await _due_schedule(async_db, ctx)
+    first = ScheduleWorker(_factory(async_db), worker_id="worker-a")
+    second = ScheduleWorker(_factory(async_db), worker_id="worker-b")
 
     assert await first.fire_once() is not None
     # The claim moved the next firing forward, so the second worker finds
     # nothing due.
     assert await second.fire_once() is None
-    assert len(_interactions(db)) == 1
+    assert len(await _interactions(async_db)) == 1
 
 
 @pytest.mark.asyncio
-async def test_nothing_fires_before_it_is_due(db, ctx):
-    _due_schedule(db, ctx, next_fire_at=utc_now() + timedelta(hours=1))
-    worker = ScheduleWorker(_factory(db))
+async def test_nothing_fires_before_it_is_due(async_db, ctx):
+    await _due_schedule(async_db, ctx, next_fire_at=utc_now() + timedelta(hours=1))
+    worker = ScheduleWorker(_factory(async_db))
 
     assert await worker.fire_once() is None
-    assert _interactions(db) == []
+    assert await _interactions(async_db) == []
 
 
 @pytest.mark.asyncio
-async def test_a_paused_schedule_never_fires(db, ctx):
-    _due_schedule(db, ctx, enabled=False)
-    worker = ScheduleWorker(_factory(db))
+async def test_a_paused_schedule_never_fires(async_db, ctx):
+    await _due_schedule(async_db, ctx, enabled=False)
+    worker = ScheduleWorker(_factory(async_db))
 
     assert await worker.fire_once() is None
 
 
 @pytest.mark.asyncio
-async def test_a_missed_occurrence_is_skipped_by_default(db, ctx):
+async def test_a_missed_occurrence_is_skipped_by_default(async_db, ctx):
     """An hourly job down for six hours resumes hourly, not six times at once."""
     long_overdue = utc_now() - timedelta(hours=6)
-    schedule = _due_schedule(db, ctx, next_fire_at=long_overdue, catch_up=False)
-    worker = ScheduleWorker(_factory(db))
+    schedule = await _due_schedule(async_db, ctx, next_fire_at=long_overdue, catch_up=False)
+    worker = ScheduleWorker(_factory(async_db))
 
     await worker.fire_once()
-    db.refresh(schedule)
+    await async_db.refresh(schedule)
 
     assert _aware(schedule.next_fire_at) > utc_now()
     # One firing, not six.
-    assert len(_interactions(db)) == 1
+    assert len(await _interactions(async_db)) == 1
     assert await worker.fire_once() is None
 
 
 @pytest.mark.asyncio
-async def test_catch_up_walks_the_missed_occurrences_one_at_a_time(db, ctx):
+async def test_catch_up_walks_the_missed_occurrences_one_at_a_time(async_db, ctx):
     """Asked for explicitly, and still one occurrence per pass."""
     long_overdue = utc_now() - timedelta(hours=3)
-    schedule = _due_schedule(db, ctx, next_fire_at=long_overdue, catch_up=True)
-    worker = ScheduleWorker(_factory(db))
+    schedule = await _due_schedule(async_db, ctx, next_fire_at=long_overdue, catch_up=True)
+    worker = ScheduleWorker(_factory(async_db))
 
     await worker.fire_once()
-    db.refresh(schedule)
+    await async_db.refresh(schedule)
 
     # The next firing is the occurrence after the one just caught up, which is
     # still in the past, so the sweep keeps going rather than jumping to now.
@@ -150,13 +146,13 @@ async def test_catch_up_walks_the_missed_occurrences_one_at_a_time(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_a_target_that_cannot_run_is_recorded_and_retried_next_time(db, ctx):
+async def test_a_target_that_cannot_run_is_recorded_and_retried_next_time(async_db, ctx):
     """A deleted workflow must not wedge the schedule."""
-    schedule = _due_schedule(db, ctx, target_kind="workflow", target_id="wf_missing")
-    worker = ScheduleWorker(_factory(db))
+    schedule = await _due_schedule(async_db, ctx, target_kind="workflow", target_id="wf_missing")
+    worker = ScheduleWorker(_factory(async_db))
 
     await worker.fire_once()
-    db.refresh(schedule)
+    await async_db.refresh(schedule)
 
     assert schedule.last_status == "failed"
     assert schedule.last_error
@@ -166,28 +162,29 @@ async def test_a_target_that_cannot_run_is_recorded_and_retried_next_time(db, ct
 
 
 @pytest.mark.asyncio
-async def test_a_manual_firing_leaves_the_next_occurrence_alone(db, ctx):
+async def test_a_manual_firing_leaves_the_next_occurrence_alone(async_db, ctx):
     """Asking for a run now is not the same as moving the schedule."""
-    schedule = _due_schedule(db, ctx, next_fire_at=utc_now() + timedelta(hours=1))
+    schedule = await _due_schedule(async_db, ctx, next_fire_at=utc_now() + timedelta(hours=1))
     before = schedule.next_fire_at
-    worker = ScheduleWorker(_factory(db))
+    worker = ScheduleWorker(_factory(async_db))
 
-    await worker.fire_schedule(schedule, db=db, advance=False)
-    db.refresh(schedule)
+    await worker.fire_schedule(schedule, db=async_db, advance=False)
+    await async_db.refresh(schedule)
 
     assert _aware(schedule.next_fire_at) == _aware(before)
-    assert len(_interactions(db)) == 1
+    assert len(await _interactions(async_db)) == 1
 
 
-def test_saving_an_expression_that_cannot_fire_is_refused(db, ctx):
+@pytest.mark.asyncio
+async def test_saving_an_expression_that_cannot_fire_is_refused(async_db, ctx):
     from app.kernel.commons.errors import ValidationError
 
-    service = _service(db, ctx)
+    service = _service(async_db, ctx)
 
     with pytest.raises(ValidationError):
-        service.create(name="bad", target_kind="agent", target_id="a", cron="not a cron")
+        await service.create(name="bad", target_kind="agent", target_id="a", cron="not a cron")
     with pytest.raises(ValidationError):
-        service.create(
+        await service.create(
             name="bad-zone",
             target_kind="agent",
             target_id="a",
@@ -195,18 +192,19 @@ def test_saving_an_expression_that_cannot_fire_is_refused(db, ctx):
             timezone="Nowhere/Special",
         )
     with pytest.raises(ValidationError):
-        service.create(name="bad-kind", target_kind="teapot", target_id="a", cron="0 * * * *")
+        await service.create(name="bad-kind", target_kind="teapot", target_id="a", cron="0 * * * *")
 
 
-def test_pausing_clears_the_next_firing_rather_than_leaving_a_stale_one(db, ctx):
-    service = _service(db, ctx)
-    schedule = service.create(
+@pytest.mark.asyncio
+async def test_pausing_clears_the_next_firing_rather_than_leaving_a_stale_one(async_db, ctx):
+    service = _service(async_db, ctx)
+    schedule = await service.create(
         name="nightly", target_kind="agent", target_id="agt", cron="0 2 * * *"
     )
     assert schedule.next_fire_at is not None
 
-    paused = service.update(schedule.id, enabled=False)
+    paused = await service.update(schedule.id, enabled=False)
     assert paused.next_fire_at is None
 
-    resumed = service.update(schedule.id, enabled=True)
+    resumed = await service.update(schedule.id, enabled=True)
     assert resumed.next_fire_at is not None

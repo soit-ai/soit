@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -22,45 +22,45 @@ from app.modules.workflow.domain.workflow_events import WorkflowEventType
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
 
-def _outbox_for_run(db: Session, run_id: str, event_type: str) -> EventOutbox:
-    row = db.exec(
+async def _outbox_for_run(async_db, run_id: str, event_type: str) -> EventOutbox:
+    row = (await async_db.exec(
         select(EventOutbox).where(EventOutbox.run_id == run_id, EventOutbox.event_type == event_type)
-    ).first()
+    )).first()
     assert row is not None
     return row
 
 
 @pytest.mark.asyncio
-async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ctx: RequestContext) -> None:
+async def test_phase1_chain_run_task_workflow_nodes_and_approval(async_db, ctx: RequestContext) -> None:
     """run.created → task.* → workflow.node.completed (with next-node enqueue) → approval.approved resume."""
     register_outbox_handlers()
     reg = get_outbox_registry()
-    dispatcher = OutboxDispatcher(db, reg)
+    dispatcher = OutboxDispatcher(async_db, reg)
 
-    tw = TraceWriter(db, ctx, event_bus=None)
-    run = tw.create_run("workflow", kind="test", subject_kind="workflow")
+    tw = TraceWriter(async_db, ctx, event_bus=None)
+    run = await tw.create_run("workflow", kind="test", subject_kind="workflow")
 
-    run_row = _outbox_for_run(db, run.id, "run.created")
+    run_row = await _outbox_for_run(async_db, run.id, "run.created")
     assert run_row.status == "pending"
     assert await dispatcher.run_once(batch_limit=30) >= 1
-    db.commit()
-    assert db.get(EventOutbox, run_row.id).status == "done"
+    await async_db.commit()
+    assert (await async_db.get(EventOutbox, run_row.id)).status == "done"
 
-    core = TaskService(db, ctx)
-    task_main = core.create_task(task_type="wf_step", status=TaskStatus.QUEUED.value, run_id=run.id)
-    core.transition_task(task_id=task_main.id, status=TaskStatus.RUNNING.value)
-    core.transition_task(task_id=task_main.id, status=TaskStatus.SUCCEEDED.value)
+    core = TaskService(async_db, ctx)
+    task_main = await core.create_task(task_type="wf_step", status=TaskStatus.QUEUED.value, run_id=run.id)
+    await core.transition_task(task_id=task_main.id, status=TaskStatus.RUNNING.value)
+    await core.transition_task(task_id=task_main.id, status=TaskStatus.SUCCEEDED.value)
 
     for _ in range(12):
         n = await dispatcher.run_once(batch_limit=30)
-        db.commit()
+        await async_db.commit()
         if n == 0:
             break
 
-    task_outbox = list(db.exec(select(EventOutbox).where(EventOutbox.task_id == task_main.id)).all())
+    task_outbox = list((await async_db.exec(select(EventOutbox).where(EventOutbox.task_id == task_main.id))).all())
     assert len(task_outbox) >= 3
     for ob in task_outbox:
-        refreshed = db.get(EventOutbox, ob.id)
+        refreshed = await async_db.get(EventOutbox, ob.id)
         assert refreshed is not None
         assert refreshed.status == "done"
 
@@ -70,8 +70,8 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
         workspace_id=ctx.workspace_id,
         name="phase1-workflow",
     )
-    db.add(workflow)
-    db.flush()
+    async_db.add(workflow)
+    await async_db.flush()
 
     wfr = WorkflowRun(
         tenant_id=ctx.tenant_id,
@@ -83,10 +83,10 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
         failed_nodes=0,
         waiting_nodes=2,
     )
-    db.add(wfr)
-    db.flush()
+    async_db.add(wfr)
+    await async_db.flush()
 
-    OutboxPublisher(OutboxRepository(db)).publish(
+    OutboxPublisher(OutboxRepository(async_db)).publish(
         DomainEventEnvelope(
             event_id=f"evt_wf_node_completed_{wfr.id}_n1",
             event_type=WorkflowEventType.NODE_COMPLETED,
@@ -105,33 +105,33 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
             },
         )
     )
-    db.commit()
+    await async_db.commit()
 
     for _ in range(8):
         n = await dispatcher.run_once(batch_limit=30)
-        db.commit()
+        await async_db.commit()
         if n == 0:
             break
 
-    db.refresh(wfr)
+    await async_db.refresh(wfr)
     assert wfr.completed_nodes == 2
     assert wfr.waiting_nodes == 0
 
     wf_outbox = list(
-        db.exec(select(EventOutbox).where(EventOutbox.workflow_run_id == wfr.id)).all()
+        (await async_db.exec(select(EventOutbox).where(EventOutbox.workflow_run_id == wfr.id))).all()
     )
     assert len(wf_outbox) >= 2
     for ob in wf_outbox:
-        refreshed = db.get(EventOutbox, ob.id)
+        refreshed = await async_db.get(EventOutbox, ob.id)
         assert refreshed is not None
         assert refreshed.status == "done"
 
-    task_wait = core.create_task(
+    task_wait = await core.create_task(
         task_type="approval_gate",
         status=TaskStatus.WAITING_APPROVAL.value,
         run_id=run.id,
     )
-    ApprovalRepository(db, ctx).create(
+    await ApprovalRepository(async_db, ctx).create(
         ApprovalRequest(
             title="phase1 gate",
             run_id=run.id,
@@ -141,18 +141,18 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(db: Session, ct
 
     for _ in range(8):
         n = await dispatcher.run_once(batch_limit=30)
-        db.commit()
+        await async_db.commit()
         if n == 0:
             break
 
-    approval = db.exec(select(ApprovalRequest).where(ApprovalRequest.task_id == task_wait.id)).first()
+    approval = (await async_db.exec(select(ApprovalRequest).where(ApprovalRequest.task_id == task_wait.id))).first()
     assert approval is not None
     approval.status = ApprovalStatus.APPROVED.value
     approval.resolved_by = ctx.user_id
     approval.resolved_at = utc_now()
-    ApprovalRepository(db, ctx).update(approval, emit_resolution_event=ApprovalStatus.APPROVED.value)
+    await ApprovalRepository(async_db, ctx).update(approval, emit_resolution_event=ApprovalStatus.APPROVED.value)
 
     assert await dispatcher.run_once(batch_limit=30) >= 1
-    db.commit()
+    await async_db.commit()
 
-    assert core.get_task(task_wait.id).status == TaskStatus.RUNNING.value
+    assert (await core.get_task(task_wait.id)).status == TaskStatus.RUNNING.value

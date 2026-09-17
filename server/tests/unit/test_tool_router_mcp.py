@@ -65,11 +65,11 @@ async def test_default_mcp_adapter_is_created():
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_route_uses_the_governed_runtime_ledger(db, ctx):
+async def test_mcp_tool_route_uses_the_governed_runtime_ledger(async_db, ctx):
     mock_mcp = AsyncMock(spec=MCPToolAdapter)
     mock_mcp.invoke.return_value = ToolResponse(result={"echo": "hi"}, success=True)
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run(mode="agent", kind="agent")
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run(mode="agent", kind="agent")
     gateway = ToolPolicyGateway(
         gateway=RegistryToolRouterPort(mcp_adapter=mock_mcp),
         ctx=ctx,
@@ -81,15 +81,15 @@ async def test_mcp_tool_route_uses_the_governed_runtime_ledger(db, ctx):
         "mcp_tool:my-server:echo",
         {"value": "hi"},
         ctx=ctx,
-        db=db,
+        db=async_db,
         run_id=run.id,
         tool_call_id="call-mcp-echo",
         idempotency_key=f"tool:{run.id}:call-mcp-echo",
     )
 
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
+    )).scalars().one()
     assert response.success is True
     assert record.tool_call_id == "call-mcp-echo"
     assert record.tool_ref == "mcp_tool:my-server:echo"

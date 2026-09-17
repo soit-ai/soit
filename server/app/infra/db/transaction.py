@@ -3,8 +3,8 @@
 Transaction helpers.
 """
 
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from types import TracebackType
 from typing import Literal
 
@@ -112,6 +112,23 @@ def nested_transaction(db: Session) -> Generator[Session, None, None]:
         ) from e
     except Exception:
         savepoint.rollback()
+        raise
+
+
+@asynccontextmanager
+async def async_transaction(db: AsyncSession) -> AsyncGenerator[AsyncSession, None]:
+    """Async counterpart of `transaction` for `AsyncSession`."""
+    try:
+        yield db
+        await db.commit()
+    except SQLAlchemyError as e:
+        await db.rollback()
+        raise KernelError(
+            code="DATABASE_ERROR",
+            message=f"Transaction failed: {str(e)}",
+        ) from e
+    except Exception:
+        await db.rollback()
         raise
 
 

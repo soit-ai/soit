@@ -1,5 +1,6 @@
 """Entrypoint tests for the Agent capability catalog API contract."""
 
+import pytest
 from fastapi import status
 
 from app.kernel.registry.deps import get_registry
@@ -18,7 +19,8 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx):
+@pytest.mark.asyncio
+async def test_agent_capability_catalog_api_lists_runtime_capabilities(async_client, async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -26,9 +28,9 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
         name="openai-provider",
         status="active",
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
 
     model = ProviderModel(
         tenant_id=ctx.tenant_id,
@@ -68,15 +70,15 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
         manifest_json={},
         publish_status="published",
     )
-    db.add(model)
-    db.add(knowledge)
-    db.add(workflow)
-    db.add(plugin)
-    db.commit()
-    db.refresh(model)
-    db.refresh(knowledge)
-    db.refresh(workflow)
-    db.refresh(plugin)
+    async_db.add(model)
+    async_db.add(knowledge)
+    async_db.add(workflow)
+    async_db.add(plugin)
+    await async_db.commit()
+    await async_db.refresh(model)
+    await async_db.refresh(knowledge)
+    await async_db.refresh(workflow)
+    await async_db.refresh(plugin)
 
     plugin_version = PluginVersion(
         tenant_id=ctx.tenant_id,
@@ -89,13 +91,13 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
         manifest_json={},
         artifact_summary_json={"skills": ["skill:triage-skill"], "mcp_servers": ["mcp_server:contract-mcp"]},
     )
-    db.add(plugin_version)
-    db.commit()
-    db.refresh(plugin_version)
+    async_db.add(plugin_version)
+    await async_db.commit()
+    await async_db.refresh(plugin_version)
     plugin.current_version_id = plugin_version.id
     plugin.published_version_id = plugin_version.id
-    db.add(plugin)
-    db.commit()
+    async_db.add(plugin)
+    await async_db.commit()
 
     installation = PluginInstallation(
         tenant_id=ctx.tenant_id,
@@ -105,11 +107,11 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
         enabled=True,
         state="installed",
     )
-    db.add(installation)
-    db.commit()
-    db.refresh(installation)
+    async_db.add(installation)
+    await async_db.commit()
+    await async_db.refresh(installation)
 
-    db.add(
+    async_db.add(
         PluginInstalledArtifact(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -125,7 +127,7 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
             metadata_json={"skill": {"name": "triage-skill", "category": "support"}},
         )
     )
-    db.add(
+    async_db.add(
         PluginInstalledArtifact(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -149,7 +151,7 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
             },
         )
     )
-    db.commit()
+    await async_db.commit()
 
     reg = get_registry()
     reg.register(
@@ -172,7 +174,7 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
         },
     )
 
-    response = client.get("/api/v1/agents/capabilities", headers=_headers())
+    response = await async_client.get("/api/v1/agents/capabilities", headers=_headers())
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
     items = payload["items"]
@@ -193,16 +195,17 @@ def test_agent_capability_catalog_api_lists_runtime_capabilities(client, db, ctx
     assert any(item["kind"] == "skill" and item["source_kind"] == "plugin" for item in items)
     assert all(isinstance(item["metadata_json"], dict) for item in items)
 
-    plugin_only = client.get("/api/v1/agents/capabilities?source_kind=plugin", headers=_headers())
+    plugin_only = await async_client.get("/api/v1/agents/capabilities?source_kind=plugin", headers=_headers())
     assert plugin_only.status_code == status.HTTP_200_OK
     assert "mcp_tool:contract-mcp:echo" in {item["ref"] for item in plugin_only.json()["data"]["items"]}
 
-    skill_only = client.get("/api/v1/agents/capabilities?kind=skill", headers=_headers())
+    skill_only = await async_client.get("/api/v1/agents/capabilities?kind=skill", headers=_headers())
     assert skill_only.status_code == status.HTTP_200_OK
     assert all(item["kind"] == "skill" for item in skill_only.json()["data"]["items"])
 
 
-def test_agent_capability_catalog_api_projects_plugin_exported_tools_as_tools(client, ctx):
+@pytest.mark.asyncio
+async def test_agent_capability_catalog_api_projects_plugin_exported_tools_as_tools(async_client, ctx):
     reg = get_registry()
     reg.register(
         kind="tool",
@@ -221,7 +224,7 @@ def test_agent_capability_catalog_api_projects_plugin_exported_tools_as_tools(cl
         },
     )
 
-    response = client.get("/api/v1/agents/capabilities?kind=tool", headers=_headers())
+    response = await async_client.get("/api/v1/agents/capabilities?kind=tool", headers=_headers())
     assert response.status_code == status.HTTP_200_OK
     items = response.json()["data"]["items"]
     plugin_tool = next(item for item in items if item["ref"] == "tool:http:plugin_search")

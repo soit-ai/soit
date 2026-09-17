@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import and_, desc, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -28,7 +29,7 @@ TARGET_KINDS = ("agent", "workflow")
 class ScheduleService:
     """Read and write schedules for one workspace."""
 
-    def __init__(self, db, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
@@ -38,7 +39,7 @@ class ScheduleService:
             Schedule.workspace_id == self.ctx.workspace_id,
         ]
 
-    def list(self, *, enabled: bool | None = None, limit: int = 100, offset: int = 0) -> list[Schedule]:
+    async def list(self, *, enabled: bool | None = None, limit: int = 100, offset: int = 0) -> list[Schedule]:
         clauses = self._scope()
         if enabled is not None:
             clauses.append(Schedule.enabled == enabled)
@@ -49,12 +50,12 @@ class ScheduleService:
             .offset(offset)
             .limit(limit)
         )
-        rows = list(self.db.exec(query).all())
+        rows = list((await self.db.exec(query)).scalars().all())
         return [row if hasattr(row, "id") else row[0] for row in rows]
 
-    def get(self, schedule_id: str) -> Schedule:
+    async def get(self, schedule_id: str) -> Schedule:
         query = select(Schedule).where(and_(Schedule.id == schedule_id, *self._scope()))
-        row = self.db.exec(query).first()
+        row = (await self.db.exec(query)).scalars().first()
         schedule = row if row is None or hasattr(row, "id") else row[0]
         if schedule is None:
             raise NotFoundError(f"Schedule not found: {schedule_id}")
@@ -71,7 +72,7 @@ class ScheduleService:
         except CronError as exc:
             raise ValidationError(str(exc)) from exc
 
-    def create(
+    async def create(
         self,
         *,
         name: str,
@@ -104,11 +105,10 @@ class ScheduleService:
             created_by=self.ctx.user_id,
         )
         self.db.add(schedule)
-        self.db.commit()
-        self.db.refresh(schedule)
+        await self.db.commit()
         return schedule
 
-    def update(
+    async def update(
         self,
         schedule_id: str,
         *,
@@ -120,7 +120,7 @@ class ScheduleService:
         enabled: bool | None = None,
         catch_up: bool | None = None,
     ) -> Schedule:
-        schedule = self.get(schedule_id)
+        schedule = await self.get(schedule_id)
         if cron is not None or timezone is not None:
             self._validate(
                 cron if cron is not None else schedule.cron,
@@ -151,14 +151,13 @@ class ScheduleService:
         )
         schedule.updated_at = utc_now()
         self.db.add(schedule)
-        self.db.commit()
-        self.db.refresh(schedule)
+        await self.db.commit()
         return schedule
 
-    def delete(self, schedule_id: str) -> None:
-        schedule = self.get(schedule_id)
-        self.db.delete(schedule)
-        self.db.commit()
+    async def delete(self, schedule_id: str) -> None:
+        schedule = await self.get(schedule_id)
+        await self.db.delete(schedule)
+        await self.db.commit()
 
     def preview(self, cron: str, timezone: str = "UTC", *, count: int = 5) -> list[datetime]:
         """The next few firings, so somebody can check an expression before saving."""

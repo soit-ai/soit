@@ -55,9 +55,9 @@ def mock_trace_writer():
     writer = MagicMock(spec=TraceWriter)
     mock_step = MagicMock()
     mock_step.id = "step_123"
-    writer.create_step = MagicMock(return_value=mock_step)
-    writer.update_step_status = MagicMock()
-    writer.record_cost = MagicMock()
+    writer.create_step = AsyncMock(return_value=mock_step)
+    writer.update_step_status = AsyncMock()
+    writer.record_cost = AsyncMock()
     return writer
 
 

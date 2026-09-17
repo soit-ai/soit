@@ -18,11 +18,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.attachments.dependencies import get_attachment_service
 from app.api.v1.permissions import require_workspace_write_ctx
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.image_mask import MASK_CONVENTION, assert_mask_matches_image
@@ -205,7 +205,7 @@ async def _submit(
     request: ImageJobRequest,
     *,
     ctx: RequestContext,
-    db: Session,
+    db: AsyncSession,
     run_async: bool,
     response: Response,
 ) -> tuple[str, str, str | None, list[ImageDatum]]:
@@ -216,14 +216,14 @@ async def _submit(
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
 
-    run = trace_writer.create_run("image", input_summary=request.summary)
+    run = await trace_writer.create_run("image", input_summary=request.summary)
 
     if run_async:
         # The run is committed while still queued so the caller can poll it the
         # moment this responds; the worker owns every transition after this.
-        db.commit()
+        await db.commit()
         start_detached_image_job(
-            bind=db.get_bind(),
+            bind=db.bind,
             ctx=ctx,
             request=request,
             run_id=run.id,
@@ -231,8 +231,8 @@ async def _submit(
         response.status_code = status.HTTP_202_ACCEPTED
         return run.id, "queued", None, []
 
-    trace_writer.update_run_status(run.id, "running")
-    db.commit()
+    await trace_writer.update_run_status(run.id, "running")
+    await db.commit()
     try:
         outcome = await execute_image_job(
             request,
@@ -243,20 +243,20 @@ async def _submit(
             storage_port=container.get_storage_port(ctx=ctx),
             content_safety=container.get_content_safety_port(ctx),
         )
-        trace_writer.update_run_status(
+        await trace_writer.update_run_status(
             run.id,
             "succeeded",
             output_summary=_output_summary(outcome),
         )
-        db.commit()
+        await db.commit()
     except Exception as exc:
-        trace_writer.update_run_status(
+        await trace_writer.update_run_status(
             run.id,
             "failed",
             error_code="IMAGE_ERROR",
             error_message=str(exc)[:2000],
         )
-        db.commit()
+        await db.commit()
         raise
 
     return run.id, "succeeded", outcome.model, _to_data(outcome.results)
@@ -270,7 +270,7 @@ async def _submit(
 async def create_image_generation(
     payload: ImageGenerationCreate,
     ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
     response: Response,
 ) -> ImageGenerationRead:
     """Generate images and record usage against a dedicated run."""
@@ -302,7 +302,7 @@ async def create_image_generation(
 async def create_image_edit(
     payload: ImageEditCreate,
     ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
     attachments: Annotated[AttachmentService, Depends(get_attachment_service)],
     response: Response,
 ) -> ImageEditRead:

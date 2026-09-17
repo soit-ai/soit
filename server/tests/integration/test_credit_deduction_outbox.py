@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from app.kernel.events.dispatcher import OutboxDispatcher
 from app.kernel.runtime.runs.writer import TraceWriter
@@ -17,13 +17,13 @@ from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_hand
 
 
 @pytest.mark.asyncio
-async def test_priced_usage_row_is_deducted_once_through_dispatcher(db: Session, ctx) -> None:
+async def test_priced_usage_row_is_deducted_once_through_dispatcher(async_db, ctx) -> None:
     register_outbox_handlers()
     reg = get_outbox_registry()
 
-    writer = TraceWriter(db, ctx, event_bus=None)
-    run = writer.create_run("agent")
-    priced = writer.record_cost(
+    writer = TraceWriter(async_db, ctx, event_bus=None)
+    run = await writer.create_run("agent")
+    priced = await writer.record_cost(
         run_id=run.id,
         step_id=None,
         billing_basis="tokens",
@@ -38,7 +38,7 @@ async def test_priced_usage_row_is_deducted_once_through_dispatcher(db: Session,
         total_tokens=30,
         latency_ms=100,
     )
-    unpriced = writer.record_cost(
+    unpriced = await writer.record_cost(
         run_id=run.id,
         step_id=None,
         billing_basis="requests",
@@ -48,11 +48,11 @@ async def test_priced_usage_row_is_deducted_once_through_dispatcher(db: Session,
         request_count=1,
     )
 
-    dispatcher = OutboxDispatcher(db, reg)
+    dispatcher = OutboxDispatcher(async_db, reg)
     assert await dispatcher.run_once(batch_limit=50) >= 1
-    db.commit()
+    await async_db.commit()
 
-    rows = list(db.exec(select(CreditLedgerEntry)).all())
+    rows = list((await async_db.exec(select(CreditLedgerEntry))).all())
     entries = [row if hasattr(row, "id") else row[0] for row in rows]
     assert len(entries) == 1
     entry = entries[0]
@@ -63,17 +63,17 @@ async def test_priced_usage_row_is_deducted_once_through_dispatcher(db: Session,
 
     # Replaying the dispatcher must not double-book.
     await dispatcher.run_once(batch_limit=50)
-    db.commit()
-    rows = list(db.exec(select(CreditLedgerEntry)).all())
+    await async_db.commit()
+    rows = list((await async_db.exec(select(CreditLedgerEntry))).all())
     assert len(rows) == 1
 
 
 @pytest.mark.asyncio
-async def test_exhaustion_crossing_lands_in_admin_inbox(db: Session, ctx) -> None:
+async def test_exhaustion_crossing_lands_in_admin_inbox(async_db, ctx) -> None:
     register_outbox_handlers()
     reg = get_outbox_registry()
 
-    db.add(
+    async_db.add(
         WorkspaceMembership(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -81,12 +81,12 @@ async def test_exhaustion_crossing_lands_in_admin_inbox(db: Session, ctx) -> Non
             role="Owner",
         )
     )
-    CreditService(db, ctx).grant(credits=Decimal("100"), note="small top-up")
-    db.commit()
+    await CreditService(async_db, ctx).grant(credits=Decimal("100"), note="small top-up")
+    await async_db.commit()
 
-    writer = TraceWriter(db, ctx, event_bus=None)
-    run = writer.create_run("agent")
-    writer.record_cost(
+    writer = TraceWriter(async_db, ctx, event_bus=None)
+    run = await writer.create_run("agent")
+    await writer.record_cost(
         run_id=run.id,
         step_id=None,
         billing_basis="tokens",
@@ -101,15 +101,15 @@ async def test_exhaustion_crossing_lands_in_admin_inbox(db: Session, ctx) -> Non
         total_tokens=30,
     )
 
-    dispatcher = OutboxDispatcher(db, reg)
+    dispatcher = OutboxDispatcher(async_db, reg)
     # First pass books the deduction and publishes the balance alert;
     # second pass fans the alert out to the inbox.
     await dispatcher.run_once(batch_limit=50)
-    db.commit()
+    await async_db.commit()
     await dispatcher.run_once(batch_limit=50)
-    db.commit()
+    await async_db.commit()
 
-    rows = list(db.exec(select(Notification)).all())
+    rows = list((await async_db.exec(select(Notification))).all())
     notifications = [row if hasattr(row, "id") else row[0] for row in rows]
     assert len(notifications) == 1
     notification = notifications[0]

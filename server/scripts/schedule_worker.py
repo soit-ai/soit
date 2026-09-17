@@ -11,7 +11,7 @@ the claim ensures each occurrence fires once.
 import asyncio
 import logging
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.infra.telemetry import configure_telemetry
 from app.settings.settings import settings
 from app.wiring.schedule_worker import ScheduleWorker
@@ -28,7 +28,7 @@ async def main() -> None:
         settings.schedule_worker_lease_seconds,
     )
     worker = ScheduleWorker(
-        get_db_sync,
+        lambda: get_async_session_local()(),
         lease_seconds=int(settings.schedule_worker_lease_seconds),
     )
     await worker.run_loop(poll_interval=poll_interval)

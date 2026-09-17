@@ -12,6 +12,7 @@ import base64
 import io
 from typing import Any
 
+import pytest
 from fastapi import status
 from PIL import Image
 from sqlmodel import select
@@ -26,46 +27,47 @@ def _png(size=(64, 64)) -> bytes:
     return buffer.getvalue()
 
 
-def _generate(client, **overrides):
+async def _generate(async_client, **overrides):
     payload: dict[str, Any] = {"model": "model:test:seedream", "prompt": "a red dot"}
     payload.update(overrides)
-    return client.post("/api/v1/images/generations", json=payload)
+    return await async_client.post("/api/v1/images/generations", json=payload)
 
 
-def _edit(client, **overrides):
+async def _edit(async_client, **overrides):
     payload: dict[str, Any] = {
         "model": "model:test:seedream",
         "prompt": "a red dot",
         "image_b64": base64.b64encode(_png()).decode("ascii"),
     }
     payload.update(overrides)
-    return client.post("/api/v1/images/edits", json=payload)
+    return await async_client.post("/api/v1/images/edits", json=payload)
 
 
-def _artifacts(db, run_id: str) -> list[RunArtifact]:
+async def _artifacts(async_db, run_id: str) -> list[RunArtifact]:
     return list(
-        db.exec(select(RunArtifact).where(RunArtifact.run_id == run_id)).all()
+        (await async_db.exec(select(RunArtifact).where(RunArtifact.run_id == run_id))).all()
     )
 
 
-def _settle(client, run_id: str, db) -> Run:
+async def _settle(async_client, run_id: str, async_db) -> Run:
     """Let the detached worker finish, then read the run back.
 
     The task runs on the TestClient's own loop, so a short async hop inside that
     loop is enough; nothing here sleeps against wall-clock time.
     """
     for _ in range(50):
-        client.get(f"/api/v1/runs/{run_id}")
-        db.expire_all()
-        run = db.get(Run, run_id)
+        await async_client.get(f"/api/v1/runs/{run_id}")
+        async_db.expire_all()
+        run = await async_db.get(Run, run_id)
         if run is not None and run.status in ("succeeded", "failed"):
             return run
-    return db.get(Run, run_id)
+    return await async_db.get(Run, run_id)
 
 
 class TestSynchronousBehaviourIsUnchanged:
-    def test_generation_still_returns_images_inline(self, client):
-        response = _generate(client, n=2)
+    @pytest.mark.asyncio
+    async def test_generation_still_returns_images_inline(self, async_client):
+        response = await _generate(async_client, n=2)
 
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()["data"]
@@ -74,15 +76,17 @@ class TestSynchronousBehaviourIsUnchanged:
         assert all(image["b64_json"] for image in body["data"])
         assert all(image["attachment_id"] is None for image in body["data"])
 
-    def test_edit_still_returns_images_inline(self, client):
-        body = _edit(client).json()["data"]
+    @pytest.mark.asyncio
+    async def test_edit_still_returns_images_inline(self, async_client):
+        body = (await _edit(async_client)).json()["data"]
         assert body["status"] == "succeeded"
         assert body["data"][0]["b64_json"]
 
 
 class TestArtifactResponses:
-    def test_generated_images_are_written_as_run_artifacts(self, client, db):
-        response = _generate(client, n=2, response_format="artifact")
+    @pytest.mark.asyncio
+    async def test_generated_images_are_written_as_run_artifacts(self, async_client, async_db):
+        response = await _generate(async_client, n=2, response_format="artifact")
 
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()["data"]
@@ -92,7 +96,7 @@ class TestArtifactResponses:
         assert all(image["attachment_id"] for image in body["data"])
         assert all(image["b64_json"] is None for image in body["data"])
 
-        artifacts = _artifacts(db, body["run_id"])
+        artifacts = await _artifacts(async_db, body["run_id"])
         assert len(artifacts) == 2
         assert {artifact.id for artifact in artifacts} == {
             image["attachment_id"] for image in body["data"]
@@ -104,47 +108,52 @@ class TestArtifactResponses:
             assert len(artifact.sha256) == 64
             assert artifact.meta_json["kind"] == "image"
 
-    def test_artifact_content_is_downloadable(self, client, db):
-        body = _generate(client, response_format="artifact").json()["data"]
+    @pytest.mark.asyncio
+    async def test_artifact_content_is_downloadable(self, async_client, async_db):
+        body = (await _generate(async_client, response_format="artifact")).json()["data"]
         artifact_id = body["data"][0]["attachment_id"]
 
-        download = client.get(
+        download = await async_client.get(
             f"/api/v1/runs/{body['run_id']}/artifacts/{artifact_id}/content"
         )
         assert download.status_code == status.HTTP_200_OK, download.json()
         assert download.headers["content-type"].startswith("image/png")
         assert download.content[:8] == b"\x89PNG\r\n\x1a\n"
 
-    def test_edit_artifacts_record_their_operation(self, client, db):
-        body = _edit(client, response_format="artifact").json()["data"]
+    @pytest.mark.asyncio
+    async def test_edit_artifacts_record_their_operation(self, async_client, async_db):
+        body = (await _edit(async_client, response_format="artifact")).json()["data"]
 
-        artifacts = _artifacts(db, body["run_id"])
+        artifacts = await _artifacts(async_db, body["run_id"])
         assert artifacts[0].meta_json["operation"] == "edit_image"
 
-    def test_webp_output_is_recorded_with_its_own_mime(self, client, db):
-        body = _edit(
-            client, response_format="artifact", output_format="webp"
-        ).json()["data"]
+    @pytest.mark.asyncio
+    async def test_webp_output_is_recorded_with_its_own_mime(self, async_client, async_db):
+        body = (await _edit(
+            async_client, response_format="artifact", output_format="webp"
+        )).json()["data"]
 
-        artifacts = _artifacts(db, body["run_id"])
+        artifacts = await _artifacts(async_db, body["run_id"])
         assert artifacts[0].mime == "image/webp"
         assert artifacts[0].meta_json["name"].endswith(".webp")
 
-    def test_artifacts_still_bill_once(self, client, db):
-        body = _generate(client, n=2, response_format="artifact").json()["data"]
+    @pytest.mark.asyncio
+    async def test_artifacts_still_bill_once(self, async_client, async_db):
+        body = (await _generate(async_client, n=2, response_format="artifact")).json()["data"]
 
         costs = list(
-            db.exec(
+            (await async_db.exec(
                 select(RunCostEntry).where(RunCostEntry.run_id == body["run_id"])
-            ).all()
+            )).all()
         )
         assert len(costs) == 1
         assert costs[0].billed_quantity == 2
 
 
 class TestAsynchronousJobs:
-    def test_generation_returns_a_run_id_before_the_work_finishes(self, client, db):
-        response = _generate(client, n=2, **{"async": True})
+    @pytest.mark.asyncio
+    async def test_generation_returns_a_run_id_before_the_work_finishes(self, async_client, async_db):
+        response = await _generate(async_client, n=2, **{"async": True})
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         body = response.json()["data"]
@@ -153,42 +162,46 @@ class TestAsynchronousJobs:
         # connection open across the provider's latency.
         assert body["data"] == []
 
-        run = _settle(client, body["run_id"], db)
+        run = await _settle(async_client, body["run_id"], async_db)
         assert run.status == "succeeded"
 
-    def test_async_results_land_as_artifacts(self, client, db):
-        body = _generate(
-            client, n=2, response_format="artifact", **{"async": True}
-        ).json()["data"]
+    @pytest.mark.asyncio
+    async def test_async_results_land_as_artifacts(self, async_client, async_db):
+        body = (await _generate(
+            async_client, n=2, response_format="artifact", **{"async": True}
+        )).json()["data"]
 
-        _settle(client, body["run_id"], db)
-        artifacts = _artifacts(db, body["run_id"])
+        await _settle(async_client, body["run_id"], async_db)
+        artifacts = await _artifacts(async_db, body["run_id"])
         assert len(artifacts) == 2
         assert all(artifact.mime == "image/png" for artifact in artifacts)
 
-    def test_async_edits_run_to_completion(self, client, db):
-        response = _edit(client, response_format="artifact", **{"async": True})
+    @pytest.mark.asyncio
+    async def test_async_edits_run_to_completion(self, async_client, async_db):
+        response = await _edit(async_client, response_format="artifact", **{"async": True})
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         body = response.json()["data"]
-        run = _settle(client, body["run_id"], db)
+        run = await _settle(async_client, body["run_id"], async_db)
         assert run.status == "succeeded"
-        assert len(_artifacts(db, body["run_id"])) == 1
+        assert len(await _artifacts(async_db, body["run_id"])) == 1
 
-    def test_async_jobs_still_record_their_cost(self, client, db):
-        body = _generate(client, n=3, **{"async": True}).json()["data"]
+    @pytest.mark.asyncio
+    async def test_async_jobs_still_record_their_cost(self, async_client, async_db):
+        body = (await _generate(async_client, n=3, **{"async": True})).json()["data"]
 
-        _settle(client, body["run_id"], db)
+        await _settle(async_client, body["run_id"], async_db)
         costs = list(
-            db.exec(
+            (await async_db.exec(
                 select(RunCostEntry).where(RunCostEntry.run_id == body["run_id"])
-            ).all()
+            )).all()
         )
         assert len(costs) == 1
         assert costs[0].billed_quantity == 3
         assert costs[0].operation == "generate_image"
 
-    def test_a_failing_async_job_fails_its_run(self, client, db):
+    @pytest.mark.asyncio
+    async def test_a_failing_async_job_fails_its_run(self, async_client, async_db):
         # A worker that dies quietly would strand the run as "running", and the
         # run is the caller's only signal.
         from app.wiring import get_container
@@ -202,8 +215,8 @@ class TestAsynchronousJobs:
 
         container.register_singleton("llm_port", _Failing())
         try:
-            body = _generate(client, **{"async": True}).json()["data"]
-            run = _settle(client, body["run_id"], db)
+            body = (await _generate(async_client, **{"async": True})).json()["data"]
+            run = await _settle(async_client, body["run_id"], async_db)
         finally:
             container.register_singleton("llm_port", original)
 

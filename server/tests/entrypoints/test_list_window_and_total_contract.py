@@ -179,11 +179,10 @@ async def test_run_window_summary_answers_the_overview_in_one_call(async_client,
     assert payload["charges"]["entry_count"] == 0
 
 
-@pytest.mark.asyncio
-async def test_resource_grants_can_be_listed_for_the_whole_workspace(async_client, async_db):
+def test_resource_grants_can_be_listed_for_the_whole_workspace(client, db):
     """The access surface reads every grant in one call, not one per object."""
     for index, resource_type in enumerate(("agent", "workflow")):
-        async_db.add(
+        db.add(
             ResourceGrant(
                 tenant_id="test-tenant",
                 workspace_id="test-workspace",
@@ -193,20 +192,20 @@ async def test_resource_grants_can_be_listed_for_the_whole_workspace(async_clien
                 actions=["read"],
             )
         )
-    await async_db.commit()
+    db.commit()
 
-    everything = await async_client.get("/api/v1/resource-grants", headers=_headers())
+    everything = client.get("/api/v1/resource-grants", headers=_headers())
     assert everything.status_code == status.HTTP_200_OK
     assert len(everything.json()["data"]) == 2
 
-    one_kind = await async_client.get(
+    one_kind = client.get(
         "/api/v1/resource-grants",
         params={"resource_type": "agent"},
         headers=_headers(),
     )
     assert [row["resource_type"] for row in one_kind.json()["data"]] == ["agent"]
 
-    named = await async_client.get(
+    named = client.get(
         "/api/v1/resource-grants",
         params={"resource_type": "agent", "resource_id": "res_0"},
         headers=_headers(),

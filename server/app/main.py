@@ -127,11 +127,11 @@ async def lifespan(app: FastAPI):
     schedule_worker_coro = None
     if getattr(app_settings, "schedule_worker_enabled", False):
         try:
-            from app.infra.db.session import get_db_sync
+            from app.infra.db.session import get_async_session_local
             from app.wiring.schedule_worker import ScheduleWorker
 
             schedule_worker_coro = ScheduleWorker(
-                get_db_sync,
+                lambda: get_async_session_local()(),
                 lease_seconds=int(app_settings.schedule_worker_lease_seconds),
             ).run_loop(poll_interval=float(app_settings.schedule_worker_poll_interval))
         except Exception as exc:
