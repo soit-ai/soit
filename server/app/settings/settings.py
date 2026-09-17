@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     """Database name."""
     database_url: str | None = None
     """Database URL."""
+    database_pool_size: int = 10
+    """Connections one process keeps open to PostgreSQL."""
+    database_max_overflow: int = 20
+    """Extra connections one process may open under load, on top of the pool.
+
+    Every API worker and every worker process (outbox dispatcher, ingest,
+    scheduler) holds its own pool, so PostgreSQL's ``max_connections`` must
+    cover ``processes x (pool_size + max_overflow)`` plus a margin; see
+    docs/operations/database-connections.md.
+    """
 
     # Redis
     redis_host: str = "localhost"

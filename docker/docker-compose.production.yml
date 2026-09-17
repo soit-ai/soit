@@ -18,6 +18,11 @@ x-server-environment: &server_environment
   ENVIRONMENT: production
   # Managed PostgreSQL, Redis and object storage supplied by the operator.
   DATABASE_URL: ${DATABASE_URL:?production requires an external database URL}
+  # Per-process connection budget; every API worker and worker process holds
+  # its own pool. Size the managed database's max_connections accordingly
+  # (docs/operations/database-connections.md).
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+  DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-20}
   REDIS_URL: ${REDIS_URL:?production requires an external Redis URL}
   SECRET_KEY: ${SECRET_KEY:?production requires a non-placeholder secret key}
   # There is no token refresh flow yet, so this is the hard session length.

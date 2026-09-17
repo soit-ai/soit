@@ -22,10 +22,11 @@ _SessionLocal: sessionmaker | None = None
 _async_engine: AsyncEngine | None = None
 _AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
 
-# Pool sizing shared by both engines so the migration does not change the
-# number of PostgreSQL connections a process may hold.
-_POOL_SIZE = 10
-_MAX_OVERFLOW = 20
+# Pool sizing is shared by both engines and comes from settings so an
+# operator can size the per-process connection budget against
+# PostgreSQL's max_connections (see docs/operations/database-connections.md).
+_POOL_SIZE = settings.database_pool_size
+_MAX_OVERFLOW = settings.database_max_overflow
 
 
 def get_engine() -> Engine:

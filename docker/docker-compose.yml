@@ -13,6 +13,10 @@ x-logging: &default-logging
 services:
   postgres:
     image: postgres:15
+    # The API workers and the three worker processes each keep their own
+    # connection pool; the default of 100 is exhausted by four API workers
+    # alone. See docs/operations/database-connections.md for the budget.
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"]
     environment:
       POSTGRES_DB: ${DATABASE_NAME:-soit}
       POSTGRES_USER: ${DATABASE_USER:-soit}
