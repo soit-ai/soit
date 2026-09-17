@@ -24,6 +24,22 @@ Each outbox record stores the canonical event envelope used by runtime dispatch:
 The envelope is intentionally small and stable. Product modules should emit facts through
 the runtime/event helpers instead of writing directly to dispatch infrastructure.
 
+## Which Facts Travel Through the Outbox
+
+The outbox carries only facts whose consumer needs exactly-once delivery:
+
+- `run.created` and the terminal `run.status.updated` (failure notifications, trace metrics);
+- `cost.recorded` (credit deduction);
+- `task.retried` (the re-drive of a retried task);
+- `workflow.node.*`, `approval.*`, `notification.*` and the billing facts their handlers act on.
+
+Step lifecycle, intermediate run transitions and the other task lifecycle facts
+(`task.created`, `task.started`, `task.completed`, `task.failed`, `task.checkpointed`)
+are durable in the run and task ledgers (`run_steps`, `task_events`, `task_checkpoints`)
+and observed in-process where they are written: trace span, OTel export, Prometheus
+counters and the usage log. Routing them through the outbox only bought a second copy of
+each row and a dispatcher round trip.
+
 ## Delivery Semantics
 
 Business state and its outbox row are committed in one request-level unit of work. A

@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.errors import ConflictError, NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.observe.execution_metrics import observe_task_lifecycle
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.status import TaskStatus, validate_task_transition
 from app.kernel.runtime.tasks.drivers import is_drivable
@@ -59,6 +60,7 @@ class TaskService:
             event_type="task.created",
             payload={"status": task.status, "task_type": task.task_type},
         )
+        observe_task_lifecycle(task, TaskEventType.CREATED)
         return task
 
     async def get_task(self, task_id: str) -> Task:
@@ -109,7 +111,10 @@ class TaskService:
         if error_message is not None:
             task.error_message = error_message
 
-        outbox_events: list[str] = []
+        # Lifecycle facts are durable in task_events and observed here; only a
+        # retry goes through the outbox, because re-driving it must happen
+        # exactly once.
+        observed: list[str] = []
         _ready = (TaskStatus.PREPARING.value, TaskStatus.RUNNING.value)
         _from_queue = (
             TaskStatus.QUEUED.value,
@@ -119,13 +124,15 @@ class TaskService:
             TaskStatus.WAITING_APPROVAL.value,
         )
         if task.status in _ready and old_status in _from_queue:
-            outbox_events.append(TaskEventType.STARTED)
+            observed.append(TaskEventType.STARTED)
         if task.status == TaskStatus.SUCCEEDED.value:
-            outbox_events.append(TaskEventType.COMPLETED)
+            observed.append(TaskEventType.COMPLETED)
         if task.status == TaskStatus.FAILED.value:
-            outbox_events.append(TaskEventType.FAILED)
+            observed.append(TaskEventType.FAILED)
 
-        task = await self.task_repo.update_task(task, outbox_events=outbox_events)
+        task = await self.task_repo.update_task(task)
+        for fact in observed:
+            observe_task_lifecycle(task, fact)
         await self.add_task_event(
             task_id=task.id,
             event_type="task.status",
@@ -236,6 +243,14 @@ class TaskService:
             event_type="task.checkpoint",
             payload={"checkpoint_no": checkpoint_no, "status": status},
         )
+        task = await self.task_repo.get_task(task_id)
+        if task is not None:
+            observe_task_lifecycle(
+                task,
+                TaskEventType.CHECKPOINTED,
+                checkpoint_no=checkpoint_no,
+                checkpoint_status=status,
+            )
         return checkpoint
 
     async def add_task_event(

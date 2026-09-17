@@ -57,12 +57,12 @@ async def test_phase1_chain_run_task_workflow_nodes_and_approval(async_db, ctx: 
         if n == 0:
             break
 
+    # Task lifecycle facts are durable in task_events and never queue outbox
+    # work; only a retry would.
     task_outbox = list((await async_db.exec(select(EventOutbox).where(EventOutbox.task_id == task_main.id))).all())
-    assert len(task_outbox) >= 3
-    for ob in task_outbox:
-        refreshed = await async_db.get(EventOutbox, ob.id)
-        assert refreshed is not None
-        assert refreshed.status == "done"
+    assert task_outbox == []
+    timeline = [event.event_type for event in await core.task_repo.list_events(task_main.id)]
+    assert timeline == ["task.created", "task.status", "task.status"]
 
     workflow = Workflow(
         id="wf_phase1",

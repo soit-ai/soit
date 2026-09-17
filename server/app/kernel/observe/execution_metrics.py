@@ -1,14 +1,18 @@
-"""In-process observation of run and step transitions.
+"""In-process observation of run, step and task transitions.
 
-Step lifecycle and intermediate run transitions are observed where they
-happen: trace span, OTel export and Prometheus counters, no outbox row. Only
-terminal run transitions stay on the outbox, because their consumers
-(failure notifications) need exactly-once delivery.
+Step lifecycle, intermediate run transitions and task lifecycle facts are
+observed where they happen: trace span, OTel export, Prometheus counters and
+the usage log, no outbox row. Only terminal run transitions and task retries
+stay on the outbox, because their consumers (failure notifications, the
+re-drive of a retried task) need exactly-once delivery.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import UTC
+from typing import Any
 
 from app.kernel.observe.metrics import (
     active_runs,
@@ -19,7 +23,11 @@ from app.kernel.observe.metrics import (
 )
 from app.kernel.observe.tracing import tracer
 from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.runs.exporter import OpenTelemetryExporter
+from app.kernel.runtime.tasks.outbox_emit import task_fact_payload
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "canceled"})
 TERMINAL_STEP_STATUSES = frozenset({"succeeded", "failed", "skipped", "canceled"})
@@ -90,3 +98,13 @@ def observe_step_status_transition(
 
     if old_status is not None and new_status is not None and old_status != new_status:
         step_count.labels(step_type=step.step_type, status=new_status, tenant_id=tenant).inc()
+
+
+def observe_task_lifecycle(task: Task, event_type: str, **extra: Any) -> None:
+    """Write the usage log line a task lifecycle fact used to reach via the outbox."""
+    payload = task_fact_payload(task, **extra)
+    logger.info(
+        "usage.task %s %s",
+        event_type,
+        json.dumps(payload, ensure_ascii=False, default=str)[:8192],
+    )

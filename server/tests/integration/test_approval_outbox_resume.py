@@ -7,7 +7,6 @@ from sqlmodel import select
 
 from app.kernel.commons.time import utc_now
 from app.kernel.events.dispatcher import OutboxDispatcher
-from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.status import ApprovalStatus, TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
@@ -64,14 +63,12 @@ async def test_approval_approved_outbox_resumes_waiting_task(async_db, ctx) -> N
     await async_db.commit()
 
     assert (await core.get_task(task.id)).status == TaskStatus.RUNNING.value
-    started_event = (await async_db.exec(
-        select(EventOutbox).where(
-            EventOutbox.event_type == "task.started",
-            EventOutbox.task_id == task.id,
-        )
-    )).first()
-    assert started_event is not None
-    assert started_event.payload_json["status"] == TaskStatus.RUNNING.value
+    resumed = [
+        event
+        for event in await core.task_repo.list_events(task.id)
+        if event.event_type == "task.status" and event.payload_json.get("status") == TaskStatus.RUNNING.value
+    ]
+    assert resumed, "the resume must be recorded on the task timeline"
 
 
 @pytest.mark.asyncio

@@ -12,11 +12,7 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.status import TaskStatus
-from app.kernel.runtime.tasks.events import TaskEventType
-from app.kernel.runtime.tasks.outbox_emit import (
-    enqueue_task_checkpoint_outbox,
-    enqueue_task_outbox_event,
-)
+from app.kernel.runtime.tasks.outbox_emit import enqueue_task_outbox_event
 
 _WAITING_STATUSES = (TaskStatus.QUEUED.value, TaskStatus.RETRYING.value)
 """Statuses that mean the task is waiting for a worker rather than running."""
@@ -54,8 +50,7 @@ class TaskRepository:
         task.created_by = self.ctx.user_id
         task.updated_by = self.ctx.user_id
         self.db.add(task)
-        events = list(outbox_events) if outbox_events is not None else [TaskEventType.CREATED]
-        for et in events:
+        for et in outbox_events or ():
             enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
         await self.db.flush()
         return task
@@ -332,10 +327,6 @@ class TaskRepository:
         checkpoint.tenant_id = self.ctx.tenant_id
         checkpoint.workspace_id = self.ctx.workspace_id
         self.db.add(checkpoint)
-        await self.db.flush()
-        task = await self.get_task(checkpoint.task_id)
-        if task:
-            enqueue_task_checkpoint_outbox(self.db, self.ctx, task=task, checkpoint=checkpoint)
         await self.db.flush()
         return checkpoint
 

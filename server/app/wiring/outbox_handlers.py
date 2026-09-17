@@ -124,24 +124,18 @@ def register_outbox_handlers() -> None:
         "notification.run.failed",
         handle_run_failed,
     )
-    for _name, event_type in (
-        ("created", TaskEventType.CREATED),
-        ("started", TaskEventType.STARTED),
-        ("completed", TaskEventType.COMPLETED),
-        ("failed", TaskEventType.FAILED),
-        ("retried", TaskEventType.RETRIED),
-        ("checkpointed", TaskEventType.CHECKPOINTED),
-    ):
-        reg.register(
-            event_type,
-            f"runtime.task.builtin.{_name}",
-            handle_task_runtime_outbox,
-        )
-        reg.register(
-            event_type,
-            f"observe.task.{_name}",
-            handle_task_lifecycle_observe,
-        )
+    # Only task.retried travels through the outbox (its consumer re-drives the
+    # task); the other lifecycle facts are observed in-process when written.
+    reg.register(
+        TaskEventType.RETRIED,
+        "runtime.task.builtin.retried",
+        handle_task_runtime_outbox,
+    )
+    reg.register(
+        TaskEventType.RETRIED,
+        "observe.task.retried",
+        handle_task_lifecycle_observe,
+    )
 
     from app.modules.observe.domain.approval_events import ApprovalEventType
     from app.modules.observe.handlers.on_approval_outbox import (
