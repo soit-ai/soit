@@ -1692,7 +1692,7 @@ class AgentApplicationService:
         reasoning_effort = agui_options.get("reasoning_effort")
         if isinstance(reasoning_effort, str) and reasoning_effort:
             request_updates["reasoning_effort"] = reasoning_effort
-        request = await self._request_from_version(version, internal_inputs).model_copy(
+        request = (await self._request_from_version(version, internal_inputs)).model_copy(
             update=request_updates
         )
         linked_response = None
