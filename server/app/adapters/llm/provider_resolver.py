@@ -7,11 +7,10 @@ import logging
 from dataclasses import asdict, replace
 from typing import Any
 
-import anyio
 import redis.asyncio as redis_async
 
 from app.adapters.llm.router import RuntimeProviderConfig
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.runtime_config import (
     normalize_image_capabilities,
@@ -104,14 +103,14 @@ class DatabaseProviderResolver:
         )
 
     @staticmethod
-    def _platform_default_pricing(
+    async def _platform_default_pricing(
         db: Any,
         ctx: RequestContext,
         provider_kind: str,
         model_id: str,
     ) -> dict[str, Any]:
         """Catalog pricing fallback for models without a workspace-level price."""
-        platform = PlatformModelRepository(db, ctx).get_by_kind_and_model_id(
+        platform = await PlatformModelRepository(db, ctx).get_by_kind_and_model_id(
             provider_kind,
             model_id,
         )
@@ -129,18 +128,18 @@ class DatabaseProviderResolver:
         return {str(key): value for key, value in pricing.items()}
 
     @classmethod
-    def _resolve_from_database(
+    async def _resolve_from_database(
         cls,
         ctx: RequestContext,
         slug: str,
         model_id: str,
     ) -> RuntimeProviderConfig | None:
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
-            provider = ProviderRepository(db, ctx).get_by_slug(slug)
+            provider = await ProviderRepository(db, ctx).get_by_slug(slug)
             if provider is None:
                 return None
-            model = ProviderModelRepository(db, ctx).get_by_provider_and_model_id(
+            model = await ProviderModelRepository(db, ctx).get_by_provider_and_model_id(
                 provider.id,
                 model_id,
             )
@@ -148,7 +147,7 @@ class DatabaseProviderResolver:
                 return None
             config = cls._config_from_provider(provider, model)
             if not config.pricing:
-                pricing = cls._platform_default_pricing(
+                pricing = await cls._platform_default_pricing(
                     db,
                     ctx,
                     provider.kind,
@@ -158,7 +157,7 @@ class DatabaseProviderResolver:
                     config = replace(config, pricing=pricing)
             return config
         finally:
-            db.close()
+            await db.close()
 
     async def _read_cache(
         self,
@@ -210,12 +209,7 @@ class DatabaseProviderResolver:
         cache_hit, cached = await self._read_cache(key)
         if cache_hit:
             return cached
-        config = await anyio.to_thread.run_sync(
-            self._resolve_from_database,
-            ctx,
-            slug,
-            model_id,
-        )
+        config = await self._resolve_from_database(ctx, slug, model_id)
         await self._write_cache(key, config)
         return config
 

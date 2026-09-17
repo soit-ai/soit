@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import pytest
 from fastapi import status
 
 from app.kernel.commons.time import utc_now
@@ -13,7 +14,7 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def _seed_modelhub_workbench(db):
+async def _seed_modelhub_workbench(async_db):
     now = utc_now()
     openai_provider = Provider(
         id="prov_workbench_openai",
@@ -134,9 +135,9 @@ def _seed_modelhub_workbench(db):
         ended_at=now,
         duration_ms=600,
     )
-    db.add_all([openai_provider, deepseek_provider, chat_model, embedding_model, disabled_model, removed_model, success_run, failed_run])
-    db.flush()
-    db.add_all(
+    async_db.add_all([openai_provider, deepseek_provider, chat_model, embedding_model, disabled_model, removed_model, success_run, failed_run])
+    await async_db.flush()
+    async_db.add_all(
         [
             RunCostEntry(
                 id="cost_modelhub_chat_prompt",
@@ -204,7 +205,7 @@ def _seed_modelhub_workbench(db):
             ),
         ]
     )
-    db.commit()
+    await async_db.commit()
     return {
         "openai_provider": openai_provider,
         "deepseek_provider": deepseek_provider,
@@ -215,10 +216,11 @@ def _seed_modelhub_workbench(db):
     }
 
 
-def test_modelhub_workbench_overview_aggregates_runtime_data(client, db):
-    seeded = _seed_modelhub_workbench(db)
+@pytest.mark.asyncio
+async def test_modelhub_workbench_overview_aggregates_runtime_data(async_client, async_db):
+    seeded = await _seed_modelhub_workbench(async_db)
 
-    response = client.get("/api/v1/modelhub/workbench/overview", headers=_headers())
+    response = await async_client.get("/api/v1/modelhub/workbench/overview", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
@@ -242,10 +244,11 @@ def test_modelhub_workbench_overview_aggregates_runtime_data(client, db):
     assert payload["quota_reminders"]
 
 
-def test_modelhub_workbench_models_filters_and_paginates(client, db):
-    seeded = _seed_modelhub_workbench(db)
+@pytest.mark.asyncio
+async def test_modelhub_workbench_models_filters_and_paginates(async_client, async_db):
+    seeded = await _seed_modelhub_workbench(async_db)
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/modelhub/workbench/models?tab=text&keyword=GPT&page_size=1",
         headers=_headers(),
     )
@@ -265,7 +268,7 @@ def test_modelhub_workbench_models_filters_and_paginates(client, db):
     assert payload["items"][0]["month_cost_amount"] == 2.0
     assert payload["items"][0]["unit_price"] is None
 
-    disabled_response = client.get(
+    disabled_response = await async_client.get(
         f"/api/v1/modelhub/workbench/models?provider_id={seeded['deepseek_provider'].id}&status=disabled",
         headers=_headers(),
     )
@@ -273,7 +276,7 @@ def test_modelhub_workbench_models_filters_and_paginates(client, db):
     disabled_payload = disabled_response.json()["data"]
     assert [item["id"] for item in disabled_payload["items"]] == [seeded["disabled_model"].id]
 
-    removed_response = client.get(
+    removed_response = await async_client.get(
         "/api/v1/modelhub/workbench/models?status=removed",
         headers=_headers(),
     )
@@ -281,15 +284,16 @@ def test_modelhub_workbench_models_filters_and_paginates(client, db):
     removed_payload = removed_response.json()["data"]
     assert [item["id"] for item in removed_payload["items"]] == [seeded["removed_model"].id]
 
-    paged_response = client.get("/api/v1/modelhub/workbench/models?page_size=1", headers=_headers())
+    paged_response = await async_client.get("/api/v1/modelhub/workbench/models?page_size=1", headers=_headers())
     assert paged_response.status_code == status.HTTP_200_OK
     assert paged_response.json()["data"]["next_page_token"] is not None
 
 
-def test_modelhub_workbench_providers_filters_and_empty_costs(client, db):
-    seeded = _seed_modelhub_workbench(db)
+@pytest.mark.asyncio
+async def test_modelhub_workbench_providers_filters_and_empty_costs(async_client, async_db):
+    seeded = await _seed_modelhub_workbench(async_db)
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/modelhub/workbench/providers?tab=online&model_type=embedding&page_size=1",
         headers=_headers(),
     )
@@ -307,7 +311,7 @@ def test_modelhub_workbench_providers_filters_and_empty_costs(client, db):
     assert payload["items"][0]["region"] is None
     assert payload["items"][0]["quota_used"] is None
 
-    error_response = client.get("/api/v1/modelhub/workbench/providers?status=error", headers=_headers())
+    error_response = await async_client.get("/api/v1/modelhub/workbench/providers?status=error", headers=_headers())
     assert error_response.status_code == status.HTTP_200_OK
     error_payload = error_response.json()["data"]
     assert [item["id"] for item in error_payload["items"]] == [seeded["deepseek_provider"].id]

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
     ConflictError,
@@ -258,7 +258,7 @@ class ModelHubService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         provider_repo: ProviderRepository,
         platform_model_repo: PlatformModelRepository,
@@ -394,12 +394,12 @@ class ModelHubService:
     @workspace_guard("read")
     async def list_providers(self, limit: int = 200) -> list[Provider]:
         """List providers for workspace."""
-        return self.provider_repo.list(limit=limit)
+        return await self.provider_repo.list(limit=limit)
 
     @workspace_guard("read")
     async def get_provider_last_synced_at(self, provider_id: str):
         """Return the latest catalog sync timestamp for models under a provider."""
-        return self.provider_model_repo.latest_synced_at_by_provider(provider_id)
+        return await self.provider_model_repo.latest_synced_at_by_provider(provider_id)
 
     @workspace_guard("read")
     async def get_provider_support_matrix(self) -> list[dict[str, Any]]:
@@ -458,7 +458,7 @@ class ModelHubService:
     @workspace_guard("read")
     async def get_workbench_overview(self) -> ModelWorkbenchOverviewResponse:
         """Return ModelHub workbench overview aggregates."""
-        providers, model_rows, provider_rows, trend, summary_metrics = self._build_workbench_data(include_removed=True)
+        providers, model_rows, provider_rows, trend, summary_metrics = await self._build_workbench_data(include_removed=True)
         visible_model_rows = [row for row in model_rows if row.status != "removed"]
         summary = self._build_workbench_summary(visible_model_rows, provider_rows, summary_metrics)
         return ModelWorkbenchOverviewResponse(
@@ -506,7 +506,7 @@ class ModelHubService:
         model_type: str | None = None,
     ) -> ModelWorkbenchModelsResponse:
         """Return paginated ModelHub model rows."""
-        _, model_rows, provider_rows, _, summary_metrics = self._build_workbench_data(include_removed=True)
+        _, model_rows, provider_rows, _, summary_metrics = await self._build_workbench_data(include_removed=True)
         visible_model_rows = [row for row in model_rows if row.status != "removed"]
         filtered_rows = self._filter_model_rows(
             model_rows,
@@ -539,7 +539,7 @@ class ModelHubService:
         model_type: str | None = None,
     ) -> ModelWorkbenchProvidersResponse:
         """Return paginated ModelHub provider rows."""
-        _, model_rows, provider_rows, _, summary_metrics = self._build_workbench_data(include_removed=False)
+        _, model_rows, provider_rows, _, summary_metrics = await self._build_workbench_data(include_removed=False)
         filtered_rows = self._filter_provider_rows(
             provider_rows,
             tab=tab,
@@ -558,7 +558,7 @@ class ModelHubService:
             page_size=len(visible_rows),
         )
 
-    def _build_workbench_data(
+    async def _build_workbench_data(
         self,
         *,
         include_removed: bool = False,
@@ -569,10 +569,10 @@ class ModelHubService:
         list[ModelWorkbenchTrendPoint],
         dict[str, Any],
     ]:
-        providers = self.provider_repo.list(limit=500)
+        providers = await self.provider_repo.list(limit=500)
         provider_by_id = {provider.id: provider for provider in providers}
-        models = self._list_workbench_provider_models(include_removed=include_removed)
-        model_metrics, provider_metrics, summary_metrics, trend = self._build_runtime_metrics(provider_by_id)
+        models = await self._list_workbench_provider_models(include_removed=include_removed)
+        model_metrics, provider_metrics, summary_metrics, trend = await self._build_runtime_metrics(provider_by_id)
         model_rows = [
             self._build_model_row(model, provider_by_id.get(model.provider_id), model_metrics.get(model.id, {}))
             for model in models
@@ -588,7 +588,7 @@ class ModelHubService:
         ]
         return providers, model_rows, provider_rows, trend, summary_metrics
 
-    def _list_workbench_provider_models(self, *, include_removed: bool = False) -> list[ProviderModel]:
+    async def _list_workbench_provider_models(self, *, include_removed: bool = False) -> list[ProviderModel]:
         clauses = [
             ProviderModel.tenant_id == self.ctx.tenant_id,
             ProviderModel.workspace_id == self.ctx.workspace_id,
@@ -600,16 +600,16 @@ class ModelHubService:
             .where(and_(*clauses))
             .order_by(desc(ProviderModel.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return [item if isinstance(item, ProviderModel) else item[0] for item in results]
 
-    def _build_runtime_metrics(
+    async def _build_runtime_metrics(
         self,
         provider_by_id: dict[str, Provider],
     ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, Any], list[ModelWorkbenchTrendPoint]]:
         month_start, month_end = self._month_window()
         today_start, today_end = self._today_window()
-        models = self._list_workbench_provider_models()
+        models = await self._list_workbench_provider_models()
         model_by_ref: dict[tuple[str, str], ProviderModel] = {}
         for model in models:
             model_by_ref[(model.provider_id, model.model_id)] = model
@@ -633,7 +633,7 @@ class ModelHubService:
             )
             .order_by(desc(RunCostEntry.created_at))
         )
-        for row in self.db.exec(query).all():
+        for row in (await self.db.exec(query)).all():
             entry = row[0]
             run = row[1]
             provider = self._resolve_entry_provider(entry, provider_by_id)
@@ -642,7 +642,7 @@ class ModelHubService:
             self._accumulate_metrics(summary_metrics, entry, run, today_start, today_end)
             self._accumulate_metrics(provider_metrics[provider.id], entry, run, today_start, today_end) if provider else None
             self._accumulate_metrics(model_metrics[model.id], entry, run, today_start, today_end) if model else None
-            day_key = entry.created_at.date().isoformat()
+            day_key = self._naive_utc(entry.created_at).date().isoformat()
             self._accumulate_metrics(daily_metrics[day_key], entry, run, today_start, today_end)
 
         trend = [
@@ -710,8 +710,9 @@ class ModelHubService:
         today_start: datetime,
         today_end: datetime,
     ) -> None:
+        started_at = self._naive_utc(run.started_at)
         metrics["run_ids"].add(entry.run_id)
-        if today_start <= run.started_at < today_end:
+        if today_start <= started_at < today_end:
             metrics["today_run_ids"].add(entry.run_id)
         metrics["tokens"] += int(entry.prompt_tokens or 0) + int(entry.completion_tokens or 0)
         if run.duration_ms is not None and entry.run_id not in {item[0] for item in metrics["durations"]}:
@@ -719,8 +720,8 @@ class ModelHubService:
         if run.status == "failed" or bool(run.error_message):
             metrics["failed_run_ids"].add(entry.run_id)
         last_run_at = metrics["last_run_at"]
-        if last_run_at is None or run.started_at > last_run_at:
-            metrics["last_run_at"] = run.started_at
+        if last_run_at is None or started_at > last_run_at:
+            metrics["last_run_at"] = started_at
         if entry.amount is not None and entry.currency:
             metrics["amount"] += float(entry.amount)
             metrics["currency"] = metrics["currency"] or entry.currency
@@ -951,6 +952,13 @@ class ModelHubService:
         return int(round(sum(numbers) / len(numbers)))
 
     @staticmethod
+    def _naive_utc(value: datetime) -> datetime:
+        """Rows loaded from the DB are naive UTC; in-session rows may still carry tzinfo."""
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    @staticmethod
     def _month_window() -> tuple[datetime, datetime]:
         now = utc_now()
         if now.tzinfo is None:
@@ -983,10 +991,10 @@ class ModelHubService:
             auth_config=data.auth_config_json,
             credential_secret_id=data.credential_secret_id,
         )
-        if self.provider_repo.get_by_name(data.name):
+        if await self.provider_repo.get_by_name(data.name):
             raise ValidationError(f"Provider name already exists: {data.name}")
         slug = self._normalize_provider_slug(data.slug or data.kind)
-        if self.provider_repo.get_by_slug(slug):
+        if await self.provider_repo.get_by_slug(slug):
             raise ValidationError(f"Provider slug already exists: {slug}")
         provider = Provider(
             tenant_id=self.ctx.tenant_id,
@@ -1006,14 +1014,14 @@ class ModelHubService:
             created_at=utc_now(),
             updated_at=utc_now(),
         )
-        created = self.provider_repo.create(provider)
+        created = await self.provider_repo.create(provider)
         await self._invalidate_provider_cache(created.slug)
         return created
 
     @workspace_guard("write")
     async def update_provider(self, provider_id: str, data: ProviderUpdate) -> Provider:
         """Update provider."""
-        provider = self._get_provider(provider_id)
+        provider = await self._get_provider(provider_id)
         self._ensure_preset_supports_adapter(
             data.kind or provider.kind,
             data.adapter_backend or provider.adapter_backend,
@@ -1044,13 +1052,13 @@ class ModelHubService:
         )
         previous_slug = provider.slug
         if data.name and data.name != provider.name:
-            existing = self.provider_repo.get_by_name(data.name)
+            existing = await self.provider_repo.get_by_name(data.name)
             if existing and existing.id != provider_id:
                 raise ValidationError(f"Provider name already exists: {data.name}")
             provider.name = data.name
         if data.slug is not None:
             slug = self._normalize_provider_slug(data.slug)
-            existing = self.provider_repo.get_by_slug(slug)
+            existing = await self.provider_repo.get_by_slug(slug)
             if existing and existing.id != provider_id:
                 raise ValidationError(f"Provider slug already exists: {slug}")
             provider.slug = slug
@@ -1075,16 +1083,15 @@ class ModelHubService:
         if data.governance_config_json is not None:
             provider.governance_config_json = data.governance_config_json
         provider.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(provider)
+        await self.db.commit()
         await self._invalidate_provider_cache(previous_slug, provider.slug)
         return provider
 
     @workspace_guard("write")
     async def delete_provider(self, provider_id: str) -> None:
         """Delete provider."""
-        provider = self._get_provider(provider_id)
-        if self.provider_model_repo.list_by_provider(
+        provider = await self._get_provider(provider_id)
+        if await self.provider_model_repo.list_by_provider(
             provider_id,
             limit=1,
             include_removed=True,
@@ -1094,19 +1101,19 @@ class ModelHubService:
                 {"provider_id": provider_id},
             )
         slug = provider.slug
-        self.db.delete(provider)
-        self.db.commit()
+        await self.db.delete(provider)
+        await self.db.commit()
         await self._invalidate_provider_cache(slug)
 
     @workspace_guard("write")
     async def healthcheck_provider(self, provider_id: str) -> dict[str, Any]:
         """Perform provider healthcheck."""
-        provider = self._get_provider(provider_id)
+        provider = await self._get_provider(provider_id)
         now = utc_now()
         try:
             if provider.adapter_backend == "litellm":
                 credentials = await self._resolve_litellm_credentials(provider)
-                models = self.provider_model_repo.list_by_provider(
+                models = await self.provider_model_repo.list_by_provider(
                     provider.id, limit=1, status="active"
                 )
                 if not models:
@@ -1129,8 +1136,7 @@ class ModelHubService:
             provider.last_healthcheck_error = None
             provider.last_healthcheck_at = now
             provider.updated_at = now
-            self.db.commit()
-            self.db.refresh(provider)
+            await self.db.commit()
             await self._invalidate_provider_cache(provider.slug)
             return {"status": "ok", "message": "healthcheck_ok", "checked_at": now}
         except Exception as exc:
@@ -1138,20 +1144,19 @@ class ModelHubService:
             provider.last_healthcheck_error = str(exc)
             provider.last_healthcheck_at = now
             provider.updated_at = now
-            self.db.commit()
-            self.db.refresh(provider)
+            await self.db.commit()
             await self._invalidate_provider_cache(provider.slug)
             return {"status": "error", "message": str(exc), "checked_at": now}
 
     @workspace_guard("read")
     async def list_platform_models(self, provider_kind: str, limit: int = 200) -> list[PlatformModel]:
         """List platform models by provider kind."""
-        return self.platform_model_repo.list_by_provider_kind(provider_kind, limit=limit)
+        return await self.platform_model_repo.list_by_provider_kind(provider_kind, limit=limit)
 
     @workspace_guard("write")
     async def refresh_platform_models(self, provider_id: str) -> dict[str, Any]:
         """Sync platform models from external provider using provider credentials."""
-        provider = self._get_provider(provider_id)
+        provider = await self._get_provider(provider_id)
         api_key = await self._resolve_credential(provider.credential_secret_id)
         upstream_models = await self.catalog_adapter.list_models(
             ctx=self.ctx,
@@ -1172,7 +1177,7 @@ class ModelHubService:
             if not model_id:
                 continue
             seen.add(model_id)
-            existing = self.platform_model_repo.get_by_kind_and_model_id(provider.kind, model_id)
+            existing = await self.platform_model_repo.get_by_kind_and_model_id(provider.kind, model_id)
             if not existing:
                 platform_model = PlatformModel(
                     tenant_id="platform",
@@ -1190,7 +1195,7 @@ class ModelHubService:
                     created_at=now,
                     updated_at=now,
                 )
-                self.platform_model_repo.create(platform_model)
+                await self.platform_model_repo.create(platform_model)
                 diff["added"].append(model_id)
                 continue
             changed = False
@@ -1215,13 +1220,13 @@ class ModelHubService:
                 diff["updated"].append(model_id)
             else:
                 diff["unchanged"].append(model_id)
-        stale_models = self.platform_model_repo.list_by_provider_kind(provider.kind, limit=500)
+        stale_models = await self.platform_model_repo.list_by_provider_kind(provider.kind, limit=500)
         for model in stale_models:
             if model.model_id not in seen and model.status == "active":
                 model.status = "disabled"
                 model.updated_at = now
                 diff["disabled"].append(model.model_id)
-        self.db.commit()
+        await self.db.commit()
         return diff
 
     @workspace_guard("read")
@@ -1233,9 +1238,9 @@ class ModelHubService:
         status: str | None = None,
     ) -> list[ProviderModel]:
         """List provider models for a provider."""
-        self._get_provider(provider_id)
+        await self._get_provider(provider_id)
         normalized_status = self.normalize_model_status(status) if status else None
-        models = self.provider_model_repo.list_by_provider(
+        models = await self.provider_model_repo.list_by_provider(
             provider_id,
             limit=limit,
             status=normalized_status,
@@ -1250,8 +1255,8 @@ class ModelHubService:
     @workspace_guard("write")
     async def create_provider_model(self, provider_id: str, data: ProviderModelCreate) -> ProviderModel:
         """Create a local provider model."""
-        provider = self._get_provider(provider_id)
-        if self.provider_model_repo.get_by_provider_and_model_id(provider_id, data.model_id):
+        provider = await self._get_provider(provider_id)
+        if await self.provider_model_repo.get_by_provider_and_model_id(provider_id, data.model_id):
             raise ValidationError(f"Model already exists for provider: {data.model_id}")
         now = utc_now()
         model = ProviderModel(
@@ -1286,7 +1291,7 @@ class ModelHubService:
             created_at=now,
             updated_at=now,
         )
-        created = self.provider_model_repo.create(model)
+        created = await self.provider_model_repo.create(model)
         await self._invalidate_model_cache(provider, created.model_id)
         return created
 
@@ -1298,8 +1303,8 @@ class ModelHubService:
         data: ProviderModelUpdate,
     ) -> ProviderModel:
         """Update provider model."""
-        provider = self._get_provider(provider_id)
-        model = self.provider_model_repo.get_by_id(provider_model_id)
+        provider = await self._get_provider(provider_id)
+        model = await self.provider_model_repo.get_by_id(provider_model_id)
         if not model or model.provider_id != provider.id:
             raise NotFoundError(f"Provider model not found: {provider_model_id}")
         original_source = model.source
@@ -1346,21 +1351,20 @@ class ModelHubService:
             model.user_overrides_json = self._merge_overrides(model.user_overrides_json, overridden_fields)
             model.sync_status = "diverged"
         model.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(model)
+        await self.db.commit()
         await self._invalidate_model_cache(provider, model.model_id)
         return model
 
     @workspace_guard("write")
     async def delete_provider_model(self, provider_id: str, provider_model_id: str) -> None:
         """Delete provider model."""
-        self._get_provider(provider_id)
-        model = self.provider_model_repo.get_by_id(provider_model_id)
+        await self._get_provider(provider_id)
+        model = await self.provider_model_repo.get_by_id(provider_model_id)
         if not model or model.provider_id != provider_id:
             raise NotFoundError(f"Provider model not found: {provider_model_id}")
-        model_ref = self._provider_model_ref(self._get_provider(provider_id), model.model_id)
+        model_ref = self._provider_model_ref(await self._get_provider(provider_id), model.model_id)
         references = (
-            self.model_reference_usage.list_references(model_ref)
+            await self.model_reference_usage.list_references(model_ref)
             if self.model_reference_usage is not None
             else []
         )
@@ -1373,19 +1377,18 @@ class ModelHubService:
             model.status = "removed"
             model.sync_status = "user_removed"
             model.updated_at = utc_now()
-            self.db.commit()
-            self.db.refresh(model)
-            await self._invalidate_model_cache(self._get_provider(provider_id), model.model_id)
+            await self.db.commit()
+            await self._invalidate_model_cache(await self._get_provider(provider_id), model.model_id)
             return
         model_id = model.model_id
-        self.db.delete(model)
-        self.db.commit()
-        await self._invalidate_model_cache(self._get_provider(provider_id), model_id)
+        await self.db.delete(model)
+        await self.db.commit()
+        await self._invalidate_model_cache(await self._get_provider(provider_id), model_id)
 
     @workspace_guard("write")
     async def sync_from_platform(self, provider_id: str, data: SyncFromPlatformRequest | None = None) -> SyncJob:
         """Sync provider models from platform catalog."""
-        provider = self._get_provider(provider_id)
+        provider = await self._get_provider(provider_id)
         job = SyncJob(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
@@ -1395,7 +1398,7 @@ class ModelHubService:
             created_at=utc_now(),
             updated_at=utc_now(),
         )
-        job = self.sync_job_repo.create(job)
+        job = await self.sync_job_repo.create(job)
         diff: dict[str, Any] = {
             "added": [],
             "updated": [],
@@ -1407,8 +1410,8 @@ class ModelHubService:
         include_ids = set(data.include_model_ids or []) if data else set()
         try:
             await self.refresh_platform_models(provider_id)
-            platform_models = self.platform_model_repo.list_by_provider_kind(provider.kind, limit=500)
-            existing_models = self.provider_model_repo.list_by_provider(
+            platform_models = await self.platform_model_repo.list_by_provider_kind(provider.kind, limit=500)
+            existing_models = await self.provider_model_repo.list_by_provider(
                 provider_id,
                 limit=500,
                 include_removed=True,
@@ -1463,7 +1466,7 @@ class ModelHubService:
                         created_at=now,
                         updated_at=now,
                     )
-                    self.provider_model_repo.create(provider_model)
+                    await self.provider_model_repo.create(provider_model)
                     diff["added"].append(platform_model.model_id)
                     continue
                 changed = self._sync_provider_model(existing, platform_model)
@@ -1488,8 +1491,7 @@ class ModelHubService:
             job.diff_json = diff
             job.ended_at = utc_now()
             job.updated_at = utc_now()
-            self.db.commit()
-            self.db.refresh(job)
+            await self.db.commit()
             await self._invalidate_provider_cache(provider.slug)
             return job
         except Exception as exc:
@@ -1498,20 +1500,19 @@ class ModelHubService:
             job.diff_json = diff
             job.ended_at = utc_now()
             job.updated_at = utc_now()
-            self.db.commit()
-            self.db.refresh(job)
+            await self.db.commit()
             raise KernelError("MODELHUB_SYNC_FAILED", str(exc))
 
     @workspace_guard("read")
     async def list_sync_jobs(self, provider_id: str, limit: int = 50) -> list[SyncJob]:
         """List sync jobs for provider."""
-        self._get_provider(provider_id)
-        return self.sync_job_repo.list_by_provider(provider_id, limit=limit)
+        await self._get_provider(provider_id)
+        return await self.sync_job_repo.list_by_provider(provider_id, limit=limit)
 
     @workspace_guard("write")
     async def test_chat(self, data: ModelTestChatRequest) -> dict[str, Any]:
         """Test chat completion for a provider model."""
-        provider = self._get_provider(data.provider_id)
+        provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
             if self.runtime_llm_port is not None:
@@ -1568,7 +1569,7 @@ class ModelHubService:
     @workspace_guard("write")
     async def test_embeddings(self, data: ModelTestEmbeddingRequest) -> dict[str, Any]:
         """Test embeddings for a provider model."""
-        provider = self._get_provider(data.provider_id)
+        provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
             if self.runtime_llm_port is not None:
@@ -1622,8 +1623,8 @@ class ModelHubService:
                 "latency_ms": elapsed,
             }
 
-    def _get_provider(self, provider_id: str) -> Provider:
-        provider = self.provider_repo.get_by_id(provider_id)
+    async def _get_provider(self, provider_id: str) -> Provider:
+        provider = await self.provider_repo.get_by_id(provider_id)
         if not provider:
             raise NotFoundError(f"Provider not found: {provider_id}")
         return provider

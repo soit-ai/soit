@@ -338,7 +338,7 @@ async def test_enterprise_agent_mvp_publishes_and_executes_with_knowledge_workfl
                 )
             )).all()
         )
-        response_events = ResponseEventRepository(async_db, tenant1_ctx).list_for_response(
+        response_events = await ResponseEventRepository(async_db, tenant1_ctx).list_for_response(
             result["response_id"],
             limit=50,
             offset=0,

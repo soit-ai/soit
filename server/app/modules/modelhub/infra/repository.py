@@ -8,9 +8,9 @@ from __future__ import annotations
 import builtins
 
 from sqlalchemy import and_, desc, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.contracts.context import RequestContext
 from app.modules.modelhub.domain.models import (
     PlatformModel,
@@ -20,49 +20,48 @@ from app.modules.modelhub.domain.models import (
 )
 
 
-class PlatformModelRepository(Repository[PlatformModel]):
+class PlatformModelRepository(AsyncRepository[PlatformModel]):
     """Repository for platform model catalog."""
 
     PLATFORM_TENANT_ID = "platform"
     PLATFORM_WORKSPACE_ID = "platform"
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(PlatformModel, db, ctx)
 
     def _apply_scope(self, query):
         """Disable tenant/workspace scoping for platform catalog."""
         return query
 
-    def create(self, model: PlatformModel) -> PlatformModel:
+    async def create(self, model: PlatformModel) -> PlatformModel:
         """Create a platform model with platform scope."""
         model.tenant_id = self.PLATFORM_TENANT_ID
         model.workspace_id = self.PLATFORM_WORKSPACE_ID
         self.db.add(model)
-        self.db.commit()
-        self.db.refresh(model)
+        await self.db.commit()
         return model
 
-    def get_by_kind_and_model_id(self, provider_kind: str, model_id: str) -> PlatformModel | None:
+    async def get_by_kind_and_model_id(self, provider_kind: str, model_id: str) -> PlatformModel | None:
         query = select(PlatformModel).where(
             and_(
                 PlatformModel.provider_kind == provider_kind,
                 PlatformModel.model_id == model_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_provider_kind(self, provider_kind: str, limit: int = 200) -> list[PlatformModel]:
+    async def list_by_provider_kind(self, provider_kind: str, limit: int = 200) -> list[PlatformModel]:
         query = (
             select(PlatformModel)
             .where(PlatformModel.provider_kind == provider_kind)
             .order_by(desc(PlatformModel.updated_at))
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def list_active_by_provider_kind(self, provider_kind: str, limit: int = 500) -> list[PlatformModel]:
+    async def list_active_by_provider_kind(self, provider_kind: str, limit: int = 500) -> list[PlatformModel]:
         query = (
             select(PlatformModel)
             .where(
@@ -74,17 +73,17 @@ class PlatformModelRepository(Repository[PlatformModel]):
             .order_by(desc(PlatformModel.updated_at))
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
 
-class ProviderRepository(Repository[Provider]):
+class ProviderRepository(AsyncRepository[Provider]):
     """Repository for providers."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(Provider, db, ctx)
 
-    def get_by_name(self, name: str) -> Provider | None:
+    async def get_by_name(self, name: str) -> Provider | None:
         query = select(Provider).where(
             and_(
                 Provider.tenant_id == self.ctx.tenant_id,
@@ -92,10 +91,10 @@ class ProviderRepository(Repository[Provider]):
                 Provider.name == name,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_slug(self, slug: str) -> Provider | None:
+    async def get_by_slug(self, slug: str) -> Provider | None:
         query = select(Provider).where(
             and_(
                 Provider.tenant_id == self.ctx.tenant_id,
@@ -103,10 +102,10 @@ class ProviderRepository(Repository[Provider]):
                 Provider.slug == slug,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list(self, limit: int = 200) -> builtins.list[Provider]:
+    async def list(self, limit: int = 200) -> builtins.list[Provider]:
         query = (
             select(Provider)
             .where(
@@ -118,17 +117,17 @@ class ProviderRepository(Repository[Provider]):
             .order_by(desc(Provider.updated_at))
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
 
-class ProviderModelRepository(Repository[ProviderModel]):
+class ProviderModelRepository(AsyncRepository[ProviderModel]):
     """Repository for provider models."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(ProviderModel, db, ctx)
 
-    def list_by_provider(
+    async def list_by_provider(
         self,
         provider_id: str,
         limit: int = 200,
@@ -151,10 +150,10 @@ class ProviderModelRepository(Repository[ProviderModel]):
             .order_by(desc(ProviderModel.updated_at))
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def latest_synced_at_by_provider(self, provider_id: str):
+    async def latest_synced_at_by_provider(self, provider_id: str):
         query = select(func.max(ProviderModel.last_synced_at)).where(
             and_(
                 ProviderModel.tenant_id == self.ctx.tenant_id,
@@ -162,14 +161,9 @@ class ProviderModelRepository(Repository[ProviderModel]):
                 ProviderModel.provider_id == provider_id,
             )
         )
-        result = self.db.exec(query).first()
-        if isinstance(result, tuple):
-            return result[0]
-        if hasattr(result, "_mapping"):
-            return result[0]
-        return result
+        return (await self.db.exec(query)).scalar_one()
 
-    def get_by_provider_and_model_id(self, provider_id: str, model_id: str) -> ProviderModel | None:
+    async def get_by_provider_and_model_id(self, provider_id: str, model_id: str) -> ProviderModel | None:
         query = select(ProviderModel).where(
             and_(
                 ProviderModel.tenant_id == self.ctx.tenant_id,
@@ -178,10 +172,10 @@ class ProviderModelRepository(Repository[ProviderModel]):
                 ProviderModel.model_id == model_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_provider_and_platform_model_id(
+    async def get_by_provider_and_platform_model_id(
         self, provider_id: str, platform_model_id: str
     ) -> ProviderModel | None:
         query = select(ProviderModel).where(
@@ -192,10 +186,10 @@ class ProviderModelRepository(Repository[ProviderModel]):
                 ProviderModel.platform_model_id == platform_model_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_provider_kind_and_model_id(
+    async def get_by_provider_kind_and_model_id(
         self, provider_kind: str, model_id: str
     ) -> ProviderModel | None:
         query = select(ProviderModel).where(
@@ -206,17 +200,17 @@ class ProviderModelRepository(Repository[ProviderModel]):
                 ProviderModel.model_id == model_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
 
-class SyncJobRepository(Repository[SyncJob]):
+class SyncJobRepository(AsyncRepository[SyncJob]):
     """Repository for provider sync jobs."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(SyncJob, db, ctx)
 
-    def list_by_provider(self, provider_id: str, limit: int = 50) -> list[SyncJob]:
+    async def list_by_provider(self, provider_id: str, limit: int = 50) -> list[SyncJob]:
         query = (
             select(SyncJob)
             .where(
@@ -229,5 +223,5 @@ class SyncJobRepository(Repository[SyncJob]):
             .order_by(desc(SyncJob.started_at))
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)

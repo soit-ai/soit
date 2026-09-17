@@ -57,10 +57,18 @@ class ModelHubHandlers:
             }
         )
 
-    def _as_provider_model_response(self, model) -> ProviderModelResponse:
+    async def _provider_slug(self, provider_id: str) -> str | None:
+        """Slug used in `model_ref`; one lookup serves every model of the provider."""
         provider_repo = getattr(self.service, "provider_repo", None)
-        provider = provider_repo.get_by_id(model.provider_id) if provider_repo is not None else None
-        provider_slug = provider.slug if provider and provider.slug else model.provider_kind
+        if provider_repo is None:
+            return None
+        provider = await provider_repo.get_by_id(provider_id)
+        return provider.slug if provider and provider.slug else None
+
+    def _as_provider_model_response(
+        self, model, provider_slug: str | None = None
+    ) -> ProviderModelResponse:
+        provider_slug = provider_slug or model.provider_kind
         return ProviderModelResponse.model_validate(
             {
                 "id": model.id,
@@ -237,7 +245,8 @@ class ModelHubHandlers:
         status: str | None = None,
     ) -> PaginatedResponse[ProviderModelResponse]:
         models = await self.service.list_provider_models(provider_id, limit=page_size, status=status)
-        items = [self._as_provider_model_response(item) for item in models]
+        provider_slug = await self._provider_slug(provider_id)
+        items = [self._as_provider_model_response(item, provider_slug) for item in models]
         return PaginatedResponse.create(
             items=items,
             page_size=len(items),
@@ -252,7 +261,7 @@ class ModelHubHandlers:
         data: ProviderModelCreate,
     ) -> ProviderModelResponse:
         model = await self.service.create_provider_model(provider_id, data)
-        return self._as_provider_model_response(model)
+        return self._as_provider_model_response(model, await self._provider_slug(provider_id))
 
     async def update_provider_model(
         self,
@@ -262,7 +271,7 @@ class ModelHubHandlers:
         data: ProviderModelUpdate,
     ) -> ProviderModelResponse:
         model = await self.service.update_provider_model(provider_id, provider_model_id, data)
-        return self._as_provider_model_response(model)
+        return self._as_provider_model_response(model, await self._provider_slug(provider_id))
 
     async def delete_provider_model(
         self,

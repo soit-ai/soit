@@ -77,7 +77,7 @@ class _ModelTestCatalog:
 
 
 def _modelhub_service(
-    db,
+    async_db,
     ctx: RequestContext,
     *,
     catalog=None,
@@ -87,12 +87,12 @@ def _modelhub_service(
     model_reference_usage=None,
 ) -> ModelHubService:
     return ModelHubService(
-        db,
+        async_db,
         ctx,
-        ProviderRepository(db, ctx),
-        PlatformModelRepository(db, ctx),
-        ProviderModelRepository(db, ctx),
-        SyncJobRepository(db, ctx),
+        ProviderRepository(async_db, ctx),
+        PlatformModelRepository(async_db, ctx),
+        ProviderModelRepository(async_db, ctx),
+        SyncJobRepository(async_db, ctx),
         _TestSecrets(),
         catalog or _ModelTestCatalog(),
         litellm_port_factory=litellm_factory,
@@ -131,7 +131,7 @@ class _FlakyLiteLLMPort(_TestLiteLLMPort):
 
 
 @pytest.mark.asyncio
-async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(db, ctx):
+async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -142,11 +142,11 @@ async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(db, ctx):
         credential_secret_id="sec_runtime-route",
         status="active",
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
     runtime_port = _TestLiteLLMPort()
-    service = _modelhub_service(db, ctx, runtime_llm_port=runtime_port)
+    service = _modelhub_service(async_db, ctx, runtime_llm_port=runtime_port)
 
     result = await service.test_chat(
         ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
@@ -157,7 +157,7 @@ async def test_modelhub_diagnostics_reuse_authoritative_runtime_route(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_provider_delete_rejects_orphaning_provider_models(db, ctx):
+async def test_provider_delete_rejects_orphaning_provider_models(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -166,10 +166,10 @@ async def test_provider_delete_rejects_orphaning_provider_models(db, ctx):
         name="Provider With Model",
         status="active",
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
-    db.add(
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
+    async_db.add(
         ProviderModel(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -178,17 +178,17 @@ async def test_provider_delete_rejects_orphaning_provider_models(db, ctx):
             model_id="gpt-test",
         )
     )
-    db.commit()
-    service = _modelhub_service(db, ctx)
+    await async_db.commit()
+    service = _modelhub_service(async_db, ctx)
 
     with pytest.raises(ConflictError):
         await service.delete_provider(provider.id)
 
-    assert ProviderRepository(db, ctx).get_by_id(provider.id) is not None
+    assert await ProviderRepository(async_db, ctx).get_by_id(provider.id) is not None
 
 
 @pytest.mark.asyncio
-async def test_provider_model_delete_rejects_active_product_references(db, ctx):
+async def test_provider_model_delete_rejects_active_product_references(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -204,18 +204,18 @@ async def test_provider_model_delete_rejects_active_product_references(db, ctx):
         provider_kind=provider.kind,
         model_id="gpt-referenced",
     )
-    db.add(provider)
-    db.add(model)
-    db.commit()
-    db.refresh(provider)
-    db.refresh(model)
+    async_db.add(provider)
+    async_db.add(model)
+    await async_db.commit()
+    await async_db.refresh(provider)
+    await async_db.refresh(model)
 
     class _References:
-        def list_references(self, model_ref):
+        async def list_references(self, model_ref):
             assert model_ref == "model:referenced-provider:gpt-referenced"
             return [{"type": "agent", "id": "agt_live"}]
 
-    service = _modelhub_service(db, ctx, model_reference_usage=_References())
+    service = _modelhub_service(async_db, ctx, model_reference_usage=_References())
 
     with pytest.raises(ConflictError) as exc_info:
         await service.delete_provider_model(provider.id, model.id)
@@ -226,7 +226,7 @@ async def test_provider_model_delete_rejects_active_product_references(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
+async def test_modelhub_diagnostics_honor_litellm_adapter_backend(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -241,9 +241,9 @@ async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
         },
         status="active",
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
     port = _TestLiteLLMPort()
     captured = {}
 
@@ -251,7 +251,7 @@ async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
         captured["credentials"] = credentials
         return port
 
-    service = _modelhub_service(db, ctx, litellm_factory=build_port)
+    service = _modelhub_service(async_db, ctx, litellm_factory=build_port)
 
     chat = await service.test_chat(
         ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
@@ -275,7 +275,7 @@ async def test_modelhub_diagnostics_honor_litellm_adapter_backend(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx):
+async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -287,9 +287,9 @@ async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx)
         credential_secret_id=None,
         status="active",
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
     port = _TestLiteLLMPort()
     captured = {}
 
@@ -297,7 +297,7 @@ async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx)
         captured["credentials"] = credentials
         return port
 
-    service = _modelhub_service(db, ctx, litellm_factory=build_port)
+    service = _modelhub_service(async_db, ctx, litellm_factory=build_port)
 
     result = await service.test_chat(
         ModelTestChatRequest(provider_id=provider.id, model_id="llama3.2", input="hello")
@@ -308,7 +308,7 @@ async def test_modelhub_litellm_diagnostics_allow_credentialless_ollama(db, ctx)
 
 
 @pytest.mark.asyncio
-async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(db, ctx):
+async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(async_db, ctx):
     provider = Provider(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -324,11 +324,11 @@ async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(db, ctx):
             "retry_policy": {"max_retries": 1, "backoff": "none"},
         },
     )
-    db.add(provider)
-    db.commit()
-    db.refresh(provider)
+    async_db.add(provider)
+    await async_db.commit()
+    await async_db.refresh(provider)
     port = _FlakyLiteLLMPort()
-    service = _modelhub_service(db, ctx, litellm_factory=lambda configured, key: port)
+    service = _modelhub_service(async_db, ctx, litellm_factory=lambda configured, key: port)
 
     result = await service.test_chat(
         ModelTestChatRequest(provider_id=provider.id, model_id="gpt-test", input="hello")
@@ -339,14 +339,14 @@ async def test_modelhub_litellm_diagnostics_use_provider_retry_policy(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_provider_mutations_invalidate_runtime_provider_cache(db, ctx):
+async def test_provider_mutations_invalidate_runtime_provider_cache(async_db, ctx):
     invalidated: list[str] = []
 
     async def invalidate(request_ctx, slug):
         assert request_ctx is ctx
         invalidated.append(slug)
 
-    service = _modelhub_service(db, ctx, provider_cache_invalidator=invalidate)
+    service = _modelhub_service(async_db, ctx, provider_cache_invalidator=invalidate)
     provider = await service.create_provider(
         ProviderCreate(
             slug="cache-provider",
@@ -371,7 +371,8 @@ async def test_provider_mutations_invalidate_runtime_provider_cache(db, ctx):
     ]
 
 
-def test_create_provider_persists_slug_and_configuration_json(client):
+@pytest.mark.asyncio
+async def test_create_provider_persists_slug_and_configuration_json(async_client):
     payload = {
         "adapter_backend": "litellm",
         "slug": "deepseek-main",
@@ -409,7 +410,7 @@ def test_create_provider_persists_slug_and_configuration_json(client):
         },
     }
 
-    response = client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
+    response = await async_client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
 
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()["data"]
@@ -422,8 +423,9 @@ def test_create_provider_persists_slug_and_configuration_json(client):
     assert data["sync_policy_json"]["catalog_supported"] is True
 
 
-def test_create_litellm_preset_provider_validates_runtime_configuration(client):
-    response = client.post(
+@pytest.mark.asyncio
+async def test_create_litellm_preset_provider_validates_runtime_configuration(async_client):
+    response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -447,7 +449,7 @@ def test_create_litellm_preset_provider_validates_runtime_configuration(client):
     assert response.status_code == status.HTTP_201_CREATED
     assert response.json()["data"]["kind"] == "azure_openai"
 
-    invalid_response = client.post(
+    invalid_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -462,7 +464,7 @@ def test_create_litellm_preset_provider_validates_runtime_configuration(client):
     assert invalid_response.status_code == status.HTTP_400_BAD_REQUEST
     assert "reserved LiteLLM parameter" in str(invalid_response.json())
 
-    invalid_backend_response = client.post(
+    invalid_backend_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -477,7 +479,8 @@ def test_create_litellm_preset_provider_validates_runtime_configuration(client):
     assert "does not support native adapter" in str(invalid_backend_response.json())
 
 
-def test_create_openai_compatible_provider_persists_all_configuration_groups(client):
+@pytest.mark.asyncio
+async def test_create_openai_compatible_provider_persists_all_configuration_groups(async_client):
     payload = {
         "slug": "compat-main",
         "kind": "openai_compatible",
@@ -519,7 +522,7 @@ def test_create_openai_compatible_provider_persists_all_configuration_groups(cli
         },
     }
 
-    response = client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
+    response = await async_client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
 
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()["data"]
@@ -535,7 +538,8 @@ def test_create_openai_compatible_provider_persists_all_configuration_groups(cli
         assert data[key] == payload[key]
 
 
-def test_provider_slug_must_be_unique_within_workspace(client):
+@pytest.mark.asyncio
+async def test_provider_slug_must_be_unique_within_workspace(async_client):
     payload = {
         "slug": "openai-main",
         "kind": "openai",
@@ -544,8 +548,8 @@ def test_provider_slug_must_be_unique_within_workspace(client):
         "status": "active",
     }
 
-    first_response = client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
-    second_response = client.post(
+    first_response = await async_client.post("/api/v1/modelhub/providers", headers=_headers(), json=payload)
+    second_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={**payload, "name": "OpenAI Backup"},
@@ -554,8 +558,9 @@ def test_provider_slug_must_be_unique_within_workspace(client):
     assert second_response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_provider_adapter_backend_defaults_to_native(client):
-    response = client.post(
+@pytest.mark.asyncio
+async def test_provider_adapter_backend_defaults_to_native(async_client):
+    response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={"slug": "native-default", "kind": "openai", "name": "Native Default"},
@@ -565,7 +570,8 @@ def test_provider_adapter_backend_defaults_to_native(client):
     assert response.json()["data"]["adapter_backend"] == "native"
 
 
-def test_provider_slug_lookup_is_workspace_scoped(db):
+@pytest.mark.asyncio
+async def test_provider_slug_lookup_is_workspace_scoped(async_db):
     first_provider = Provider(
         tenant_id="test-tenant",
         workspace_id="test-workspace",
@@ -584,14 +590,14 @@ def test_provider_slug_lookup_is_workspace_scoped(db):
         credential_secret_id="sec_openai-other",
         status="active",
     )
-    db.add(first_provider)
-    db.add(second_provider)
-    db.commit()
-    db.refresh(first_provider)
-    db.refresh(second_provider)
+    async_db.add(first_provider)
+    async_db.add(second_provider)
+    await async_db.commit()
+    await async_db.refresh(first_provider)
+    await async_db.refresh(second_provider)
 
     first_repo = ProviderRepository(
-        db,
+        async_db,
         RequestContext(
             tenant_id="test-tenant",
             workspace_id="test-workspace",
@@ -600,7 +606,7 @@ def test_provider_slug_lookup_is_workspace_scoped(db):
         ),
     )
     second_repo = ProviderRepository(
-        db,
+        async_db,
         RequestContext(
             tenant_id="test-tenant",
             workspace_id="other-workspace",
@@ -609,12 +615,13 @@ def test_provider_slug_lookup_is_workspace_scoped(db):
         ),
     )
 
-    assert first_repo.get_by_slug("openai-main").id == first_provider.id
-    assert second_repo.get_by_slug("openai-main").id == second_provider.id
+    assert (await first_repo.get_by_slug("openai-main")).id == first_provider.id
+    assert (await second_repo.get_by_slug("openai-main")).id == second_provider.id
 
 
-def test_update_provider_persists_configuration_json(client):
-    create_response = client.post(
+@pytest.mark.asyncio
+async def test_update_provider_persists_configuration_json(async_client):
+    create_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -627,7 +634,7 @@ def test_update_provider_persists_configuration_json(client):
     )
     provider_id = create_response.json()["data"]["id"]
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider_id}",
         headers=_headers(),
         json={
@@ -648,8 +655,9 @@ def test_update_provider_persists_configuration_json(client):
     assert data["governance_config_json"] == {"trace_enabled": False}
 
 
-def test_update_provider_configuration_preserves_unsubmitted_groups(client):
-    create_response = client.post(
+@pytest.mark.asyncio
+async def test_update_provider_configuration_preserves_unsubmitted_groups(async_client):
+    create_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -667,7 +675,7 @@ def test_update_provider_configuration_preserves_unsubmitted_groups(client):
     )
     provider_id = create_response.json()["data"]["id"]
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider_id}",
         headers=_headers(),
         json={
@@ -685,8 +693,9 @@ def test_update_provider_configuration_preserves_unsubmitted_groups(client):
     assert data["governance_config_json"] == {"trace_enabled": False}
 
 
-def test_delete_provider_removes_empty_provider_and_missing_provider_returns_error(client):
-    create_response = client.post(
+@pytest.mark.asyncio
+async def test_delete_provider_removes_empty_provider_and_missing_provider_returns_error(async_client):
+    create_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -699,14 +708,15 @@ def test_delete_provider_removes_empty_provider_and_missing_provider_returns_err
     )
     provider_id = create_response.json()["data"]["id"]
 
-    delete_response = client.delete(f"/api/v1/modelhub/providers/{provider_id}", headers=_headers())
-    missing_response = client.delete("/api/v1/modelhub/providers/provider_missing", headers=_headers())
+    delete_response = await async_client.delete(f"/api/v1/modelhub/providers/{provider_id}", headers=_headers())
+    missing_response = await async_client.delete("/api/v1/modelhub/providers/provider_missing", headers=_headers())
 
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
     assert missing_response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_list_providers_returns_latest_model_sync_timestamp(client, db):
+@pytest.mark.asyncio
+async def test_list_providers_returns_latest_model_sync_timestamp(async_client, async_db):
     provider = Provider(
         id="prov_sync_timestamp",
         tenant_id="test-tenant",
@@ -741,12 +751,12 @@ def test_list_providers_returns_latest_model_sync_timestamp(client, db):
         sync_status="in_sync",
         last_synced_at=datetime(2026, 5, 31, 9, 30, tzinfo=UTC),
     )
-    db.add(provider)
-    db.add(older_model)
-    db.add(newer_model)
-    db.commit()
+    async_db.add(provider)
+    async_db.add(older_model)
+    async_db.add(newer_model)
+    await async_db.commit()
 
-    response = client.get("/api/v1/modelhub/providers", headers=_headers())
+    response = await async_client.get("/api/v1/modelhub/providers", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     items = response.json()["data"]["items"]
@@ -754,8 +764,9 @@ def test_list_providers_returns_latest_model_sync_timestamp(client, db):
     assert provider_data["last_synced_at"].startswith("2026-05-31T09:30:00")
 
 
-def test_create_provider_model_persists_split_configuration_json(client):
-    provider_response = client.post(
+@pytest.mark.asyncio
+async def test_create_provider_model_persists_split_configuration_json(async_client):
+    provider_response = await async_client.post(
         "/api/v1/modelhub/providers",
         headers=_headers(),
         json={
@@ -823,7 +834,7 @@ def test_create_provider_model_persists_split_configuration_json(client):
         "status": "active",
     }
 
-    response = client.post(
+    response = await async_client.post(
         f"/api/v1/modelhub/providers/{provider_id}/models",
         headers=_headers(),
         json=payload,
@@ -858,7 +869,8 @@ def test_create_provider_model_persists_split_configuration_json(client):
     assert data["model_ref"] == "model:openai-model-config:gpt-5.4-mini"
 
 
-def test_update_provider_model_persists_split_configuration_json_and_marks_overrides(client, db):
+@pytest.mark.asyncio
+async def test_update_provider_model_persists_split_configuration_json_and_marks_overrides(async_client, async_db):
     provider = Provider(
         id="prov_model_json_update",
         tenant_id="test-tenant",
@@ -882,9 +894,9 @@ def test_update_provider_model_persists_split_configuration_json_and_marks_overr
         platform_model_id="plm_model_json_update",
         sync_status="in_sync",
     )
-    db.add(provider)
-    db.add(model)
-    db.commit()
+    async_db.add(provider)
+    async_db.add(model)
+    await async_db.commit()
 
     payload = {
         "architecture_json": {"tokenizer": "GPT", "modality": "text->text"},
@@ -898,7 +910,7 @@ def test_update_provider_model_persists_split_configuration_json_and_marks_overr
         "last_synced_at": "2026-06-08T09:30:00Z",
     }
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider.id}/models/{model.id}",
         headers=_headers(),
         json=payload,
@@ -934,7 +946,8 @@ def test_update_provider_model_persists_split_configuration_json_and_marks_overr
     assert data["sync_status"] == "diverged"
 
 
-def test_update_provider_model_accepts_error_status(client, db):
+@pytest.mark.asyncio
+async def test_update_provider_model_accepts_error_status(async_client, async_db):
     provider = Provider(
         id="prov_model_error_status",
         tenant_id="test-tenant",
@@ -956,11 +969,11 @@ def test_update_provider_model_accepts_error_status(client, db):
         source="local",
         sync_status="never_synced",
     )
-    db.add(provider)
-    db.add(model)
-    db.commit()
+    async_db.add(provider)
+    async_db.add(model)
+    await async_db.commit()
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider.id}/models/{model.id}",
         headers=_headers(),
         json={"status": "error"},
@@ -970,7 +983,8 @@ def test_update_provider_model_accepts_error_status(client, db):
     assert response.json()["data"]["status"] == "error"
 
 
-def test_provider_model_status_updates_are_visible_in_provider_model_list(client, db):
+@pytest.mark.asyncio
+async def test_provider_model_status_updates_are_visible_in_provider_model_list(async_client, async_db):
     provider = Provider(
         id="prov_model_status_updates",
         tenant_id="test-tenant",
@@ -992,20 +1006,20 @@ def test_provider_model_status_updates_are_visible_in_provider_model_list(client
         source="local",
         sync_status="never_synced",
     )
-    db.add(provider)
-    db.add(model)
-    db.commit()
+    async_db.add(provider)
+    async_db.add(model)
+    await async_db.commit()
 
-    disabled_response = client.patch(
+    disabled_response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider.id}/models/{model.id}",
         headers=_headers(),
         json={"status": "disabled"},
     )
-    disabled_list_response = client.get(
+    disabled_list_response = await async_client.get(
         f"/api/v1/modelhub/providers/{provider.id}/models?status=disabled",
         headers=_headers(),
     )
-    active_response = client.patch(
+    active_response = await async_client.patch(
         f"/api/v1/modelhub/providers/{provider.id}/models/{model.id}",
         headers=_headers(),
         json={"status": "active"},
@@ -1019,7 +1033,8 @@ def test_provider_model_status_updates_are_visible_in_provider_model_list(client
     assert active_response.json()["data"]["status"] == "active"
 
 
-def test_modelhub_provider_support_matrix_is_explicit(client, db):
+@pytest.mark.asyncio
+async def test_modelhub_provider_support_matrix_is_explicit(async_client, async_db):
     openai_provider = Provider(
         tenant_id="test-tenant",
         workspace_id="test-workspace",
@@ -1036,13 +1051,13 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
         credential_secret_id="sec_anthropic",
         status="active",
     )
-    db.add(openai_provider)
-    db.add(anthropic_provider)
-    db.commit()
-    db.refresh(openai_provider)
-    db.refresh(anthropic_provider)
+    async_db.add(openai_provider)
+    async_db.add(anthropic_provider)
+    await async_db.commit()
+    await async_db.refresh(openai_provider)
+    await async_db.refresh(anthropic_provider)
 
-    response = client.get("/api/v1/modelhub/providers/support-matrix", headers=_headers())
+    response = await async_client.get("/api/v1/modelhub/providers/support-matrix", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]
@@ -1084,7 +1099,8 @@ def test_modelhub_provider_support_matrix_is_explicit(client, db):
     assert presets["dashscope"]["litellm_provider"] == "dashscope"
 
 
-def test_delete_platform_provider_model_marks_removed_and_hides_by_default(client, db):
+@pytest.mark.asyncio
+async def test_delete_platform_provider_model_marks_removed_and_hides_by_default(async_client, async_db):
     provider = Provider(
         id="prov_removed_visibility",
         tenant_id="test-tenant",
@@ -1107,29 +1123,29 @@ def test_delete_platform_provider_model_marks_removed_and_hides_by_default(clien
         platform_model_id="plm_removed_visibility",
         sync_status="in_sync",
     )
-    db.add(provider)
-    db.add(model)
-    db.commit()
+    async_db.add(provider)
+    async_db.add(model)
+    await async_db.commit()
 
-    delete_response = client.delete(
+    delete_response = await async_client.delete(
         f"/api/v1/modelhub/providers/{provider.id}/models/{model.id}",
         headers=_headers(),
     )
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
-    refreshed = db.get(ProviderModel, model.id)
+    refreshed = await async_db.get(ProviderModel, model.id)
     assert refreshed is not None
     assert refreshed.status == "removed"
     assert refreshed.sync_status == "user_removed"
 
-    default_response = client.get(
+    default_response = await async_client.get(
         f"/api/v1/modelhub/providers/{provider.id}/models",
         headers=_headers(),
     )
     assert default_response.status_code == status.HTTP_200_OK
     assert default_response.json()["data"]["items"] == []
 
-    removed_response = client.get(
+    removed_response = await async_client.get(
         f"/api/v1/modelhub/providers/{provider.id}/models?status=removed",
         headers=_headers(),
     )
@@ -1137,7 +1153,8 @@ def test_delete_platform_provider_model_marks_removed_and_hides_by_default(clien
     assert [item["id"] for item in removed_response.json()["data"]["items"]] == [model.id]
 
 
-def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ctx):
+@pytest.mark.asyncio
+async def test_model_test_endpoints_return_success_and_failure_payloads(async_client, async_db, ctx):
     provider = Provider(
         id="prov_model_test",
         tenant_id="test-tenant",
@@ -1148,20 +1165,20 @@ def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ct
         credential_secret_id="sec_openai",
         status="active",
     )
-    db.add(provider)
-    db.commit()
+    async_db.add(provider)
+    await async_db.commit()
 
     from app.api.v1.modelhub.dependencies import get_modelhub_service
     from app.main import app
 
-    app.dependency_overrides[get_modelhub_service] = lambda: _modelhub_service(db, ctx)
+    app.dependency_overrides[get_modelhub_service] = lambda: _modelhub_service(async_db, ctx)
     try:
-        chat_response = client.post(
+        chat_response = await async_client.post(
             "/api/v1/modelhub/test/chat",
             headers=_headers(),
             json={"provider_id": provider.id, "model_id": "gpt-test", "input": "hello"},
         )
-        embedding_response = client.post(
+        embedding_response = await async_client.post(
             "/api/v1/modelhub/test/embeddings",
             headers=_headers(),
             json={"provider_id": provider.id, "model_id": "embed-test", "input": "hello"},
@@ -1189,12 +1206,12 @@ def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ct
     assert embedding["request_id"] == "embed_req_1"
 
     app.dependency_overrides[get_modelhub_service] = lambda: _modelhub_service(
-        db,
+        async_db,
         ctx,
         catalog=_ModelTestCatalog(fail_chat=True),
     )
     try:
-        failed_response = client.post(
+        failed_response = await async_client.post(
             "/api/v1/modelhub/test/chat",
             headers=_headers(),
             json={"provider_id": provider.id, "model_id": "gpt-test", "input": "hello"},
@@ -1219,15 +1236,15 @@ def test_model_test_endpoints_return_success_and_failure_payloads(client, db, ct
         credential_secret_id="sec_anthropic",
         status="active",
     )
-    db.add(anthropic_provider)
-    db.commit()
+    async_db.add(anthropic_provider)
+    await async_db.commit()
     app.dependency_overrides[get_modelhub_service] = lambda: _modelhub_service(
-        db,
+        async_db,
         ctx,
         catalog=_ModelTestCatalog(fail_embeddings=True),
     )
     try:
-        unsupported_embedding_response = client.post(
+        unsupported_embedding_response = await async_client.post(
             "/api/v1/modelhub/test/embeddings",
             headers=_headers(),
             json={"provider_id": anthropic_provider.id, "model_id": "claude-sonnet-4-6", "input": "hello"},

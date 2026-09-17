@@ -34,20 +34,20 @@ class _Catalog:
         return self.models
 
 
-def _service(db, ctx: RequestContext, *, catalog: _Catalog | None = None) -> ModelHubService:
+def _service(async_db, ctx: RequestContext, *, catalog: _Catalog | None = None) -> ModelHubService:
     return ModelHubService(
-        db,
+        async_db,
         ctx,
-        ProviderRepository(db, ctx),
-        PlatformModelRepository(db, ctx),
-        ProviderModelRepository(db, ctx),
-        SyncJobRepository(db, ctx),
+        ProviderRepository(async_db, ctx),
+        PlatformModelRepository(async_db, ctx),
+        ProviderModelRepository(async_db, ctx),
+        SyncJobRepository(async_db, ctx),
         _Secrets(),
         catalog or _Catalog(),
     )
 
 
-def _seed_removed_platform_model(db, ctx: RequestContext, *, recreate_deleted: bool = False) -> ProviderModel:
+async def _seed_removed_platform_model(async_db, ctx: RequestContext, *, recreate_deleted: bool = False) -> ProviderModel:
     provider = Provider(
         id="prov_removed_sync",
         tenant_id=ctx.tenant_id,
@@ -80,19 +80,19 @@ def _seed_removed_platform_model(db, ctx: RequestContext, *, recreate_deleted: b
         platform_model_id=platform.id,
         sync_status="user_removed",
     )
-    db.add_all([provider, platform, removed])
-    db.commit()
+    async_db.add_all([provider, platform, removed])
+    await async_db.commit()
     return removed
 
 
 @pytest.mark.asyncio
-async def test_sync_skips_user_removed_platform_model(db, ctx):
-    removed = _seed_removed_platform_model(db, ctx, recreate_deleted=False)
-    service = _service(db, ctx)
+async def test_sync_skips_user_removed_platform_model(async_db, ctx):
+    removed = await _seed_removed_platform_model(async_db, ctx, recreate_deleted=False)
+    service = _service(async_db, ctx)
 
     job = await service.sync_from_platform("prov_removed_sync")
 
-    refreshed = db.get(ProviderModel, removed.id)
+    refreshed = await async_db.get(ProviderModel, removed.id)
     assert refreshed.status == "removed"
     assert refreshed.sync_status == "user_removed"
     assert job.diff_json["skipped_removed"] == ["gpt-removed"]
@@ -100,20 +100,20 @@ async def test_sync_skips_user_removed_platform_model(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_sync_recreates_user_removed_model_when_policy_allows(db, ctx):
-    removed = _seed_removed_platform_model(db, ctx, recreate_deleted=True)
-    service = _service(db, ctx)
+async def test_sync_recreates_user_removed_model_when_policy_allows(async_db, ctx):
+    removed = await _seed_removed_platform_model(async_db, ctx, recreate_deleted=True)
+    service = _service(async_db, ctx)
 
     job = await service.sync_from_platform("prov_removed_sync")
 
-    refreshed = db.get(ProviderModel, removed.id)
+    refreshed = await async_db.get(ProviderModel, removed.id)
     assert refreshed.status == "active"
     assert refreshed.sync_status == "in_sync"
     assert job.diff_json["updated"] == ["gpt-removed"]
 
 
 @pytest.mark.asyncio
-async def test_sync_adds_new_platform_model_and_records_diff(db, ctx):
+async def test_sync_adds_new_platform_model_and_records_diff(async_db, ctx):
     provider = Provider(
         id="prov_sync_add",
         tenant_id=ctx.tenant_id,
@@ -124,10 +124,10 @@ async def test_sync_adds_new_platform_model_and_records_diff(db, ctx):
         status="active",
         sync_policy_json={"default_enabled": True},
     )
-    db.add(provider)
-    db.commit()
+    async_db.add(provider)
+    await async_db.commit()
     service = _service(
-        db,
+        async_db,
         ctx,
         catalog=_Catalog(
             [
@@ -146,7 +146,7 @@ async def test_sync_adds_new_platform_model_and_records_diff(db, ctx):
 
     job = await service.sync_from_platform(provider.id)
 
-    model = ProviderModelRepository(db, ctx).get_by_provider_and_model_id(provider.id, "gpt-new")
+    model = await ProviderModelRepository(async_db, ctx).get_by_provider_and_model_id(provider.id, "gpt-new")
     assert model is not None
     assert model.display_name == "GPT New"
     assert model.status == "active"
@@ -157,7 +157,7 @@ async def test_sync_adds_new_platform_model_and_records_diff(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db, ctx):
+async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(async_db, ctx):
     provider = Provider(
         id="prov_sync_anthropic_latest",
         tenant_id=ctx.tenant_id,
@@ -168,10 +168,10 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
         status="active",
         sync_policy_json={"default_enabled": True},
     )
-    db.add(provider)
-    db.commit()
+    async_db.add(provider)
+    await async_db.commit()
     service = _service(
-        db,
+        async_db,
         ctx,
         catalog=_Catalog(
             [
@@ -221,7 +221,7 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
 
     job = await service.sync_from_platform(provider.id)
 
-    model = ProviderModelRepository(db, ctx).get_by_provider_and_model_id(
+    model = await ProviderModelRepository(async_db, ctx).get_by_provider_and_model_id(
         provider.id,
         "claude-opus-4-8",
     )
@@ -258,7 +258,7 @@ async def test_sync_anthropic_latest_model_copies_catalog_configuration_json(db,
 
 
 @pytest.mark.asyncio
-async def test_sync_updates_existing_platform_model_and_records_diff(db, ctx):
+async def test_sync_updates_existing_platform_model_and_records_diff(async_db, ctx):
     provider = Provider(
         id="prov_sync_update",
         tenant_id=ctx.tenant_id,
@@ -292,10 +292,10 @@ async def test_sync_updates_existing_platform_model_and_records_diff(db, ctx):
         platform_model_id=platform.id,
         sync_status="in_sync",
     )
-    db.add_all([provider, platform, model])
-    db.commit()
+    async_db.add_all([provider, platform, model])
+    await async_db.commit()
     service = _service(
-        db,
+        async_db,
         ctx,
         catalog=_Catalog(
             [
@@ -312,7 +312,7 @@ async def test_sync_updates_existing_platform_model_and_records_diff(db, ctx):
 
     job = await service.sync_from_platform(provider.id)
 
-    refreshed = db.get(ProviderModel, model.id)
+    refreshed = await async_db.get(ProviderModel, model.id)
     assert refreshed.display_name == "GPT Update Pro"
     assert refreshed.context_window == 64000
     assert refreshed.max_output_tokens == 8192
@@ -322,7 +322,7 @@ async def test_sync_updates_existing_platform_model_and_records_diff(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_sync_marks_provider_model_platform_removed_when_catalog_omits_model(db, ctx):
+async def test_sync_marks_provider_model_platform_removed_when_catalog_omits_model(async_db, ctx):
     provider = Provider(
         id="prov_sync_platform_removed",
         tenant_id=ctx.tenant_id,
@@ -354,20 +354,20 @@ async def test_sync_marks_provider_model_platform_removed_when_catalog_omits_mod
         platform_model_id=platform.id,
         sync_status="in_sync",
     )
-    db.add_all([provider, platform, model])
-    db.commit()
-    service = _service(db, ctx, catalog=_Catalog([]))
+    async_db.add_all([provider, platform, model])
+    await async_db.commit()
+    service = _service(async_db, ctx, catalog=_Catalog([]))
 
     job = await service.sync_from_platform(provider.id)
 
-    refreshed = db.get(ProviderModel, model.id)
+    refreshed = await async_db.get(ProviderModel, model.id)
     assert refreshed.status == "disabled"
     assert refreshed.sync_status == "platform_removed"
     assert job.diff_json["platform_removed"] == ["gpt-stale"]
 
 
 @pytest.mark.asyncio
-async def test_sync_include_model_ids_limits_provider_model_changes(db, ctx):
+async def test_sync_include_model_ids_limits_provider_model_changes(async_db, ctx):
     provider = Provider(
         id="prov_sync_include",
         tenant_id=ctx.tenant_id,
@@ -377,10 +377,10 @@ async def test_sync_include_model_ids_limits_provider_model_changes(db, ctx):
         credential_secret_id="sec_openai",
         status="active",
     )
-    db.add(provider)
-    db.commit()
+    async_db.add(provider)
+    await async_db.commit()
     service = _service(
-        db,
+        async_db,
         ctx,
         catalog=_Catalog(
             [
@@ -395,9 +395,9 @@ async def test_sync_include_model_ids_limits_provider_model_changes(db, ctx):
         SyncFromPlatformRequest(include_model_ids=["gpt-included"]),
     )
 
-    repo = ProviderModelRepository(db, ctx)
-    included = repo.get_by_provider_and_model_id(provider.id, "gpt-included")
-    excluded = repo.get_by_provider_and_model_id(provider.id, "gpt-excluded")
+    repo = ProviderModelRepository(async_db, ctx)
+    included = await repo.get_by_provider_and_model_id(provider.id, "gpt-included")
+    excluded = await repo.get_by_provider_and_model_id(provider.id, "gpt-excluded")
     assert included is not None
     assert excluded is None
     assert job.diff_json["added"] == ["gpt-included"]
@@ -405,7 +405,7 @@ async def test_sync_include_model_ids_limits_provider_model_changes(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_sync_failure_records_failed_job_without_mutating_existing_models(db, ctx):
+async def test_sync_failure_records_failed_job_without_mutating_existing_models(async_db, ctx):
     provider = Provider(
         id="prov_sync_failure",
         tenant_id=ctx.tenant_id,
@@ -428,15 +428,15 @@ async def test_sync_failure_records_failed_job_without_mutating_existing_models(
         platform_model_id="plm_sync_failure",
         sync_status="in_sync",
     )
-    db.add_all([provider, model])
-    db.commit()
-    service = _service(db, ctx, catalog=_Catalog(error=RuntimeError("catalog timeout")))
+    async_db.add_all([provider, model])
+    await async_db.commit()
+    service = _service(async_db, ctx, catalog=_Catalog(error=RuntimeError("catalog timeout")))
 
     with pytest.raises(KernelError) as exc_info:
         await service.sync_from_platform(provider.id)
 
-    refreshed = db.get(ProviderModel, model.id)
-    jobs = SyncJobRepository(db, ctx).list_by_provider(provider.id)
+    refreshed = await async_db.get(ProviderModel, model.id)
+    jobs = await SyncJobRepository(async_db, ctx).list_by_provider(provider.id)
     assert exc_info.value.code == "MODELHUB_SYNC_FAILED"
     assert exc_info.value.message == "catalog timeout"
     assert refreshed.status == "active"
