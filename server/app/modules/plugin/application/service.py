@@ -1,6 +1,7 @@
 """Plugin application service."""
 
 import hashlib
+import inspect
 import json
 import logging
 import shutil
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -53,7 +54,7 @@ class PluginService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         plugin_repo: PluginRepositoryPort,
         installation_repo: PluginInstallationRepositoryPort,
@@ -184,7 +185,7 @@ class PluginService:
             "mcp_servers": list(exports.get("mcp_servers") or []),
         }
 
-    def _create_plugin_version(
+    async def _create_plugin_version(
         self,
         plugin: Plugin,
         *,
@@ -196,7 +197,7 @@ class PluginService:
     ) -> PluginVersion:
         version = PluginVersion(
             plugin_id=plugin.id,
-            version=self.version_repo.next_version_number(plugin.id),
+            version=await self.version_repo.next_version_number(plugin.id),
             package_version=package_version,
             status="draft",
             spec_json=spec,
@@ -206,30 +207,29 @@ class PluginService:
             metadata_json=metadata or {},
             created_by=self.ctx.user_id,
         )
-        version = self.version_repo.create(version)
+        version = await self.version_repo.create(version)
         plugin.current_version_id = version.id
         plugin.version = package_version
         plugin.spec_json = spec
         plugin.manifest_json = manifest
         plugin.plugin_type = self._infer_plugin_type(spec, getattr(plugin, "plugin_type", None))
         plugin.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
         return version
 
-    def _get_plugin_version(self, version_id: str | None) -> PluginVersion | None:
+    async def _get_plugin_version(self, version_id: str | None) -> PluginVersion | None:
         if not version_id:
             return None
-        return self.version_repo.get_by_id(version_id)
+        return await self.version_repo.get_by_id(version_id)
 
-    def _projection_context(
+    async def _projection_context(
         self,
         *,
         plugin: Plugin,
         installation: PluginInstallation | None = None,
         version: PluginVersion | None = None,
     ) -> PluginProjectionContext:
-        resolved_version = version or self._get_plugin_version(
+        resolved_version = version or await self._get_plugin_version(
             installation.plugin_version_id if installation else plugin.current_version_id
         )
         install_dir = self._install_dir_for(plugin_name=plugin.name, version=plugin.version)
@@ -244,12 +244,12 @@ class PluginService:
             spec=spec,
         )
 
-    def get_installation_for_plugin(self, plugin_id: str) -> PluginInstallation | None:
+    async def get_installation_for_plugin(self, plugin_id: str) -> PluginInstallation | None:
         """Return installation info for a plugin in this workspace."""
-        return self.installation_repo.get_by_plugin(plugin_id)
+        return await self.installation_repo.get_by_plugin(plugin_id)
 
-    def list_installations_for_plugin(self, plugin_id: str) -> list[PluginInstallation]:
-        return list(self.installation_repo.list_by_plugin(plugin_id))
+    async def list_installations_for_plugin(self, plugin_id: str) -> list[PluginInstallation]:
+        return list(await self.installation_repo.list_by_plugin(plugin_id))
 
 
     def _install_dir_for(self, *, plugin_name: str, version: str) -> Path:
@@ -288,8 +288,8 @@ class PluginService:
                 shutil.rmtree(plugin_dir, ignore_errors=True)
                 self._prune_empty_dirs(plugin_dir.parent)
 
-    def _disable_all_plugin_versions(self, *, plugin: Plugin) -> None:
-        for version in self.version_repo.list_by_plugin(plugin.id, limit=1_000, offset=0):
+    async def _disable_all_plugin_versions(self, *, plugin: Plugin) -> None:
+        for version in await self.version_repo.list_by_plugin(plugin.id, limit=1_000, offset=0):
             self._sync_manifest_enabled(plugin_name=plugin.name, version=version.package_version, enabled=False)
             self._sync_registry_for_plugin(plugin_name=plugin.name, version=version.package_version, enabled=False)
 
@@ -420,22 +420,25 @@ class PluginService:
                     node_refs.add(str(node_ref))
         return tool_refs, node_refs
 
-    def _collect_published_workflow_refs(self) -> tuple[set[str], set[str]]:
+    async def _collect_published_workflow_refs(self) -> tuple[set[str], set[str]]:
         tool_refs: set[str] = set()
         node_refs: set[str] = set()
-        for spec in self.workflow_usage.list_published_specs():
+        specs = self.workflow_usage.list_published_specs()
+        if inspect.isawaitable(specs):
+            specs = await specs
+        for spec in specs:
             wf_tools, wf_nodes = self._extract_workflow_refs(spec)
             tool_refs.update(wf_tools)
             node_refs.update(wf_nodes)
         return tool_refs, node_refs
 
-    def _check_upgrade_compat(self, *, plugin: Plugin, next_spec: dict[str, Any]) -> None:
+    async def _check_upgrade_compat(self, *, plugin: Plugin, next_spec: dict[str, Any]) -> None:
         current_spec = plugin.spec_json or {}
         current_tools, current_nodes = self._collect_export_refs(current_spec)
         if not current_tools and not current_nodes:
             return
         next_tools, next_nodes = self._collect_export_refs(next_spec)
-        used_tools, used_nodes = self._collect_published_workflow_refs()
+        used_tools, used_nodes = await self._collect_published_workflow_refs()
 
         removed_tools = (used_tools & current_tools) - next_tools
         removed_nodes = (used_nodes & current_nodes) - next_nodes
@@ -594,7 +597,7 @@ class PluginService:
             ValidationError: If plugin name and version combination already exists.
         """
         # Check if name and version combination already exists
-        existing = self.plugin_repo.get_by_name_version(plugin_in.name, plugin_in.version)
+        existing = await self.plugin_repo.get_by_name_version(plugin_in.name, plugin_in.version)
         if existing:
             raise ValidationError(
                 f"Plugin '{plugin_in.name}' version '{plugin_in.version}' already exists"
@@ -616,8 +619,8 @@ class PluginService:
             created_by=self.ctx.user_id,
         )
 
-        plugin = self.plugin_repo.create(plugin)
-        version = self._create_plugin_version(
+        plugin = await self.plugin_repo.create(plugin)
+        version = await self._create_plugin_version(
             plugin,
             package_version=plugin_in.version,
             spec=plugin_in.spec_json,
@@ -625,8 +628,7 @@ class PluginService:
             metadata=plugin_in.metadata_json,
         )
         plugin.current_version_id = version.id
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
         logger.info(
             "plugin.create",
             extra={
@@ -651,7 +653,7 @@ class PluginService:
         Raises:
             NotFoundError: If plugin not found.
         """
-        plugin = self.plugin_repo.get_by_id(plugin_id)
+        plugin = await self.plugin_repo.get_by_id(plugin_id)
         if not plugin:
             raise NotFoundError(f"Plugin not found: {plugin_id}")
         return plugin
@@ -676,7 +678,7 @@ class PluginService:
         Returns:
             List of Plugin instances.
         """
-        return self.plugin_repo.list(
+        return await self.plugin_repo.list(
             published_only=published_only,
             plugin_type=plugin_type,
             limit=limit,
@@ -724,8 +726,7 @@ class PluginService:
 
         plugin.updated_at = utc_now()
 
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
         logger.info(
             "plugin.update",
             extra={
@@ -743,7 +744,7 @@ class PluginService:
         manifest = data.manifest_json
         package_version = data.version or str(spec.get("version") or plugin.version)
         plugin.plugin_type = self._infer_plugin_type(spec, plugin.plugin_type)
-        version = self._create_plugin_version(
+        version = await self._create_plugin_version(
             plugin,
             package_version=package_version,
             spec=spec,
@@ -755,17 +756,17 @@ class PluginService:
     @rbac_guard(RESOURCE_PLUGIN, "read", resource_id_arg="plugin_id")
     async def list_versions(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginVersion]:
         await self.get_plugin(plugin_id)
-        return self.version_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
+        return await self.version_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_PLUGIN, "read", resource_id_arg="plugin_id")
     async def list_releases(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginRelease]:
         await self.get_plugin(plugin_id)
-        return self.release_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
+        return await self.release_repo.list_by_plugin(plugin_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
     async def publish_version(self, plugin_id: str, version_id: str, *, notes: str | None = None) -> Plugin:
         plugin = await self.get_plugin(plugin_id)
-        version = self.version_repo.get_by_id(version_id)
+        version = await self.version_repo.get_by_id(version_id)
         if not version or version.plugin_id != plugin.id:
             raise NotFoundError(f"Plugin version not found: {version_id}")
         self._require_publish_approval_if_needed(
@@ -775,9 +776,9 @@ class PluginService:
             notes=notes,
         )
         previous = plugin.published_version_id
-        previous_version = self._get_plugin_version(previous)
+        previous_version = await self._get_plugin_version(previous)
         version.status = "published"
-        self.version_repo.update(version)
+        await self.version_repo.update(version)
         release = PluginRelease(
             plugin_id=plugin.id,
             plugin_version_id=version.id,
@@ -788,7 +789,7 @@ class PluginService:
             notes=notes,
             created_by=self.ctx.user_id,
         )
-        self.release_repo.create(release)
+        await self.release_repo.create(release)
         plugin.published_version_id = version.id
         plugin.current_version_id = version.id
         plugin.version = version.package_version
@@ -797,27 +798,26 @@ class PluginService:
         plugin.plugin_type = self._infer_plugin_type(version.spec_json, plugin.plugin_type)
         plugin.publish_status = "published"
         plugin.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
         if previous_version and previous_version.package_version != version.package_version:
             self._sync_manifest_enabled(plugin_name=plugin.name, version=previous_version.package_version, enabled=False)
             self._sync_registry_for_plugin(plugin_name=plugin.name, version=previous_version.package_version, enabled=False)
         self._sync_manifest_enabled(plugin_name=plugin.name, version=version.package_version, enabled=True)
-        installation = self.installation_repo.get_by_plugin(plugin.id)
+        installation = await self.installation_repo.get_by_plugin(plugin.id)
         if installation:
             installation.plugin_version_id = version.id
-            installation = self.installation_repo.update(installation)
+            installation = await self.installation_repo.update(installation)
             await self.projectors.project_all(
-                self._projection_context(plugin=plugin, installation=installation, version=version),
+                await self._projection_context(plugin=plugin, installation=installation, version=version),
                 self.artifact_repo,
             )
-            self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
+            await self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
         return plugin
 
     @rbac_guard(RESOURCE_PLUGIN, "update", resource_id_arg="plugin_id")
     async def rollback_version(self, plugin_id: str, version_id: str, *, notes: str | None = None) -> Plugin:
         plugin = await self.get_plugin(plugin_id)
-        version = self.version_repo.get_by_id(version_id)
+        version = await self.version_repo.get_by_id(version_id)
         if not version or version.plugin_id != plugin.id:
             raise NotFoundError(f"Plugin version not found: {version_id}")
         self._require_publish_approval_if_needed(
@@ -827,7 +827,7 @@ class PluginService:
             notes=notes,
         )
         previous = plugin.published_version_id
-        previous_version = self._get_plugin_version(previous)
+        previous_version = await self._get_plugin_version(previous)
         release = PluginRelease(
             plugin_id=plugin.id,
             plugin_version_id=version.id,
@@ -838,7 +838,7 @@ class PluginService:
             notes=notes,
             created_by=self.ctx.user_id,
         )
-        self.release_repo.create(release)
+        await self.release_repo.create(release)
         plugin.published_version_id = version.id
         plugin.current_version_id = version.id
         plugin.version = version.package_version
@@ -847,21 +847,20 @@ class PluginService:
         plugin.plugin_type = self._infer_plugin_type(version.spec_json, plugin.plugin_type)
         plugin.publish_status = "published"
         plugin.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
         if previous_version and previous_version.package_version != version.package_version:
             self._sync_manifest_enabled(plugin_name=plugin.name, version=previous_version.package_version, enabled=False)
             self._sync_registry_for_plugin(plugin_name=plugin.name, version=previous_version.package_version, enabled=False)
         self._sync_manifest_enabled(plugin_name=plugin.name, version=version.package_version, enabled=True)
-        installation = self.installation_repo.get_by_plugin(plugin.id)
+        installation = await self.installation_repo.get_by_plugin(plugin.id)
         if installation:
             installation.plugin_version_id = version.id
-            installation = self.installation_repo.update(installation)
+            installation = await self.installation_repo.update(installation)
             await self.projectors.project_all(
-                self._projection_context(plugin=plugin, installation=installation, version=version),
+                await self._projection_context(plugin=plugin, installation=installation, version=version),
                 self.artifact_repo,
             )
-            self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
+            await self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
         return plugin
 
     @rbac_guard(RESOURCE_PLUGIN, "delete", resource_id_arg="plugin_id")
@@ -877,13 +876,13 @@ class PluginService:
         plugin = await self.get_plugin(plugin_id)
 
         # Delete associated installations
-        installations = self.installation_repo.list_by_workspace(limit=1000, offset=0)
+        installations = await self.installation_repo.list_by_workspace(limit=1000, offset=0)
         for installation in installations:
             if installation.plugin_id == plugin_id:
-                self.db.delete(installation)
+                await self.db.delete(installation)
 
-        self.db.delete(plugin)
-        self.db.commit()
+        await self.db.delete(plugin)
+        await self.db.commit()
         logger.info(
             "plugin.delete",
             extra={
@@ -911,7 +910,7 @@ class PluginService:
         plugin = await self.get_plugin(plugin_id)
 
         # Check if already installed
-        existing = self.installation_repo.get_by_plugin(plugin_id)
+        existing = await self.installation_repo.get_by_plugin(plugin_id)
         if existing:
             raise ValidationError(f"Plugin '{plugin.name}' is already installed")
         if not plugin.published_version_id:
@@ -929,12 +928,11 @@ class PluginService:
             state="installed",
         )
 
-        installation = self.installation_repo.create(installation)
+        installation = await self.installation_repo.create(installation)
 
         # Update plugin installed_count
         plugin.installed_count += 1
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
 
         logger.info(
             "plugin.install_record",
@@ -988,7 +986,7 @@ class PluginService:
             expected_sha256=expected_sha256,
         )
         digest = hashlib.sha256(package_bytes).hexdigest()
-        version = self._create_plugin_version(
+        version = await self._create_plugin_version(
             plugin,
             package_version=plugin.version,
             spec=spec,
@@ -998,7 +996,7 @@ class PluginService:
         )
 
         # ensure installation row exists
-        existing = self.installation_repo.get_by_plugin(plugin_id)
+        existing = await self.installation_repo.get_by_plugin(plugin_id)
         if not existing:
             installation = PluginInstallation(
                 tenant_id=self.ctx.tenant_id,
@@ -1010,10 +1008,9 @@ class PluginService:
                 enabled=True,
                 state="installed",
             )
-            installation = self.installation_repo.create(installation)
+            installation = await self.installation_repo.create(installation)
             plugin.installed_count += 1
-            self.db.commit()
-            self.db.refresh(plugin)
+            await self.db.commit()
         else:
             cfg = existing.config_json or {}
             cfg["enabled"] = True
@@ -1021,8 +1018,8 @@ class PluginService:
             existing.plugin_version_id = version.id
             existing.enabled = True
             existing.state = "installed"
-            installation = self.installation_repo.update(existing)
-            self.db.commit()
+            installation = await self.installation_repo.update(existing)
+            await self.db.commit()
 
         plugin.spec_json = spec
         plugin.manifest_json = manifest
@@ -1030,14 +1027,13 @@ class PluginService:
         plugin.published_version_id = version.id
         plugin.publish_status = "published"
         plugin.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
 
         await self.projectors.project_all(
-            self._projection_context(plugin=plugin, installation=installation, version=version),
+            await self._projection_context(plugin=plugin, installation=installation, version=version),
             self.artifact_repo,
         )
-        self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
+        await self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
 
         return {
             "install_dir": str(paths.install_dir),
@@ -1072,7 +1068,7 @@ class PluginService:
         self._validate_runtime_manifest(manifest)
         self._check_conflicts(spec=spec, plugin_name=package_name)
 
-        existing = self.plugin_repo.get_by_name(package_name)
+        existing = await self.plugin_repo.get_by_name(package_name)
         if existing:
             if existing.version == package_version:
                 if normalized_mode != "reinstall":
@@ -1116,7 +1112,7 @@ class PluginService:
             publish_status="published",
             created_by=self.ctx.user_id,
         )
-        plugin = self.plugin_repo.create(plugin)
+        plugin = await self.plugin_repo.create(plugin)
         install_result = await self.install_plugin_package(
             plugin.id,
             package_bytes,
@@ -1130,19 +1126,19 @@ class PluginService:
         """Uninstall a plugin from this workspace."""
         plugin = await self.get_plugin(plugin_id)
 
-        installation = self.installation_repo.get_by_plugin(plugin_id)
+        installation = await self.installation_repo.get_by_plugin(plugin_id)
         if installation:
             await self.projectors.uninstall(
-                self._projection_context(plugin=plugin, installation=installation),
+                await self._projection_context(plugin=plugin, installation=installation),
                 self.artifact_repo,
             )
-            self.db.delete(installation)
+            await self.db.delete(installation)
             if plugin.installed_count > 0:
                 plugin.installed_count -= 1
             plugin.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
-        self._disable_all_plugin_versions(plugin=plugin)
+        await self._disable_all_plugin_versions(plugin=plugin)
         self._remove_all_plugin_files(plugin_name=plugin.name)
 
         logger.info(
@@ -1177,15 +1173,14 @@ class PluginService:
         self._check_release_gate(spec=spec, plugin_name=plugin.name)
         self._validate_runtime_manifest(manifest)
         self._check_conflicts(spec=spec, plugin_name=plugin.name)
-        self._check_upgrade_compat(plugin=plugin, next_spec=spec)
+        await self._check_upgrade_compat(plugin=plugin, next_spec=spec)
 
         old_version = plugin.version
         plugin.version = spec_version
         plugin.spec_json = spec
         plugin.manifest_json = manifest
         plugin.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(plugin)
+        await self.db.commit()
 
         paths = self.installer.install_from_bytes(
             tenant_id=self.ctx.tenant_id,
@@ -1195,7 +1190,7 @@ class PluginService:
             package_bytes=package_bytes,
             expected_sha256=expected_sha256,
         )
-        version = self._create_plugin_version(
+        version = await self._create_plugin_version(
             plugin,
             package_version=spec_version,
             spec=spec,
@@ -1203,7 +1198,7 @@ class PluginService:
             package_sha256=hashlib.sha256(package_bytes).hexdigest(),
             metadata={"package_path": str(paths.package_path)},
         )
-        installation = self.installation_repo.get_by_plugin(plugin_id)
+        installation = await self.installation_repo.get_by_plugin(plugin_id)
         if installation:
             cfg = installation.config_json or {}
             cfg["enabled"] = True
@@ -1211,12 +1206,12 @@ class PluginService:
             installation.plugin_version_id = version.id
             installation.enabled = True
             installation.state = "installed"
-            installation = self.installation_repo.update(installation)
+            installation = await self.installation_repo.update(installation)
             await self.projectors.project_all(
-                self._projection_context(plugin=plugin, installation=installation, version=version),
+                await self._projection_context(plugin=plugin, installation=installation, version=version),
                 self.artifact_repo,
             )
-            self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
+            await self._sync_plugin_capability_payload(plugin=plugin, version=version, installation=installation)
 
         if old_version != spec_version:
             self._sync_registry_for_plugin(plugin_name=plugin.name, version=old_version, enabled=False)
@@ -1250,7 +1245,7 @@ class PluginService:
         """
         plugin = await self.get_plugin(plugin_id)
 
-        installation = self.installation_repo.get_by_plugin(plugin_id)
+        installation = await self.installation_repo.get_by_plugin(plugin_id)
         if not installation:
             raise NotFoundError("Plugin is not installed.")
 
@@ -1259,9 +1254,8 @@ class PluginService:
         installation.config_json = cfg
         installation.enabled = bool(enabled)
         installation.state = "installed" if enabled else "disabled"
-        installation = self.installation_repo.update(installation)
-        self.db.commit()
-        self.db.refresh(installation)
+        installation = await self.installation_repo.update(installation)
+        await self.db.commit()
 
         # keep filesystem manifest in-sync for restart-safe loader
         self._sync_manifest_enabled(plugin_name=plugin.name, version=plugin.version, enabled=bool(enabled))
@@ -1269,13 +1263,13 @@ class PluginService:
         # sync runtime registry (tools + plugin record)
         self._sync_registry_for_plugin(plugin_name=plugin.name, version=plugin.version, enabled=bool(enabled))
         await self.projectors.set_enabled(
-            self._projection_context(plugin=plugin, installation=installation),
+            await self._projection_context(plugin=plugin, installation=installation),
             self.artifact_repo,
             bool(enabled),
         )
-        self._sync_plugin_capability_payload(
+        await self._sync_plugin_capability_payload(
             plugin=plugin,
-            version=self._get_plugin_version(installation.plugin_version_id),
+            version=await self._get_plugin_version(installation.plugin_version_id),
             installation=installation,
         )
 
@@ -1291,7 +1285,7 @@ class PluginService:
 
         return installation
 
-    def _sync_plugin_capability_payload(
+    async def _sync_plugin_capability_payload(
         self,
         *,
         plugin: Plugin,
@@ -1302,7 +1296,7 @@ class PluginService:
         tools: list[str] = []
         nodes: list[str] = []
         if installation and installation.enabled:
-            artifacts = self.artifact_repo.list_by_installation(installation.id)
+            artifacts = await self.artifact_repo.list_by_installation(installation.id)
             for artifact in artifacts:
                 if not artifact.enabled:
                     continue
@@ -1347,7 +1341,7 @@ class PluginService:
     ) -> list[PluginInstalledArtifact]:
         if plugin_id:
             await self.get_plugin(plugin_id)
-        return self.artifact_repo.list(
+        return await self.artifact_repo.list(
             plugin_id=plugin_id,
             artifact_kind=artifact_kind,
             enabled=enabled,
@@ -1363,7 +1357,7 @@ class PluginService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        artifacts = self.artifact_repo.list(enabled=True, limit=1_000, offset=0)
+        artifacts = await self.artifact_repo.list(enabled=True, limit=1_000, offset=0)
         capabilities: list[dict[str, Any]] = []
         for artifact in artifacts:
             capabilities.extend(self._capabilities_for_artifact(artifact))

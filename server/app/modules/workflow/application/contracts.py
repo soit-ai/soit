@@ -10,7 +10,7 @@ from app.kernel.contracts.context import RequestContext
 class PublishedWorkflowUsagePort(Protocol):
     """Read published workflow specifications without exposing workflow ORM models."""
 
-    def list_published_specs(self) -> list[dict]: ...
+    async def list_published_specs(self) -> list[dict]: ...
 
 
 class WorkflowKnowledgeQueryPort(Protocol):

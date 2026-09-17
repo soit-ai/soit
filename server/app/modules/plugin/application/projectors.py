@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -40,7 +40,7 @@ class PluginProjectionContext:
     def __init__(
         self,
         *,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         plugin: Plugin,
         version: PluginVersion | None,
@@ -324,7 +324,7 @@ class PluginProjectorRegistry:
             for artifact_ref in refs:
                 projection = await projector.apply_install(projection_ctx, str(artifact_ref))
                 projected_refs.add(projection.artifact_ref)
-                existing = artifact_repo.get_by_ref(
+                existing = await artifact_repo.get_by_ref(
                     plugin_id=projection_ctx.plugin.id,
                     artifact_ref=projection.artifact_ref,
                 )
@@ -338,9 +338,9 @@ class PluginProjectorRegistry:
                     item.enabled = True
                     item.state = "enabled"
                     item.metadata_json = projection.metadata_json
-                    item = artifact_repo.update(item)
+                    item = await artifact_repo.update(item)
                 else:
-                    item = artifact_repo.create(
+                    item = await artifact_repo.create(
                         PluginInstalledArtifact(
                             plugin_id=projection_ctx.plugin.id,
                             plugin_version_id=projection_ctx.version.id if projection_ctx.version else None,
@@ -356,12 +356,12 @@ class PluginProjectorRegistry:
                     )
                 projected.append(item)
         if projection_ctx.installation:
-            for artifact in artifact_repo.list_by_installation(projection_ctx.installation.id):
+            for artifact in await artifact_repo.list_by_installation(projection_ctx.installation.id):
                 if artifact.artifact_ref in projected_refs:
                     continue
                 projector = self.projector_for(artifact.artifact_kind)
                 await projector.apply_uninstall(projection_ctx, artifact)
-                artifact_repo.update(artifact)
+                await artifact_repo.update(artifact)
         return projected
 
     async def set_enabled(
@@ -372,10 +372,10 @@ class PluginProjectorRegistry:
     ) -> None:
         if not projection_ctx.installation:
             return
-        for artifact in artifact_repo.list_by_installation(projection_ctx.installation.id):
+        for artifact in await artifact_repo.list_by_installation(projection_ctx.installation.id):
             projector = self.projector_for(artifact.artifact_kind)
             await projector.apply_enable(projection_ctx, artifact, enabled)
-            artifact_repo.update(artifact)
+            await artifact_repo.update(artifact)
 
     async def uninstall(
         self,
@@ -384,7 +384,7 @@ class PluginProjectorRegistry:
     ) -> None:
         if not projection_ctx.installation:
             return
-        for artifact in artifact_repo.list_by_installation(projection_ctx.installation.id):
+        for artifact in await artifact_repo.list_by_installation(projection_ctx.installation.id):
             projector = self.projector_for(artifact.artifact_kind)
             await projector.apply_uninstall(projection_ctx, artifact)
-            artifact_repo.update(artifact)
+            await artifact_repo.update(artifact)

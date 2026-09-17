@@ -45,7 +45,7 @@ class StubSessionFactory:
         yield self.session
 
 
-def _seed_artifact(db, ctx, *, transport: str = "streamable_http", auth_config: dict | None = None):
+async def _seed_artifact(async_db, ctx, *, transport: str = "streamable_http", auth_config: dict | None = None):
     plugin = Plugin(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -58,9 +58,9 @@ def _seed_artifact(db, ctx, *, transport: str = "streamable_http", auth_config: 
         manifest_json={},
         publish_status="published",
     )
-    db.add(plugin)
-    db.commit()
-    db.refresh(plugin)
+    async_db.add(plugin)
+    await async_db.commit()
+    await async_db.refresh(plugin)
     version = PluginVersion(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -71,9 +71,9 @@ def _seed_artifact(db, ctx, *, transport: str = "streamable_http", auth_config: 
         spec_json=plugin.spec_json,
         manifest_json={},
     )
-    db.add(version)
-    db.commit()
-    db.refresh(version)
+    async_db.add(version)
+    await async_db.commit()
+    await async_db.refresh(version)
     installation = PluginInstallation(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -82,10 +82,10 @@ def _seed_artifact(db, ctx, *, transport: str = "streamable_http", auth_config: 
         enabled=True,
         state="installed",
     )
-    db.add(installation)
-    db.commit()
-    db.refresh(installation)
-    db.add(
+    async_db.add(installation)
+    await async_db.commit()
+    await async_db.refresh(installation)
+    async_db.add(
         PluginInstalledArtifact(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -107,11 +107,11 @@ def _seed_artifact(db, ctx, *, transport: str = "streamable_http", auth_config: 
             },
         )
     )
-    db.commit()
+    await async_db.commit()
 
 
 @pytest.mark.asyncio
-async def test_official_session_lifecycle_and_structured_content(db, ctx):
+async def test_official_session_lifecycle_and_structured_content(async_db, ctx):
     result = SimpleNamespace(
         structuredContent={"answer": 42},
         content=[SimpleNamespace(type="text", text="fallback")],
@@ -119,8 +119,8 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
     )
     factory = StubSessionFactory(result)
     secrets = StubSecretsPort()
-    _seed_artifact(
-        db,
+    await _seed_artifact(
+        async_db,
         ctx,
         auth_config={"type": "bearer", "secret_id": "sec_mcp_token"},
     )
@@ -131,7 +131,7 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
     ).invoke(
         "mcp_tool:official:echo",
         {"value": "hello"},
-        db=db,
+        db=async_db,
         ctx=ctx,
         secrets_port=secrets,
     )
@@ -152,20 +152,20 @@ async def test_official_session_lifecycle_and_structured_content(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_mcp_is_error_maps_to_failed_tool_response(db, ctx):
+async def test_mcp_is_error_maps_to_failed_tool_response(async_db, ctx):
     result = SimpleNamespace(
         structuredContent=None,
         content=[SimpleNamespace(type="text", text="tool failed")],
         isError=True,
     )
     factory = StubSessionFactory(result)
-    _seed_artifact(db, ctx)
+    await _seed_artifact(async_db, ctx)
 
     response = await MCPToolAdapter(
         session_factory=factory,
         egress_guard=AllowEgressGuard(),
     ).invoke(
-        "mcp_tool:official:echo", {}, db=db, ctx=ctx
+        "mcp_tool:official:echo", {}, db=async_db, ctx=ctx
     )
 
     assert response.success is False
@@ -173,15 +173,15 @@ async def test_mcp_is_error_maps_to_failed_tool_response(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_legacy_http_transport_is_rejected(db, ctx):
+async def test_legacy_http_transport_is_rejected(async_db, ctx):
     factory = StubSessionFactory(SimpleNamespace())
-    _seed_artifact(db, ctx, transport="http")
+    await _seed_artifact(async_db, ctx, transport="http")
 
     response = await MCPToolAdapter(
         session_factory=factory,
         egress_guard=AllowEgressGuard(),
     ).invoke(
-        "mcp_tool:official:echo", {}, db=db, ctx=ctx
+        "mcp_tool:official:echo", {}, db=async_db, ctx=ctx
     )
 
     assert response.success is False
@@ -190,15 +190,15 @@ async def test_legacy_http_transport_is_rejected(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_plaintext_mcp_credentials_are_rejected(db, ctx):
+async def test_plaintext_mcp_credentials_are_rejected(async_db, ctx):
     factory = StubSessionFactory(SimpleNamespace())
-    _seed_artifact(db, ctx, auth_config={"type": "bearer", "token": "plaintext"})
+    await _seed_artifact(async_db, ctx, auth_config={"type": "bearer", "token": "plaintext"})
 
     response = await MCPToolAdapter(
         session_factory=factory,
         egress_guard=AllowEgressGuard(),
     ).invoke(
-        "mcp_tool:official:echo", {}, db=db, ctx=ctx
+        "mcp_tool:official:echo", {}, db=async_db, ctx=ctx
     )
 
     assert response.success is False
@@ -235,9 +235,9 @@ class ChallengingSessionFactory(StubSessionFactory):
 
 
 @pytest.mark.asyncio
-async def test_oauth_server_is_authorized_before_the_first_call(db, ctx, monkeypatch):
-    _seed_artifact(
-        db,
+async def test_oauth_server_is_authorized_before_the_first_call(async_db, ctx, monkeypatch):
+    await _seed_artifact(
+        async_db,
         ctx,
         auth_config={
             "type": "oauth2",
@@ -259,7 +259,7 @@ async def test_oauth_server_is_authorized_before_the_first_call(db, ctx, monkeyp
     response = await adapter.invoke(
         "mcp_tool:official:echo",
         {},
-        db=db,
+        db=async_db,
         ctx=ctx,
         secrets_port=StubSecretsPort(),
     )
@@ -269,9 +269,9 @@ async def test_oauth_server_is_authorized_before_the_first_call(db, ctx, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_a_401_challenge_drives_a_re_authorized_retry(db, ctx, monkeypatch):
-    _seed_artifact(
-        db,
+async def test_a_401_challenge_drives_a_re_authorized_retry(async_db, ctx, monkeypatch):
+    await _seed_artifact(
+        async_db,
         ctx,
         auth_config={
             "type": "oauth2",
@@ -299,7 +299,7 @@ async def test_a_401_challenge_drives_a_re_authorized_retry(db, ctx, monkeypatch
     response = await adapter.invoke(
         "mcp_tool:official:echo",
         {},
-        db=db,
+        db=async_db,
         ctx=ctx,
         secrets_port=StubSecretsPort(),
     )
@@ -314,9 +314,9 @@ async def test_a_401_challenge_drives_a_re_authorized_retry(db, ctx, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_a_non_authorization_failure_is_not_retried(db, ctx, monkeypatch):
-    _seed_artifact(
-        db,
+async def test_a_non_authorization_failure_is_not_retried(async_db, ctx, monkeypatch):
+    await _seed_artifact(
+        async_db,
         ctx,
         auth_config={
             "type": "oauth2",
@@ -345,7 +345,7 @@ async def test_a_non_authorization_failure_is_not_retried(db, ctx, monkeypatch):
     response = await adapter.invoke(
         "mcp_tool:official:echo",
         {},
-        db=db,
+        db=async_db,
         ctx=ctx,
         secrets_port=StubSecretsPort(),
     )

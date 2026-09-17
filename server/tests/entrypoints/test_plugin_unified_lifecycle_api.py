@@ -120,8 +120,8 @@ def _mixed_plugin_package(
     return mem.getvalue()
 
 
-def _create_plugin(client, *, name: str = "unified-mixed", version: str = "1.0.0") -> str:
-    create_resp = client.post(
+async def _create_plugin(async_client, *, name: str = "unified-mixed", version: str = "1.0.0") -> str:
+    create_resp = await async_client.post(
         "/api/v1/plugins",
         json={
             "name": name,
@@ -136,24 +136,26 @@ def _create_plugin(client, *, name: str = "unified-mixed", version: str = "1.0.0
     return create_resp.json()["data"]["id"]
 
 
-def _version_id_for(client, plugin_id: str, package_version: str) -> str:
-    versions_resp = client.get(f"/api/v1/plugins/{plugin_id}/versions", headers=_headers())
+async def _version_id_for(async_client, plugin_id: str, package_version: str) -> str:
+    versions_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/versions", headers=_headers())
     assert versions_resp.status_code == status.HTTP_200_OK
     versions = versions_resp.json()["data"]["items"]
     return next(item["id"] for item in versions if item["package_version"] == package_version)
 
 
-def test_skill_and_mcp_public_routes_are_removed(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_skill_and_mcp_public_routes_are_removed(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
     removed_skill_path = "/api/v1/" + "skills"
     removed_mcp_path = "/api/v1/" + "mcp/catalog"
-    assert client.get(removed_skill_path, headers=_headers()).status_code == status.HTTP_404_NOT_FOUND
-    assert client.get(removed_mcp_path, headers=_headers()).status_code == status.HTTP_404_NOT_FOUND
+    assert (await async_client.get(removed_skill_path, headers=_headers())).status_code == status.HTTP_404_NOT_FOUND
+    assert (await async_client.get(removed_mcp_path, headers=_headers())).status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_plugins_can_be_filtered_by_plugin_type(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_plugins_can_be_filtered_by_plugin_type(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins",
         json={
             "name": "skill-plugin-contract",
@@ -177,15 +179,16 @@ def test_plugins_can_be_filtered_by_plugin_type(isolated_plugins_dir, client):
     assert create_resp.status_code == status.HTTP_201_CREATED
     assert create_resp.json()["data"]["plugin_type"] == "skill"
 
-    list_resp = client.get("/api/v1/plugins?plugin_type=skill", headers=_headers())
+    list_resp = await async_client.get("/api/v1/plugins?plugin_type=skill", headers=_headers())
     assert list_resp.status_code == status.HTTP_200_OK
     items = list_resp.json()["data"]["items"]
     assert [item["name"] for item in items] == ["skill-plugin-contract"]
 
 
-def test_mixed_plugin_package_projects_queryable_artifacts(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_mixed_plugin_package_projects_queryable_artifacts(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins",
         json={
             "name": "unified-mixed",
@@ -200,14 +203,14 @@ def test_mixed_plugin_package_projects_queryable_artifacts(isolated_plugins_dir,
     plugin_id = create_resp.json()["data"]["id"]
 
     package = _mixed_plugin_package()
-    install_resp = client.post(
+    install_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/install-package",
         files={"package": ("unified-mixed.zip", package, "application/zip")},
         headers=_headers(),
     )
     assert install_resp.status_code == status.HTTP_200_OK
 
-    artifacts_resp = client.get(
+    artifacts_resp = await async_client.get(
         "/api/v1/plugins/artifacts?artifact_kind=mcp_server&enabled=true",
         headers=_headers(),
     )
@@ -215,7 +218,7 @@ def test_mixed_plugin_package_projects_queryable_artifacts(isolated_plugins_dir,
     artifacts = artifacts_resp.json()["data"]["items"]
     assert any(item["artifact_ref"] == "mcp_server:unified_mcp" for item in artifacts)
 
-    plugin_artifacts_resp = client.get(
+    plugin_artifacts_resp = await async_client.get(
         f"/api/v1/plugins/{plugin_id}/artifacts",
         headers=_headers(),
     )
@@ -223,15 +226,16 @@ def test_mixed_plugin_package_projects_queryable_artifacts(isolated_plugins_dir,
     kinds = {item["artifact_kind"] for item in plugin_artifacts_resp.json()["data"]["items"]}
     assert kinds == {"skill", "mcp_server", "tool", "workflow_node"}
 
-    capabilities_resp = client.get("/api/v1/plugins/capabilities?kind=mcp_tool", headers=_headers())
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities?kind=mcp_tool", headers=_headers())
     assert capabilities_resp.status_code == status.HTTP_200_OK
     capability_refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "mcp_tool:unified_mcp:search" in capability_refs
 
 
-def test_package_compatibility_uses_registered_community_features(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_package_compatibility_uses_registered_community_features(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins/package",
         files={
             "package": (
@@ -247,9 +251,10 @@ def test_package_compatibility_uses_registered_community_features(isolated_plugi
     assert create_resp.json()["data"]["plugin"]["name"] == "community-compatible"
 
 
-def test_package_compatibility_rejects_unentitled_enterprise_features(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_package_compatibility_rejects_unentitled_enterprise_features(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins/package",
         files={
             "package": (
@@ -265,9 +270,10 @@ def test_package_compatibility_rejects_unentitled_enterprise_features(isolated_p
     assert create_resp.json()["message"] == "Unknown feature key: security.sso"
 
 
-def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins/package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(version="1.0.0"), "application/zip")},
         headers=_headers(),
@@ -285,13 +291,13 @@ def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(iso
     assert plugin["enabled"] is True
     assert create_data["install"]["install_dir"]
 
-    capabilities_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     assert capabilities_resp.status_code == status.HTTP_200_OK
     refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "skill:unified_triage" in refs
     assert "mcp_tool:unified_mcp:search" in refs
 
-    same_version_resp = client.post(
+    same_version_resp = await async_client.post(
         "/api/v1/plugins/package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(version="1.0.0"), "application/zip")},
         headers=_headers(),
@@ -299,7 +305,7 @@ def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(iso
     assert same_version_resp.status_code == status.HTTP_409_CONFLICT
     assert same_version_resp.json()["details"]["reason"] == "same_version_exists"
 
-    reinstall_resp = client.post(
+    reinstall_resp = await async_client.post(
         "/api/v1/plugins/package?mode=reinstall",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(version="1.0.0"), "application/zip")},
         headers=_headers(),
@@ -310,28 +316,28 @@ def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(iso
     assert reinstall_data["plugin"]["id"] == plugin_id
     assert reinstall_data["plugin"]["enabled"] is True
 
-    disable_resp = client.post(f"/api/v1/plugins/{plugin_id}/enabled", json={"enabled": False}, headers=_headers())
+    disable_resp = await async_client.post(f"/api/v1/plugins/{plugin_id}/enabled", json={"enabled": False}, headers=_headers())
     assert disable_resp.status_code == status.HTTP_200_OK
     assert disable_resp.json()["data"]["state"] == "disabled"
-    disabled_caps_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    disabled_caps_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     disabled_refs = {item["ref"] for item in disabled_caps_resp.json()["data"]["items"]}
     assert "skill:unified_triage" not in disabled_refs
 
-    enable_resp = client.post(f"/api/v1/plugins/{plugin_id}/enabled", json={"enabled": True}, headers=_headers())
+    enable_resp = await async_client.post(f"/api/v1/plugins/{plugin_id}/enabled", json={"enabled": True}, headers=_headers())
     assert enable_resp.status_code == status.HTTP_200_OK
     assert enable_resp.json()["data"]["state"] == "installed"
-    enabled_caps_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    enabled_caps_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     enabled_refs = {item["ref"] for item in enabled_caps_resp.json()["data"]["items"]}
     assert "skill:unified_triage" in enabled_refs
 
-    disable_again_resp = client.post(
+    disable_again_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/enabled",
         json={"enabled": False},
         headers=_headers(),
     )
     assert disable_again_resp.status_code == status.HTTP_200_OK
 
-    upgrade_resp = client.post(
+    upgrade_resp = await async_client.post(
         "/api/v1/plugins/package",
         files={
             "package": (
@@ -349,7 +355,7 @@ def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(iso
     assert upgrade_data["plugin"]["version"] == "2.0.0"
     assert upgrade_data["plugin"]["enabled"] is True
 
-    upgraded_artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    upgraded_artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert upgraded_artifacts_resp.status_code == status.HTTP_200_OK
     upgraded_artifacts = upgraded_artifacts_resp.json()["data"]["items"]
     by_ref = {item["artifact_ref"]: item for item in upgraded_artifacts}
@@ -357,22 +363,23 @@ def test_one_click_package_upload_creates_reinstalls_upgrades_and_uninstalls(iso
     assert by_ref["mcp_server:unified_mcp"]["enabled"] is False
     assert by_ref["mcp_server:unified_mcp"]["state"] == "archived"
 
-    uninstall_resp = client.delete(f"/api/v1/plugins/{plugin_id}/install", headers=_headers())
+    uninstall_resp = await async_client.delete(f"/api/v1/plugins/{plugin_id}/install", headers=_headers())
     assert uninstall_resp.status_code == status.HTTP_204_NO_CONTENT
-    final_artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    final_artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert final_artifacts_resp.status_code == status.HTTP_200_OK
     final_artifacts = final_artifacts_resp.json()["data"]["items"]
     assert final_artifacts
     assert all(item["enabled"] is False and item["state"] == "archived" for item in final_artifacts)
-    final_caps_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    final_caps_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     final_refs = {item["ref"] for item in final_caps_resp.json()["data"]["items"]}
     assert "skill:unified_triage" not in final_refs
     assert "mcp_tool:unified_mcp:search" not in final_refs
 
 
-def test_mixed_plugin_package_uses_plugin_artifacts_without_independent_versions(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_mixed_plugin_package_uses_plugin_artifacts_without_independent_versions(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    create_resp = client.post(
+    create_resp = await async_client.post(
         "/api/v1/plugins",
         json={
             "name": "unified-mixed",
@@ -386,14 +393,14 @@ def test_mixed_plugin_package_uses_plugin_artifacts_without_independent_versions
     assert create_resp.status_code == status.HTTP_201_CREATED
     plugin_id = create_resp.json()["data"]["id"]
 
-    install_resp = client.post(
+    install_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/install-package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(), "application/zip")},
         headers=_headers(),
     )
     assert install_resp.status_code == status.HTTP_200_OK
 
-    artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert artifacts_resp.status_code == status.HTTP_200_OK
     artifacts = artifacts_resp.json()["data"]["items"]
     skill_artifact = next(item for item in artifacts if item["artifact_kind"] == "skill")
@@ -405,18 +412,19 @@ def test_mixed_plugin_package_uses_plugin_artifacts_without_independent_versions
     assert mcp_artifact["metadata_json"]["mcp_server"]["name"] == "unified_mcp"
 
 
-def test_upgrade_reconciles_removed_skill_mcp_artifacts(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_upgrade_reconciles_removed_skill_mcp_artifacts(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    plugin_id = _create_plugin(client)
+    plugin_id = await _create_plugin(async_client)
 
-    install_resp = client.post(
+    install_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/install-package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(version="1.0.0"), "application/zip")},
         headers=_headers(),
     )
     assert install_resp.status_code == status.HTTP_200_OK
 
-    upgrade_resp = client.post(
+    upgrade_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/upgrade-package",
         files={
             "package": (
@@ -429,7 +437,7 @@ def test_upgrade_reconciles_removed_skill_mcp_artifacts(isolated_plugins_dir, cl
     )
     assert upgrade_resp.status_code == status.HTTP_200_OK
 
-    artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert artifacts_resp.status_code == status.HTTP_200_OK
     artifacts = artifacts_resp.json()["data"]["items"]
     mcp_artifact = next(item for item in artifacts if item["artifact_ref"] == "mcp_server:unified_mcp")
@@ -439,26 +447,27 @@ def test_upgrade_reconciles_removed_skill_mcp_artifacts(isolated_plugins_dir, cl
     assert skill_artifact["enabled"] is True
     assert skill_artifact["plugin_version_id"] != mcp_artifact["plugin_version_id"]
 
-    capabilities_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     assert capabilities_resp.status_code == status.HTTP_200_OK
     refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "skill:unified_triage" in refs
     assert "mcp_tool:unified_mcp:search" not in refs
 
 
-def test_rollback_reprojects_target_plugin_version_artifacts(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_rollback_reprojects_target_plugin_version_artifacts(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    plugin_id = _create_plugin(client)
+    plugin_id = await _create_plugin(async_client)
 
-    install_resp = client.post(
+    install_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/install-package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(version="1.0.0"), "application/zip")},
         headers=_headers(),
     )
     assert install_resp.status_code == status.HTTP_200_OK
-    v1_version_id = _version_id_for(client, plugin_id, "1.0.0")
+    v1_version_id = await _version_id_for(async_client, plugin_id, "1.0.0")
 
-    upgrade_resp = client.post(
+    upgrade_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/upgrade-package",
         files={
             "package": (
@@ -471,7 +480,7 @@ def test_rollback_reprojects_target_plugin_version_artifacts(isolated_plugins_di
     )
     assert upgrade_resp.status_code == status.HTTP_200_OK
 
-    rollback_resp = client.post(
+    rollback_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/rollback",
         json={"version_id": v1_version_id, "notes": "restore mcp capability"},
         headers=_headers(),
@@ -479,7 +488,7 @@ def test_rollback_reprojects_target_plugin_version_artifacts(isolated_plugins_di
     assert rollback_resp.status_code == status.HTTP_200_OK
     assert rollback_resp.json()["data"]["version"] == "1.0.0"
 
-    artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert artifacts_resp.status_code == status.HTTP_200_OK
     artifacts = artifacts_resp.json()["data"]["items"]
     mcp_artifact = next(item for item in artifacts if item["artifact_ref"] == "mcp_server:unified_mcp")
@@ -487,33 +496,34 @@ def test_rollback_reprojects_target_plugin_version_artifacts(isolated_plugins_di
     assert mcp_artifact["state"] == "enabled"
     assert mcp_artifact["plugin_version_id"] == v1_version_id
 
-    capabilities_resp = client.get("/api/v1/plugins/capabilities?kind=mcp_tool", headers=_headers())
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities?kind=mcp_tool", headers=_headers())
     assert capabilities_resp.status_code == status.HTTP_200_OK
     refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "mcp_tool:unified_mcp:search" in refs
 
 
-def test_uninstall_disables_all_plugin_owned_capabilities(isolated_plugins_dir, client):
+@pytest.mark.asyncio
+async def test_uninstall_disables_all_plugin_owned_capabilities(isolated_plugins_dir, async_client):
     _ = isolated_plugins_dir
-    plugin_id = _create_plugin(client)
+    plugin_id = await _create_plugin(async_client)
 
-    install_resp = client.post(
+    install_resp = await async_client.post(
         f"/api/v1/plugins/{plugin_id}/install-package",
         files={"package": ("unified-mixed.zip", _mixed_plugin_package(), "application/zip")},
         headers=_headers(),
     )
     assert install_resp.status_code == status.HTTP_200_OK
 
-    uninstall_resp = client.delete(f"/api/v1/plugins/{plugin_id}/install", headers=_headers())
+    uninstall_resp = await async_client.delete(f"/api/v1/plugins/{plugin_id}/install", headers=_headers())
     assert uninstall_resp.status_code == status.HTTP_204_NO_CONTENT
 
-    artifacts_resp = client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
+    artifacts_resp = await async_client.get(f"/api/v1/plugins/{plugin_id}/artifacts", headers=_headers())
     assert artifacts_resp.status_code == status.HTTP_200_OK
     artifacts = artifacts_resp.json()["data"]["items"]
     assert artifacts
     assert all(item["enabled"] is False and item["state"] == "archived" for item in artifacts)
 
-    capabilities_resp = client.get("/api/v1/plugins/capabilities", headers=_headers())
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
     assert capabilities_resp.status_code == status.HTTP_200_OK
     refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "skill:unified_triage" not in refs

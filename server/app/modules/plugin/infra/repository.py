@@ -4,9 +4,9 @@
 import builtins
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.contracts.context import RequestContext
 from app.modules.plugin.domain.models import (
     Plugin,
@@ -17,10 +17,10 @@ from app.modules.plugin.domain.models import (
 )
 
 
-class PluginRepository(Repository[Plugin]):
+class PluginRepository(AsyncRepository[Plugin]):
     """Repository for Plugin model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize plugin repository.
 
         Args:
@@ -29,7 +29,7 @@ class PluginRepository(Repository[Plugin]):
         """
         super().__init__(Plugin, db, ctx)
 
-    def get_by_name_version(self, name: str, version: str) -> Plugin | None:
+    async def get_by_name_version(self, name: str, version: str) -> Plugin | None:
         """Get plugin by name and version.
 
         Args:
@@ -47,9 +47,9 @@ class PluginRepository(Repository[Plugin]):
                 Plugin.version == version,
             )
         )
-        return self.db.exec(query).first()
+        return (await self.db.exec(query)).scalars().first()
 
-    def list(
+    async def list(
         self,
         published_only: bool = False,
         plugin_type: str | None = None,
@@ -80,10 +80,10 @@ class PluginRepository(Repository[Plugin]):
 
         query = query.order_by(desc(Plugin.created_at)).offset(offset).limit(limit)
 
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def get_by_name(self, name: str) -> Plugin | None:
+    async def get_by_name(self, name: str) -> Plugin | None:
         query = select(Plugin).where(
             and_(
                 Plugin.tenant_id == self.ctx.tenant_id,
@@ -91,13 +91,13 @@ class PluginRepository(Repository[Plugin]):
                 Plugin.name == name,
             )
         )
-        return self._unwrap_result(self.db.exec(query).first())
+        return self._unwrap_result((await self.db.exec(query)).scalars().first())
 
 
-class PluginInstallationRepository(Repository[PluginInstallation]):
+class PluginInstallationRepository(AsyncRepository[PluginInstallation]):
     """Repository for PluginInstallation model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize plugin installation repository.
 
         Args:
@@ -106,7 +106,7 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
         """
         super().__init__(PluginInstallation, db, ctx)
 
-    def create(self, installation: PluginInstallation) -> PluginInstallation:
+    async def create(self, installation: PluginInstallation) -> PluginInstallation:
         """Create a new installation.
 
         Args:
@@ -116,11 +116,11 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
             Created PluginInstallation instance.
         """
         self.db.add(installation)
-        self.db.commit()
-        self.db.refresh(installation)
+        await self.db.commit()
+        await self.db.refresh(installation)
         return installation
 
-    def get_by_plugin(self, plugin_id: str) -> PluginInstallation | None:
+    async def get_by_plugin(self, plugin_id: str) -> PluginInstallation | None:
         """Get installation by plugin ID.
 
         Args:
@@ -136,10 +136,10 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
                 PluginInstallation.plugin_id == plugin_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_workspace(
+    async def list_by_workspace(
         self,
         limit: int = 20,
         offset: int = 0,
@@ -160,9 +160,9 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
             )
         ).order_by(desc(PluginInstallation.created_at)).offset(offset).limit(limit)
 
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def list_by_plugin(self, plugin_id: str) -> list[PluginInstallation]:
+    async def list_by_plugin(self, plugin_id: str) -> list[PluginInstallation]:
         query = select(PluginInstallation).where(
             and_(
                 PluginInstallation.tenant_id == self.ctx.tenant_id,
@@ -170,20 +170,20 @@ class PluginInstallationRepository(Repository[PluginInstallation]):
                 PluginInstallation.plugin_id == plugin_id,
             )
         ).order_by(desc(PluginInstallation.created_at))
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
 
-class PluginVersionRepository(Repository[PluginVersion]):
+class PluginVersionRepository(AsyncRepository[PluginVersion]):
     """Repository for plugin versions."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(PluginVersion, db, ctx)
 
-    def next_version_number(self, plugin_id: str) -> int:
-        versions = self.list_by_plugin(plugin_id, limit=1_000, offset=0)
+    async def next_version_number(self, plugin_id: str) -> int:
+        versions = await self.list_by_plugin(plugin_id, limit=1_000, offset=0)
         return (max([item.version for item in versions], default=0) + 1)
 
-    def list_by_plugin(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginVersion]:
+    async def list_by_plugin(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginVersion]:
         query = (
             select(PluginVersion)
             .where(
@@ -197,16 +197,16 @@ class PluginVersionRepository(Repository[PluginVersion]):
             .offset(offset)
             .limit(limit)
         )
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
 
-class PluginReleaseRepository(Repository[PluginRelease]):
+class PluginReleaseRepository(AsyncRepository[PluginRelease]):
     """Repository for plugin release ledger entries."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(PluginRelease, db, ctx)
 
-    def list_by_plugin(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginRelease]:
+    async def list_by_plugin(self, plugin_id: str, *, limit: int = 20, offset: int = 0) -> list[PluginRelease]:
         query = (
             select(PluginRelease)
             .where(
@@ -220,16 +220,16 @@ class PluginReleaseRepository(Repository[PluginRelease]):
             .offset(offset)
             .limit(limit)
         )
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
 
-class PluginInstalledArtifactRepository(Repository[PluginInstalledArtifact]):
+class PluginInstalledArtifactRepository(AsyncRepository[PluginInstalledArtifact]):
     """Repository for plugin-projected artifacts."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(PluginInstalledArtifact, db, ctx)
 
-    def get_by_ref(self, *, plugin_id: str, artifact_ref: str) -> PluginInstalledArtifact | None:
+    async def get_by_ref(self, *, plugin_id: str, artifact_ref: str) -> PluginInstalledArtifact | None:
         query = select(PluginInstalledArtifact).where(
             and_(
                 PluginInstalledArtifact.tenant_id == self.ctx.tenant_id,
@@ -238,9 +238,9 @@ class PluginInstalledArtifactRepository(Repository[PluginInstalledArtifact]):
                 PluginInstalledArtifact.artifact_ref == artifact_ref,
             )
         )
-        return self._unwrap_result(self.db.exec(query).first())
+        return self._unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def list(
+    async def list(
         self,
         *,
         plugin_id: str | None = None,
@@ -262,9 +262,9 @@ class PluginInstalledArtifactRepository(Repository[PluginInstalledArtifact]):
         if enabled is not None:
             query = query.where(PluginInstalledArtifact.enabled == enabled)
         query = query.order_by(desc(PluginInstalledArtifact.created_at)).offset(offset).limit(limit)
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def list_by_installation(self, installation_id: str) -> builtins.list[PluginInstalledArtifact]:
+    async def list_by_installation(self, installation_id: str) -> builtins.list[PluginInstalledArtifact]:
         query = select(PluginInstalledArtifact).where(
             and_(
                 PluginInstalledArtifact.tenant_id == self.ctx.tenant_id,
@@ -272,4 +272,4 @@ class PluginInstalledArtifactRepository(Repository[PluginInstalledArtifact]):
                 PluginInstalledArtifact.installation_id == installation_id,
             )
         )
-        return self._unwrap_all(list(self.db.exec(query).all()))
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))

@@ -138,7 +138,7 @@ class MCPToolAdapter(ToolPort):
         self._egress_guard = egress_guard or GovernedEgressGuard()
         self._oauth_clients: dict[str, MCPOAuthClient] = {}
 
-    def _resolve_server(self, server_key: str, db: Any, ctx: RequestContext) -> Any | None:
+    async def _resolve_server(self, server_key: str, db: Any, ctx: RequestContext) -> Any | None:
         artifact_ref = f"mcp_server:{server_key}"
         query = select(PluginInstalledArtifact).where(
             and_(
@@ -149,7 +149,7 @@ class MCPToolAdapter(ToolPort):
                 PluginInstalledArtifact.state == "enabled",
             )
         )
-        for raw_row in db.exec(query).all():
+        for raw_row in (await db.exec(query)).scalars().all():
             artifact = (
                 raw_row[0]
                 if hasattr(raw_row, "__getitem__") and not isinstance(raw_row, PluginInstalledArtifact)
@@ -249,7 +249,7 @@ class MCPToolAdapter(ToolPort):
 
         try:
             server_key, tool_name = parse_mcp_tool_ref(tool_ref)
-            server = self._resolve_server(server_key, db, ctx)
+            server = await self._resolve_server(server_key, db, ctx)
             if server is None:
                 raise ValueError(f"MCP server not found: {server_key}")
             if server.transport != "streamable_http":

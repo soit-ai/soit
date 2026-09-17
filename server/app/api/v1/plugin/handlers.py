@@ -109,7 +109,7 @@ class PluginHandlers:
 
         items: list[PluginResponse] = []
         for plugin in plugins:
-            installation = self.service.get_installation_for_plugin(plugin.id)
+            installation = await self.service.get_installation_for_plugin(plugin.id)
             items.append(self._as_plugin_response(plugin, installation))
 
         has_next = len(plugins) == limit
@@ -123,12 +123,12 @@ class PluginHandlers:
 
     async def get_plugin(self, ctx: RequestContext, plugin_id: str) -> PluginResponse:
         plugin = await self.service.get_plugin(plugin_id)
-        installation = self.service.get_installation_for_plugin(plugin.id)
+        installation = await self.service.get_installation_for_plugin(plugin.id)
         return self._as_plugin_response(plugin, installation)
 
     async def update_plugin(self, ctx: RequestContext, plugin_id: str, plugin_in: PluginUpdate) -> PluginResponse:
         plugin = await self.service.update_plugin(plugin_id, plugin_in)
-        installation = self.service.get_installation_for_plugin(plugin.id)
+        installation = await self.service.get_installation_for_plugin(plugin.id)
         return self._as_plugin_response(plugin, installation)
 
     async def create_version(
@@ -197,7 +197,7 @@ class PluginHandlers:
         payload: PluginPublishRequest,
     ) -> PluginResponse:
         plugin = await self.service.publish_version(plugin_id, payload.version_id, notes=payload.notes)
-        return self._as_plugin_response(plugin, self.service.get_installation_for_plugin(plugin.id))
+        return self._as_plugin_response(plugin, await self.service.get_installation_for_plugin(plugin.id))
 
     async def rollback_version(
         self,
@@ -206,7 +206,7 @@ class PluginHandlers:
         payload: PluginRollbackRequest,
     ) -> PluginResponse:
         plugin = await self.service.rollback_version(plugin_id, payload.version_id, notes=payload.notes)
-        return self._as_plugin_response(plugin, self.service.get_installation_for_plugin(plugin.id))
+        return self._as_plugin_response(plugin, await self.service.get_installation_for_plugin(plugin.id))
 
     async def list_installations(
         self,
@@ -218,7 +218,7 @@ class PluginHandlers:
     ) -> PaginatedResponse[PluginInstallationResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        rows = self.service.list_installations_for_plugin(plugin_id)[offset : offset + limit]
+        rows = (await self.service.list_installations_for_plugin(plugin_id))[offset : offset + limit]
         items = [PluginInstallationResponse.model_validate(item) for item in rows]
         has_next = len(rows) == limit
         next_offset = offset + len(rows) if has_next else None
@@ -261,7 +261,7 @@ class PluginHandlers:
         plugin = result["plugin"]
         return PluginPackageUploadResponse(
             action=result["action"],
-            plugin=self._as_plugin_response(plugin, self.service.get_installation_for_plugin(plugin.id)),
+            plugin=self._as_plugin_response(plugin, await self.service.get_installation_for_plugin(plugin.id)),
             install=PluginPackageInstallResponse(**result["install"]),
         )
 
@@ -278,7 +278,7 @@ class PluginHandlers:
         result = await self.service.upgrade_plugin_package(plugin_id, package_bytes, expected_sha256=expected_sha256)
         plugin = await self.service.get_plugin(plugin_id)
         return PluginUpgradeResponse(
-            plugin=self._as_plugin_response(plugin, self.service.get_installation_for_plugin(plugin.id)),
+            plugin=self._as_plugin_response(plugin, await self.service.get_installation_for_plugin(plugin.id)),
             install=PluginPackageInstallResponse(**result),
         )
 

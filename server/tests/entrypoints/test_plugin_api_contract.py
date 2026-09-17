@@ -1,3 +1,4 @@
+import pytest
 from fastapi import status
 
 from app.kernel.registry.deps import get_registry
@@ -7,8 +8,9 @@ def _headers() -> dict[str, str]:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def test_plugin_api_rejects_legacy_published_alias_and_hides_it_in_responses(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_plugin_api_rejects_legacy_published_alias_and_hides_it_in_responses(async_client):
+    create_resp = await async_client.post(
         "/api/v1/plugins",
         json={
             "name": "plugin-contract",
@@ -24,14 +26,14 @@ def test_plugin_api_rejects_legacy_published_alias_and_hides_it_in_responses(cli
     assert "published" not in plugin
     assert plugin["publish_status"] == "draft"
 
-    update_resp = client.put(
+    update_resp = await async_client.put(
         f"/api/v1/plugins/{plugin_id}",
         json={"published": True},
         headers=_headers(),
     )
     assert update_resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    publish_resp = client.put(
+    publish_resp = await async_client.put(
         f"/api/v1/plugins/{plugin_id}",
         json={"publish_status": "published"},
         headers=_headers(),
@@ -41,7 +43,8 @@ def test_plugin_api_rejects_legacy_published_alias_and_hides_it_in_responses(cli
     assert "published" not in publish_resp.json()["data"]
 
 
-def test_runtime_tools_endpoint_returns_only_registry_latest_in_deterministic_order(client):
+@pytest.mark.asyncio
+async def test_runtime_tools_endpoint_returns_only_registry_latest_in_deterministic_order(async_client):
     registry = get_registry()
     shared_ref = "tool:function:create-ticket"
     for version, tool_name in [("1.0.0.dev1", "Create ticket preview"), ("1.0.0", "Create ticket")]:
@@ -84,7 +87,7 @@ def test_runtime_tools_endpoint_returns_only_registry_latest_in_deterministic_or
         },
     )
 
-    response = client.get("/api/v1/plugins/runtime/tools", headers=_headers())
+    response = await async_client.get("/api/v1/plugins/runtime/tools", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["data"]["tools"] == [
