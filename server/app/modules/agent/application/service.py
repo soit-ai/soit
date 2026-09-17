@@ -192,7 +192,7 @@ class AgentService:
             None,
         )
 
-    def _require_tool_approval(
+    async def _require_tool_approval(
         self,
         *,
         data: AgentRuntimeRequest,
@@ -222,7 +222,7 @@ class AgentService:
             # The run acts on the decision either way; the ledger only records
             # that it was made, and by whom.
             if self.approval_ledger is not None:
-                self.approval_ledger.record_decision(
+                await self.approval_ledger.record_decision(
                     self.ctx,
                     run_id=run_id,
                     tool_call_id=tool_call_id,
@@ -280,7 +280,7 @@ class AgentService:
             # Written before the interrupt is raised, so a task that stops for
             # approval can be opened and answered by someone who was not
             # watching the stream it was raised on.
-            self.approval_ledger.record_pending(
+            await self.approval_ledger.record_pending(
                 self.ctx,
                 ApprovalRecord(
                     run_id=run_id,
@@ -796,7 +796,7 @@ class AgentService:
 
                         direct_tool_claim = None
                         try:
-                            approval = self._require_tool_approval(
+                            approval = await self._require_tool_approval(
                                 data=data,
                                 run_id=run_id,
                                 tool_call_id=tc.id,

@@ -3,6 +3,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
+import pytest
 from fastapi import status
 
 from app.kernel.commons.time import utc_now
@@ -59,7 +60,8 @@ def _tool_call(
     )
 
 
-def test_observe_dashboard_returns_workspace_summary(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_returns_workspace_summary(async_client, async_db):
     run = Run(
         id="run_dashboard_observe",
         tenant_id="test-tenant",
@@ -141,14 +143,14 @@ def test_observe_dashboard_returns_workspace_summary(client, db):
         status="failed",
         error_message="boom",
     )
-    db.add(run)
-    db.add(step)
-    db.add(retrieval_step)
-    db.add(cost)
-    db.add(tool_call)
-    db.commit()
+    async_db.add(run)
+    async_db.add(step)
+    async_db.add(retrieval_step)
+    async_db.add(cost)
+    async_db.add(tool_call)
+    await async_db.commit()
 
-    resp = client.get("/api/v1/observe/dashboard", headers=_headers())
+    resp = await async_client.get("/api/v1/observe/dashboard", headers=_headers())
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()["data"]
     assert set(data) == {
@@ -171,7 +173,8 @@ def test_observe_dashboard_returns_workspace_summary(client, db):
     assert data["section"]["id"] == "agent_health"
 
 
-def test_observe_dashboard_tolerates_null_cost_amount(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_tolerates_null_cost_amount(async_client, async_db):
     # Regression: a RunCostEntry with a NULL amount must not 500 the dashboard.
     run = Run(
         id="run_dashboard_null_cost",
@@ -202,18 +205,19 @@ def test_observe_dashboard_tolerates_null_cost_amount(client, db):
         completion_tokens=4,
         total_tokens=10,
     )
-    db.add(run)
-    db.add(cost)
-    db.commit()
+    async_db.add(run)
+    async_db.add(cost)
+    await async_db.commit()
 
-    resp = client.get("/api/v1/observe/dashboard", headers=_headers())
+    resp = await async_client.get("/api/v1/observe/dashboard", headers=_headers())
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()["data"]
     row = next(item for item in data["recent_runs"] if item["run_id"] == run.id)
     assert row["cost_usd"] == 0
 
 
-def test_observe_dashboard_default_range_includes_last_24h(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_default_range_includes_last_24h(async_client, async_db):
     now = utc_now()
     run = Run(
         id="run_dashboard_default_24h",
@@ -231,15 +235,15 @@ def test_observe_dashboard_default_range_includes_last_24h(client, db):
         ended_at=now - timedelta(minutes=89),
         duration_ms=60_000,
     )
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
-    default_resp = client.get("/api/v1/observe/dashboard", headers=_headers())
+    default_resp = await async_client.get("/api/v1/observe/dashboard", headers=_headers())
     assert default_resp.status_code == status.HTTP_200_OK
     default_data = default_resp.json()["data"]
     assert [item["run_id"] for item in default_data["recent_runs"]] == [run.id]
 
-    one_hour_resp = client.get(
+    one_hour_resp = await async_client.get(
         "/api/v1/observe/dashboard",
         params={"range": "1h"},
         headers=_headers(),
@@ -249,10 +253,11 @@ def test_observe_dashboard_default_range_includes_last_24h(client, db):
     assert one_hour_data["recent_runs"] == []
 
 
-def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_recent_runs_include_observe_summary(async_client, async_db):
     now = utc_now()
-    trace_writer = TraceWriter(db, _test_ctx())
-    parent = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, _test_ctx())
+    parent = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
@@ -260,7 +265,7 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
         subject_version_id="agtv_enterprise",
         run_id="run_dashboard_summary_parent",
     )
-    child = trace_writer.create_run(
+    child = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
@@ -270,9 +275,9 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
     )
     parent.started_at = now
     child.started_at = now
-    step = trace_writer.create_step(run_id=parent.id, step_type="tool", step_id="call_ticket_workflow")
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    step = await trace_writer.create_step(run_id=parent.id, step_type="tool", step_id="call_ticket_workflow")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={
@@ -285,14 +290,14 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
             }
         },
     )
-    db.add(
+    async_db.add(
         _tool_call(
             run_id=parent.id,
             step=step,
             tool_ref="wf:ticket-triage",
         )
     )
-    db.add(
+    async_db.add(
         RunCostEntry(
             run_id=parent.id,
             step_id=step.id,
@@ -316,10 +321,10 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
         usage_json={},
         metadata_json={},
     )
-    db.add(response)
-    db.commit()
-    db.refresh(response)
-    db.add(
+    async_db.add(response)
+    await async_db.commit()
+    await async_db.refresh(response)
+    async_db.add(
         ResponseEvent(
             tenant_id="test-tenant",
             workspace_id="test-workspace",
@@ -331,24 +336,20 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
             payload_json={"status": "succeeded"},
         )
     )
-    db.commit()
-    import asyncio
-
-    asyncio.run(
-        log_gateway_request(
-            trace_writer=trace_writer,
-            run_id=parent.id,
-            step_id=step.id,
-            gateway_type="tool",
-            request_data={"tool_ref": "wf:ticket-triage"},
-            response_data={"success": True},
-        )
+    await async_db.commit()
+    await log_gateway_request(
+        trace_writer=trace_writer,
+        run_id=parent.id,
+        step_id=step.id,
+        gateway_type="tool",
+        request_data={"tool_ref": "wf:ticket-triage"},
+        response_data={"success": True},
     )
-    trace_writer.update_run_status(parent.id, "failed", error_message="demo failure")
-    trace_writer.update_run_status(child.id, "running")
-    trace_writer.update_run_status(child.id, "succeeded")
+    await trace_writer.update_run_status(parent.id, "failed", error_message="demo failure")
+    await trace_writer.update_run_status(child.id, "running")
+    await trace_writer.update_run_status(child.id, "succeeded")
 
-    resp = client.get("/api/v1/observe/dashboard", headers=_headers())
+    resp = await async_client.get("/api/v1/observe/dashboard", headers=_headers())
     assert resp.status_code == status.HTTP_200_OK
     recent = resp.json()["data"]["recent_runs"][0]
     assert recent["run_id"] == parent.id
@@ -364,7 +365,8 @@ def test_observe_dashboard_recent_runs_include_observe_summary(client, db):
     }
 
 
-def test_observe_dashboard_returns_tab_section_contract(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_returns_tab_section_contract(async_client, async_db):
     now = utc_now()
     run = Run(
         id="run_dashboard_tabs",
@@ -434,9 +436,9 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
         total_tokens=200,
         created_at=now,
     )
-    db.add(run)
-    db.add(tool_step)
-    db.add(
+    async_db.add(run)
+    async_db.add(tool_step)
+    async_db.add(
         _tool_call(
             run_id=run.id,
             step=tool_step,
@@ -447,9 +449,9 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
             error_message="tool timeout",
         )
     )
-    db.add(retrieval_step)
-    db.add(cost)
-    db.commit()
+    async_db.add(retrieval_step)
+    async_db.add(cost)
+    await async_db.commit()
 
     expected_sections = {
         "agent_health": "agent:support",
@@ -464,7 +466,7 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
         "knowledge_quality": {"trend", "quality_score", "low_quality_sources"},
     }
     for tab, row_id in expected_sections.items():
-        resp = client.get(
+        resp = await async_client.get(
             "/api/v1/observe/dashboard",
             params={"tab": tab, "range": "1h", "bucket": "10m", "page_size": 1},
             headers=_headers(),
@@ -495,7 +497,8 @@ def test_observe_dashboard_returns_tab_section_contract(client, db):
         assert section["rows"][0]["detail_url"] == f"/observe/runs/{run.id}"
 
 
-def test_observe_dashboard_filters_rows_by_search(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_filters_rows_by_search(async_client, async_db):
     now = utc_now()
     run = Run(
         id="run_dashboard_search",
@@ -537,14 +540,14 @@ def test_observe_dashboard_filters_rows_by_search(client, db):
         started_at=now,
         metrics_json={"tool_call": {"tool_ref": "other_tool"}},
     )
-    db.add(run)
-    db.add(matching)
-    db.add(other)
-    db.add(_tool_call(run_id=run.id, step=matching, tool_ref="target_tool"))
-    db.add(_tool_call(run_id=run.id, step=other, tool_ref="other_tool"))
-    db.commit()
+    async_db.add(run)
+    async_db.add(matching)
+    async_db.add(other)
+    async_db.add(_tool_call(run_id=run.id, step=matching, tool_ref="target_tool"))
+    async_db.add(_tool_call(run_id=run.id, step=other, tool_ref="other_tool"))
+    await async_db.commit()
 
-    resp = client.get(
+    resp = await async_client.get(
         "/api/v1/observe/dashboard",
         params={"tab": "tool_reliability", "q": "target", "range": "1h"},
         headers=_headers(),
@@ -555,7 +558,8 @@ def test_observe_dashboard_filters_rows_by_search(client, db):
     assert [row["id"] for row in rows] == ["target_tool"]
 
 
-def test_observe_dashboard_ignores_legacy_tool_metrics_on_non_tool_steps(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_ignores_legacy_tool_metrics_on_non_tool_steps(async_client, async_db):
     now = utc_now()
     run = Run(
         id="run_dashboard_tool_projection",
@@ -591,11 +595,11 @@ def test_observe_dashboard_ignores_legacy_tool_metrics_on_non_tool_steps(client,
             },
         },
     )
-    db.add(run)
-    db.add(step)
-    db.commit()
+    async_db.add(run)
+    async_db.add(step)
+    await async_db.commit()
 
-    resp = client.get(
+    resp = await async_client.get(
         "/api/v1/observe/dashboard",
         params={"tab": "tool_reliability"},
         headers=_headers(),
@@ -606,7 +610,8 @@ def test_observe_dashboard_ignores_legacy_tool_metrics_on_non_tool_steps(client,
     assert all(row["id"] != "search_tool" for row in data["section"]["rows"])
 
 
-def test_observe_dashboard_builds_knowledge_quality_from_response_citations(client, db):
+@pytest.mark.asyncio
+async def test_observe_dashboard_builds_knowledge_quality_from_response_citations(async_client, async_db):
     now = utc_now()
     run = Run(
         id="run_dashboard_response_citation",
@@ -640,11 +645,11 @@ def test_observe_dashboard_builds_knowledge_quality_from_response_citations(clie
         usage_json={},
         metadata_json={},
     )
-    db.add(run)
-    db.add(response)
-    db.commit()
+    async_db.add(run)
+    async_db.add(response)
+    await async_db.commit()
 
-    resp = client.get(
+    resp = await async_client.get(
         "/api/v1/observe/dashboard",
         params={"tab": "knowledge_quality"},
         headers=_headers(),

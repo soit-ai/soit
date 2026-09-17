@@ -93,14 +93,14 @@ class ObserveApprovalLedger:
     whatever else that transaction happened to be holding.
     """
 
-    def record_pending(self, ctx: RequestContext, record) -> str | None:
-        from app.infra.db.session import get_db_sync
+    async def record_pending(self, ctx: RequestContext, record) -> str | None:
+        from app.infra.db.session import get_async_session_local
         from app.modules.observe.domain.models import ApprovalRequest
         from app.modules.observe.infra.repository import ApprovalRepository
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
-            approval = ApprovalRepository(db, ctx).create(
+            approval = await ApprovalRepository(db, ctx).create(
                 ApprovalRequest(
                     run_id=record.run_id,
                     task_id=record.task_id,
@@ -119,9 +119,9 @@ class ObserveApprovalLedger:
             logger.warning("Failed to record an approval request", exc_info=True)
             return None
         finally:
-            db.close()
+            await db.close()
 
-    def record_decision(
+    async def record_decision(
         self,
         ctx: RequestContext,
         *,
@@ -130,17 +130,17 @@ class ObserveApprovalLedger:
         approved: bool,
         decided_by: str | None = None,
     ) -> None:
-        from app.infra.db.session import get_db_sync
+        from app.infra.db.session import get_async_session_local
         from app.kernel.runtime.status import ApprovalStatus
         from app.modules.observe.infra.repository import ApprovalRepository
 
         if not run_id and not tool_call_id:
             return
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
             repo = ApprovalRepository(db, ctx)
-            pending = repo.list(
+            pending = await repo.list(
                 limit=50,
                 offset=0,
                 status=ApprovalStatus.PENDING.value,
@@ -158,7 +158,7 @@ class ObserveApprovalLedger:
                 )
                 approval.resolved_by = decided_by or ctx.user_id
                 approval.resolved_at = utc_now()
-                repo.update(
+                await repo.update(
                     approval,
                     emit_resolution_event=approval.status,
                 )
@@ -166,7 +166,7 @@ class ObserveApprovalLedger:
         except Exception:
             logger.warning("Failed to record an approval decision", exc_info=True)
         finally:
-            db.close()
+            await db.close()
 
 
 class AuditEgressBlockRecorder:

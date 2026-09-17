@@ -37,14 +37,14 @@ class ApprovalRecord:
 class ApprovalLedgerPort(Protocol):
     """Record approval requests and the decisions that closed them."""
 
-    def record_pending(self, ctx: RequestContext, record: ApprovalRecord) -> str | None:
+    async def record_pending(self, ctx: RequestContext, record: ApprovalRecord) -> str | None:
         """Persist a request for a decision. Returns its id, or None if unwritten.
 
         Must not raise: the run is already waiting, and losing the record is
         better than turning the wait into a failure.
         """
 
-    def record_decision(
+    async def record_decision(
         self,
         ctx: RequestContext,
         *,

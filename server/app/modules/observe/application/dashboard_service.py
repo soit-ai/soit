@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError
 from app.kernel.commons.time import to_iso8601, utc_now
@@ -23,7 +23,7 @@ from app.kernel.runtime.db.models.runs import (
 from app.kernel.runtime.runs.service import RunService
 from app.kernel.runtime.status import ApprovalStatus
 from app.modules.agent.domain.models import Agent
-from app.modules.identity.application.display import resolve_user_display_names
+from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.knowledge.domain.models import Knowledge
 from app.modules.observe.application.dashboard_schemas import (
     AgentSummaryResponse,
@@ -71,7 +71,7 @@ MAINLINE_RUN_MODES = {"agent", "workflow", "knowledge", "chat", "response"}
 class ObserveDashboardService:
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         approval_repo: ApprovalRepository,
     ) -> None:
@@ -144,9 +144,9 @@ class ObserveDashboardService:
         offset = (elapsed // bucket_seconds) * bucket_seconds
         return to_iso8601(window_start + timedelta(seconds=offset)) or ""
 
-    def _scoped_runs(self, start: datetime, end: datetime) -> list[Run]:
+    async def _scoped_runs(self, start: datetime, end: datetime) -> list[Run]:
         return list(
-            self.db.execute(
+            (await self.db.execute(
                 select(Run).where(
                     and_(
                         Run.tenant_id == self.ctx.tenant_id,
@@ -155,14 +155,14 @@ class ObserveDashboardService:
                         Run.started_at <= end,
                     )
                 )
-            )
+            ))
             .scalars()
             .all()
         )
 
-    def _scoped_steps(self, start: datetime, end: datetime) -> list[RunStep]:
+    async def _scoped_steps(self, start: datetime, end: datetime) -> list[RunStep]:
         return list(
-            self.db.execute(
+            (await self.db.execute(
                 select(RunStep).where(
                     and_(
                         RunStep.tenant_id == self.ctx.tenant_id,
@@ -171,14 +171,14 @@ class ObserveDashboardService:
                         RunStep.started_at <= end,
                     )
                 )
-            )
+            ))
             .scalars()
             .all()
         )
 
-    def _scoped_costs(self, start: datetime, end: datetime) -> list[RunCostEntry]:
+    async def _scoped_costs(self, start: datetime, end: datetime) -> list[RunCostEntry]:
         return list(
-            self.db.execute(
+            (await self.db.execute(
                 select(RunCostEntry).where(
                     and_(
                         RunCostEntry.tenant_id == self.ctx.tenant_id,
@@ -187,17 +187,17 @@ class ObserveDashboardService:
                         RunCostEntry.created_at <= end,
                     )
                 )
-            )
+            ))
             .scalars()
             .all()
         )
 
-    def _tool_calls_by_step(self, steps: list[RunStep]) -> dict[str, RunStepToolCall]:
+    async def _tool_calls_by_step(self, steps: list[RunStep]) -> dict[str, RunStepToolCall]:
         step_ids = [step.id for step in steps]
         if not step_ids:
             return {}
         records = list(
-            self.db.execute(
+            (await self.db.execute(
                 select(RunStepToolCall).where(
                     and_(
                         RunStepToolCall.tenant_id == self.ctx.tenant_id,
@@ -205,7 +205,7 @@ class ObserveDashboardService:
                         RunStepToolCall.run_step_id.in_(step_ids),
                     )
                 )
-            )
+            ))
             .scalars()
             .all()
         )
@@ -223,11 +223,11 @@ class ObserveDashboardService:
             )
         return by_step
 
-    def _responses_for_runs(self, run_ids: list[str]) -> list[Response]:
+    async def _responses_for_runs(self, run_ids: list[str]) -> list[Response]:
         if not run_ids:
             return []
         return list(
-            self.db.execute(
+            (await self.db.execute(
                 select(Response).where(
                     and_(
                         Response.tenant_id == self.ctx.tenant_id,
@@ -235,14 +235,14 @@ class ObserveDashboardService:
                         Response.run_id.in_(run_ids),
                     )
                 )
-            )
+            ))
             .scalars()
             .all()
         )
 
-    def _count_runs(self, start: datetime, end: datetime) -> int:
+    async def _count_runs(self, start: datetime, end: datetime) -> int:
         return int(
-            self.db.execute(
+            (await self.db.execute(
                 select(func.count(Run.id)).where(
                     and_(
                         Run.tenant_id == self.ctx.tenant_id,
@@ -251,7 +251,7 @@ class ObserveDashboardService:
                         Run.started_at <= end,
                     )
                 )
-            ).scalar_one()
+            )).scalar_one()
             or 0
         )
 
@@ -366,7 +366,7 @@ class ObserveDashboardService:
             total_count=len(rows),
         )
 
-    def _subject_records(self, model: type, subject_ids: list[str]) -> dict[str, Any]:
+    async def _subject_records(self, model: type, subject_ids: list[str]) -> dict[str, Any]:
         """Load workspace-scoped subject rows (agents, knowledge) keyed by id."""
         ids = [subject_id for subject_id in subject_ids if subject_id]
         if not ids:
@@ -378,7 +378,7 @@ class ObserveDashboardService:
                 model.id.in_(ids),
             )
         )
-        return {record.id: record for record in self.db.execute(query).scalars()}
+        return {record.id: record for record in (await self.db.execute(query)).scalars()}
 
     def _filter_rows(self, rows: list[dict[str, Any]], q: str | None) -> list[dict[str, Any]]:
         if not q:
@@ -598,14 +598,14 @@ class ObserveDashboardService:
         window_start = now - range_delta
         previous_start = window_start - range_delta
 
-        runs = self._scoped_runs(window_start, now)
-        steps = self._scoped_steps(window_start, now)
-        tool_calls_by_step = self._tool_calls_by_step(steps)
-        costs = self._scoped_costs(window_start, now)
-        responses = self._responses_for_runs([run.id for run in runs])
-        previous_runs = self._scoped_runs(previous_start, window_start)
-        previous_costs = self._scoped_costs(previous_start, window_start)
-        approvals = self.approval_repo.list(limit=500, offset=0)
+        runs = await self._scoped_runs(window_start, now)
+        steps = await self._scoped_steps(window_start, now)
+        tool_calls_by_step = await self._tool_calls_by_step(steps)
+        costs = await self._scoped_costs(window_start, now)
+        responses = await self._responses_for_runs([run.id for run in runs])
+        previous_runs = await self._scoped_runs(previous_start, window_start)
+        previous_costs = await self._scoped_costs(previous_start, window_start)
+        approvals = await self.approval_repo.list(limit=500, offset=0)
 
         aggregate = self._aggregate(
             runs,
@@ -622,7 +622,7 @@ class ObserveDashboardService:
         trend_rows = self._build_trend_rows(aggregate["trend"], window_start, now, bucket_delta)
         run_by_id = {run.id: run for run in runs}
         cost_by_run = self._cost_by_run(costs)
-        observe_summaries = RunService(self.db, self.ctx).build_observe_summaries([run.id for run in runs])
+        observe_summaries = await RunService(self.db, self.ctx).build_observe_summaries([run.id for run in runs])
         latest_agent_run: dict[str, Run] = {}
         latest_node_run: dict[str, Run] = {}
         latest_tool_run: dict[str, Run] = {}
@@ -763,9 +763,9 @@ class ObserveDashboardService:
                 detail_url=f"/observe/runs/{latest_failed_run.id}" if latest_failed_run else "/observe/runs",
             )
 
-        agent_records = self._subject_records(Agent, [agent.agent_id for agent in agent_summaries])
-        knowledge_records = self._subject_records(Knowledge, [item.knowledge_id for item in knowledge_quality])
-        owner_names = resolve_user_display_names(
+        agent_records = await self._subject_records(Agent, [agent.agent_id for agent in agent_summaries])
+        knowledge_records = await self._subject_records(Knowledge, [item.knowledge_id for item in knowledge_quality])
+        owner_names = await resolve_user_display_names_async(
             self.db,
             (
                 record.updated_by or record.created_by

@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import pytest
 from fastapi import status
 
 from app.kernel.ports.common.audit import log_gateway_request
@@ -13,7 +14,8 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def test_observe_approval_feedback_and_replay_contract(client, db):
+@pytest.mark.asyncio
+async def test_observe_approval_feedback_and_replay_contract(async_client, async_db):
     run = Run(
         id="run_contract_observe",
         tenant_id="test-tenant",
@@ -65,13 +67,13 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
         completion_tokens=1,
         total_tokens=2,
     )
-    db.add(run)
-    db.add(step)
-    db.add(artifact)
-    db.add(cost)
-    db.commit()
+    async_db.add(run)
+    async_db.add(step)
+    async_db.add(artifact)
+    async_db.add(cost)
+    await async_db.commit()
 
-    approval_resp = client.post(
+    approval_resp = await async_client.post(
         "/api/v1/observe/approvals",
         json={
             "run_id": run.id,
@@ -89,11 +91,11 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
     approval_id = approval["id"]
     assert approval["status"] == "pending"
 
-    approvals_resp = client.get(f"/api/v1/observe/approvals?run_id={run.id}", headers=_headers())
+    approvals_resp = await async_client.get(f"/api/v1/observe/approvals?run_id={run.id}", headers=_headers())
     assert approvals_resp.status_code == status.HTTP_200_OK
     assert approvals_resp.json()["data"]["items"][0]["id"] == approval_id
 
-    resolve_resp = client.post(
+    resolve_resp = await async_client.post(
         f"/api/v1/observe/approvals/{approval_id}/resolve",
         json={"status": "approved", "resolution_note": "approved for contract"},
         headers=_headers(),
@@ -101,7 +103,7 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
     assert resolve_resp.status_code == status.HTTP_200_OK
     assert resolve_resp.json()["data"]["status"] == "approved"
 
-    feedback_resp = client.post(
+    feedback_resp = await async_client.post(
         "/api/v1/observe/feedback",
         json={
             "run_id": run.id,
@@ -115,11 +117,11 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
     )
     assert feedback_resp.status_code == status.HTTP_201_CREATED
 
-    list_feedback_resp = client.get(f"/api/v1/observe/feedback?run_id={run.id}", headers=_headers())
+    list_feedback_resp = await async_client.get(f"/api/v1/observe/feedback?run_id={run.id}", headers=_headers())
     assert list_feedback_resp.status_code == status.HTTP_200_OK
     assert list_feedback_resp.json()["data"]["items"][0]["rating"] == 5
 
-    replay_resp = client.get(f"/api/v1/observe/runs/{run.id}/replay", headers=_headers())
+    replay_resp = await async_client.get(f"/api/v1/observe/runs/{run.id}/replay", headers=_headers())
     assert replay_resp.status_code == status.HTTP_200_OK
     replay = replay_resp.json()["data"]
     assert replay["run"]["id"] == run.id
@@ -131,8 +133,9 @@ def test_observe_approval_feedback_and_replay_contract(client, db):
     assert replay["trace_spec"]["run"]["run_id"] == run.id
 
 
-def test_observe_feedback_rejects_an_unscoped_run_reference(client):
-    response = client.post(
+@pytest.mark.asyncio
+async def test_observe_feedback_rejects_an_unscoped_run_reference(async_client):
+    response = await async_client.post(
         "/api/v1/observe/feedback",
         json={
             "run_id": "run_outside_workspace",
@@ -146,23 +149,22 @@ def test_observe_feedback_rejects_an_unscoped_run_reference(client):
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_workspace_audit_query_api_filters_governed_calls(client, db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_api")
-    step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_tool_api")
+@pytest.mark.asyncio
+async def test_workspace_audit_query_api_filters_governed_calls(async_client, async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_api")
+    step = await trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_tool_api")
 
-    client.portal.call(
-        lambda: log_gateway_request(
-            trace_writer=trace_writer,
-            run_id=run.id,
-            step_id=step.id,
-            gateway_type="tool",
-            request_data={"tool_ref": "tool:http:request"},
-            response_data={"success": True},
-        )
+    await log_gateway_request(
+        trace_writer=trace_writer,
+        run_id=run.id,
+        step_id=step.id,
+        gateway_type="tool",
+        request_data={"tool_ref": "tool:http:request"},
+        response_data={"success": True},
     )
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/runs/audits",
         params={"step_type": "tool", "gateway_type": "tool", "page_size": 10},
         headers=_headers(),

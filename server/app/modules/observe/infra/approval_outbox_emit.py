@@ -1,8 +1,8 @@
-"""Enqueue approval.* facts into event_outbox in the same Session as approval writes."""
+"""Enqueue approval.* facts into event_outbox in the same AsyncSession as approval writes."""
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -25,7 +25,7 @@ def _approval_payload(approval: ApprovalRequest) -> dict:
 
 
 def enqueue_approval_requested_outbox(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     approval: ApprovalRequest,
@@ -51,7 +51,7 @@ def enqueue_approval_requested_outbox(
 
 
 def enqueue_approval_approved_outbox(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     approval: ApprovalRequest,
@@ -77,7 +77,7 @@ def enqueue_approval_approved_outbox(
 
 
 def enqueue_approval_rejected_outbox(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     approval: ApprovalRequest,

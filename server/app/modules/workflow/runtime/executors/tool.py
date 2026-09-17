@@ -326,7 +326,7 @@ class ToolNodeExecutor(NodeExecutor):
                 if context.approval_ledger is not None:
                     # The node pauses here; the record is what lets someone who
                     # was not watching find it, read it and answer it.
-                    context.approval_ledger.record_pending(
+                    await context.approval_ledger.record_pending(
                         context.ctx,
                         ApprovalRecord(
                             run_id=context.run_id,

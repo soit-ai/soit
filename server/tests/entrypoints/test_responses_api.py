@@ -926,8 +926,8 @@ async def test_agui_agent_approval_interrupt_resumes_the_same_resources(async_cl
     assert resumed_events[-1]["result"]["status"] == "succeeded"
     assert (await response_service.get_interaction("interaction_approval_first")).status == "succeeded"
     assert (await response_service.get_interaction("interaction_approval_resume")).status == "succeeded"
-    assert observe_service.approval_repo.get_by_id(resource_ids["approval_id"]).status == "approved"
-    assert observe_service.approval_repo.get_by_id(decoy_approval.id).status == "pending"
+    assert (await observe_service.approval_repo.get_by_id(resource_ids["approval_id"])).status == "approved"
+    assert (await observe_service.approval_repo.get_by_id(decoy_approval.id)).status == "pending"
 
 
 @pytest.mark.asyncio
@@ -1045,7 +1045,7 @@ async def test_agui_approval_resume_rolls_back_when_child_enqueue_fails(
     await async_db.refresh(approval)
     assert (await response_service.get_interaction("interaction_atomic_parent")).status == "waiting_approval"
     assert await response_service.get_interaction("interaction_atomic_child") is None
-    assert observe_service.approval_repo.get_by_id(approval.id).status == "pending"
+    assert (await observe_service.approval_repo.get_by_id(approval.id)).status == "pending"
 
 
 @pytest.mark.asyncio

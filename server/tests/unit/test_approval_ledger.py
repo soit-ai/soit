@@ -7,6 +7,7 @@ closes it.
 """
 
 import pytest
+import pytest_asyncio
 from sqlmodel import select
 
 from app.kernel.commons.time import utc_now
@@ -22,11 +23,11 @@ class _Ledger:
         self.pending: list[ApprovalRecord] = []
         self.decisions: list[dict] = []
 
-    def record_pending(self, ctx, record: ApprovalRecord) -> str | None:
+    async def record_pending(self, ctx, record: ApprovalRecord) -> str | None:
         self.pending.append(record)
         return f"apr_{len(self.pending)}"
 
-    def record_decision(self, ctx, *, run_id, tool_call_id, approved, decided_by=None) -> None:
+    async def record_decision(self, ctx, *, run_id, tool_call_id, approved, decided_by=None) -> None:
         self.decisions.append(
             {"run_id": run_id, "tool_call_id": tool_call_id, "approved": approved}
         )
@@ -42,12 +43,12 @@ def _agent_service(ctx, ledger):
     return service
 
 
-def _require(service, *, data, resumed=None):
+async def _require(service, *, data, resumed=None):
     """Run the approval gate the way the agent loop does."""
     from app.modules.agent.application.service import AgentService
 
     service._approval_response = lambda _data, _interrupt: resumed
-    return AgentService._require_tool_approval(
+    return await AgentService._require_tool_approval(
         service,
         data=data,
         run_id="run_1",
@@ -65,14 +66,15 @@ class _Request:
     agent_id = "agt_1"
 
 
-def test_a_tool_call_that_stops_for_approval_is_recorded(ctx):
+@pytest.mark.asyncio
+async def test_a_tool_call_that_stops_for_approval_is_recorded(ctx):
     from app.modules.agent.application.service import _AgentApprovalInterrupt
 
     ledger = _Ledger()
     service = _agent_service(ctx, ledger)
 
     with pytest.raises(_AgentApprovalInterrupt):
-        _require(service, data=_Request())
+        await _require(service, data=_Request())
 
     assert len(ledger.pending) == 1
     record = ledger.pending[0]
@@ -84,11 +86,12 @@ def test_a_tool_call_that_stops_for_approval_is_recorded(ctx):
     assert record.policy_ref == "tool_spec:plugin:pagerduty.page"
 
 
-def test_an_approval_decision_closes_the_record_it_was_raised_on(ctx):
+@pytest.mark.asyncio
+async def test_an_approval_decision_closes_the_record_it_was_raised_on(ctx):
     ledger = _Ledger()
     service = _agent_service(ctx, ledger)
 
-    outcome = _require(
+    outcome = await _require(
         service,
         data=_Request(),
         resumed={"status": "resolved", "payload": {"decision": "approved"}},
@@ -100,11 +103,12 @@ def test_an_approval_decision_closes_the_record_it_was_raised_on(ctx):
     ]
 
 
-def test_a_rejection_is_recorded_as_one(ctx):
+@pytest.mark.asyncio
+async def test_a_rejection_is_recorded_as_one(ctx):
     ledger = _Ledger()
     service = _agent_service(ctx, ledger)
 
-    outcome = _require(
+    outcome = await _require(
         service,
         data=_Request(),
         resumed={"status": "resolved", "payload": {"decision": "rejected"}},
@@ -127,30 +131,30 @@ def test_a_rehearsal_never_queues_a_person_for_a_decision():
     assert "approval_ledger=None if sandbox else self.approval_ledger" in source
 
 
-@pytest.fixture
-def sync_session(db):
+@pytest_asyncio.fixture
+async def ledger_session(async_db):
     """Point the adapter's own session factory at this test's database.
 
     The adapter opens its own session on purpose -- the run's transaction is
     mid-flight -- so a test of it has to make that session reach the same rows.
     """
-    from sqlalchemy.orm import sessionmaker
-    from sqlmodel import Session as SqlModelSession
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as db_session
 
-    engine = db.get_bind()
-    previous_engine = db_session._engine
-    previous_factory = db_session._SessionLocal
-    db_session._engine = engine
-    db_session._SessionLocal = sessionmaker(
-        autocommit=False, autoflush=False, bind=engine, class_=SqlModelSession
+    engine = async_db.bind
+    previous_engine = db_session._async_engine
+    previous_factory = db_session._AsyncSessionLocal
+    db_session._async_engine = engine
+    db_session._AsyncSessionLocal = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
     )
     try:
         yield
     finally:
-        db_session._engine = previous_engine
-        db_session._SessionLocal = previous_factory
+        db_session._async_engine = previous_engine
+        db_session._AsyncSessionLocal = previous_factory
 
 
 def _pending(ctx, tool_call_id: str) -> ApprovalRequest:
@@ -165,23 +169,24 @@ def _pending(ctx, tool_call_id: str) -> ApprovalRequest:
     )
 
 
-@pytest.mark.usefixtures("sync_session")
-def test_the_decision_closes_only_the_call_it_belongs_to(db, ctx):
+@pytest.mark.usefixtures("ledger_session")
+@pytest.mark.asyncio
+async def test_the_decision_closes_only_the_call_it_belongs_to(async_db, ctx):
     """One run can be waiting on more than one tool call."""
     from app.wiring.container import ObserveApprovalLedger
 
-    db.add(_pending(ctx, "call_a"))
-    db.add(_pending(ctx, "call_b"))
-    db.commit()
+    async_db.add(_pending(ctx, "call_a"))
+    async_db.add(_pending(ctx, "call_b"))
+    await async_db.commit()
 
-    ObserveApprovalLedger().record_decision(
+    await ObserveApprovalLedger().record_decision(
         ctx, run_id="run_1", tool_call_id="call_a", approved=True
     )
 
-    db.expire_all()
+    async_db.expire_all()
     rows = {
         (row.details_json or {}).get("tool_call_id"): row.status
-        for row in db.exec(select(ApprovalRequest)).all()
+        for row in (await async_db.exec(select(ApprovalRequest))).all()
     }
     assert rows == {
         "call_a": ApprovalStatus.APPROVED.value,
@@ -189,22 +194,24 @@ def test_the_decision_closes_only_the_call_it_belongs_to(db, ctx):
     }
 
 
-@pytest.mark.usefixtures("sync_session")
-def test_a_decision_with_nothing_pending_behind_it_is_not_an_error(ctx):
+@pytest.mark.usefixtures("ledger_session")
+@pytest.mark.asyncio
+async def test_a_decision_with_nothing_pending_behind_it_is_not_an_error(ctx):
     """The run has already acted; a missing record must not raise into it."""
     from app.wiring.container import ObserveApprovalLedger
 
-    ObserveApprovalLedger().record_decision(
+    await ObserveApprovalLedger().record_decision(
         ctx, run_id="run_missing", tool_call_id="call_x", approved=False
     )
 
 
-@pytest.mark.usefixtures("sync_session")
-def test_a_recorded_request_can_be_read_back_from_the_task(db, ctx):
+@pytest.mark.usefixtures("ledger_session")
+@pytest.mark.asyncio
+async def test_a_recorded_request_can_be_read_back_from_the_task(async_db, ctx):
     """This is the point of the record: the task detail can find it."""
     from app.wiring.container import ObserveApprovalLedger
 
-    ObserveApprovalLedger().record_pending(
+    await ObserveApprovalLedger().record_pending(
         ctx,
         ApprovalRecord(
             run_id="run_1",
@@ -218,8 +225,8 @@ def test_a_recorded_request_can_be_read_back_from_the_task(db, ctx):
         ),
     )
 
-    db.expire_all()
-    rows = db.exec(select(ApprovalRequest).where(ApprovalRequest.task_id == "tsk_1")).all()
+    async_db.expire_all()
+    rows = (await async_db.exec(select(ApprovalRequest).where(ApprovalRequest.task_id == "tsk_1"))).all()
     assert len(rows) == 1
     assert rows[0].status == ApprovalStatus.PENDING.value
     assert rows[0].details_json["tool_call_id"] == "call_1"

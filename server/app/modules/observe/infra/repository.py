@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -17,22 +17,21 @@ from app.modules.observe.infra.approval_outbox_emit import (
 
 
 class ApprovalRepository:
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, approval: ApprovalRequest) -> ApprovalRequest:
+    async def create(self, approval: ApprovalRequest) -> ApprovalRequest:
         approval.tenant_id = self.ctx.tenant_id
         approval.workspace_id = self.ctx.workspace_id
         approval.requested_by = approval.requested_by or self.ctx.user_id
         self.db.add(approval)
-        self.db.flush()
+        await self.db.flush()
         enqueue_approval_requested_outbox(self.db, self.ctx, approval=approval)
-        self.db.commit()
-        self.db.refresh(approval)
+        await self.db.commit()
         return approval
 
-    def update(
+    async def update(
         self,
         approval: ApprovalRequest,
         *,
@@ -40,16 +39,15 @@ class ApprovalRepository:
     ) -> ApprovalRequest:
         approval.updated_at = utc_now()
         self.db.add(approval)
-        self.db.flush()
+        await self.db.flush()
         if emit_resolution_event == ApprovalStatus.APPROVED.value:
             enqueue_approval_approved_outbox(self.db, self.ctx, approval=approval)
         elif emit_resolution_event == ApprovalStatus.REJECTED.value:
             enqueue_approval_rejected_outbox(self.db, self.ctx, approval=approval)
-        self.db.commit()
-        self.db.refresh(approval)
+        await self.db.commit()
         return approval
 
-    def lock_by_ids(self, approval_ids: list[str]) -> list[ApprovalRequest]:
+    async def lock_by_ids(self, approval_ids: list[str]) -> list[ApprovalRequest]:
         """Lock scoped approvals so a resume decision can be applied atomically."""
 
         if not approval_ids:
@@ -65,9 +63,9 @@ class ApprovalRepository:
             )
             .with_for_update()
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())
 
-    def update_many(
+    async def update_many(
         self,
         approvals: list[ApprovalRequest],
         *,
@@ -78,19 +76,17 @@ class ApprovalRepository:
         for approval in approvals:
             approval.updated_at = utc_now()
             self.db.add(approval)
-        self.db.flush()
+        await self.db.flush()
         for approval in approvals:
             if approval.status == ApprovalStatus.APPROVED.value:
                 enqueue_approval_approved_outbox(self.db, self.ctx, approval=approval)
             elif approval.status == ApprovalStatus.REJECTED.value:
                 enqueue_approval_rejected_outbox(self.db, self.ctx, approval=approval)
         if commit:
-            self.db.commit()
-            for approval in approvals:
-                self.db.refresh(approval)
+            await self.db.commit()
         return approvals
 
-    def get_by_id(self, approval_id: str) -> ApprovalRequest | None:
+    async def get_by_id(self, approval_id: str) -> ApprovalRequest | None:
         query = select(ApprovalRequest).where(
             and_(
                 ApprovalRequest.id == approval_id,
@@ -98,9 +94,9 @@ class ApprovalRepository:
                 ApprovalRequest.workspace_id == self.ctx.workspace_id,
             )
         )
-        return self.db.execute(query).scalars().first()
+        return (await self.db.execute(query)).scalars().first()
 
-    def list(
+    async def list(
         self,
         *,
         limit: int,
@@ -126,24 +122,23 @@ class ApprovalRepository:
             .limit(limit)
             .offset(offset)
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())
 
 
 class FeedbackRepository:
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, feedback: RunFeedback) -> RunFeedback:
+    async def create(self, feedback: RunFeedback) -> RunFeedback:
         feedback.tenant_id = self.ctx.tenant_id
         feedback.workspace_id = self.ctx.workspace_id
         feedback.created_by = feedback.created_by or self.ctx.user_id
         self.db.add(feedback)
-        self.db.commit()
-        self.db.refresh(feedback)
+        await self.db.commit()
         return feedback
 
-    def list(
+    async def list(
         self,
         *,
         limit: int,
@@ -169,4 +164,4 @@ class FeedbackRepository:
             .limit(limit)
             .offset(offset)
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())

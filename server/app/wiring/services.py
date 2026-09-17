@@ -359,7 +359,7 @@ def build_plugin_service(*, db: Session, ctx: RequestContext) -> PluginService:
     return _build_plugin_backend(db=db, ctx=ctx)
 
 
-def build_observe_service(*, db: Session, ctx: RequestContext) -> ObserveService:
+def build_observe_service(*, db: AsyncSession, ctx: RequestContext) -> ObserveService:
     """Observe service factory."""
 
     return ObserveService(db=db, ctx=ctx)
