@@ -5,7 +5,6 @@ Unit tests for KnowledgeRuntimeService.
 
 import pytest
 from sqlalchemy import select
-from sqlmodel import SQLModel
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import EmbeddingResponse, LLMPort, RerankResponse
@@ -275,22 +274,22 @@ class EmptyRetrievalService:
         return []
 
 
-def build_knowledge_test_service(db, ctx, storage_port=None):
+def build_knowledge_test_service(async_db, ctx, storage_port=None):
     """Build a fully wired KnowledgeRuntimeService for tests."""
-    knowledge_repo = KnowledgeRepository(db, ctx)
-    document_repo = DocumentRepository(db, ctx)
-    chunk_repo = ChunkRepository(db, ctx)
-    index_repo = IndexRepository(db, ctx)
-    ingest_task_repo = IngestTaskRepository(db, ctx)
+    knowledge_repo = KnowledgeRepository(async_db, ctx)
+    document_repo = DocumentRepository(async_db, ctx)
+    chunk_repo = ChunkRepository(async_db, ctx)
+    index_repo = IndexRepository(async_db, ctx)
+    ingest_task_repo = IngestTaskRepository(async_db, ctx)
 
     storage = storage_port or StubStoragePort()
     vector_port = StubVectorPort()
     llm_port = StubLLMPort()
     embedding_service = EmbeddingService(llm_port)
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
 
     index_builder = IndexBuilder(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         embedding_service=embedding_service,
@@ -298,7 +297,7 @@ def build_knowledge_test_service(db, ctx, storage_port=None):
     )
 
     pipeline = DocumentPipeline(
-        db=db,
+        db=async_db,
         ctx=ctx,
         storage_port=storage,
         trace_writer=trace_writer,
@@ -307,7 +306,7 @@ def build_knowledge_test_service(db, ctx, storage_port=None):
     )
 
     retrieval = RetrievalService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         llm_port=llm_port,
@@ -316,7 +315,7 @@ def build_knowledge_test_service(db, ctx, storage_port=None):
     )
 
     service = KnowledgeRuntimeService(
-        db,
+        async_db,
         ctx,
         knowledge_repo,
         document_repo,
@@ -344,12 +343,11 @@ def build_request_context() -> RequestContext:
 
 
 @pytest.mark.asyncio
-async def test_knowledge_pipeline_query_and_versioning(db):
+async def test_knowledge_pipeline_query_and_versioning(async_db):
     """Knowledge pipeline indexes content and supports version rollback."""
     import app.kernel.runtime.db.models  # noqa: F401
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -359,20 +357,20 @@ async def test_knowledge_pipeline_query_and_versioning(db):
         workspace_role="Owner",
     )
 
-    knowledge_repo = KnowledgeRepository(db, ctx)
-    document_repo = DocumentRepository(db, ctx)
-    chunk_repo = ChunkRepository(db, ctx)
-    index_repo = IndexRepository(db, ctx)
-    ingest_task_repo = IngestTaskRepository(db, ctx)
+    knowledge_repo = KnowledgeRepository(async_db, ctx)
+    document_repo = DocumentRepository(async_db, ctx)
+    chunk_repo = ChunkRepository(async_db, ctx)
+    index_repo = IndexRepository(async_db, ctx)
+    ingest_task_repo = IngestTaskRepository(async_db, ctx)
 
     storage_port = StubStoragePort()
     vector_port = StubVectorPort()
     llm_port = StubLLMPort()
     embedding_service = EmbeddingService(llm_port)
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
 
     index_builder = IndexBuilder(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         embedding_service=embedding_service,
@@ -380,7 +378,7 @@ async def test_knowledge_pipeline_query_and_versioning(db):
     )
 
     pipeline = DocumentPipeline(
-        db=db,
+        db=async_db,
         ctx=ctx,
         storage_port=storage_port,
         trace_writer=trace_writer,
@@ -389,7 +387,7 @@ async def test_knowledge_pipeline_query_and_versioning(db):
     )
 
     retrieval = RetrievalService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         llm_port=llm_port,
@@ -398,7 +396,7 @@ async def test_knowledge_pipeline_query_and_versioning(db):
     )
 
     service = KnowledgeRuntimeService(
-        db,
+        async_db,
         ctx,
         knowledge_repo,
         document_repo,
@@ -494,12 +492,11 @@ async def test_knowledge_pipeline_query_and_versioning(db):
 
 
 @pytest.mark.asyncio
-async def test_knowledge_async_ingest_task_worker(db):
+async def test_knowledge_async_ingest_task_worker(async_db):
     """Async ingestion enqueues tasks and worker processes them."""
     import app.kernel.runtime.db.models  # noqa: F401
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -509,20 +506,20 @@ async def test_knowledge_async_ingest_task_worker(db):
         workspace_role="Owner",
     )
 
-    knowledge_repo = KnowledgeRepository(db, ctx)
-    document_repo = DocumentRepository(db, ctx)
-    chunk_repo = ChunkRepository(db, ctx)
-    index_repo = IndexRepository(db, ctx)
-    ingest_task_repo = IngestTaskRepository(db, ctx)
+    knowledge_repo = KnowledgeRepository(async_db, ctx)
+    document_repo = DocumentRepository(async_db, ctx)
+    chunk_repo = ChunkRepository(async_db, ctx)
+    index_repo = IndexRepository(async_db, ctx)
+    ingest_task_repo = IngestTaskRepository(async_db, ctx)
 
     storage_port = StubStoragePort()
     vector_port = StubVectorPort()
     llm_port = StubLLMPort()
     embedding_service = EmbeddingService(llm_port)
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
 
     index_builder = IndexBuilder(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         embedding_service=embedding_service,
@@ -530,7 +527,7 @@ async def test_knowledge_async_ingest_task_worker(db):
     )
 
     pipeline = DocumentPipeline(
-        db=db,
+        db=async_db,
         ctx=ctx,
         storage_port=storage_port,
         trace_writer=trace_writer,
@@ -539,7 +536,7 @@ async def test_knowledge_async_ingest_task_worker(db):
     )
 
     retrieval = RetrievalService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         llm_port=llm_port,
@@ -548,7 +545,7 @@ async def test_knowledge_async_ingest_task_worker(db):
     )
 
     service = KnowledgeRuntimeService(
-        db,
+        async_db,
         ctx,
         knowledge_repo,
         document_repo,
@@ -581,29 +578,28 @@ async def test_knowledge_async_ingest_task_worker(db):
     )
     assert document.status == "queued"
 
-    pending_tasks = ingest_task_repo.list_pending()
+    pending_tasks = await ingest_task_repo.list_pending()
     assert pending_tasks
     task = pending_tasks[0]
 
     worker = KnowledgeIngestWorker(service)
     await worker.run_once()
 
-    refreshed_task = ingest_task_repo.get_by_id(task.id)
+    refreshed_task = await ingest_task_repo.get_by_id(task.id)
     assert refreshed_task is not None
     assert refreshed_task.status == "succeeded"
 
-    refreshed_doc = document_repo.get_by_id(document.id)
+    refreshed_doc = await document_repo.get_by_id(document.id)
     assert refreshed_doc is not None
     assert refreshed_doc.status == "indexed"
 
 
 @pytest.mark.asyncio
-async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
+async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(async_db):
     """A task whose document is gone fails once instead of retrying forever."""
     import app.kernel.runtime.db.models  # noqa: F401
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -613,20 +609,20 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
         workspace_role="Owner",
     )
 
-    knowledge_repo = KnowledgeRepository(db, ctx)
-    document_repo = DocumentRepository(db, ctx)
-    chunk_repo = ChunkRepository(db, ctx)
-    index_repo = IndexRepository(db, ctx)
-    ingest_task_repo = IngestTaskRepository(db, ctx)
+    knowledge_repo = KnowledgeRepository(async_db, ctx)
+    document_repo = DocumentRepository(async_db, ctx)
+    chunk_repo = ChunkRepository(async_db, ctx)
+    index_repo = IndexRepository(async_db, ctx)
+    ingest_task_repo = IngestTaskRepository(async_db, ctx)
 
     storage_port = StubStoragePort()
     vector_port = StubVectorPort()
     llm_port = StubLLMPort()
     embedding_service = EmbeddingService(llm_port)
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
 
     index_builder = IndexBuilder(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         embedding_service=embedding_service,
@@ -634,7 +630,7 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
     )
 
     pipeline = DocumentPipeline(
-        db=db,
+        db=async_db,
         ctx=ctx,
         storage_port=storage_port,
         trace_writer=trace_writer,
@@ -643,7 +639,7 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
     )
 
     retrieval = RetrievalService(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=vector_port,
         llm_port=llm_port,
@@ -652,7 +648,7 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
     )
 
     service = KnowledgeRuntimeService(
-        db,
+        async_db,
         ctx,
         knowledge_repo,
         document_repo,
@@ -684,19 +680,19 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
         max_retries=3,
     )
 
-    pending_tasks = ingest_task_repo.list_pending()
+    pending_tasks = await ingest_task_repo.list_pending()
     assert pending_tasks
     task = pending_tasks[0]
 
-    doc_row = document_repo.get_by_id(document.id)
+    doc_row = await document_repo.get_by_id(document.id)
     assert doc_row is not None
-    db.delete(doc_row)
-    db.commit()
+    await async_db.delete(doc_row)
+    await async_db.commit()
 
     worker = KnowledgeIngestWorker(service)
     await worker.run_once()
 
-    refreshed_task = ingest_task_repo.get_by_id(task.id)
+    refreshed_task = await ingest_task_repo.get_by_id(task.id)
     assert refreshed_task is not None
     assert refreshed_task.status == "failed"
     assert refreshed_task.error_code == "NOT_FOUND"
@@ -704,19 +700,18 @@ async def test_knowledge_ingest_task_for_deleted_document_fails_terminally(db):
     assert document.id in refreshed_task.error_message
     assert refreshed_task.lease_owner is None
     # Terminal failure must leave nothing behind for the queue to reclaim.
-    assert ingest_task_repo.list_pending() == []
+    assert await ingest_task_repo.list_pending() == []
 
 
 @pytest.mark.asyncio
-async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(db):
+async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(async_db):
     """Failed async ingest keeps observable run/step/task state and can be retried."""
     import app.kernel.runtime.db.models  # noqa: F401
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
     ctx = build_request_context()
     storage = FailingGetStoragePort()
-    service, _, _ = build_knowledge_test_service(db, ctx, storage_port=storage)
+    service, _, _ = build_knowledge_test_service(async_db, ctx, storage_port=storage)
 
     knowledge = await service.create_knowledge(
         KnowledgeCreate(
@@ -737,9 +732,9 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
     worker = KnowledgeIngestWorker(service)
     await worker.run_once()
 
-    failed_task = service.ingest_task_repo.list_by_knowledge(knowledge.id)[0]
+    failed_task = (await service.ingest_task_repo.list_by_knowledge(knowledge.id))[0]
     failed_run_id = failed_task.run_id
-    failed_document = service.document_repo.get_by_id(document.id)
+    failed_document = await service.document_repo.get_by_id(document.id)
     assert failed_task.status == "queued"
     assert failed_task.retry_count == 1
     assert failed_task.error_code == "INGEST_ERROR"
@@ -747,12 +742,12 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
     assert failed_document is not None
     assert failed_document.status == "queued"
 
-    run = db.get(Run, failed_task.run_id)
+    run = await async_db.get(Run, failed_task.run_id)
     assert run is not None
     assert run.status == "failed"
     steps = [
         row if isinstance(row, RunStep) else row[0]
-        for row in db.exec(select(RunStep).where(RunStep.run_id == failed_task.run_id)).all()
+        for row in (await async_db.exec(select(RunStep).where(RunStep.run_id == failed_task.run_id))).scalars().all()
     ]
     parse_step = next(step for step in steps if step.step_id == "parse")
     assert parse_step.status == "failed"
@@ -762,12 +757,12 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
     storage.fail_reads = False
     await worker.run_once()
 
-    succeeded_task = service.ingest_task_repo.get_by_id(failed_task.id)
-    succeeded_document = service.document_repo.get_by_id(document.id)
+    succeeded_task = await service.ingest_task_repo.get_by_id(failed_task.id)
+    succeeded_document = await service.document_repo.get_by_id(document.id)
     assert succeeded_task is not None
     assert succeeded_task.status == "succeeded"
     assert succeeded_task.run_id != failed_run_id
-    retry_run = db.get(Run, succeeded_task.run_id)
+    retry_run = await async_db.get(Run, succeeded_task.run_id)
     assert retry_run is not None
     assert retry_run.source_run_id == failed_run_id
     assert retry_run.attempt_no == 2
@@ -778,14 +773,13 @@ async def test_knowledge_ingest_failure_records_failed_step_and_retry_succeeds(d
 
 
 @pytest.mark.asyncio
-async def test_knowledge_rebuild_records_index_run_and_preserves_query(db):
+async def test_knowledge_rebuild_records_index_run_and_preserves_query(async_db):
     """Index rebuild exposes its run id and leaves indexed content queryable."""
     import app.kernel.runtime.db.models  # noqa: F401
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
     ctx = build_request_context()
-    service, _, _ = build_knowledge_test_service(db, ctx)
+    service, _, _ = build_knowledge_test_service(async_db, ctx)
 
     knowledge = await service.create_knowledge(
         KnowledgeCreate(
@@ -802,7 +796,7 @@ async def test_knowledge_rebuild_records_index_run_and_preserves_query(db):
     )
     assert document.status == "indexed"
 
-    index = service.index_repo.get_by_id(knowledge.default_index_id)
+    index = await service.index_repo.get_by_id(knowledge.default_index_id)
     assert index is not None
     old_build_version = index.build_version
 
@@ -814,12 +808,12 @@ async def test_knowledge_rebuild_records_index_run_and_preserves_query(db):
     assert rebuilt.build_version == old_build_version + 1
     assert rebuilt.vector_count >= 1
 
-    run = db.get(Run, rebuilt.last_run_id)
+    run = await async_db.get(Run, rebuilt.last_run_id)
     assert run is not None
     assert run.status == "succeeded"
     steps = [
         row if isinstance(row, RunStep) else row[0]
-        for row in db.exec(select(RunStep).where(RunStep.run_id == rebuilt.last_run_id)).all()
+        for row in (await async_db.exec(select(RunStep).where(RunStep.run_id == rebuilt.last_run_id))).scalars().all()
     ]
     assert any(step.step_id == "rebuild" and step.status == "succeeded" for step in steps)
 

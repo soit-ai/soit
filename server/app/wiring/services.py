@@ -136,7 +136,7 @@ def _get_optional_approval_checkpoint_gateway() -> Any | None:
         return None
 
 
-def _build_knowledge_runtime(*, db: Session, ctx: RequestContext) -> dict[str, object]:
+def _build_knowledge_runtime(*, db: AsyncSession, ctx: RequestContext) -> dict[str, object]:
     """Shared knowledge runtime dependencies backed by the internal knowledge storage layer."""
 
     container = get_container()
@@ -196,13 +196,13 @@ def _build_knowledge_runtime(*, db: Session, ctx: RequestContext) -> dict[str, o
     }
 
 
-def build_knowledge_service(*, db: Session, ctx: RequestContext) -> KnowledgeService:
+def build_knowledge_service(*, db: AsyncSession, ctx: RequestContext) -> KnowledgeService:
     """Knowledge service factory."""
 
     return KnowledgeService(runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx))
 
 
-def build_knowledge_runtime_service(*, db: Session, ctx: RequestContext) -> KnowledgeRuntimeService:
+def build_knowledge_runtime_service(*, db: AsyncSession, ctx: RequestContext) -> KnowledgeRuntimeService:
     """Internal knowledge storage/runtime factory."""
 
     return KnowledgeRuntimeService(**_build_knowledge_runtime(db=db, ctx=ctx))

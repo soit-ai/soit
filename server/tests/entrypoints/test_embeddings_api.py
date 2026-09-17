@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from fastapi import status
 from sqlmodel import select
 
@@ -24,28 +25,29 @@ class _FailingLLMPort:
         raise RuntimeError("Provider is unavailable")
 
 
-def _embed(client, **overrides):
+async def _embed(async_client, **overrides):
     payload: dict[str, Any] = {"model": "model:test:embedder", "input": ["alpha", "beta"]}
     payload.update(overrides)
-    return client.post("/api/v1/embeddings", json=payload)
+    return await async_client.post("/api/v1/embeddings", json=payload)
 
 
-def _run_records(db, run_id: str) -> tuple[Run, list[RunStep], list[RunCostEntry]]:
-    run = db.get(Run, run_id)
-    steps = list(db.exec(select(RunStep).where(RunStep.run_id == run_id)).all())
-    costs = list(db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id)).all())
+async def _run_records(async_db, run_id: str) -> tuple[Run, list[RunStep], list[RunCostEntry]]:
+    run = await async_db.get(Run, run_id)
+    steps = list((await async_db.exec(select(RunStep).where(RunStep.run_id == run_id))).all())
+    costs = list((await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all())
     return run, steps, costs
 
 
-def test_embeddings_records_run_step_and_usage(client, db, ctx):
-    response = _embed(client)
+@pytest.mark.asyncio
+async def test_embeddings_records_run_step_and_usage(async_client, async_db, ctx):
+    response = await _embed(async_client)
 
     assert response.status_code == status.HTTP_201_CREATED
     body = response.json()["data"]
     assert len(body["embeddings"]) == 2
     assert all(isinstance(vector, list) and vector for vector in body["embeddings"])
 
-    run, steps, costs = _run_records(db, body["run_id"])
+    run, steps, costs = await _run_records(async_db, body["run_id"])
     assert run is not None
     assert (run.tenant_id, run.workspace_id) == (ctx.tenant_id, ctx.workspace_id)
     assert run.mode == "embedding"
@@ -72,18 +74,20 @@ def test_embeddings_records_run_step_and_usage(client, db, ctx):
     assert usage.pricing_snapshot_json["priced"] is False
 
 
-def test_embeddings_accepts_single_string_input(client):
-    response = _embed(client, input="just one text")
+@pytest.mark.asyncio
+async def test_embeddings_accepts_single_string_input(async_client):
+    response = await _embed(async_client, input="just one text")
 
     assert response.status_code == status.HTTP_201_CREATED
     assert len(response.json()["data"]["embeddings"]) == 1
 
 
-def test_embeddings_run_export_matches_runtrace_contract(client, db):
-    response = _embed(client)
+@pytest.mark.asyncio
+async def test_embeddings_run_export_matches_runtrace_contract(async_client, async_db):
+    response = await _embed(async_client)
 
     assert response.status_code == status.HTTP_201_CREATED
-    run, steps, costs = _run_records(db, response.json()["data"]["run_id"])
+    run, steps, costs = await _run_records(async_db, response.json()["data"]["run_id"])
 
     document = to_runtrace_spec(run, steps, cost_entries=costs)
 
@@ -91,20 +95,22 @@ def test_embeddings_run_export_matches_runtrace_contract(client, db):
     assert validate_spec(document, "runtrace_spec") is True
 
 
-def test_embeddings_rejects_oversized_and_blank_input(client):
+@pytest.mark.asyncio
+async def test_embeddings_rejects_oversized_and_blank_input(async_client):
     # The platform envelope maps request-validation failures to 400.
-    assert _embed(client, input=[]).status_code == status.HTTP_400_BAD_REQUEST
-    assert _embed(client, input=["  "]).status_code == status.HTTP_400_BAD_REQUEST
-    assert _embed(client, input=["x"] * 257).status_code == status.HTTP_400_BAD_REQUEST
+    assert (await _embed(async_client, input=[])).status_code == status.HTTP_400_BAD_REQUEST
+    assert (await _embed(async_client, input=["  "])).status_code == status.HTTP_400_BAD_REQUEST
+    assert (await _embed(async_client, input=["x"] * 257)).status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_embeddings_failure_fails_the_run(client):
+@pytest.mark.asyncio
+async def test_embeddings_failure_fails_the_run(async_client):
     container = get_container()
     original_port = container.get("llm_port")
     failing_port = _FailingLLMPort()
     container.register_singleton("llm_port", failing_port)
     try:
-        response = _embed(client)
+        response = await _embed(async_client)
     finally:
         container.register_singleton("llm_port", original_port)
 

@@ -3,7 +3,6 @@
 import json
 
 import pytest
-from sqlmodel import SQLModel
 
 import app.adapters.vector.milvus as milvus_module
 from app.adapters.vector.milvus import MilvusVectorPort
@@ -77,10 +76,9 @@ class FakeLLMPort(LLMPort):
 
 
 @pytest.mark.asyncio
-async def test_index_builder_creates_vector_collection_idempotently(db):
+async def test_index_builder_creates_vector_collection_idempotently(async_db):
     from app.modules.knowledge.domain import models as _knowledge_models  # noqa: F401
 
-    SQLModel.metadata.create_all(db.get_bind())
     ctx = RequestContext(
         tenant_id="test_tenant",
         workspace_id="test_workspace",
@@ -90,7 +88,7 @@ async def test_index_builder_creates_vector_collection_idempotently(db):
     )
     fake_vector = FakeVectorPort()
     builder = IndexBuilder(
-        db=db,
+        db=async_db,
         ctx=ctx,
         vector_port=fake_vector,
         embedding_service=EmbeddingService(FakeLLMPort()),
@@ -107,9 +105,9 @@ async def test_index_builder_creates_vector_collection_idempotently(db):
         dimension=3,
         metric_type="cosine",
     )
-    db.add(index)
-    db.commit()
-    db.refresh(index)
+    async_db.add(index)
+    await async_db.commit()
+    await async_db.refresh(index)
 
     await builder.create_collection(index)
     await builder.create_collection(index)

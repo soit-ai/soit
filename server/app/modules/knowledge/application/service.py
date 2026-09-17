@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -22,7 +22,7 @@ from app.kernel.runtime.runs.schemas import (
     RunResponse,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
-from app.modules.identity.application.display import resolve_user_display_names
+from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.knowledge.application.ports import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
@@ -80,7 +80,7 @@ class KnowledgeService:
     def __init__(
         self,
         *,
-        db: Session | None = None,
+        db: AsyncSession | None = None,
         ctx: RequestContext | None = None,
         knowledge_repo: KnowledgeRepositoryPort | None = None,
         document_repo: DocumentRepositoryPort | None = None,
@@ -126,7 +126,7 @@ class KnowledgeService:
 
     @workspace_guard("read")
     async def get_workbench(self, *, limit: int, offset: int) -> KnowledgeWorkbenchResponse:
-        rows, runs_by_knowledge = self._build_workbench_rows()
+        rows, runs_by_knowledge = await self._build_workbench_rows()
         all_today_runs = [
             run
             for knowledge_runs in runs_by_knowledge.values()
@@ -171,7 +171,7 @@ class KnowledgeService:
         tab: str | None = None,
         keyword: str | None = None,
     ) -> KnowledgeWorkbenchItemsResponse:
-        rows, _ = self._build_workbench_rows()
+        rows, _ = await self._build_workbench_rows()
         filtered_rows = self._filter_workbench_rows(rows, tab=tab, keyword=keyword)
         visible_rows = filtered_rows[offset: offset + limit]
         has_next = offset + len(visible_rows) < len(filtered_rows)
@@ -182,13 +182,13 @@ class KnowledgeService:
             page_size=len(visible_rows),
         )
 
-    def _build_workbench_rows(self) -> tuple[list[KnowledgeWorkbenchRow], dict[str, list[Run]]]:
-        knowledge_items = self._list_workbench_knowledge()
+    async def _build_workbench_rows(self) -> tuple[list[KnowledgeWorkbenchRow], dict[str, list[Run]]]:
+        knowledge_items = await self._list_workbench_knowledge()
         knowledge_base_ids = [knowledge.id for knowledge in knowledge_items]
-        runs_by_knowledge = self._workbench_runs_by_knowledge(knowledge_base_ids)
-        indexes_by_knowledge = self._workbench_indexes_by_knowledge(knowledge_base_ids)
-        tasks_by_knowledge = self._workbench_tasks_by_knowledge(knowledge_base_ids)
-        sources_by_knowledge = self._workbench_sources_by_knowledge(knowledge_base_ids)
+        runs_by_knowledge = await self._workbench_runs_by_knowledge(knowledge_base_ids)
+        indexes_by_knowledge = await self._workbench_indexes_by_knowledge(knowledge_base_ids)
+        tasks_by_knowledge = await self._workbench_tasks_by_knowledge(knowledge_base_ids)
+        sources_by_knowledge = await self._workbench_sources_by_knowledge(knowledge_base_ids)
         rows = [
             self._build_workbench_row(
                 knowledge,
@@ -199,7 +199,7 @@ class KnowledgeService:
             )
             for knowledge in knowledge_items
         ]
-        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        owner_names = await resolve_user_display_names_async(self.db, (row.owner for row in rows))
         for row in rows:
             if row.owner:
                 row.owner = owner_names.get(row.owner, row.owner)
@@ -246,7 +246,7 @@ class KnowledgeService:
 
         return [row for row in rows if tab_matches(row) and keyword_matches(row)]
 
-    def _list_workbench_knowledge(self) -> list[Knowledge]:
+    async def _list_workbench_knowledge(self) -> list[Knowledge]:
         query = (
             select(Knowledge)
             .where(
@@ -258,10 +258,10 @@ class KnowledgeService:
             )
             .order_by(desc(Knowledge.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return [item if isinstance(item, Knowledge) else item[0] for item in results]
 
-    def summarize_retrieval(
+    async def summarize_retrieval(
         self,
         knowledge_id: str,
         *,
@@ -299,7 +299,7 @@ class KnowledgeService:
         queries = 0
         hits = 0
         zero_hits = 0
-        for row in self.db.exec(query).all():
+        for row in (await self.db.exec(query)).all():
             # A single-column select yields a Row, which is a sequence but not
             # a tuple, so the value has to be unwrapped by position.
             metrics = row if isinstance(row, dict) else row[0]
@@ -328,7 +328,7 @@ class KnowledgeService:
             zero_hit_rate=(zero_hits / queries) if queries else None,
         )
 
-    def _workbench_runs_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[Run]]:
+    async def _workbench_runs_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[Run]]:
         if not knowledge_base_ids:
             return {}
         query = (
@@ -343,7 +343,7 @@ class KnowledgeService:
             )
             .order_by(desc(Run.started_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         grouped: dict[str, list[Run]] = defaultdict(list)
         for item in results:
             run = item if isinstance(item, Run) else item[0]
@@ -351,7 +351,7 @@ class KnowledgeService:
                 grouped[run.subject_id].append(run)
         return grouped
 
-    def _workbench_indexes_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[KnowledgeIndex]]:
+    async def _workbench_indexes_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[KnowledgeIndex]]:
         if not knowledge_base_ids:
             return {}
         query = (
@@ -366,14 +366,14 @@ class KnowledgeService:
             )
             .order_by(desc(KnowledgeIndex.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         grouped: dict[str, list[KnowledgeIndex]] = defaultdict(list)
         for item in results:
             index = item if isinstance(item, KnowledgeIndex) else item[0]
             grouped[index.knowledge_id].append(index)
         return grouped
 
-    def _workbench_tasks_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[KnowledgeIngestTask]]:
+    async def _workbench_tasks_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[KnowledgeIngestTask]]:
         if not knowledge_base_ids:
             return {}
         query = (
@@ -387,14 +387,14 @@ class KnowledgeService:
             )
             .order_by(desc(KnowledgeIngestTask.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         grouped: dict[str, list[KnowledgeIngestTask]] = defaultdict(list)
         for item in results:
             task = item if isinstance(item, KnowledgeIngestTask) else item[0]
             grouped[task.knowledge_id].append(task)
         return grouped
 
-    def _workbench_sources_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[str]]:
+    async def _workbench_sources_by_knowledge(self, knowledge_base_ids: list[str]) -> dict[str, list[str]]:
         if not knowledge_base_ids:
             return {}
         query = (
@@ -410,7 +410,7 @@ class KnowledgeService:
             )
             .order_by(desc(KnowledgeDocument.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         grouped: dict[str, list[str]] = defaultdict(list)
         for item in results:
             document = item if isinstance(item, KnowledgeDocument) else item[0]

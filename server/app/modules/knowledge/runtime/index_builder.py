@@ -4,7 +4,7 @@ Index builder service for vector database operations.
 """
 
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -20,7 +20,7 @@ class IndexBuilder:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         vector_port: VectorPort,
         embedding_service: EmbeddingService,
@@ -71,7 +71,7 @@ class IndexBuilder:
         # Update index status
         index.status = "building"
         index.updated_at = utc_now()
-        self.db.commit()
+        await self.db.commit()
 
     async def build_index(
         self,
@@ -93,20 +93,20 @@ class IndexBuilder:
             if run_id:
                 index.last_run_id = run_id
             index.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             # Get chunks to index
             if chunks is None:
                 if incremental:
                     # Get only pending chunks
-                    chunks = self.chunk_repo.list_by_knowledge(
+                    chunks = await self.chunk_repo.list_by_knowledge(
                         index.knowledge_id,
                         index_status="pending",
                         limit=10000,
                     )
                 else:
                     # Get all chunks
-                    chunks = self.chunk_repo.list_by_knowledge(
+                    chunks = await self.chunk_repo.list_by_knowledge(
                         index.knowledge_id,
                         limit=10000,
                     )
@@ -118,7 +118,7 @@ class IndexBuilder:
                 index.last_error_code = None
                 index.last_error_message = None
                 index.updated_at = utc_now()
-                self.db.commit()
+                await self.db.commit()
                 return
 
             # Generate embeddings
@@ -153,7 +153,7 @@ class IndexBuilder:
                 index.last_error_code = None
                 index.last_error_message = None
                 index.updated_at = utc_now()
-                self.db.commit()
+                await self.db.commit()
                 return
 
             # Generate embeddings
@@ -217,7 +217,7 @@ class IndexBuilder:
             if not incremental:
                 index.build_version += 1
 
-            self.db.commit()
+            await self.db.commit()
 
         except Exception as e:
             # Update status to failed
@@ -227,7 +227,7 @@ class IndexBuilder:
             index.last_error_code = "BUILD_ERROR"
             index.last_error_message = str(e)
             index.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
             raise
 
     async def rebuild_index(
@@ -241,7 +241,7 @@ class IndexBuilder:
             index: Index configuration.
         """
         # Delete existing vectors
-        chunks = self.chunk_repo.list_by_knowledge(
+        chunks = await self.chunk_repo.list_by_knowledge(
             index.knowledge_id,
             limit=10000,
         )
@@ -259,7 +259,7 @@ class IndexBuilder:
             chunk.indexed_at = None
             chunk.vector_ref = None
 
-        self.db.commit()
+        await self.db.commit()
 
         await self.build_index(index, chunks=chunks, incremental=False, run_id=run_id)
 

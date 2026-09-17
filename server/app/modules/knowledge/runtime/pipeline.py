@@ -5,7 +5,7 @@ Document processing pipeline orchestration.
 
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError
 from app.kernel.commons.time import utc_now
@@ -33,7 +33,7 @@ class DocumentPipeline:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         storage_port: StoragePort,
         trace_writer: TraceWriter,
@@ -82,11 +82,11 @@ class DocumentPipeline:
             # Step 1: Parse document
             document.status = "parsing"
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             parse_step_id = None
             if run_id:
-                parse_step = self.trace_writer.create_step(
+                parse_step = await self.trace_writer.create_step(
                     run_id=run_id,
                     step_type="io",
                     step_id="parse",
@@ -94,17 +94,17 @@ class DocumentPipeline:
                 )
                 parse_step_id = parse_step.id
                 active_step_id = parse_step_id
-                self.trace_writer.update_step_status(parse_step_id, "running")
+                await self.trace_writer.update_step_status(parse_step_id, "running")
 
             parsed_doc = await self._parse_document(document, file_content, run_id=run_id)
 
             document.status = "parsed"
             document.parse_meta_json = parsed_doc.metadata
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             if parse_step_id:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     parse_step_id,
                     "succeeded",
                     output_summary=f"chars={len(parsed_doc.text)}",
@@ -114,11 +114,11 @@ class DocumentPipeline:
             # Step 2: Chunk document
             document.status = "chunking"
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             chunk_step_id = None
             if run_id:
-                chunk_step = self.trace_writer.create_step(
+                chunk_step = await self.trace_writer.create_step(
                     run_id=run_id,
                     step_type="io",
                     step_id="chunk",
@@ -126,16 +126,16 @@ class DocumentPipeline:
                 )
                 chunk_step_id = chunk_step.id
                 active_step_id = chunk_step_id
-                self.trace_writer.update_step_status(chunk_step_id, "running")
+                await self.trace_writer.update_step_status(chunk_step_id, "running")
 
             chunks = await self._chunk_document(document, knowledge, parsed_doc.text, run_id=run_id)
 
             document.status = "chunked"
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             if chunk_step_id:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     chunk_step_id,
                     "succeeded",
                     output_summary=f"chunks={len(chunks)}",
@@ -145,11 +145,11 @@ class DocumentPipeline:
             # Step 3: Generate embeddings and index
             document.status = "indexing"
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             index_step_id = None
             if run_id:
-                index_step = self.trace_writer.create_step(
+                index_step = await self.trace_writer.create_step(
                     run_id=run_id,
                     step_type="io",
                     step_id="index",
@@ -157,16 +157,16 @@ class DocumentPipeline:
                 )
                 index_step_id = index_step.id
                 active_step_id = index_step_id
-                self.trace_writer.update_step_status(index_step_id, "running")
+                await self.trace_writer.update_step_status(index_step_id, "running")
 
             await self._index_chunks(document, knowledge, chunks, run_id=run_id)
 
             document.status = "indexed"
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
             if index_step_id:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     index_step_id,
                     "succeeded",
                     output_summary=f"vectors={len(chunks)}",
@@ -174,13 +174,13 @@ class DocumentPipeline:
                 active_step_id = None
 
             # Update knowledge statistics
-            self._update_knowledge_stats(knowledge)
+            await self._update_knowledge_stats(knowledge)
 
             return document
 
         except Exception as e:
             if active_step_id:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     active_step_id,
                     "failed",
                     output_summary=str(e),
@@ -193,7 +193,7 @@ class DocumentPipeline:
             document.error_message = str(e)
             document.retry_count += 1
             document.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
             raise
 
     async def _parse_document(
@@ -373,7 +373,7 @@ class DocumentPipeline:
             knowledge_chunks.append(knowledge_chunk)
             self.db.add(knowledge_chunk)
 
-        self.db.commit()
+        await self.db.commit()
 
         return knowledge_chunks
 
@@ -397,7 +397,7 @@ class DocumentPipeline:
             # Try to get primary index
             from app.modules.knowledge.infra.repository import IndexRepository
             index_repo = IndexRepository(self.db, self.ctx)
-            index = index_repo.get_primary(knowledge.id)
+            index = await index_repo.get_primary(knowledge.id)
             if not index:
                 raise KernelError("NO_INDEX", "Knowledge has no index configured")
             index_id = index.id
@@ -405,7 +405,7 @@ class DocumentPipeline:
         # Get index
         from app.modules.knowledge.infra.repository import IndexRepository
         index_repo = IndexRepository(self.db, self.ctx)
-        index = index_repo.get_by_id(index_id)
+        index = await index_repo.get_by_id(index_id)
         if not index:
             raise KernelError("INDEX_NOT_FOUND", f"Index {index_id} not found")
 
@@ -424,18 +424,18 @@ class DocumentPipeline:
             "indexed_at": utc_now().isoformat(),
         }
 
-    def _update_knowledge_stats(self, knowledge: Knowledge) -> None:
+    async def _update_knowledge_stats(self, knowledge: Knowledge) -> None:
         """Update knowledge statistics.
 
         Args:
             knowledge: Knowledge instance.
         """
         # Count documents and chunks
-        doc_count = self.document_repo.count_by_knowledge(knowledge.id)
-        chunk_count = self.chunk_repo.count_by_knowledge(knowledge.id)
+        doc_count = await self.document_repo.count_by_knowledge(knowledge.id)
+        chunk_count = await self.chunk_repo.count_by_knowledge(knowledge.id)
 
         # Update knowledge
-        self.knowledge_repo.update_stats(
+        await self.knowledge_repo.update_stats(
             knowledge.id,
             doc_count=doc_count,
             chunk_count=chunk_count,

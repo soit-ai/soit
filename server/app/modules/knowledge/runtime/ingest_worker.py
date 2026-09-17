@@ -12,9 +12,9 @@ import time
 import uuid
 from collections.abc import Callable
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.errors import ConflictError, KernelError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -25,6 +25,10 @@ from app.settings.settings import settings
 from app.wiring.services import build_knowledge_service
 
 logger = logging.getLogger(__name__)
+
+
+def _default_session_factory() -> AsyncSession:
+    return get_async_session_local()()
 
 
 class KnowledgeIngestWorker:
@@ -47,7 +51,7 @@ class KnowledgeIngestWorker:
 
     async def run_once(self) -> KnowledgeIngestTask | None:
         """Claim and process one task."""
-        task = self.service.ingest_task_repo.claim_next(
+        task = await self.service.ingest_task_repo.claim_next(
             worker_id=self.worker_id,
             lease_seconds=self.lease_seconds,
         )
@@ -112,7 +116,7 @@ class GlobalKnowledgeIngestWorker:
 
     def __init__(
         self,
-        db_factory: Callable[[], Session] = get_db_sync,
+        db_factory: Callable[[], AsyncSession] | None = None,
         *,
         worker_id: str | None = None,
         lease_seconds: int | None = None,
@@ -124,7 +128,7 @@ class GlobalKnowledgeIngestWorker:
             worker_id: Identifier recorded as the lease owner.
             lease_seconds: Lease duration held while a task executes.
         """
-        self.db_factory = db_factory
+        self.db_factory = db_factory or _default_session_factory
         self.worker_id = worker_id or f"knowledge-ingest-{uuid.uuid4()}"
         self.lease_seconds = lease.normalize_lease_seconds(
             lease_seconds
@@ -132,9 +136,9 @@ class GlobalKnowledgeIngestWorker:
             else getattr(settings, "knowledge_ingest_worker_lease_seconds", None)
         )
 
-    def _claim_next_task(self, db: Session) -> KnowledgeIngestTask | None:
+    async def _claim_next_task(self, db: AsyncSession) -> KnowledgeIngestTask | None:
         """Claim a queued task, or reclaim one whose worker stopped renewing."""
-        task = lease.claim_next(
+        task = await lease.claim_next(
             db,
             KnowledgeIngestTask,
             worker_id=self.worker_id,
@@ -145,15 +149,14 @@ class GlobalKnowledgeIngestWorker:
         if task.started_at is None:
             task.started_at = utc_now()
         task.updated_by = task.created_by or "system"
-        db.commit()
-        db.refresh(task)
+        await db.commit()
         return task
 
     async def run_once(self) -> KnowledgeIngestTask | None:
         """Claim and process one task across tenants."""
         db = self.db_factory()
         try:
-            task = self._claim_next_task(db)
+            task = await self._claim_next_task(db)
             if not task:
                 return None
             ctx = RequestContext(
@@ -193,7 +196,7 @@ class GlobalKnowledgeIngestWorker:
                     await heartbeat
             return task
         finally:
-            db.close()
+            await db.close()
 
     async def run_loop(
         self,

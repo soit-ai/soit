@@ -6,9 +6,9 @@ Knowledge repositories using scope-aware base.
 from datetime import datetime
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.commons.errors import ConflictError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
@@ -21,10 +21,10 @@ from app.modules.knowledge.domain.models import (
 )
 
 
-class KnowledgeRepository(Repository[Knowledge]):
+class KnowledgeRepository(AsyncRepository[Knowledge]):
     """Repository for Knowledge model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize knowledge repository.
 
         Args:
@@ -33,7 +33,7 @@ class KnowledgeRepository(Repository[Knowledge]):
         """
         super().__init__(Knowledge, db, ctx)
 
-    def get_by_id(self, knowledge_id: str) -> Knowledge | None:
+    async def get_by_id(self, knowledge_id: str) -> Knowledge | None:
         """Get knowledge by ID.
 
         Args:
@@ -50,10 +50,10 @@ class KnowledgeRepository(Repository[Knowledge]):
                 Knowledge.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_name(self, name: str) -> Knowledge | None:
+    async def get_by_name(self, name: str) -> Knowledge | None:
         """Get knowledge by name.
 
         Args:
@@ -71,10 +71,10 @@ class KnowledgeRepository(Repository[Knowledge]):
                 Knowledge.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list(
+    async def list(
         self,
         limit: int = 20,
         offset: int = 0,
@@ -95,10 +95,10 @@ class KnowledgeRepository(Repository[Knowledge]):
                 Knowledge.deleted_at.is_(None),
             )
         ).order_by(Knowledge.created_at.desc()).offset(offset).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def update_stats(
+    async def update_stats(
         self,
         knowledge_id: str,
         doc_count: int | None = None,
@@ -115,7 +115,7 @@ class KnowledgeRepository(Repository[Knowledge]):
         Returns:
             Updated Knowledge instance.
         """
-        knowledge = self.get_by_id(knowledge_id)
+        knowledge = await self.get_by_id(knowledge_id)
         if not knowledge:
             raise ValueError(f"Knowledge not found: {knowledge_id}")
 
@@ -129,15 +129,14 @@ class KnowledgeRepository(Repository[Knowledge]):
         from app.kernel.commons.time import utc_now
         knowledge.updated_at = utc_now()
 
-        self.db.commit()
-        self.db.refresh(knowledge)
+        await self.db.commit()
         return knowledge
 
 
-class DocumentRepository(Repository[KnowledgeDocument]):
+class DocumentRepository(AsyncRepository[KnowledgeDocument]):
     """Repository for KnowledgeDocument model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize document repository.
 
         Args:
@@ -146,7 +145,7 @@ class DocumentRepository(Repository[KnowledgeDocument]):
         """
         super().__init__(KnowledgeDocument, db, ctx)
 
-    def get_by_id(self, document_id: str) -> KnowledgeDocument | None:
+    async def get_by_id(self, document_id: str) -> KnowledgeDocument | None:
         """Get document by ID.
 
         Args:
@@ -163,10 +162,10 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_key(
+    async def get_by_key(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -198,10 +197,10 @@ class DocumentRepository(Repository[KnowledgeDocument]):
         else:
             query = query.where(KnowledgeDocument.is_latest.is_(True))
 
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_knowledge(
+    async def list_by_knowledge(
         self,
         knowledge_id: str,
         is_latest_only: bool = True,
@@ -233,10 +232,10 @@ class DocumentRepository(Repository[KnowledgeDocument]):
 
         query = query.order_by(KnowledgeDocument.created_at.desc()).offset(offset).limit(limit)
 
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def get_next_version(self, knowledge_id: str, doc_key: str) -> int:
+    async def get_next_version(self, knowledge_id: str, doc_key: str) -> int:
         """Get next version number for document key.
 
         Args:
@@ -254,12 +253,10 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.doc_key == doc_key,
             )
         )
-        max_version = self.db.exec(query).one()
-        if isinstance(max_version, list | tuple) or hasattr(max_version, "_mapping"):
-            max_version = max_version[0]
+        max_version = (await self.db.exec(query)).scalar_one()
         return (max_version or 0) + 1
 
-    def count_by_knowledge(self, knowledge_id: str) -> int:
+    async def count_by_knowledge(self, knowledge_id: str) -> int:
         """Count documents in knowledge (latest versions only).
 
         Args:
@@ -277,16 +274,13 @@ class DocumentRepository(Repository[KnowledgeDocument]):
                 KnowledgeDocument.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).one()
-        if isinstance(result, list | tuple) or hasattr(result, "_mapping"):
-            return int(result[0] or 0)
-        return int(result or 0)
+        return int((await self.db.exec(query)).scalar_one() or 0)
 
 
-class ChunkRepository(Repository[KnowledgeChunk]):
+class ChunkRepository(AsyncRepository[KnowledgeChunk]):
     """Repository for KnowledgeChunk model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize chunk repository.
 
         Args:
@@ -295,7 +289,7 @@ class ChunkRepository(Repository[KnowledgeChunk]):
         """
         super().__init__(KnowledgeChunk, db, ctx)
 
-    def list_by_document(
+    async def list_by_document(
         self,
         document_id: str,
         limit: int = 1000,
@@ -318,10 +312,10 @@ class ChunkRepository(Repository[KnowledgeChunk]):
                 KnowledgeChunk.document_id == document_id,
             )
         ).order_by(KnowledgeChunk.chunk_no).offset(offset).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def list_by_knowledge(
+    async def list_by_knowledge(
         self,
         knowledge_id: str,
         index_status: str | None = None,
@@ -352,10 +346,10 @@ class ChunkRepository(Repository[KnowledgeChunk]):
 
         query = query.order_by(KnowledgeChunk.created_at.desc()).offset(offset).limit(limit)
 
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def count_by_knowledge(self, knowledge_id: str) -> int:
+    async def count_by_knowledge(self, knowledge_id: str) -> int:
         """Count chunks in knowledge.
 
         Args:
@@ -371,16 +365,13 @@ class ChunkRepository(Repository[KnowledgeChunk]):
                 KnowledgeChunk.knowledge_id == knowledge_id,
             )
         )
-        result = self.db.exec(query).one()
-        if isinstance(result, list | tuple) or hasattr(result, "_mapping"):
-            return int(result[0] or 0)
-        return int(result or 0)
+        return int((await self.db.exec(query)).scalar_one() or 0)
 
 
-class IndexRepository(Repository[KnowledgeIndex]):
+class IndexRepository(AsyncRepository[KnowledgeIndex]):
     """Repository for KnowledgeIndex model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize index repository.
 
         Args:
@@ -389,7 +380,7 @@ class IndexRepository(Repository[KnowledgeIndex]):
         """
         super().__init__(KnowledgeIndex, db, ctx)
 
-    def get_by_id(self, index_id: str) -> KnowledgeIndex | None:
+    async def get_by_id(self, index_id: str) -> KnowledgeIndex | None:
         """Get index by ID.
 
         Args:
@@ -406,10 +397,10 @@ class IndexRepository(Repository[KnowledgeIndex]):
                 KnowledgeIndex.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_name(self, knowledge_id: str, name: str) -> KnowledgeIndex | None:
+    async def get_by_name(self, knowledge_id: str, name: str) -> KnowledgeIndex | None:
         """Get index by name.
 
         Args:
@@ -428,10 +419,10 @@ class IndexRepository(Repository[KnowledgeIndex]):
                 KnowledgeIndex.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_primary(self, knowledge_id: str) -> KnowledgeIndex | None:
+    async def get_primary(self, knowledge_id: str) -> KnowledgeIndex | None:
         """Get primary index for knowledge.
 
         Args:
@@ -449,10 +440,10 @@ class IndexRepository(Repository[KnowledgeIndex]):
                 KnowledgeIndex.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_knowledge(
+    async def list_by_knowledge(
         self,
         knowledge_id: str,
         limit: int = 20,
@@ -476,14 +467,14 @@ class IndexRepository(Repository[KnowledgeIndex]):
                 KnowledgeIndex.deleted_at.is_(None),
             )
         ).order_by(KnowledgeIndex.created_at.desc()).offset(offset).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
 
-class IngestTaskRepository(Repository[KnowledgeIngestTask]):
+class IngestTaskRepository(AsyncRepository[KnowledgeIngestTask]):
     """Repository for KnowledgeIngestTask model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize ingest task repository.
 
         Args:
@@ -492,14 +483,13 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         """
         super().__init__(KnowledgeIngestTask, db, ctx)
 
-    def create(self, task: KnowledgeIngestTask) -> KnowledgeIngestTask:
+    async def create(self, task: KnowledgeIngestTask) -> KnowledgeIngestTask:
         """Create a new ingestion task."""
         self.db.add(task)
-        self.db.commit()
-        self.db.refresh(task)
+        await self.db.commit()
         return task
 
-    def get_by_id(self, task_id: str) -> KnowledgeIngestTask | None:
+    async def get_by_id(self, task_id: str) -> KnowledgeIngestTask | None:
         """Get task by ID."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -508,10 +498,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
                 KnowledgeIngestTask.id == task_id,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_pending(self, limit: int = 20) -> list[KnowledgeIngestTask]:
+    async def list_pending(self, limit: int = 20) -> list[KnowledgeIngestTask]:
         """List queued tasks."""
         query = select(KnowledgeIngestTask).where(
             and_(
@@ -520,10 +510,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
                 KnowledgeIngestTask.status == "queued",
             )
         ).order_by(KnowledgeIngestTask.created_at.asc()).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def list_by_knowledge(
+    async def list_by_knowledge(
         self,
         knowledge_id: str,
         status: str | None = None,
@@ -541,10 +531,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         if status:
             query = query.where(KnowledgeIngestTask.status == status)
         query = query.order_by(KnowledgeIngestTask.created_at.desc()).offset(offset).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def claim_next(
+    async def claim_next(
         self,
         *,
         worker_id: str | None = None,
@@ -553,7 +543,7 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         """Claim the next queued task, or reclaim one with an expired lease."""
         from app.kernel.commons.time import utc_now
 
-        task = lease.claim_next(
+        task = await lease.claim_next(
             self.db,
             KnowledgeIngestTask,
             worker_id=worker_id or f"knowledge-ingest:{self.ctx.user_id}",
@@ -568,11 +558,10 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         if task.started_at is None:
             task.started_at = utc_now()
         task.updated_by = self.ctx.user_id
-        self.db.commit()
-        self.db.refresh(task)
+        await self.db.commit()
         return task
 
-    def update_status(
+    async def update_status(
         self,
         task: KnowledgeIngestTask,
         status: str,
@@ -593,7 +582,7 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
         from app.kernel.commons.time import utc_now
 
         if expected_lease_owner is not None:
-            self.db.refresh(task)
+            await self.db.refresh(task)
             if task.lease_owner != expected_lease_owner:
                 raise ConflictError(
                     f"Ingest task {task.id} is no longer owned by {expected_lease_owner}"
@@ -622,6 +611,5 @@ class IngestTaskRepository(Repository[KnowledgeIngestTask]):
             task.run_id = run_id
         if retry_count is not None:
             task.retry_count = retry_count
-        self.db.commit()
-        self.db.refresh(task)
+        await self.db.commit()
         return task

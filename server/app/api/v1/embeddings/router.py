@@ -12,10 +12,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.permissions import require_workspace_write_ctx
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring import get_container
@@ -64,7 +64,7 @@ class EmbeddingRead(BaseModel):
 async def create_embeddings(
     payload: EmbeddingCreate,
     ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> EmbeddingRead:
     """Embed texts and record usage against a dedicated run."""
 
@@ -74,32 +74,32 @@ async def create_embeddings(
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
 
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         "embedding",
         input_summary=f"model={payload.model}, texts={len(texts)}",
     )
-    trace_writer.update_run_status(run.id, "running")
-    db.commit()
+    await trace_writer.update_run_status(run.id, "running")
+    await db.commit()
     try:
         response = await llm_port.embed(
             texts=texts,
             model=payload.model,
             run_id=run.id,
         )
-        trace_writer.update_run_status(
+        await trace_writer.update_run_status(
             run.id,
             "succeeded",
             output_summary=f"embeddings={len(response.embeddings)}",
         )
-        db.commit()
+        await db.commit()
     except Exception as exc:
-        trace_writer.update_run_status(
+        await trace_writer.update_run_status(
             run.id,
             "failed",
             error_code="EMBED_ERROR",
             error_message=str(exc)[:2000],
         )
-        db.commit()
+        await db.commit()
         raise
 
     return EmbeddingRead(

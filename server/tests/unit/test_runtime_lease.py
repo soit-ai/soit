@@ -16,7 +16,7 @@ from app.modules.workflow.domain.models import WorkflowRun
 from app.settings.settings import Settings
 
 
-def _queued_task(db, ctx: RequestContext, *, task_id: str) -> KnowledgeIngestTask:
+async def _queued_task(async_db, ctx: RequestContext, *, task_id: str) -> KnowledgeIngestTask:
     task = KnowledgeIngestTask(
         id=task_id,
         tenant_id=ctx.tenant_id,
@@ -26,17 +26,18 @@ def _queued_task(db, ctx: RequestContext, *, task_id: str) -> KnowledgeIngestTas
         status="queued",
         created_by=ctx.user_id,
     )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
+    async_db.add(task)
+    await async_db.commit()
+    await async_db.refresh(task)
     return task
 
 
-def test_claim_next_takes_queued_task_and_records_lease(db, ctx):
-    _queued_task(db, ctx, task_id="task_claim_queued")
+@pytest.mark.asyncio
+async def test_claim_next_takes_queued_task_and_records_lease(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_claim_queued")
 
-    claimed = lease.claim_next(
-        db,
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=60,
@@ -49,18 +50,19 @@ def test_claim_next_takes_queued_task_and_records_lease(db, ctx):
     assert claimed.attempt_count == 1
 
 
-def test_claim_next_skips_task_with_live_lease(db, ctx):
-    _queued_task(db, ctx, task_id="task_live_lease")
-    first = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_claim_next_skips_task_with_live_lease(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_live_lease")
+    first = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=600,
     )
     assert first is not None
 
-    second = lease.claim_next(
-        db,
+    second = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-b",
         lease_seconds=600,
@@ -69,10 +71,11 @@ def test_claim_next_skips_task_with_live_lease(db, ctx):
     assert second is None
 
 
-def test_claim_next_reclaims_task_whose_lease_expired(db, ctx):
-    _queued_task(db, ctx, task_id="task_orphan")
-    orphan = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_claim_next_reclaims_task_whose_lease_expired(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_orphan")
+    orphan = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-crashed",
         lease_seconds=60,
@@ -80,11 +83,11 @@ def test_claim_next_reclaims_task_whose_lease_expired(db, ctx):
     assert orphan is not None
     # Simulate a worker that died and stopped renewing its lease.
     orphan.lease_expires_at = utc_now() - timedelta(minutes=5)
-    db.add(orphan)
-    db.commit()
+    async_db.add(orphan)
+    await async_db.commit()
 
-    recovered = lease.claim_next(
-        db,
+    recovered = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-healthy",
         lease_seconds=60,
@@ -96,18 +99,19 @@ def test_claim_next_reclaims_task_whose_lease_expired(db, ctx):
     assert recovered.attempt_count == 2
 
 
-def test_renew_lease_extends_while_owned(db, ctx):
-    _queued_task(db, ctx, task_id="task_renew")
-    claimed = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_renew_lease_extends_while_owned(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_renew")
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=60,
     )
     assert claimed is not None
 
-    outcome = lease.renew_lease(
-        db,
+    outcome = await lease.renew_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-a",
@@ -118,10 +122,11 @@ def test_renew_lease_extends_while_owned(db, ctx):
     assert outcome is lease.LeaseRenewal.RENEWED
 
 
-def test_renew_lease_reports_loss_after_takeover(db, ctx):
-    _queued_task(db, ctx, task_id="task_takeover")
-    claimed = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_renew_lease_reports_loss_after_takeover(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_takeover")
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-crashed",
         lease_seconds=60,
@@ -129,17 +134,17 @@ def test_renew_lease_reports_loss_after_takeover(db, ctx):
     assert claimed is not None
     original_attempt = claimed.attempt_count
     claimed.lease_expires_at = utc_now() - timedelta(minutes=5)
-    db.add(claimed)
-    db.commit()
-    lease.claim_next(
-        db,
+    async_db.add(claimed)
+    await async_db.commit()
+    await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-healthy",
         lease_seconds=60,
     )
 
-    outcome = lease.renew_lease(
-        db,
+    outcome = await lease.renew_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-crashed",
@@ -150,21 +155,22 @@ def test_renew_lease_reports_loss_after_takeover(db, ctx):
     assert outcome is lease.LeaseRenewal.LOST
 
 
-def test_renew_lease_reports_terminal_when_still_owned(db, ctx):
-    _queued_task(db, ctx, task_id="task_terminal")
-    claimed = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_renew_lease_reports_terminal_when_still_owned(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_terminal")
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=60,
     )
     assert claimed is not None
     claimed.status = "succeeded"
-    db.add(claimed)
-    db.commit()
+    async_db.add(claimed)
+    await async_db.commit()
 
-    outcome = lease.renew_lease(
-        db,
+    outcome = await lease.renew_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-a",
@@ -175,24 +181,25 @@ def test_renew_lease_reports_terminal_when_still_owned(db, ctx):
     assert outcome is lease.LeaseRenewal.TERMINAL
 
 
-def test_release_lease_clears_owner_and_sets_status(db, ctx):
-    _queued_task(db, ctx, task_id="task_release")
-    claimed = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_release_lease_clears_owner_and_sets_status(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_release")
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=60,
     )
     assert claimed is not None
 
-    released = lease.release_lease(
-        db,
+    released = await lease.release_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-a",
         status="succeeded",
     )
-    db.refresh(claimed)
+    await async_db.refresh(claimed)
 
     assert released is True
     assert claimed.status == "succeeded"
@@ -200,25 +207,26 @@ def test_release_lease_clears_owner_and_sets_status(db, ctx):
     assert claimed.lease_expires_at is None
 
 
-def test_holds_lease_tracks_ownership(db, ctx):
-    _queued_task(db, ctx, task_id="task_holds")
-    claimed = lease.claim_next(
-        db,
+@pytest.mark.asyncio
+async def test_holds_lease_tracks_ownership(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_holds")
+    claimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-a",
         lease_seconds=60,
     )
     assert claimed is not None
 
-    assert lease.holds_lease(
-        db,
+    assert await lease.holds_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-a",
         attempt_count=claimed.attempt_count,
     )
-    assert not lease.holds_lease(
-        db,
+    assert not await lease.holds_lease(
+        async_db,
         KnowledgeIngestTask,
         claimed.id,
         worker_id="worker-b",
@@ -245,13 +253,14 @@ def test_heartbeat_interval_honours_an_explicit_override():
     assert lease.heartbeat_interval_for(90, override=0.01) == 0.01
 
 
-def test_ingest_status_update_releases_lease_on_terminal(db, ctx):
-    _queued_task(db, ctx, task_id="task_status_terminal")
-    repo = IngestTaskRepository(db, ctx)
-    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=60)
+@pytest.mark.asyncio
+async def test_ingest_status_update_releases_lease_on_terminal(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_status_terminal")
+    repo = IngestTaskRepository(async_db, ctx)
+    claimed = await repo.claim_next(worker_id="worker-a", lease_seconds=60)
     assert claimed is not None and claimed.lease_owner == "worker-a"
 
-    updated = repo.update_status(claimed, "succeeded")
+    updated = await repo.update_status(claimed, "succeeded")
 
     assert updated.lease_owner is None
     assert updated.lease_expires_at is None
@@ -313,7 +322,8 @@ async def test_ingest_worker_loop_still_honours_an_explicit_limit(monkeypatch):
     assert calls["count"] == 3
 
 
-def test_workflow_runs_are_claimable_and_reclaimable(db, ctx):
+@pytest.mark.asyncio
+async def test_workflow_runs_are_claimable_and_reclaimable(async_db, ctx):
     # Workflow executions carry their own snapshot so a worker can run them
     # without the originating request.
     run = WorkflowRun(
@@ -330,11 +340,11 @@ def test_workflow_runs_are_claimable_and_reclaimable(db, ctx):
             "user_id": ctx.user_id,
         },
     )
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
-    claimed = lease.claim_next(
-        db,
+    claimed = await lease.claim_next(
+        async_db,
         WorkflowRun,
         worker_id="wf-worker-a",
         lease_seconds=60,
@@ -346,16 +356,16 @@ def test_workflow_runs_are_claimable_and_reclaimable(db, ctx):
     assert claimed.request_context_json["tenant_id"] == ctx.tenant_id
 
     assert (
-        lease.claim_next(db, WorkflowRun, worker_id="wf-worker-b", lease_seconds=60)
+        await lease.claim_next(async_db, WorkflowRun, worker_id="wf-worker-b", lease_seconds=60)
         is None
     )
 
     claimed.lease_expires_at = utc_now() - timedelta(minutes=5)
-    db.add(claimed)
-    db.commit()
+    async_db.add(claimed)
+    await async_db.commit()
 
-    recovered = lease.claim_next(
-        db,
+    recovered = await lease.claim_next(
+        async_db,
         WorkflowRun,
         worker_id="wf-worker-b",
         lease_seconds=60,
@@ -366,32 +376,34 @@ def test_workflow_runs_are_claimable_and_reclaimable(db, ctx):
     assert recovered.attempt_count == 2
 
 
-def test_requeued_ingest_task_is_claimable_again(db, ctx):
-    _queued_task(db, ctx, task_id="task_status_requeue")
-    repo = IngestTaskRepository(db, ctx)
-    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=600)
+@pytest.mark.asyncio
+async def test_requeued_ingest_task_is_claimable_again(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_status_requeue")
+    repo = IngestTaskRepository(async_db, ctx)
+    claimed = await repo.claim_next(worker_id="worker-a", lease_seconds=600)
     assert claimed is not None
 
-    repo.update_status(claimed, "queued", retry_count=1)
-    reclaimed = repo.claim_next(worker_id="worker-b", lease_seconds=600)
+    await repo.update_status(claimed, "queued", retry_count=1)
+    reclaimed = await repo.claim_next(worker_id="worker-b", lease_seconds=600)
 
     assert reclaimed is not None
     assert reclaimed.id == claimed.id
     assert reclaimed.lease_owner == "worker-b"
 
 
-def test_terminal_write_is_refused_after_the_lease_is_reclaimed(db, ctx):
-    _queued_task(db, ctx, task_id="task_lease_guard")
-    repo = IngestTaskRepository(db, ctx)
-    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=60)
+@pytest.mark.asyncio
+async def test_terminal_write_is_refused_after_the_lease_is_reclaimed(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_lease_guard")
+    repo = IngestTaskRepository(async_db, ctx)
+    claimed = await repo.claim_next(worker_id="worker-a", lease_seconds=60)
     assert claimed is not None
 
     # Another worker reclaims the task while the first is still working.
     claimed.lease_expires_at = utc_now() - timedelta(minutes=5)
-    db.add(claimed)
-    db.commit()
-    reclaimed = lease.claim_next(
-        db,
+    async_db.add(claimed)
+    await async_db.commit()
+    reclaimed = await lease.claim_next(
+        async_db,
         KnowledgeIngestTask,
         worker_id="worker-b",
         lease_seconds=60,
@@ -400,32 +412,34 @@ def test_terminal_write_is_refused_after_the_lease_is_reclaimed(db, ctx):
 
     # The superseded worker must not record an outcome over the owner's.
     with pytest.raises(ConflictError):
-        repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
+        await repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
 
-    db.refresh(claimed)
+    await async_db.refresh(claimed)
     assert claimed.status == "running"
     assert claimed.lease_owner == "worker-b"
 
 
-def test_the_lease_holder_can_still_write_its_terminal_status(db, ctx):
-    _queued_task(db, ctx, task_id="task_lease_holder")
-    repo = IngestTaskRepository(db, ctx)
-    claimed = repo.claim_next(worker_id="worker-a", lease_seconds=60)
+@pytest.mark.asyncio
+async def test_the_lease_holder_can_still_write_its_terminal_status(async_db, ctx):
+    await _queued_task(async_db, ctx, task_id="task_lease_holder")
+    repo = IngestTaskRepository(async_db, ctx)
+    claimed = await repo.claim_next(worker_id="worker-a", lease_seconds=60)
     assert claimed is not None
 
-    updated = repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
+    updated = await repo.update_status(claimed, "succeeded", expected_lease_owner="worker-a")
 
     assert updated.status == "succeeded"
     assert updated.lease_owner is None
 
 
-def test_an_unguarded_status_write_still_works(db, ctx):
+@pytest.mark.asyncio
+async def test_an_unguarded_status_write_still_works(async_db, ctx):
     # Callers outside the worker (cancel, requeue) have no lease to prove.
-    _queued_task(db, ctx, task_id="task_unguarded")
-    repo = IngestTaskRepository(db, ctx)
+    await _queued_task(async_db, ctx, task_id="task_unguarded")
+    repo = IngestTaskRepository(async_db, ctx)
 
-    updated = repo.update_status(
-        repo.claim_next(worker_id="worker-a", lease_seconds=60),
+    updated = await repo.update_status(
+        await repo.claim_next(worker_id="worker-a", lease_seconds=60),
         "canceled",
     )
 

@@ -6,7 +6,7 @@ Retrieval service for querying vector database.
 import re
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import LLMPort
@@ -27,7 +27,7 @@ class RetrievalService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         vector_port: VectorPort,
         llm_port: LLMPort,
@@ -157,9 +157,9 @@ class RetrievalService:
         """
         # Get index
         if index_id:
-            index = self.index_repo.get_by_id(index_id)
+            index = await self.index_repo.get_by_id(index_id)
         else:
-            index = self.index_repo.get_primary(knowledge_id)
+            index = await self.index_repo.get_primary(knowledge_id)
 
         if not index:
             raise ValueError(f"No index found for knowledge {knowledge_id}")
@@ -188,10 +188,10 @@ class RetrievalService:
         # Convert to QueryResult
         query_results = []
         for chunk_id, score in zip(results.ids, results.scores, strict=False):
-            chunk = self.chunk_repo.get_by_id(chunk_id)
+            chunk = await self.chunk_repo.get_by_id(chunk_id)
             if not chunk or chunk.index_status != "indexed":
                 continue
-            document = self.document_repo.get_by_id(chunk.document_id)
+            document = await self.document_repo.get_by_id(chunk.document_id)
             if not document or not document.is_latest:
                 continue
 
@@ -253,7 +253,7 @@ class RetrievalService:
         if not tokens:
             return []
 
-        chunks = self.chunk_repo.list_by_knowledge(
+        chunks = await self.chunk_repo.list_by_knowledge(
             knowledge_id=knowledge_id,
             index_status="indexed",
             limit=candidate_limit,
@@ -267,7 +267,7 @@ class RetrievalService:
         for chunk in chunks:
             document = document_cache.get(chunk.document_id)
             if document is None:
-                document = self.document_repo.get_by_id(chunk.document_id)
+                document = await self.document_repo.get_by_id(chunk.document_id)
                 document_cache[chunk.document_id] = document
             if not document or not document.is_latest:
                 continue
@@ -374,7 +374,7 @@ class RetrievalService:
         if use_rerank and combined_results:
             reranker_model = reranker_ref
             if not reranker_model:
-                default_index = self.index_repo.get_primary(knowledge_id)
+                default_index = await self.index_repo.get_primary(knowledge_id)
                 reranker_model = default_index.reranker_ref if default_index else None
             if reranker_model:
                 documents = [r.text for r in combined_results]
@@ -468,7 +468,7 @@ class RetrievalService:
 
         if use_rerank and merged:
             if not reranker_ref:
-                default_index = self.index_repo.get_primary(knowledge_id)
+                default_index = await self.index_repo.get_primary(knowledge_id)
                 reranker_ref = default_index.reranker_ref if default_index else None
             if reranker_ref:
                 documents = [r.text for r in merged]

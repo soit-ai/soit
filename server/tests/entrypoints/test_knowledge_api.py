@@ -1,5 +1,6 @@
 """Entrypoint tests for the knowledge API contract."""
 
+import pytest
 from fastapi import status
 
 from app.kernel.commons.time import utc_now
@@ -16,7 +17,8 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def test_knowledge_workbench_returns_rows_and_runtime_metrics(client, db):
+@pytest.mark.asyncio
+async def test_knowledge_workbench_returns_rows_and_runtime_metrics(async_client, async_db):
     now = utc_now()
     ready_knowledge = Knowledge(
         id="knw_workbench_ready",
@@ -51,7 +53,7 @@ def test_knowledge_workbench_returns_rows_and_runtime_metrics(client, db):
         created_at=now,
         updated_at=now,
     )
-    db.add_all(
+    async_db.add_all(
         [
             ready_knowledge,
             unconfigured_knowledge,
@@ -130,9 +132,9 @@ def test_knowledge_workbench_returns_rows_and_runtime_metrics(client, db):
             ),
         ]
     )
-    db.commit()
+    await async_db.commit()
 
-    response = client.get("/api/v1/knowledge/workbench?page_size=20", headers=_headers())
+    response = await async_client.get("/api/v1/knowledge/workbench?page_size=20", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
@@ -164,7 +166,7 @@ def test_knowledge_workbench_returns_rows_and_runtime_metrics(client, db):
     assert empty_row["status"] == "unconfigured"
     assert empty_row["action_enabled"] is False
 
-    items_response = client.get(
+    items_response = await async_client.get(
         "/api/v1/knowledge/workbench/items?tab=low-hit&keyword=Support&page_size=1",
         headers=_headers(),
     )
@@ -175,13 +177,14 @@ def test_knowledge_workbench_returns_rows_and_runtime_metrics(client, db):
     assert items_payload["next_page_token"] is None
     assert [item["id"] for item in items_payload["items"]] == [ready_knowledge.id]
 
-    paged_response = client.get("/api/v1/knowledge/workbench/items?page_size=1", headers=_headers())
+    paged_response = await async_client.get("/api/v1/knowledge/workbench/items?page_size=1", headers=_headers())
     assert paged_response.status_code == status.HTTP_200_OK
     assert paged_response.json()["data"]["next_page_token"] is not None
 
 
-def test_knowledge_crud_and_observe_contract(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_knowledge_crud_and_observe_contract(async_client):
+    create_resp = await async_client.post(
         "/api/v1/knowledge",
         json={
             "name": "knowledge-api-contract",
@@ -199,16 +202,16 @@ def test_knowledge_crud_and_observe_contract(client):
     assert knowledge["knowledge_type"] == "code"
     assert "source_kind" not in knowledge
 
-    list_resp = client.get("/api/v1/knowledge", headers=_headers())
+    list_resp = await async_client.get("/api/v1/knowledge", headers=_headers())
     assert list_resp.status_code == status.HTTP_200_OK
     assert any(item["id"] == knowledge_id for item in list_resp.json()["data"]["items"])
 
-    detail_resp = client.get(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
+    detail_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
     assert detail_resp.status_code == status.HTTP_200_OK
     detail = detail_resp.json()["data"]
     assert detail["id"] == knowledge_id
 
-    update_resp = client.put(
+    update_resp = await async_client.put(
         f"/api/v1/knowledge/{knowledge_id}",
         json={
             "description": "updated knowledge description",
@@ -223,34 +226,35 @@ def test_knowledge_crud_and_observe_contract(client):
     assert updated["retrieval_json"]["strategy"] == "hybrid"
     assert updated["tags"] == ["updated"]
 
-    docs_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/documents", headers=_headers())
+    docs_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/documents", headers=_headers())
     assert docs_resp.status_code == status.HTTP_200_OK
     assert docs_resp.json()["data"] == []
 
-    runs_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/runs", headers=_headers())
+    runs_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/runs", headers=_headers())
     assert runs_resp.status_code == status.HTTP_200_OK
     assert isinstance(runs_resp.json()["data"]["items"], list)
 
-    costs_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/runs/costs/summary", headers=_headers())
+    costs_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/runs/costs/summary", headers=_headers())
     assert costs_resp.status_code == status.HTTP_200_OK
     costs = costs_resp.json()["data"]
     assert "tokens_prompt" in costs
     assert "ms_total" in costs
 
-    by_mode_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/runs/costs/by-mode", headers=_headers())
+    by_mode_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/runs/costs/by-mode", headers=_headers())
     assert by_mode_resp.status_code == status.HTTP_200_OK
     assert isinstance(by_mode_resp.json()["data"], list)
 
-    usages_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/usages", headers=_headers())
+    usages_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/usages", headers=_headers())
     assert usages_resp.status_code == status.HTTP_200_OK
     assert isinstance(usages_resp.json()["data"], list)
 
-    delete_resp = client.delete(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
+    delete_resp = await async_client.delete(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
     assert delete_resp.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_knowledge_response_does_not_expose_document_source_kind(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_knowledge_response_does_not_expose_document_source_kind(async_client):
+    create_resp = await async_client.post(
         "/api/v1/knowledge",
         json={
             "name": "knowledge-without-document-source-kind",
@@ -263,18 +267,19 @@ def test_knowledge_response_does_not_expose_document_source_kind(client):
     assert create_resp.status_code == status.HTTP_201_CREATED
     knowledge_id = create_resp.json()["data"]["id"]
 
-    list_resp = client.get("/api/v1/knowledge", headers=_headers())
+    list_resp = await async_client.get("/api/v1/knowledge", headers=_headers())
     assert list_resp.status_code == status.HTTP_200_OK
     item = next(entry for entry in list_resp.json()["data"]["items"] if entry["id"] == knowledge_id)
     assert "source_kind" not in item
 
-    detail_resp = client.get(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
+    detail_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}", headers=_headers())
     assert detail_resp.status_code == status.HTTP_200_OK
     assert "source_kind" not in detail_resp.json()["data"]
 
 
-def test_knowledge_upload_ingest_task_retry_contract(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_knowledge_upload_ingest_task_retry_contract(async_client):
+    create_resp = await async_client.post(
         "/api/v1/knowledge",
         json={
             "name": "knowledge-ingest-contract",
@@ -288,7 +293,7 @@ def test_knowledge_upload_ingest_task_retry_contract(client):
     assert create_resp.status_code == status.HTTP_201_CREATED
     knowledge_id = create_resp.json()["data"]["id"]
 
-    upload_resp = client.post(
+    upload_resp = await async_client.post(
         f"/api/v1/knowledge/{knowledge_id}/documents",
         data={
             "doc_key": "contract-doc",
@@ -308,7 +313,7 @@ def test_knowledge_upload_ingest_task_retry_contract(client):
     assert document["source_kind"] == "upload"
     assert "source_type" not in document
 
-    tasks_resp = client.get(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks", headers=_headers())
+    tasks_resp = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks", headers=_headers())
     assert tasks_resp.status_code == status.HTTP_200_OK
     tasks = tasks_resp.json()["data"]
     assert len(tasks) == 1
@@ -319,11 +324,11 @@ def test_knowledge_upload_ingest_task_retry_contract(client):
     assert "error_message" in task
     assert "run_id" in task
 
-    cancel_resp = client.post(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks/{task['id']}/cancel", headers=_headers())
+    cancel_resp = await async_client.post(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks/{task['id']}/cancel", headers=_headers())
     assert cancel_resp.status_code == status.HTTP_200_OK
     assert cancel_resp.json()["data"]["status"] == "canceled"
 
-    retry_resp = client.post(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks/{task['id']}/retry", headers=_headers())
+    retry_resp = await async_client.post(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks/{task['id']}/retry", headers=_headers())
     assert retry_resp.status_code == status.HTTP_200_OK
     retried = retry_resp.json()["data"]
     assert retried["status"] == "queued"
@@ -331,8 +336,9 @@ def test_knowledge_upload_ingest_task_retry_contract(client):
     assert retried["error_message"] is None
 
 
-def test_knowledge_index_rebuild_returns_observable_run_fields(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_knowledge_index_rebuild_returns_observable_run_fields(async_client):
+    create_resp = await async_client.post(
         "/api/v1/knowledge",
         json={
             "name": "knowledge-index-observe-contract",
@@ -345,7 +351,7 @@ def test_knowledge_index_rebuild_returns_observable_run_fields(client):
     assert create_resp.status_code == status.HTTP_201_CREATED
     knowledge_id = create_resp.json()["data"]["id"]
 
-    create_index_resp = client.post(
+    create_index_resp = await async_client.post(
         f"/api/v1/knowledge/{knowledge_id}/indexes",
         json={
             "name": "primary",
@@ -364,7 +370,7 @@ def test_knowledge_index_rebuild_returns_observable_run_fields(client):
     assert "last_error_code" in created_index
     assert "last_error_message" in created_index
 
-    rebuild_resp = client.post(
+    rebuild_resp = await async_client.post(
         f"/api/v1/knowledge/{knowledge_id}/indexes/{created_index['id']}/rebuild",
         headers=_headers(),
     )
@@ -377,8 +383,9 @@ def test_knowledge_index_rebuild_returns_observable_run_fields(client):
     assert rebuilt["last_error_message"] is None
 
 
-def test_knowledge_upload_rejects_legacy_source_type(client):
-    create_resp = client.post(
+@pytest.mark.asyncio
+async def test_knowledge_upload_rejects_legacy_source_type(async_client):
+    create_resp = await async_client.post(
         "/api/v1/knowledge",
         json={
             "name": "knowledge-source-kind-contract",
@@ -392,7 +399,7 @@ def test_knowledge_upload_rejects_legacy_source_type(client):
     assert create_resp.status_code == status.HTTP_201_CREATED
     knowledge_id = create_resp.json()["data"]["id"]
 
-    upload_resp = client.post(
+    upload_resp = await async_client.post(
         f"/api/v1/knowledge/{knowledge_id}/documents",
         data={
             "doc_key": "legacy-source-type-doc",

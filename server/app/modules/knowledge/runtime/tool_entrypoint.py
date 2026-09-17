@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
 from app.wiring.services import build_knowledge_runtime_service
@@ -60,7 +60,7 @@ async def knowledge_query(
         tenant_role=tenant_role,
         workspace_role=workspace_role,
     )
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
         service = build_knowledge_runtime_service(db=db, ctx=request_context)
         request = QueryRequest(
@@ -74,4 +74,4 @@ async def knowledge_query(
         response = await service.query(knowledge_id, request)
         return response.model_dump()
     finally:
-        db.close()
+        await db.close()

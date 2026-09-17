@@ -38,16 +38,19 @@ def _resolve_ctx(bound_args: inspect.BoundArguments) -> RequestContext:
     raise ValueError("RequestContext not available for RBAC guard")
 
 
-def _resolve_value(
+async def _resolve_value(
     bound_args: inspect.BoundArguments,
     arg_name: str | None,
     resolver: Callable[..., Any] | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> Any:
-    """Resolve a value from args or a resolver."""
+    """Resolve a value from args or a resolver (sync or async)."""
     if resolver:
-        return resolver(*args, **kwargs)
+        value = resolver(*args, **kwargs)
+        if inspect.isawaitable(value):
+            value = await value
+        return value
     if arg_name:
         return bound_args.arguments.get(arg_name)
     return None
@@ -78,7 +81,7 @@ def rbac_guard(
             async def async_gen_wrapper(*args, **kwargs):
                 bound = signature.bind_partial(*args, **kwargs)
                 ctx = _resolve_ctx(bound)
-                resource_id = _resolve_value(
+                resource_id = await _resolve_value(
                     bound,
                     resource_id_arg,
                     resource_id_resolver,
@@ -87,7 +90,7 @@ def rbac_guard(
                 )
                 if not resource_id:
                     raise ValueError(f"RBAC guard requires resource id for {resource_type}")
-                owner_id = _resolve_value(
+                owner_id = await _resolve_value(
                     bound,
                     owner_id_arg,
                     owner_id_resolver,
@@ -104,7 +107,7 @@ def rbac_guard(
         async def async_wrapper(*args, **kwargs):
             bound = signature.bind_partial(*args, **kwargs)
             ctx = _resolve_ctx(bound)
-            resource_id = _resolve_value(
+            resource_id = await _resolve_value(
                 bound,
                 resource_id_arg,
                 resource_id_resolver,
@@ -113,7 +116,7 @@ def rbac_guard(
             )
             if not resource_id:
                 raise ValueError(f"RBAC guard requires resource id for {resource_type}")
-            owner_id = _resolve_value(
+            owner_id = await _resolve_value(
                 bound,
                 owner_id_arg,
                 owner_id_resolver,

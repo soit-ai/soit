@@ -137,7 +137,7 @@ class KnowledgeHandlers:
         until: datetime | None = None,
         score_threshold: float = 0.6,
     ) -> KnowledgeRetrievalSummary:
-        return self.service.summarize_retrieval(
+        return await self.service.summarize_retrieval(
             knowledge_id,
             since=since,
             until=until,

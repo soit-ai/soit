@@ -5,7 +5,7 @@ Document versioning management.
 
 
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -16,7 +16,7 @@ from app.modules.knowledge.infra.repository import DocumentRepository
 class DocumentVersioning:
     """Service for managing document versions."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize versioning service.
 
         Args:
@@ -27,7 +27,7 @@ class DocumentVersioning:
         self.ctx = ctx
         self.document_repo = DocumentRepository(db, ctx)
 
-    def create_version(
+    async def create_version(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -45,10 +45,10 @@ class DocumentVersioning:
             New KnowledgeDocument instance.
         """
         # Get next version number
-        version = self.document_repo.get_next_version(knowledge_id, doc_key)
+        version = await self.document_repo.get_next_version(knowledge_id, doc_key)
 
         # Mark previous versions as not latest
-        previous_versions = self._get_versions(knowledge_id, doc_key)
+        previous_versions = await self._get_versions(knowledge_id, doc_key)
         for prev_version in previous_versions:
             if prev_version.is_latest:
                 prev_version.is_latest = False
@@ -68,12 +68,11 @@ class DocumentVersioning:
         )
 
         self.db.add(new_document)
-        self.db.commit()
-        self.db.refresh(new_document)
+        await self.db.commit()
 
         return new_document
 
-    def get_latest_version(
+    async def get_latest_version(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -87,9 +86,9 @@ class DocumentVersioning:
         Returns:
             Latest KnowledgeDocument instance or None.
         """
-        return self.document_repo.get_by_key(knowledge_id, doc_key)
+        return await self.document_repo.get_by_key(knowledge_id, doc_key)
 
-    def get_version(
+    async def get_version(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -105,9 +104,9 @@ class DocumentVersioning:
         Returns:
             KnowledgeDocument instance or None.
         """
-        return self.document_repo.get_by_key(knowledge_id, doc_key, version=version)
+        return await self.document_repo.get_by_key(knowledge_id, doc_key, version=version)
 
-    def list_versions(
+    async def list_versions(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -121,9 +120,9 @@ class DocumentVersioning:
         Returns:
             List of KnowledgeDocument instances.
         """
-        return self._get_versions(knowledge_id, doc_key)
+        return await self._get_versions(knowledge_id, doc_key)
 
-    def rollback_to_version(
+    async def rollback_to_version(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -140,12 +139,12 @@ class DocumentVersioning:
             Rolled back KnowledgeDocument instance.
         """
         # Get target version
-        target_doc = self.get_version(knowledge_id, doc_key, target_version)
+        target_doc = await self.get_version(knowledge_id, doc_key, target_version)
         if not target_doc:
             raise ValueError(f"Version {target_version} not found")
 
         # Mark all versions as not latest
-        all_versions = self._get_versions(knowledge_id, doc_key)
+        all_versions = await self._get_versions(knowledge_id, doc_key)
         for version_doc in all_versions:
             if version_doc.is_latest:
                 version_doc.is_latest = False
@@ -157,12 +156,11 @@ class DocumentVersioning:
         target_doc.updated_at = utc_now()
         target_doc.updated_by = self.ctx.user_id
 
-        self.db.commit()
-        self.db.refresh(target_doc)
+        await self.db.commit()
 
         return target_doc
 
-    def _get_versions(
+    async def _get_versions(
         self,
         knowledge_id: str,
         doc_key: str,
@@ -186,6 +184,6 @@ class DocumentVersioning:
             )
         ).order_by(KnowledgeDocument.version.desc())
 
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self.document_repo._unwrap_all(results)
 

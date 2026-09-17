@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from sqlalchemy import and_, desc, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.commons.ids import generate_ulid
@@ -69,7 +69,7 @@ class KnowledgeRuntimeService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         knowledge_repo: KnowledgeRepositoryPort,
         document_repo: DocumentRepositoryPort,
@@ -124,9 +124,9 @@ class KnowledgeRuntimeService:
         """Resolve a knowledge id for create RBAC checks."""
         return knowledge_in.name or f"new:{self.ctx.workspace_id}"
 
-    def _resolve_knowledge_id_from_document(self, document_id: str) -> str:
+    async def _resolve_knowledge_id_from_document(self, document_id: str) -> str:
         """Resolve a knowledge id for document-scoped RBAC checks."""
-        document = self.document_repo.get_by_id(document_id)
+        document = await self.document_repo.get_by_id(document_id)
         if not document:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
         return document.knowledge_id
@@ -149,7 +149,7 @@ class KnowledgeRuntimeService:
             return None
         return match.group(1).strip()
 
-    def _run_belongs_to_knowledge(self, run: Run, knowledge_id: str) -> bool:
+    async def _run_belongs_to_knowledge(self, run: Run, knowledge_id: str) -> bool:
         if run.subject_kind == "knowledge" and run.subject_id == knowledge_id:
             return True
         summary_knowledge_id = self._extract_summary_field(run.input_summary, "knowledge_id")
@@ -159,19 +159,19 @@ class KnowledgeRuntimeService:
         if run.mode == "knowledge_ingest":
             if not self.ingest_task_repo:
                 return False
-            tasks = self.ingest_task_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
+            tasks = await self.ingest_task_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
             return any(task.run_id == run.id for task in tasks if task.run_id)
 
         if run.mode in ("knowledge_index", "knowledge_index_delete"):
             index_id = self._extract_summary_field(run.input_summary, "index_id")
             if not index_id:
                 return False
-            index = self.index_repo.get_by_id(index_id)
+            index = await self.index_repo.get_by_id(index_id)
             return bool(index and index.knowledge_id == knowledge_id)
 
         return False
 
-    def _list_knowledge_runs_raw(
+    async def _list_knowledge_runs_raw(
         self,
         *,
         knowledge_id: str,
@@ -198,7 +198,7 @@ class KnowledgeRuntimeService:
             clauses.append(Run.started_at <= started_before)
 
         query = select(Run).where(and_(*clauses)).order_by(desc(Run.created_at)).limit(5000)
-        raw_rows = list(self.db.exec(query).all())
+        raw_rows = list((await self.db.exec(query)).scalars().all())
         runs: list[Run] = []
         for row in raw_rows:
             if hasattr(row, "id"):
@@ -208,7 +208,7 @@ class KnowledgeRuntimeService:
                     runs.append(row[0])
                 except Exception:
                     continue
-        return [run for run in runs if self._run_belongs_to_knowledge(run, knowledge_id)]
+        return [run for run in runs if await self._run_belongs_to_knowledge(run, knowledge_id)]
 
     def _extract_snippets(
         self,
@@ -248,14 +248,14 @@ class KnowledgeRuntimeService:
                 snippets.append(snippet)
         return snippets[:max_snippets]
 
-    def _query_indexed_chunks_fallback(
+    async def _query_indexed_chunks_fallback(
         self,
         *,
         knowledge_id: str,
         query: str,
         top_k: int,
     ) -> list[QueryResult]:
-        chunks = self.chunk_repo.list_by_knowledge(
+        chunks = await self.chunk_repo.list_by_knowledge(
             knowledge_id,
             index_status="indexed",
             limit=max(top_k * 10, top_k),
@@ -279,7 +279,7 @@ class KnowledgeRuntimeService:
 
         results: list[QueryResult] = []
         for score, chunk in ranked[:top_k]:
-            document = self.document_repo.get_by_id(chunk.document_id)
+            document = await self.document_repo.get_by_id(chunk.document_id)
             metadata = {
                 "knowledge_id": chunk.knowledge_id,
                 "doc_key": document.doc_key if document else None,
@@ -312,7 +312,7 @@ class KnowledgeRuntimeService:
             Created Knowledge instance.
         """
         # Check if name already exists
-        existing = self.knowledge_repo.get_by_name(knowledge_in.name)
+        existing = await self.knowledge_repo.get_by_name(knowledge_in.name)
         if existing:
             raise KernelError("DUPLICATE_NAME", f"Knowledge '{knowledge_in.name}' already exists")
 
@@ -334,10 +334,10 @@ class KnowledgeRuntimeService:
             updated_by=self.ctx.user_id,
         )
 
-        knowledge = self.knowledge_repo.create(knowledge)
+        knowledge = await self.knowledge_repo.create(knowledge)
 
         if knowledge_in.default_embedding_model_ref:
-            existing_primary = self.index_repo.get_primary(knowledge.id)
+            existing_primary = await self.index_repo.get_primary(knowledge.id)
             if not existing_primary:
                 index = KnowledgeIndex(
                     tenant_id=self.ctx.tenant_id,
@@ -357,11 +357,10 @@ class KnowledgeRuntimeService:
                     created_by=self.ctx.user_id,
                     updated_by=self.ctx.user_id,
                 )
-                index = self.index_repo.create(index)
+                index = await self.index_repo.create(index)
                 knowledge.default_index_id = index.id
                 knowledge.updated_at = utc_now()
-                self.db.commit()
-                self.db.refresh(knowledge)
+                await self.db.commit()
 
         return knowledge
 
@@ -375,7 +374,7 @@ class KnowledgeRuntimeService:
         Returns:
             Knowledge instance.
         """
-        knowledge = self.knowledge_repo.get_by_id(knowledge_id)
+        knowledge = await self.knowledge_repo.get_by_id(knowledge_id)
         if not knowledge:
             raise KernelError("NOT_FOUND", f"Knowledge {knowledge_id} not found")
         return knowledge
@@ -396,7 +395,7 @@ class KnowledgeRuntimeService:
         # Update fields
         if knowledge_in.name is not None:
             # Check if new name conflicts
-            existing = self.knowledge_repo.get_by_name(knowledge_in.name)
+            existing = await self.knowledge_repo.get_by_name(knowledge_in.name)
             if existing and existing.id != knowledge_id:
                 raise KernelError("DUPLICATE_NAME", f"Knowledge '{knowledge_in.name}' already exists")
             knowledge.name = knowledge_in.name
@@ -431,12 +430,11 @@ class KnowledgeRuntimeService:
         knowledge.updated_by = self.ctx.user_id
         knowledge.updated_at = utc_now()
 
-        self.db.commit()
-        self.db.refresh(knowledge)
+        await self.db.commit()
 
         return knowledge
 
-    def _resolve_index(
+    async def _resolve_index(
         self,
         knowledge: Knowledge,
         index_id: str | None = None,
@@ -451,25 +449,25 @@ class KnowledgeRuntimeService:
             KnowledgeIndex instance or None.
         """
         if index_id:
-            index = self.index_repo.get_by_id(index_id)
+            index = await self.index_repo.get_by_id(index_id)
         elif knowledge.default_index_id:
-            index = self.index_repo.get_by_id(knowledge.default_index_id)
+            index = await self.index_repo.get_by_id(knowledge.default_index_id)
         else:
             index = None
 
         if not index:
-            index = self.index_repo.get_primary(knowledge.id)
+            index = await self.index_repo.get_primary(knowledge.id)
 
         return index
 
-    def _set_primary_index(self, knowledge: Knowledge, index: KnowledgeIndex) -> None:
+    async def _set_primary_index(self, knowledge: Knowledge, index: KnowledgeIndex) -> None:
         """Set the knowledge primary index.
 
         Args:
             knowledge: Knowledge instance.
             index: Index to mark as primary.
         """
-        indexes = self.index_repo.list_by_knowledge(knowledge.id, limit=1000, offset=0)
+        indexes = await self.index_repo.list_by_knowledge(knowledge.id, limit=1000, offset=0)
         for item in indexes:
             if item.id != index.id and item.is_primary:
                 item.is_primary = False
@@ -483,11 +481,9 @@ class KnowledgeRuntimeService:
         knowledge.updated_at = utc_now()
         knowledge.updated_by = self.ctx.user_id
 
-        self.db.commit()
-        self.db.refresh(index)
-        self.db.refresh(knowledge)
+        await self.db.commit()
 
-    def _resolve_document_index(
+    async def _resolve_document_index(
         self,
         knowledge: Knowledge,
         document: KnowledgeDocument,
@@ -504,7 +500,7 @@ class KnowledgeRuntimeService:
         index_id = None
         if document.index_meta_json:
             index_id = document.index_meta_json.get("index_id")
-        return self._resolve_index(knowledge, index_id)
+        return await self._resolve_index(knowledge, index_id)
 
     async def _get_document_for_knowledge(self, knowledge_id: str, document_id: str) -> KnowledgeDocument:
         """Get document and verify knowledge ownership."""
@@ -593,8 +589,7 @@ class KnowledgeRuntimeService:
         document.content_hash = payload.get("content_hash")
         document.updated_by = self.ctx.user_id
         document.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(document)
+        await self.db.commit()
         return payload
 
     @staticmethod
@@ -718,7 +713,7 @@ class KnowledgeRuntimeService:
         knowledge.last_ingested_at = utc_now()
         knowledge.updated_at = utc_now()
         knowledge.updated_by = self.ctx.user_id
-        self.db.commit()
+        await self.db.commit()
 
         return document
 
@@ -740,7 +735,7 @@ class KnowledgeRuntimeService:
         run_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id, version_id=document_in.doc_key)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_ingest",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -750,7 +745,7 @@ class KnowledgeRuntimeService:
             )
             run_id = run.id
 
-        document = self.versioning.create_version(
+        document = await self.versioning.create_version(
             knowledge_id=knowledge_id,
             doc_key=document_in.doc_key,
             status="queued",
@@ -790,7 +785,7 @@ class KnowledgeRuntimeService:
             created_by=self.ctx.user_id,
             updated_by=self.ctx.user_id,
         )
-        task = self.ingest_task_repo.create(task)
+        task = await self.ingest_task_repo.create(task)
         return document, task
 
     async def process_ingest_task(
@@ -814,12 +809,12 @@ class KnowledgeRuntimeService:
         # succeed. Fail it terminally here; raising without a status write
         # would leave it claimed until the lease expires and the queue would
         # retry it forever.
-        def _orphaned(message: str) -> KernelError:
+        async def _orphaned(message: str) -> KernelError:
             if self.trace_writer and task.run_id:
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     task.run_id, "failed", output_summary=message
                 )
-            self.ingest_task_repo.update_status(
+            await self.ingest_task_repo.update_status(
                 task,
                 "failed",
                 error_code="NOT_FOUND",
@@ -829,24 +824,24 @@ class KnowledgeRuntimeService:
             )
             return KernelError("NOT_FOUND", message)
 
-        knowledge = self.knowledge_repo.get_by_id(task.knowledge_id)
+        knowledge = await self.knowledge_repo.get_by_id(task.knowledge_id)
         if not knowledge:
-            raise _orphaned(f"Knowledge {task.knowledge_id} not found")
+            raise await _orphaned(f"Knowledge {task.knowledge_id} not found")
         if not task.document_id:
-            raise _orphaned("Ingest task missing document_id")
-        document = self.document_repo.get_by_id(task.document_id)
+            raise await _orphaned("Ingest task missing document_id")
+        document = await self.document_repo.get_by_id(task.document_id)
         if not document:
-            raise _orphaned(f"Document {task.document_id} not found")
+            raise await _orphaned(f"Document {task.document_id} not found")
 
         run_id = task.run_id
         if self.trace_writer:
-            previous_run = self.db.get(Run, run_id) if run_id else None
+            previous_run = await self.db.get(Run, run_id) if run_id else None
             if previous_run and previous_run.status in {"succeeded", "failed", "canceled", "expired"}:
                 subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(
                     task.knowledge_id,
                     version_id=document.doc_key,
                 )
-                run = self.trace_writer.create_run(
+                run = await self.trace_writer.create_run(
                     mode="knowledge_ingest",
                     kind="batch",
                     subject_kind=subject_kind,
@@ -863,7 +858,7 @@ class KnowledgeRuntimeService:
                 run_id = run.id
             elif not run_id:
                 subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(task.knowledge_id, version_id=document.doc_key)
-                run = self.trace_writer.create_run(
+                run = await self.trace_writer.create_run(
                     mode="knowledge_ingest",
                     kind="batch",
                     subject_kind=subject_kind,
@@ -872,8 +867,8 @@ class KnowledgeRuntimeService:
                     input_summary=self._compose_knowledge_run_summary(task.knowledge_id, f"doc_key={document.doc_key}"),
                 )
                 run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
-            self.ingest_task_repo.update_status(task, "running", run_id=run_id)
+            await self.trace_writer.update_run_status(run_id, "running")
+            await self.ingest_task_repo.update_status(task, "running", run_id=run_id)
 
         try:
             document = await self._process_document_ingest(
@@ -882,14 +877,14 @@ class KnowledgeRuntimeService:
                 file_content=None,
                 run_id=run_id,
             )
-            latest = self.ingest_task_repo.get_by_id(task.id)
+            latest = await self.ingest_task_repo.get_by_id(task.id)
             if latest and latest.status == "canceled":
                 if self.trace_writer and run_id:
-                    self.trace_writer.update_run_status(run_id, "canceled")
+                    await self.trace_writer.update_run_status(run_id, "canceled")
                 return document
             if self.trace_writer and run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
-            self.ingest_task_repo.update_status(
+                await self.trace_writer.update_run_status(run_id, "succeeded")
+            await self.ingest_task_repo.update_status(
                 task,
                 "succeeded",
                 run_id=run_id,
@@ -898,7 +893,7 @@ class KnowledgeRuntimeService:
             return document
         except Exception as exc:
             if self.trace_writer and run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             next_retry = task.retry_count + 1
             if next_retry <= task.max_retries:
                 document.status = "queued"
@@ -906,9 +901,8 @@ class KnowledgeRuntimeService:
                 document.error_message = None
                 document.updated_at = utc_now()
                 document.updated_by = self.ctx.user_id
-                self.db.commit()
-                self.db.refresh(document)
-                self.ingest_task_repo.update_status(
+                await self.db.commit()
+                await self.ingest_task_repo.update_status(
                     task,
                     "queued",
                     error_code="INGEST_ERROR",
@@ -917,7 +911,7 @@ class KnowledgeRuntimeService:
                     retry_count=next_retry,
                 )
             else:
-                self.ingest_task_repo.update_status(
+                await self.ingest_task_repo.update_status(
                     task,
                     "failed",
                     error_code="INGEST_ERROR",
@@ -940,7 +934,7 @@ class KnowledgeRuntimeService:
         if not self.ingest_task_repo:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
         await self.get_knowledge(knowledge_id)
-        return self.ingest_task_repo.list_by_knowledge(
+        return await self.ingest_task_repo.list_by_knowledge(
             knowledge_id=knowledge_id,
             status=status,
             limit=limit,
@@ -952,7 +946,7 @@ class KnowledgeRuntimeService:
         """Get ingest task by ID."""
         if not self.ingest_task_repo:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
-        task = self.ingest_task_repo.get_by_id(task_id)
+        task = await self.ingest_task_repo.get_by_id(task_id)
         if not task or task.knowledge_id != knowledge_id:
             raise KernelError("NOT_FOUND", f"Ingest task {task_id} not found")
         return task
@@ -966,24 +960,22 @@ class KnowledgeRuntimeService:
 
         document = None
         if task.document_id:
-            document = self.document_repo.get_by_id(task.document_id)
+            document = await self.document_repo.get_by_id(task.document_id)
             if document and document.knowledge_id == knowledge_id:
                 document.status = "queued"
                 document.error_code = None
                 document.error_message = None
                 document.updated_at = utc_now()
                 document.updated_by = self.ctx.user_id
-                self.db.commit()
-                self.db.refresh(document)
+                await self.db.commit()
 
         task.error_code = None
         task.error_message = None
         task.run_id = None
         task.started_at = None
         task.finished_at = None
-        self.db.commit()
-        self.db.refresh(task)
-        return self.ingest_task_repo.update_status(task, "queued")
+        await self.db.commit()
+        return await self.ingest_task_repo.update_status(task, "queued")
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def cancel_ingest_task(self, knowledge_id: str, task_id: str) -> KnowledgeIngestTask:
@@ -991,7 +983,7 @@ class KnowledgeRuntimeService:
         task = await self.get_ingest_task(knowledge_id, task_id)
         if task.status in ("succeeded", "failed", "canceled"):
             raise KernelError("INVALID_STATUS", "Only queued/running tasks can be canceled")
-        return self.ingest_task_repo.update_status(task, "canceled")
+        return await self.ingest_task_repo.update_status(task, "canceled")
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def retry_document_ingest(
@@ -1034,8 +1026,7 @@ class KnowledgeRuntimeService:
         document.error_message = None
         document.updated_at = utc_now()
         document.updated_by = self.ctx.user_id
-        self.db.commit()
-        self.db.refresh(document)
+        await self.db.commit()
 
         task = KnowledgeIngestTask(
             tenant_id=self.ctx.tenant_id,
@@ -1049,7 +1040,7 @@ class KnowledgeRuntimeService:
             created_by=self.ctx.user_id,
             updated_by=self.ctx.user_id,
         )
-        return self.ingest_task_repo.create(task)
+        return await self.ingest_task_repo.create(task)
 
     async def _cleanup_document_artifacts(
         self,
@@ -1066,7 +1057,7 @@ class KnowledgeRuntimeService:
             chunks: Chunk list for the document.
             run_id: Optional run id for trace emission.
         """
-        index = self._resolve_document_index(knowledge, document)
+        index = await self._resolve_document_index(knowledge, document)
         if self.vector_port and index:
             vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks if chunk.vector_ref or chunk.id]
             if vector_ids:
@@ -1111,11 +1102,11 @@ class KnowledgeRuntimeService:
         """
         knowledge = await self.get_knowledge(knowledge_id)
 
-        existing = self.index_repo.get_by_name(knowledge_id, index_in.name)
+        existing = await self.index_repo.get_by_name(knowledge_id, index_in.name)
         if existing:
             raise KernelError("DUPLICATE_NAME", f"Index '{index_in.name}' already exists")
 
-        existing_primary = self.index_repo.get_primary(knowledge_id)
+        existing_primary = await self.index_repo.get_primary(knowledge_id)
         is_primary = index_in.is_primary or existing_primary is None
 
         index = KnowledgeIndex(
@@ -1141,18 +1132,18 @@ class KnowledgeRuntimeService:
             updated_by=self.ctx.user_id,
         )
 
-        index = self.index_repo.create(index)
+        index = await self.index_repo.create(index)
 
         if knowledge.default_embedding_model_ref is None:
             knowledge.default_embedding_model_ref = index.embedding_model_ref
             knowledge.updated_by = self.ctx.user_id
 
         if is_primary:
-            self._set_primary_index(knowledge, index)
+            await self._set_primary_index(knowledge, index)
         else:
             knowledge.updated_at = utc_now()
             knowledge.updated_by = self.ctx.user_id
-            self.db.commit()
+            await self.db.commit()
 
         return index
 
@@ -1174,7 +1165,7 @@ class KnowledgeRuntimeService:
             List of KnowledgeIndex instances.
         """
         await self.get_knowledge(knowledge_id)
-        return self.index_repo.list_by_knowledge(knowledge_id, limit=limit, offset=offset)
+        return await self.index_repo.list_by_knowledge(knowledge_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
     async def get_index(self, knowledge_id: str, index_id: str) -> KnowledgeIndex:
@@ -1187,7 +1178,7 @@ class KnowledgeRuntimeService:
         Returns:
             KnowledgeIndex instance.
         """
-        index = self.index_repo.get_by_id(index_id)
+        index = await self.index_repo.get_by_id(index_id)
         if not index or index.knowledge_id != knowledge_id:
             raise KernelError("NOT_FOUND", f"Index {index_id} not found")
         return index
@@ -1213,7 +1204,7 @@ class KnowledgeRuntimeService:
         index = await self.get_index(knowledge_id, index_id)
 
         if index_in.name:
-            existing = self.index_repo.get_by_name(knowledge_id, index_in.name)
+            existing = await self.index_repo.get_by_name(knowledge_id, index_in.name)
             if existing and existing.id != index_id:
                 raise KernelError("DUPLICATE_NAME", f"Index '{index_in.name}' already exists")
             index.name = index_in.name
@@ -1231,13 +1222,13 @@ class KnowledgeRuntimeService:
         index.updated_by = self.ctx.user_id
 
         if index_in.is_primary is True:
-            self._set_primary_index(knowledge, index)
+            await self._set_primary_index(knowledge, index)
         else:
             if index_in.is_primary is False and index.is_primary:
                 index.is_primary = False
                 knowledge.default_index_id = None
                 candidates = [
-                    item for item in self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
+                    item for item in await self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
                     if item.id != index.id
                 ]
                 if candidates:
@@ -1247,8 +1238,7 @@ class KnowledgeRuntimeService:
                     knowledge.default_index_id = candidates[0].id
             knowledge.updated_at = utc_now()
             knowledge.updated_by = self.ctx.user_id
-            self.db.commit()
-            self.db.refresh(index)
+            await self.db.commit()
 
         return index
 
@@ -1266,7 +1256,7 @@ class KnowledgeRuntimeService:
         run_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id, version_id=index_id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_index_delete",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -1275,11 +1265,11 @@ class KnowledgeRuntimeService:
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"index_id={index_id}"),
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         try:
             if self.vector_port:
-                chunks = self.chunk_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
+                chunks = await self.chunk_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
                 vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks if chunk.vector_ref or chunk.id]
                 if vector_ids:
                     collection_name = index.collection_name or f"idx_{index.id}"
@@ -1299,7 +1289,7 @@ class KnowledgeRuntimeService:
                 knowledge.default_index_id = None
 
             candidates = [
-                item for item in self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
+                item for item in await self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
                 if item.id != index.id
             ]
             if candidates:
@@ -1311,12 +1301,12 @@ class KnowledgeRuntimeService:
             knowledge.updated_at = utc_now()
             knowledge.updated_by = self.ctx.user_id
 
-            self.db.commit()
+            await self.db.commit()
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
         except Exception as exc:
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
@@ -1335,7 +1325,7 @@ class KnowledgeRuntimeService:
             List of KnowledgeDocument instances.
         """
         await self.get_knowledge(knowledge_id)
-        return self.versioning.list_versions(knowledge_id, doc_key)
+        return await self.versioning.list_versions(knowledge_id, doc_key)
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
     async def rollback_document_version(
@@ -1356,17 +1346,16 @@ class KnowledgeRuntimeService:
         """
         await self.get_knowledge(knowledge_id)
         try:
-            document = self.versioning.rollback_to_version(knowledge_id, doc_key, target_version)
+            document = await self.versioning.rollback_to_version(knowledge_id, doc_key, target_version)
         except ValueError as exc:
             raise KernelError("NOT_FOUND", str(exc)) from exc
 
         document.updated_by = self.ctx.user_id
         document.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(document)
+        await self.db.commit()
         return document
 
-    def _require_index(self, knowledge_id: str) -> None:
+    async def _require_index(self, knowledge_id: str) -> None:
         """Refuse an upload the knowledge base cannot index.
 
         A base created without an embedding model has no index, and ingestion
@@ -1378,7 +1367,7 @@ class KnowledgeRuntimeService:
         what retrieval will be able to find, and guessing it silently would
         make a base that answers badly for a reason nobody chose.
         """
-        if self.index_repo.get_primary(knowledge_id) is not None:
+        if await self.index_repo.get_primary(knowledge_id) is not None:
             return
         raise ValidationError(
             "This knowledge base has no index, so nothing uploaded to it can be "
@@ -1414,7 +1403,7 @@ class KnowledgeRuntimeService:
         if document_in.source_kind == "crawler" and not document_in.source_uri:
             raise KernelError("INVALID_SOURCE_URI", "source_uri is required for crawler source")
 
-        self._require_index(knowledge_id)
+        await self._require_index(knowledge_id)
 
         if async_ingest:
             document, _task = await self.enqueue_ingest_task(
@@ -1433,7 +1422,7 @@ class KnowledgeRuntimeService:
         run_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id, version_id=document_in.doc_key)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_ingest",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -1442,11 +1431,11 @@ class KnowledgeRuntimeService:
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"doc_key={document_in.doc_key}"),
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         try:
             # Create new document version
-            document = self.versioning.create_version(
+            document = await self.versioning.create_version(
                 knowledge_id=knowledge_id,
                 doc_key=document_in.doc_key,
                 source_kind=document_in.source_kind,
@@ -1480,12 +1469,12 @@ class KnowledgeRuntimeService:
             )
 
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
 
             return document
         except Exception as exc:
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
@@ -1507,7 +1496,7 @@ class KnowledgeRuntimeService:
         Returns:
             List of KnowledgeDocument instances.
         """
-        return self.document_repo.list_by_knowledge(
+        return await self.document_repo.list_by_knowledge(
             knowledge_id=knowledge_id,
             is_latest_only=is_latest_only,
             limit=limit,
@@ -1524,7 +1513,7 @@ class KnowledgeRuntimeService:
     ) -> list[Any]:
         """List chunks for a document."""
         await self._get_document_for_knowledge(knowledge_id, document_id)
-        return self.chunk_repo.list_by_document(
+        return await self.chunk_repo.list_by_document(
             document_id=document_id,
             limit=limit,
             offset=offset,
@@ -1541,7 +1530,7 @@ class KnowledgeRuntimeService:
     ) -> Any:
         """Update chunk content or status."""
         document = await self._get_document_for_knowledge(knowledge_id, document_id)
-        chunk = self.chunk_repo.get_by_id(chunk_id)
+        chunk = await self.chunk_repo.get_by_id(chunk_id)
         if not chunk or chunk.document_id != document.id:
             raise KernelError("NOT_FOUND", f"Chunk {chunk_id} not found")
 
@@ -1567,8 +1556,7 @@ class KnowledgeRuntimeService:
             chunk.index_status = index_status
 
         chunk.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(chunk)
+        await self.db.commit()
         return chunk
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_resolver=_resolve_knowledge_id_from_document)
@@ -1581,7 +1569,7 @@ class KnowledgeRuntimeService:
         Returns:
             KnowledgeDocument instance.
         """
-        document = self.document_repo.get_by_id(document_id)
+        document = await self.document_repo.get_by_id(document_id)
         if not document:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
         return document
@@ -1653,7 +1641,7 @@ class KnowledgeRuntimeService:
         run_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(document.knowledge_id, version_id=document.id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_document_delete",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -1662,14 +1650,14 @@ class KnowledgeRuntimeService:
                 input_summary=self._compose_knowledge_run_summary(document.knowledge_id, f"document_id={document.id}"),
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         try:
-            chunks = self.chunk_repo.list_by_document(document_id, limit=10000, offset=0)
+            chunks = await self.chunk_repo.list_by_document(document_id, limit=10000, offset=0)
             await self._cleanup_document_artifacts(knowledge, document, chunks, run_id=run_id)
 
             for chunk in chunks:
-                self.db.delete(chunk)
+                await self.db.delete(chunk)
 
             document.status = "deleted"
             document.deleted_at = utc_now()
@@ -1678,7 +1666,7 @@ class KnowledgeRuntimeService:
 
             if document.is_latest:
                 document.is_latest = False
-                versions = self.versioning.list_versions(document.knowledge_id, document.doc_key)
+                versions = await self.versioning.list_versions(document.knowledge_id, document.doc_key)
                 for version_doc in versions:
                     if version_doc.id != document.id:
                         version_doc.is_latest = True
@@ -1686,21 +1674,21 @@ class KnowledgeRuntimeService:
                         version_doc.updated_by = self.ctx.user_id
                         break
 
-            self.db.commit()
+            await self.db.commit()
 
-            doc_count = self.document_repo.count_by_knowledge(knowledge.id)
-            chunk_count = self.chunk_repo.count_by_knowledge(knowledge.id)
-            self.knowledge_repo.update_stats(
+            doc_count = await self.document_repo.count_by_knowledge(knowledge.id)
+            chunk_count = await self.chunk_repo.count_by_knowledge(knowledge.id)
+            await self.knowledge_repo.update_stats(
                 knowledge.id,
                 doc_count=doc_count,
                 chunk_count=chunk_count,
             )
 
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
         except Exception as exc:
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id")
@@ -1719,7 +1707,7 @@ class KnowledgeRuntimeService:
 
         knowledge = await self.get_knowledge(knowledge_id)
 
-        index = self._resolve_index(knowledge, index_id)
+        index = await self._resolve_index(knowledge, index_id)
         if not index:
             raise KernelError("NOT_FOUND", "No index found for knowledge")
 
@@ -1727,7 +1715,7 @@ class KnowledgeRuntimeService:
         step_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id, version_id=index.id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_index",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -1736,18 +1724,18 @@ class KnowledgeRuntimeService:
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"index_id={index.id}"),
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
-            step = self.trace_writer.create_step(
+            await self.trace_writer.update_run_status(run_id, "running")
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="io",
                 step_id="rebuild",
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"index_id={index.id}"),
             )
             step_id = step.id
-            self.trace_writer.update_step_status(step_id, "running")
+            await self.trace_writer.update_step_status(step_id, "running")
             index.last_run_id = run_id
             index.updated_at = utc_now()
-            self.db.commit()
+            await self.db.commit()
 
         try:
             await self.index_builder.rebuild_index(index, run_id=run_id)
@@ -1757,12 +1745,11 @@ class KnowledgeRuntimeService:
             index.last_error_message = None
             index.updated_at = utc_now()
             index.updated_by = self.ctx.user_id
-            self.db.commit()
-            self.db.refresh(index)
+            await self.db.commit()
 
-            doc_count = self.document_repo.count_by_knowledge(knowledge.id)
-            chunk_count = self.chunk_repo.count_by_knowledge(knowledge.id)
-            self.knowledge_repo.update_stats(
+            doc_count = await self.document_repo.count_by_knowledge(knowledge.id)
+            chunk_count = await self.chunk_repo.count_by_knowledge(knowledge.id)
+            await self.knowledge_repo.update_stats(
                 knowledge.id,
                 doc_count=doc_count,
                 chunk_count=chunk_count,
@@ -1770,9 +1757,9 @@ class KnowledgeRuntimeService:
             )
 
             if step_id:
-                self.trace_writer.update_step_status(step_id, "succeeded")
+                await self.trace_writer.update_step_status(step_id, "succeeded")
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
         except Exception as exc:
             if run_id:
                 index.last_run_id = run_id
@@ -1781,11 +1768,11 @@ class KnowledgeRuntimeService:
             index.last_error_message = str(exc)
             index.updated_at = utc_now()
             index.updated_by = self.ctx.user_id
-            self.db.commit()
+            await self.db.commit()
             if step_id:
-                self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
         return index
@@ -1805,7 +1792,7 @@ class KnowledgeRuntimeService:
     ) -> list[RunResponse]:
         """List trace runs scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
-        runs = self._list_knowledge_runs_raw(
+        runs = await self._list_knowledge_runs_raw(
             knowledge_id=knowledge_id,
             mode=mode,
             status=status,
@@ -1816,7 +1803,7 @@ class KnowledgeRuntimeService:
         sliced = runs[offset: offset + limit]
         return [RunResponse.model_validate(item) for item in sliced]
 
-    def _list_knowledge_cost_entries(self, run_ids: list[str]) -> list[RunCostEntry]:
+    async def _list_knowledge_cost_entries(self, run_ids: list[str]) -> list[RunCostEntry]:
         if not run_ids:
             return []
         query = select(RunCostEntry).where(
@@ -1826,7 +1813,7 @@ class KnowledgeRuntimeService:
                 RunCostEntry.run_id.in_(run_ids),
             )
         )
-        raw_rows = list(self.db.exec(query).all())
+        raw_rows = list((await self.db.exec(query)).scalars().all())
         entries: list[RunCostEntry] = []
         for row in raw_rows:
             if hasattr(row, "id"):
@@ -1851,7 +1838,7 @@ class KnowledgeRuntimeService:
     ) -> RunCostSummaryResponse:
         """Summarize run cost metrics scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
-        runs = self._list_knowledge_runs_raw(
+        runs = await self._list_knowledge_runs_raw(
             knowledge_id=knowledge_id,
             mode=mode,
             status=status,
@@ -1860,7 +1847,7 @@ class KnowledgeRuntimeService:
             kind=kind,
         )
         run_ids = [run.id for run in runs]
-        entries = self._list_knowledge_cost_entries(run_ids)
+        entries = await self._list_knowledge_cost_entries(run_ids)
 
         summary = RunCostSummaryResponse(
             tokens_prompt=0,
@@ -1894,7 +1881,7 @@ class KnowledgeRuntimeService:
     ) -> list[RunCostByModeResponse]:
         """Summarize run cost metrics by mode scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
-        runs = self._list_knowledge_runs_raw(
+        runs = await self._list_knowledge_runs_raw(
             knowledge_id=knowledge_id,
             mode=mode,
             status=status,
@@ -1903,7 +1890,7 @@ class KnowledgeRuntimeService:
             kind=kind,
         )
         run_map = {run.id: run for run in runs}
-        entries = self._list_knowledge_cost_entries(list(run_map.keys()))
+        entries = await self._list_knowledge_cost_entries(list(run_map.keys()))
 
         buckets: dict[str, dict[str, int]] = {}
         for entry in entries:
@@ -1952,7 +1939,7 @@ class KnowledgeRuntimeService:
     ) -> list[RunCostByProviderResponse]:
         """Summarize run cost metrics by provider scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
-        runs = self._list_knowledge_runs_raw(
+        runs = await self._list_knowledge_runs_raw(
             knowledge_id=knowledge_id,
             mode=mode,
             status=status,
@@ -1960,7 +1947,7 @@ class KnowledgeRuntimeService:
             started_before=started_before,
             kind=kind,
         )
-        entries = self._list_knowledge_cost_entries([run.id for run in runs])
+        entries = await self._list_knowledge_cost_entries([run.id for run in runs])
 
         buckets: dict[str | None, dict[str, int]] = {}
         for entry in entries:
@@ -2007,7 +1994,7 @@ class KnowledgeRuntimeService:
     ) -> list[RunCostByModelResponse]:
         """Summarize run cost metrics by model scoped to a knowledge."""
         await self.get_knowledge(knowledge_id)
-        runs = self._list_knowledge_runs_raw(
+        runs = await self._list_knowledge_runs_raw(
             knowledge_id=knowledge_id,
             mode=mode,
             status=status,
@@ -2015,7 +2002,7 @@ class KnowledgeRuntimeService:
             started_before=started_before,
             kind=kind,
         )
-        entries = self._list_knowledge_cost_entries([run.id for run in runs])
+        entries = await self._list_knowledge_cost_entries([run.id for run in runs])
 
         buckets: dict[str | None, dict[str, int]] = {}
         for entry in entries:
@@ -2099,7 +2086,7 @@ class KnowledgeRuntimeService:
         step_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_query",
                 kind="tool",
                 subject_kind=subject_kind,
@@ -2107,22 +2094,22 @@ class KnowledgeRuntimeService:
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"query={query_request.query}"),
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
-            step = self.trace_writer.create_step(
+            await self.trace_writer.update_run_status(run_id, "running")
+            step = await self.trace_writer.create_step(
                 run_id=run_id,
                 step_type="retrieval",
                 step_id="retrieve",
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"query={query_request.query}"),
             )
             step_id = step.id
-            self.trace_writer.update_step_status(step_id, "running")
+            await self.trace_writer.update_step_status(step_id, "running")
 
         try:
             try:
                 if strategy == "multi_index":
                     index_ids = query_request.index_ids or retrieval_config.get("index_ids")
                     if not index_ids:
-                        indexes = self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
+                        indexes = await self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
                         index_ids = [item.id for item in indexes if item.status == "ready"]
                     if not index_ids:
                         raise KernelError("NOT_FOUND", "No ready indexes available for multi-index retrieval")
@@ -2175,7 +2162,7 @@ class KnowledgeRuntimeService:
                         run_id=run_id,
                     )
             except Exception:
-                results = self._query_indexed_chunks_fallback(
+                results = await self._query_indexed_chunks_fallback(
                     knowledge_id=knowledge_id,
                     query=query_request.query,
                     top_k=query_request.top_k,
@@ -2185,7 +2172,7 @@ class KnowledgeRuntimeService:
                 strategy = f"{strategy}_chunk_fallback"
 
             if not results:
-                fallback_results = self._query_indexed_chunks_fallback(
+                fallback_results = await self._query_indexed_chunks_fallback(
                     knowledge_id=knowledge_id,
                     query=query_request.query,
                     top_k=query_request.top_k,
@@ -2247,14 +2234,14 @@ class KnowledgeRuntimeService:
                 metrics["keyword_top_k"] = keyword_top_k
 
             if step_id:
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step_id,
                     "succeeded",
                     output_summary=f"results={len(results)}",
                     metrics=metrics,
                 )
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
 
             return QueryResponse(
                 results=results,
@@ -2263,9 +2250,9 @@ class KnowledgeRuntimeService:
             )
         except Exception as exc:
             if step_id:
-                self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
     @workspace_guard("read")
@@ -2283,7 +2270,7 @@ class KnowledgeRuntimeService:
         Returns:
             List of Knowledge instances.
         """
-        return self.knowledge_repo.list(limit=limit, offset=offset)
+        return await self.knowledge_repo.list(limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id")
     async def delete_knowledge(self, knowledge_id: str) -> None:
@@ -2300,7 +2287,7 @@ class KnowledgeRuntimeService:
         run_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id)
-            run = self.trace_writer.create_run(
+            run = await self.trace_writer.create_run(
                 mode="knowledge_delete",
                 kind="batch",
                 subject_kind=subject_kind,
@@ -2308,21 +2295,21 @@ class KnowledgeRuntimeService:
                 input_summary=f"knowledge_id={knowledge_id}",
             )
             run_id = run.id
-            self.trace_writer.update_run_status(run_id, "running")
+            await self.trace_writer.update_run_status(run_id, "running")
 
         try:
-            documents = self.document_repo.list_by_knowledge(
+            documents = await self.document_repo.list_by_knowledge(
                 knowledge_id=knowledge_id,
                 is_latest_only=False,
                 limit=10000,
                 offset=0,
             )
-            chunks = self.chunk_repo.list_by_knowledge(
+            chunks = await self.chunk_repo.list_by_knowledge(
                 knowledge_id=knowledge_id,
                 limit=10000,
                 offset=0,
             )
-            indexes = self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
+            indexes = await self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
 
             if self.vector_port:
                 vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks if chunk.vector_ref or chunk.id]
@@ -2357,7 +2344,7 @@ class KnowledgeRuntimeService:
                         logger.warning("Failed to delete storage key %s: %s", key, exc)
 
             for chunk in chunks:
-                self.db.delete(chunk)
+                await self.db.delete(chunk)
 
             for doc in documents:
                 doc.deleted_at = utc_now()
@@ -2381,11 +2368,11 @@ class KnowledgeRuntimeService:
             knowledge.updated_at = utc_now()
             knowledge.updated_by = self.ctx.user_id
 
-            self.db.commit()
+            await self.db.commit()
             if run_id:
-                self.trace_writer.update_run_status(run_id, "succeeded")
+                await self.trace_writer.update_run_status(run_id, "succeeded")
         except Exception as exc:
             if run_id:
-                self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 

@@ -19,8 +19,9 @@ def test_container_provides_governed_http_fetch_port() -> None:
     assert fetch_port is not None
 
 
-def test_knowledge_runtime_is_wired_to_governed_fetch_port(db, ctx) -> None:
-    service = build_knowledge_runtime_service(db=db, ctx=ctx)
+@pytest.mark.asyncio
+async def test_knowledge_runtime_is_wired_to_governed_fetch_port(async_db, ctx) -> None:
+    service = build_knowledge_runtime_service(db=async_db, ctx=ctx)
 
     assert isinstance(service.http_fetch_port, GovernedHttpFetchPort)
 
