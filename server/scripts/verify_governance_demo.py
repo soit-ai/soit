@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import RunCostEntry, RunStep
 from app.kernel.runtime.runs.service import RunService
@@ -45,20 +47,20 @@ def _unwrap(row: Any) -> Any:
         return row
 
 
-def _count_seed_secrets(db, ctx: RequestContext) -> int:
-    rows = db.exec(
+async def _count_seed_secrets(db: AsyncSession, ctx: RequestContext) -> int:
+    rows = (await db.exec(
         select(Secret).where(
             and_(
                 Secret.tenant_id == ctx.tenant_id,
                 Secret.workspace_id == ctx.workspace_id,
             )
         )
-    ).all()
-    return sum(1 for row in rows if "enterprise_mvp_scenarios" in str((_unwrap(row).description or "")))
+    )).all()
+    return sum(1 for row in rows if "enterprise_mvp_scenarios" in str(_unwrap(row).description or ""))
 
 
-def _count_cost_entries(db, ctx: RequestContext, run_id: str) -> int:
-    rows = db.exec(
+async def _count_cost_entries(db: AsyncSession, ctx: RequestContext, run_id: str) -> int:
+    rows = (await db.exec(
         select(RunCostEntry).where(
             and_(
                 RunCostEntry.tenant_id == ctx.tenant_id,
@@ -66,12 +68,12 @@ def _count_cost_entries(db, ctx: RequestContext, run_id: str) -> int:
                 RunCostEntry.run_id == run_id,
             )
         )
-    ).all()
+    )).all()
     return len(rows)
 
 
-def _count_steps(db, ctx: RequestContext, run_id: str) -> int:
-    rows = db.exec(
+async def _count_steps(db: AsyncSession, ctx: RequestContext, run_id: str) -> int:
+    rows = (await db.exec(
         select(RunStep).where(
             and_(
                 RunStep.tenant_id == ctx.tenant_id,
@@ -79,7 +81,7 @@ def _count_steps(db, ctx: RequestContext, run_id: str) -> int:
                 RunStep.run_id == run_id,
             )
         )
-    ).all()
+    )).all()
     return len(rows)
 
 
@@ -124,7 +126,7 @@ def _demo_steps(run_url: str) -> list[dict[str, Any]]:
     ]
 
 
-async def verify_governance_demo(db, args: argparse.Namespace) -> dict[str, Any]:
+async def verify_governance_demo(db: AsyncSession, args: argparse.Namespace) -> dict[str, Any]:
     """Seed, evaluate, and summarize the demo evidence chain."""
     scenario_summary = await seed_enterprise_mvp_scenarios(
         db,
@@ -151,7 +153,10 @@ async def verify_governance_demo(db, args: argparse.Namespace) -> dict[str, Any]
         case for case in regression_report["cases"] if case["audit_count"] >= 1 and case["cost"]["entries"] >= 1
     )
     run_id = regression_case["run_id"]
-    detail = RunService(db=db, ctx=ctx).get_run(run_id)
+    detail = await RunService(db=db, ctx=ctx).get_run(run_id)
+    seed_secret_count = await _count_seed_secrets(db, ctx)
+    cost_entry_count = await _count_cost_entries(db, ctx, run_id)
+    step_count = await _count_steps(db, ctx, run_id)
     run_url = f"/observe/runs/{run_id}"
 
     evidence = {
@@ -164,8 +169,8 @@ async def verify_governance_demo(db, args: argparse.Namespace) -> dict[str, Any]
             "plugin_refs": scenario_summary.plugin_refs,
         },
         "secrets": {
-            "passed": _count_seed_secrets(db, ctx) >= 2,
-            "secret_count": _count_seed_secrets(db, ctx),
+            "passed": seed_secret_count >= 2,
+            "secret_count": seed_secret_count,
             "secret_ids": scenario_summary.secret_ids,
         },
         "call_audit": {
@@ -175,16 +180,16 @@ async def verify_governance_demo(db, args: argparse.Namespace) -> dict[str, Any]
             "gateway_types": sorted({audit.gateway_type for audit in detail.audits if audit.gateway_type}),
         },
         "cost_attribution": {
-            "passed": _count_cost_entries(db, ctx, run_id) >= 1,
+            "passed": cost_entry_count >= 1,
             "run_id": run_id,
-            "cost_entries": _count_cost_entries(db, ctx, run_id),
+            "cost_entries": cost_entry_count,
             "cost": regression_case["cost"],
         },
         "replay": {
-            "passed": _count_steps(db, ctx, run_id) >= 1 and len(detail.citations) >= 1 and len(detail.audits) >= 1,
+            "passed": step_count >= 1 and len(detail.citations) >= 1 and len(detail.audits) >= 1,
             "run_id": run_id,
             "run_explorer_url": run_url,
-            "step_count": _count_steps(db, ctx, run_id),
+            "step_count": step_count,
             "citation_count": len(detail.citations),
             "child_run_count": len(detail.child_runs),
             "audit_count": len(detail.audits),
@@ -216,16 +221,18 @@ async def verify_governance_demo(db, args: argparse.Namespace) -> dict[str, Any]
     return report
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        report = asyncio.run(verify_governance_demo(db, args))
+        report = await verify_governance_demo(db, args)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 1
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

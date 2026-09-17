@@ -21,7 +21,6 @@ Available:
 - `verify_governance_release.py`: validate the SOIT 1.1 governance release evidence before publishing the `v1.1.0` tag and release notes.
 - `verify_independent_release_acceptance.py`: require two or three non-author reviewers to sign clean-environment installation and empty-workspace journeys; use `--evidence-root` for final sign-off so environment, run, and signature references must exist.
 - `migrate.sh`: apply database migrations (alembic upgrade head).
-- `migrate_mcp_artifacts.py`: dry-run by default; pass `--apply` to move legacy MCP credentials to Vault and rewrite artifacts for the official SDK.
 - `verify_release_migration_paths.py`: validate the SOIT 1.0 empty-database and development-database migration evidence JSON before signing the release gate.
 - `verify_backup_manifest.py`: validate backup scope, recovery semantics, and optional local file checksums.
 - `verify_restore_drill.py`: validate an isolated restore drill, including RPO/RTO, component readbacks, smoke tests, and rollback.

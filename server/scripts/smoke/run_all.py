@@ -6,6 +6,7 @@ Run smoke tests for SOIT demo scenarios.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import subprocess
 import sys
@@ -133,33 +134,34 @@ def _get_current_actor(ctx: SmokeContext) -> tuple[str, str]:
 
 
 def _run_inline_ingest_worker(ctx: SmokeContext) -> None:
-    from app.infra.db.session import get_db_sync
+    from app.infra.db.session import get_async_session_local
     from app.kernel.contracts.context import RequestContext
     from app.modules.knowledge.runtime.ingest_worker import KnowledgeIngestWorker
     from app.wiring.services import build_knowledge_service
 
-    db = get_db_sync()
-    try:
-        worker_ctx = RequestContext(
-            tenant_id=ctx.tenant_id,
-            workspace_id=ctx.workspace_id,
-            user_id=ctx.user_id,
-            tenant_role="Owner",
-            workspace_role="Owner",
-        )
-        service = build_knowledge_service(db=db, ctx=worker_ctx)
-        worker = KnowledgeIngestWorker(service)
-        import asyncio
+    async def scenario() -> None:
+        db = get_async_session_local()()
+        try:
+            worker_ctx = RequestContext(
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                user_id=ctx.user_id,
+                tenant_role="Owner",
+                workspace_role="Owner",
+            )
+            service = build_knowledge_service(db=db, ctx=worker_ctx)
+            worker = KnowledgeIngestWorker(service)
+            await worker.run_once()
+        finally:
+            await db.close()
 
-        asyncio.run(worker.run_once())
-    finally:
-        db.close()
+    asyncio.run(scenario())
 
 
 def _run_inline_knowledge_demo(ctx: SmokeContext) -> str:
     os.environ.setdefault("SOIT_TESTING", "1")
 
-    from app.infra.db.session import get_db_sync
+    from app.infra.db.session import get_async_session_local
     from app.kernel.contracts.context import RequestContext
     from app.modules.knowledge.application.runtime_schemas import (
         DocumentUpload,
@@ -171,7 +173,7 @@ def _run_inline_knowledge_demo(ctx: SmokeContext) -> str:
     from app.wiring.services import build_knowledge_service
 
     async def scenario() -> str:
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
             worker_ctx = RequestContext(
                 tenant_id=ctx.tenant_id,
@@ -260,9 +262,7 @@ def _run_inline_knowledge_demo(ctx: SmokeContext) -> str:
             )
             return knowledge.id
         finally:
-            db.close()
-
-    import asyncio
+            await db.close()
 
     return asyncio.run(scenario())
 
@@ -642,4 +642,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sys.exit(main())

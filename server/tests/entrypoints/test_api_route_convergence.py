@@ -56,7 +56,7 @@ def test_enterprise_mvp_demo_uses_converged_public_routes(client):
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_bootstrap_is_idempotent(db):
+async def test_enterprise_mvp_bootstrap_is_idempotent(async_db):
     args = SimpleNamespace(
         email="enterprise-demo@example.com",
         password="changeme123",
@@ -65,8 +65,8 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
         workspace_name="default",
     )
 
-    first = await bootstrap_enterprise_mvp(db, args)
-    second = await bootstrap_enterprise_mvp(db, args)
+    first = await bootstrap_enterprise_mvp(async_db, args)
+    second = await bootstrap_enterprise_mvp(async_db, args)
 
     assert second.agent_id == first.agent_id
     assert second.agent_version_id == first.agent_version_id
@@ -74,7 +74,7 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
     assert second.document_id == first.document_id
     assert second.workflow_id == first.workflow_id
 
-    workflow_version = db.get(WorkflowVersion, first.workflow_version_id)
+    workflow_version = await async_db.get(WorkflowVersion, first.workflow_version_id)
     assert workflow_version is not None
     retrieve_refs = [
         node["params"]["knowledge_ref"]
@@ -89,7 +89,7 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
     assert retrieve_refs == [f"knowledge:{first.knowledge_id}"]
     assert model_refs == ["model:test:workflow"]
 
-    agent_count = db.exec(
+    agent_count = (await async_db.exec(
         select(func.count(Agent.id)).where(
             and_(
                 Agent.tenant_id == first.tenant_id,
@@ -97,8 +97,8 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
                 Agent.name == DEMO_AGENT_NAME,
             )
         )
-    ).one()
-    document_count = db.exec(
+    )).one()
+    document_count = (await async_db.exec(
         select(func.count(KnowledgeDocument.id)).where(
             and_(
                 KnowledgeDocument.tenant_id == first.tenant_id,
@@ -107,8 +107,8 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
                 KnowledgeDocument.doc_key == "refund-policy.md",
             )
         )
-    ).one()
-    provider_model_count = db.exec(
+    )).one()
+    provider_model_count = (await async_db.exec(
         select(func.count(ProviderModel.id)).where(
             and_(
                 ProviderModel.tenant_id == first.tenant_id,
@@ -116,8 +116,8 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
                 ProviderModel.provider_kind == "test",
             )
         )
-    ).one()
-    provider_row = db.exec(
+    )).one()
+    provider_row = (await async_db.exec(
         select(Provider).where(
             and_(
                 Provider.tenant_id == first.tenant_id,
@@ -125,7 +125,7 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
                 Provider.name == "Enterprise MVP Stub",
             )
         )
-    ).one()
+    )).one()
     provider = _count_value(provider_row)
     assert _count_value(agent_count) == 1
     assert _count_value(document_count) == 1
@@ -134,7 +134,7 @@ async def test_enterprise_mvp_bootstrap_is_idempotent(db):
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_bootstrap_uses_workspace_scoped_demo_ids(db):
+async def test_enterprise_mvp_bootstrap_uses_workspace_scoped_demo_ids(async_db):
     args_default = SimpleNamespace(
         email="enterprise-demo-scope@example.com",
         password="changeme123",
@@ -150,9 +150,9 @@ async def test_enterprise_mvp_bootstrap_uses_workspace_scoped_demo_ids(db):
         workspace_name="secondary",
     )
 
-    first = await bootstrap_enterprise_mvp(db, args_default)
-    second = await bootstrap_enterprise_mvp(db, args_second_workspace)
-    second_repeat = await bootstrap_enterprise_mvp(db, args_second_workspace)
+    first = await bootstrap_enterprise_mvp(async_db, args_default)
+    second = await bootstrap_enterprise_mvp(async_db, args_second_workspace)
+    second_repeat = await bootstrap_enterprise_mvp(async_db, args_second_workspace)
 
     assert second.workspace_id != first.workspace_id
     assert second.knowledge_id != first.knowledge_id
@@ -162,7 +162,7 @@ async def test_enterprise_mvp_bootstrap_uses_workspace_scoped_demo_ids(db):
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_bootstrap_allows_new_user_in_existing_tenant(db):
+async def test_enterprise_mvp_bootstrap_allows_new_user_in_existing_tenant(async_db):
     owner_args = SimpleNamespace(
         email="enterprise-demo-owner@example.com",
         password="changeme123",
@@ -178,8 +178,8 @@ async def test_enterprise_mvp_bootstrap_allows_new_user_in_existing_tenant(db):
         workspace_name="default",
     )
 
-    owner = await bootstrap_enterprise_mvp(db, owner_args)
-    reviewer = await bootstrap_enterprise_mvp(db, reviewer_args)
+    owner = await bootstrap_enterprise_mvp(async_db, owner_args)
+    reviewer = await bootstrap_enterprise_mvp(async_db, reviewer_args)
 
     assert reviewer.tenant_id == owner.tenant_id
     assert reviewer.workspace_id == owner.workspace_id

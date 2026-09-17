@@ -9,10 +9,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
+import sys
 
-from app.infra.db.session import get_db_sync
-from app.wiring.services import build_identity_service
+from app.infra.db.session import get_async_session_local
 from app.modules.identity.application.schemas import UserCreate
+from app.wiring.services import build_identity_service
 
 
 def _parse_args() -> argparse.Namespace:
@@ -24,17 +26,17 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
         service = build_identity_service(db=db)
-        existing = service.user_repo.get_by_email(args.email)
+        existing = await service.user_repo.get_by_email(args.email)
         if existing:
             print("User already exists. Skipping bootstrap.")
             return 0
 
-        user, tenant, access_token, workspace_id, _refresh = service.register_user(
+        user, tenant, access_token, workspace_id, _refresh = await service.register_user(
             UserCreate(email=args.email, password=args.password, name=args.name),
             tenant_name=args.tenant_name,
         )
@@ -46,8 +48,10 @@ def main() -> int:
         print(f"access_token={access_token}")
         return 0
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

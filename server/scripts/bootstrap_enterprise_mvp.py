@@ -6,13 +6,15 @@ import argparse
 import asyncio
 import hashlib
 import json
+import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.tools.router import RegistryToolRouterPort
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
@@ -110,12 +112,12 @@ def _unwrap(row: Any) -> Any:
         return row
 
 
-def _one(db, query):
-    return _unwrap(db.exec(query).first())
+async def _one(db: AsyncSession, query):
+    return _unwrap((await db.exec(query)).first())
 
 
-def _scoped_demo_id(db, model: type[Any], legacy_id: str, ctx: RequestContext, stable_key: str) -> str:
-    existing = _one(db, select(model).where(model.id == legacy_id))
+async def _scoped_demo_id(db: AsyncSession, model: type[Any], legacy_id: str, ctx: RequestContext, stable_key: str) -> str:
+    existing = await _one(db, select(model).where(model.id == legacy_id))
     if existing is None or (
         getattr(existing, "tenant_id", None) == ctx.tenant_id
         and getattr(existing, "workspace_id", None) == ctx.workspace_id
@@ -126,13 +128,13 @@ def _scoped_demo_id(db, model: type[Any], legacy_id: str, ctx: RequestContext, s
     return f"{legacy_id}_{digest}"
 
 
-def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
+async def _ensure_context(db: AsyncSession, args: argparse.Namespace) -> RequestContext:
     identity = build_identity_service(db=db)
-    user = identity.user_repo.get_by_email(args.email)
+    user = await identity.user_repo.get_by_email(args.email)
     if not user:
-        tenant = identity.tenant_repo.get_by_name(args.tenant_name)
+        tenant = await identity.tenant_repo.get_by_name(args.tenant_name)
         if tenant is None:
-            user, tenant, _, workspace_id, _refresh = identity.register_user(
+            user, tenant, _, workspace_id, _refresh = await identity.register_user(
                 UserCreate(email=args.email, password=args.password, name=args.name),
                 tenant_name=args.tenant_name,
             )
@@ -143,7 +145,7 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
                 tenant_role="Owner",
                 workspace_role="Owner",
             )
-        user = identity.user_repo.create(
+        user = await identity.user_repo.create(
             User(
                 email=args.email,
                 password_hash=pwd_context.hash(args.password),
@@ -151,23 +153,23 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
             )
         )
 
-    tenant = identity.tenant_repo.get_by_name(args.tenant_name)
+    tenant = await identity.tenant_repo.get_by_name(args.tenant_name)
     if tenant is None:
-        membership = _one(db, select(TenantMembership).where(TenantMembership.user_id == user.id))
-        tenant = identity.tenant_repo.get_by_id(membership.tenant_id) if membership else None
+        membership = await _one(db, select(TenantMembership).where(TenantMembership.user_id == user.id))
+        tenant = await identity.tenant_repo.get_by_id(membership.tenant_id) if membership else None
     if tenant is None:
-        tenant = identity.tenant_repo.create(Tenant(name=args.tenant_name))
+        tenant = await identity.tenant_repo.create(Tenant(name=args.tenant_name))
 
-    tenant_membership = _one(
+    tenant_membership = await _one(
         db,
         select(TenantMembership).where(
             and_(TenantMembership.tenant_id == tenant.id, TenantMembership.user_id == user.id)
         ),
     )
     if tenant_membership is None:
-        identity.tenant_membership_repo.create(TenantMembership(tenant_id=tenant.id, user_id=user.id, role="Owner"))
+        await identity.tenant_membership_repo.create(TenantMembership(tenant_id=tenant.id, user_id=user.id, role="Owner"))
 
-    workspace = _one(
+    workspace = await _one(
         db,
         select(Workspace).where(and_(Workspace.tenant_id == tenant.id, Workspace.name == args.workspace_name)),
     )
@@ -179,10 +181,9 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
             metadata_json={"demo": "enterprise_mvp"},
         )
         db.add(workspace)
-        db.commit()
-        db.refresh(workspace)
+        await db.commit()
 
-    workspace_membership = _one(
+    workspace_membership = await _one(
         db,
         select(WorkspaceMembership).where(
             and_(
@@ -201,7 +202,7 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
                 role="Owner",
             )
         )
-        db.commit()
+        await db.commit()
 
     return RequestContext(
         tenant_id=tenant.id,
@@ -212,8 +213,8 @@ def _ensure_context(db, args: argparse.Namespace) -> RequestContext:
     )
 
 
-def _ensure_provider_models(db, ctx: RequestContext) -> tuple[Provider, list[str]]:
-    provider = _one(
+async def _ensure_provider_models(db: AsyncSession, ctx: RequestContext) -> tuple[Provider, list[str]]:
+    provider = await _one(
         db,
         select(Provider).where(
             and_(
@@ -235,13 +236,11 @@ def _ensure_provider_models(db, ctx: RequestContext) -> tuple[Provider, list[str
             sync_policy_json={"auto_sync": False},
         )
         db.add(provider)
-        db.commit()
-        db.refresh(provider)
+        await db.commit()
     elif not provider.slug:
         provider.slug = "enterprise-mvp-stub"
         db.add(provider)
-        db.commit()
-        db.refresh(provider)
+        await db.commit()
 
     model_specs = [
         ("agent", "Enterprise MVP Agent", {"chat": True, "tool_calls": True}),
@@ -250,7 +249,7 @@ def _ensure_provider_models(db, ctx: RequestContext) -> tuple[Provider, list[str
     ]
     model_refs: list[str] = []
     for model_id, display_name, capabilities in model_specs:
-        model = _one(
+        model = await _one(
             db,
             select(ProviderModel).where(
                 and_(
@@ -282,15 +281,15 @@ def _ensure_provider_models(db, ctx: RequestContext) -> tuple[Provider, list[str
             model.status = "active"
             model.updated_at = utc_now()
         model_refs.append(f"model:{provider.kind}:{model_id}")
-    db.commit()
+    await db.commit()
     return provider, model_refs
 
 
-def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocument]:
+async def _ensure_knowledge(db: AsyncSession, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocument]:
     now = utc_now()
     text = "Refund escalations require account verification before a review ticket is created."
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    knowledge = _one(
+    knowledge = await _one(
         db,
         select(Knowledge).where(
             and_(
@@ -303,7 +302,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     )
     if knowledge is None:
         knowledge = Knowledge(
-            id=_scoped_demo_id(db, Knowledge, "knw_enterprise_mvp", ctx, "knowledge"),
+            id=await _scoped_demo_id(db, Knowledge, "knw_enterprise_mvp", ctx, "knowledge"),
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             name=DEMO_KNOWLEDGE_NAME,
@@ -331,10 +330,9 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
         knowledge.tags = ["enterprise", "mvp"]
         knowledge.updated_by = ctx.user_id
         knowledge.updated_at = now
-    db.commit()
-    db.refresh(knowledge)
+    await db.commit()
 
-    index = _one(
+    index = await _one(
         db,
         select(KnowledgeIndex).where(
             and_(
@@ -348,7 +346,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     )
     if index is None:
         index = KnowledgeIndex(
-            id=_scoped_demo_id(db, KnowledgeIndex, "idx_enterprise_mvp", ctx, f"index:{knowledge.id}"),
+            id=await _scoped_demo_id(db, KnowledgeIndex, "idx_enterprise_mvp", ctx, f"index:{knowledge.id}"),
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             knowledge_id=knowledge.id,
@@ -377,13 +375,12 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
         index.last_build_at = now
         index.updated_by = ctx.user_id
         index.updated_at = now
-    db.commit()
-    db.refresh(index)
+    await db.commit()
     knowledge.default_index_id = index.id
     db.add(knowledge)
-    db.commit()
+    await db.commit()
 
-    document = _one(
+    document = await _one(
         db,
         select(KnowledgeDocument).where(
             and_(
@@ -397,7 +394,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     )
     if document is None:
         document = KnowledgeDocument(
-            id=_scoped_demo_id(db, KnowledgeDocument, "doc_enterprise_refund_policy", ctx, f"document:{knowledge.id}"),
+            id=await _scoped_demo_id(db, KnowledgeDocument, "doc_enterprise_refund_policy", ctx, f"document:{knowledge.id}"),
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             knowledge_id=knowledge.id,
@@ -431,10 +428,9 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
         document.index_meta_json = {"index_id": index.id, "collection_name": index.collection_name}
         document.updated_by = ctx.user_id
         document.updated_at = now
-    db.commit()
-    db.refresh(document)
+    await db.commit()
 
-    chunk = _one(
+    chunk = await _one(
         db,
         select(KnowledgeChunk).where(
             and_(
@@ -448,7 +444,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     )
     if chunk is None:
         chunk = KnowledgeChunk(
-            id=_scoped_demo_id(db, KnowledgeChunk, "chunk_enterprise_refund_policy_0", ctx, f"chunk:{document.id}:0"),
+            id=await _scoped_demo_id(db, KnowledgeChunk, "chunk_enterprise_refund_policy_0", ctx, f"chunk:{document.id}:0"),
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             knowledge_id=knowledge.id,
@@ -477,9 +473,9 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
         chunk.indexed_at = now
         chunk.index_status = "indexed"
         chunk.updated_at = now
-    db.commit()
+    await db.commit()
 
-    task = _one(
+    task = await _one(
         db,
         select(KnowledgeIngestTask).where(
             and_(
@@ -492,7 +488,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
     )
     if task is None:
         task = KnowledgeIngestTask(
-            id=_scoped_demo_id(db, KnowledgeIngestTask, "ingest_enterprise_refund_policy", ctx, f"ingest:{document.id}"),
+            id=await _scoped_demo_id(db, KnowledgeIngestTask, "ingest_enterprise_refund_policy", ctx, f"ingest:{document.id}"),
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
             knowledge_id=knowledge.id,
@@ -511,12 +507,12 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[Knowledge, KnowledgeDocu
         task.finished_at = now
         task.updated_at = now
         task.updated_by = ctx.user_id
-    db.commit()
+    await db.commit()
     return knowledge, document
 
 
 async def _ensure_workflow(
-    db,
+    db: AsyncSession,
     ctx: RequestContext,
     knowledge: Knowledge,
     workflow_model_ref: str,
@@ -534,7 +530,7 @@ async def _ensure_workflow(
             node["params"]["arguments"]["api_token"]["secret_id"] = ticket_secret_id
     spec_json["inputs_schema"]["required"].remove("ticket_secret_id")
     spec_json["inputs_schema"]["properties"].pop("ticket_secret_id")
-    workflow = _one(
+    workflow = await _one(
         db,
         select(Workflow).where(
             and_(
@@ -556,19 +552,19 @@ async def _ensure_workflow(
         workflow.updated_by = ctx.user_id
         workflow.updated_at = utc_now()
         db.add(workflow)
-        db.commit()
+        await db.commit()
 
     if not workflow.current_version_id:
         version = await service.create_version(
             workflow.id,
             WorkflowVersionCreate(graph_json=spec_json),
         )
-        workflow = service._get_workflow(workflow.id)
+        workflow = await service._get_workflow(workflow.id)
         workflow.current_version_id = version.id
         db.add(workflow)
-        db.commit()
+        await db.commit()
     else:
-        current_version = _one(
+        current_version = await _one(
             db,
             select(WorkflowVersion).where(
                 and_(
@@ -583,21 +579,21 @@ async def _ensure_workflow(
                 workflow.id,
                 WorkflowVersionCreate(graph_json=spec_json),
             )
-            workflow = service._get_workflow(workflow.id)
+            workflow = await service._get_workflow(workflow.id)
             workflow.current_version_id = version.id
             db.add(workflow)
-            db.commit()
+            await db.commit()
 
     if workflow.current_version_id and workflow.published_version_id != workflow.current_version_id:
         workflow = await service.publish_version(workflow.id, workflow.current_version_id)
     return workflow
 
 
-async def _ensure_ticket_secret(db, ctx: RequestContext) -> str:
+async def _ensure_ticket_secret(db: AsyncSession, ctx: RequestContext) -> str:
     """Create or rotate the managed credential used by the demo workflow."""
     repo = SecretRepository(db, ctx)
     service = build_secrets_service(db=db, ctx=ctx)
-    secret = repo.get_by_name("Enterprise MVP ticket credential")
+    secret = await repo.get_by_name("Enterprise MVP ticket credential")
     if secret is None:
         secret = await service.create_secret(
             SecretCreate(
@@ -614,14 +610,14 @@ async def _ensure_ticket_secret(db, ctx: RequestContext) -> str:
     return secret.id
 
 
-async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow: Workflow) -> Agent:
+async def _ensure_agent(db: AsyncSession, ctx: RequestContext, knowledge: Knowledge, workflow: Workflow) -> Agent:
     service = AgentApplicationService(
         db=db,
         ctx=ctx,
         llm_port=BootstrapLLMPort(),
         tool_port=RegistryToolRouterPort(),
     )
-    agent = service.agent_repo.get_by_name(DEMO_AGENT_NAME)
+    agent = await service.agent_repo.get_by_name(DEMO_AGENT_NAME)
     if agent is None:
         agent = await service.create_agent(
             AgentCreate(
@@ -638,8 +634,7 @@ async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow:
         agent.updated_by = ctx.user_id
         agent.updated_at = utc_now()
         db.add(agent)
-        db.commit()
-        db.refresh(agent)
+        await db.commit()
 
     version_input = AgentVersionCreate(
         system_prompt="Use enterprise knowledge and ticket workflows.",
@@ -655,7 +650,7 @@ async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow:
         verify=False,
     )
     target_spec = service._build_spec(version_input)
-    live_version = _one(
+    live_version = await _one(
         db,
         select(AgentVersion).where(
             and_(
@@ -671,11 +666,11 @@ async def _ensure_agent(db, ctx: RequestContext, knowledge: Knowledge, workflow:
     return agent
 
 
-async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapResult:
+async def bootstrap_enterprise_mvp(db: AsyncSession, args: argparse.Namespace) -> BootstrapResult:
     reset_container()
-    ctx = _ensure_context(db, args)
-    provider, model_refs = _ensure_provider_models(db, ctx)
-    knowledge, document = _ensure_knowledge(db, ctx)
+    ctx = await _ensure_context(db, args)
+    provider, model_refs = await _ensure_provider_models(db, ctx)
+    knowledge, document = await _ensure_knowledge(db, ctx)
     ticket_secret_id = await _ensure_ticket_secret(db, ctx)
     workflow_model_ref = next(
         model_ref
@@ -707,16 +702,18 @@ async def bootstrap_enterprise_mvp(db, args: argparse.Namespace) -> BootstrapRes
     )
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        result = asyncio.run(bootstrap_enterprise_mvp(db, args))
+        result = await bootstrap_enterprise_mvp(db, args)
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
         return 0
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

@@ -47,13 +47,13 @@ def _args(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed_data(db):
+async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed_data(async_db):
     from scripts.seed_enterprise_mvp_scenarios import (
         SEED_SOURCE,
         seed_enterprise_mvp_scenarios,
     )
 
-    first = await seed_enterprise_mvp_scenarios(db, _args())
+    first = await seed_enterprise_mvp_scenarios(async_db, _args())
     manual_thread = Thread(
         id="thread_manual_non_seed",
         tenant_id=first.tenant_id,
@@ -63,14 +63,14 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
         status="active",
         metadata_json={"seed_source": "manual"},
     )
-    db.add(manual_thread)
-    db.commit()
+    async_db.add(manual_thread)
+    await async_db.commit()
 
-    second = await seed_enterprise_mvp_scenarios(db, _args())
-    third = await seed_enterprise_mvp_scenarios(db, _args(reset=False))
+    second = await seed_enterprise_mvp_scenarios(async_db, _args())
+    third = await seed_enterprise_mvp_scenarios(async_db, _args(reset=False))
 
     assert second.model_dump() == third.model_dump()
-    assert db.get(Thread, "thread_manual_non_seed") is not None
+    assert await async_db.get(Thread, "thread_manual_non_seed") is not None
 
     assert len(second.agent_ids) >= 3
     assert len(second.thread_ids) >= 5
@@ -82,7 +82,7 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
     assert len(second.secret_ids) >= 2
     assert len(second.agent_chain_refs) >= 5
 
-    assert db.exec(
+    assert (await async_db.exec(
         select(Agent).where(
             and_(
                 Agent.tenant_id == second.tenant_id,
@@ -90,10 +90,10 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                 Agent.profile_json["seed_source"].as_string() == SEED_SOURCE,
             )
         )
-    ).first()
+    )).scalars().first()
 
     mcp_artifact = _unwrap(
-        db.exec(
+        (await async_db.exec(
             select(PluginInstalledArtifact).where(
                 and_(
                     PluginInstalledArtifact.tenant_id == second.tenant_id,
@@ -101,11 +101,11 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                     PluginInstalledArtifact.artifact_ref == "mcp_server:seed-compliance-mcp",
                 )
             )
-        ).first()
+        )).scalars().first()
     )
     assert mcp_artifact.metadata_json["mcp_server"]["transport"] == "streamable_http"
     assert mcp_artifact.metadata_json["mcp_server"]["endpoint"] == "https://mcp.soit.local/compliance/mcp"
-    assert db.exec(
+    assert (await async_db.exec(
         select(Knowledge).where(
             and_(
                 Knowledge.tenant_id == second.tenant_id,
@@ -113,8 +113,8 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                 Knowledge.settings_json["seed_source"].as_string() == SEED_SOURCE,
             )
         )
-    ).first()
-    assert db.exec(
+    )).scalars().first()
+    assert (await async_db.exec(
         select(Workflow).where(
             and_(
                 Workflow.tenant_id == second.tenant_id,
@@ -122,11 +122,10 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                 Workflow.metadata_json["seed_source"].as_string() == SEED_SOURCE,
             )
         )
-    ).first()
+    )).scalars().first()
 
-    task_statuses = {
-        _unwrap(row)
-        for row in db.exec(
+    task_statuses = set(
+        (await async_db.exec(
             select(Task.status).where(
                 and_(
                     Task.tenant_id == second.tenant_id,
@@ -134,12 +133,12 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                     Task.input_json["seed_source"].as_string() == SEED_SOURCE,
                 )
             )
-        ).all()
-    }
+        )).scalars().all()
+    )
     assert {"queued", "running", "waiting_input", "waiting_approval", "succeeded", "failed"} <= task_statuses
-    assert "long_running" in {item.get("scenario") for item in (db.get(Task, task_id).input_json for task_id in second.task_ids)}
+    assert "long_running" in {item.get("scenario") for item in [(await async_db.get(Task, task_id)).input_json for task_id in second.task_ids]}
 
-    assert db.exec(
+    assert (await async_db.exec(
         select(PluginInstalledArtifact).where(
             and_(
                 PluginInstalledArtifact.tenant_id == second.tenant_id,
@@ -147,33 +146,33 @@ async def test_enterprise_mvp_scenario_seed_is_idempotent_and_preserves_non_seed
                 PluginInstalledArtifact.metadata_json["seed_source"].as_string() == SEED_SOURCE,
             )
         )
-    ).first()
+    )).scalars().first()
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_scenario_seed_creates_complete_agent_binding_chains(db):
+async def test_enterprise_mvp_scenario_seed_creates_complete_agent_binding_chains(async_db):
     from scripts.seed_enterprise_mvp_scenarios import seed_enterprise_mvp_scenarios
 
-    summary = await seed_enterprise_mvp_scenarios(db, _args())
+    summary = await seed_enterprise_mvp_scenarios(async_db, _args())
     assert len(summary.agent_chain_refs) >= 5
 
     all_binding_types: set[str] = set()
     all_bound_plugin_refs: set[str] = set()
     for chain in summary.agent_chain_refs:
-        agent = db.get(Agent, chain["agent_id"])
+        agent = await async_db.get(Agent, chain["agent_id"])
         assert agent is not None
         assert agent.published_version_id == chain["agent_version_id"]
 
-        version = db.get(AgentVersion, chain["agent_version_id"])
+        version = await async_db.get(AgentVersion, chain["agent_version_id"])
         assert version is not None
         bindings_spec = version.spec_json["bindings"]
         assert bindings_spec["model_ref"] == "model:test:agent"
 
         rows = [
             _unwrap(row)
-            for row in db.exec(
+            for row in (await async_db.exec(
                 select(AgentBinding).where(AgentBinding.agent_version_id == version.id)
-            ).all()
+            )).scalars().all()
         ]
         by_type: dict[str, set[str]] = {}
         for row in rows:
@@ -199,30 +198,30 @@ async def test_enterprise_mvp_scenario_seed_creates_complete_agent_binding_chain
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_scenario_seed_agent_chains_have_replayable_run_evidence(db):
+async def test_enterprise_mvp_scenario_seed_agent_chains_have_replayable_run_evidence(async_db):
     from scripts.seed_enterprise_mvp_scenarios import seed_enterprise_mvp_scenarios
 
-    summary = await seed_enterprise_mvp_scenarios(db, _args())
+    summary = await seed_enterprise_mvp_scenarios(async_db, _args())
     for chain in summary.agent_chain_refs:
-        parent_run = db.get(Run, chain["parent_run_id"])
-        workflow_trace = db.get(Run, chain["workflow_run_id"])
-        task = db.get(Task, chain["task_id"])
+        parent_run = await async_db.get(Run, chain["parent_run_id"])
+        workflow_trace = await async_db.get(Run, chain["workflow_run_id"])
+        task = await async_db.get(Task, chain["task_id"])
         assert parent_run is not None
         assert workflow_trace is not None
         assert task is not None
 
         workflow_run = _unwrap(
-            db.exec(select(WorkflowRun).where(WorkflowRun.run_id == chain["workflow_run_id"])).first()
+            (await async_db.exec(select(WorkflowRun).where(WorkflowRun.run_id == chain["workflow_run_id"]))).scalars().first()
         )
         assert workflow_run is not None
 
         steps = [
             _unwrap(row)
-            for row in db.exec(select(RunStep).where(RunStep.run_id == parent_run.id)).all()
+            for row in (await async_db.exec(select(RunStep).where(RunStep.run_id == parent_run.id))).scalars().all()
         ]
         costs = [
             _unwrap(row)
-            for row in db.exec(select(RunCostEntry).where(RunCostEntry.run_id == parent_run.id)).all()
+            for row in (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == parent_run.id))).scalars().all()
         ]
         tool_refs = {
             (step.metrics_json or {}).get("tool_call", {}).get("tool_ref")
@@ -236,7 +235,7 @@ async def test_enterprise_mvp_scenario_seed_agent_chains_have_replayable_run_evi
         assert costs
 
         parent_response = _unwrap(
-            db.exec(select(Response).where(Response.run_id == parent_run.id)).first()
+            (await async_db.exec(select(Response).where(Response.run_id == parent_run.id))).scalars().first()
         )
         assert parent_response is not None
         citations = parent_response.output_json.get("citations")
@@ -245,15 +244,15 @@ async def test_enterprise_mvp_scenario_seed_agent_chains_have_replayable_run_evi
 
 
 @pytest.mark.asyncio
-async def test_enterprise_mvp_scenario_seed_creates_observe_run_evidence(db):
+async def test_enterprise_mvp_scenario_seed_creates_observe_run_evidence(async_db):
     from scripts.seed_enterprise_mvp_scenarios import seed_enterprise_mvp_scenarios
 
-    summary = await seed_enterprise_mvp_scenarios(db, _args())
-    parent_run = db.get(Run, summary.run_ids[0])
+    summary = await seed_enterprise_mvp_scenarios(async_db, _args())
+    parent_run = await async_db.get(Run, summary.run_ids[0])
     assert parent_run is not None
 
-    steps = [_unwrap(row) for row in db.exec(select(RunStep).where(RunStep.run_id == parent_run.id)).all()]
-    costs = [_unwrap(row) for row in db.exec(select(RunCostEntry).where(RunCostEntry.run_id == parent_run.id)).all()]
+    steps = [_unwrap(row) for row in (await async_db.exec(select(RunStep).where(RunStep.run_id == parent_run.id))).scalars().all()]
+    costs = [_unwrap(row) for row in (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == parent_run.id))).scalars().all()]
 
     assert any((step.metrics_json or {}).get("tool_call") for step in steps)
     assert any((step.metrics_json or {}).get("audit_json") for step in steps)

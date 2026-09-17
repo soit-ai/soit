@@ -38,8 +38,8 @@ def test_support_ticket_workflow_inputs_use_the_canonical_template_contract():
 
 
 @pytest.mark.asyncio
-async def test_support_ticket_regression_evaluator_generates_machine_readable_evidence(db):
-    report = await evaluate_support_ticket_regression(db, _args())
+async def test_support_ticket_regression_evaluator_generates_machine_readable_evidence(async_db):
+    report = await evaluate_support_ticket_regression(async_db, _args())
 
     assert report["scenario"] == "support_ticket"
     assert report["passed"] is True, json.dumps(report["cases"], indent=2, sort_keys=True)

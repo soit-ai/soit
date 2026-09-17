@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import secrets as pysecrets
+import sys
 from collections.abc import Iterable
 from datetime import timedelta
 from decimal import Decimal
@@ -31,8 +32,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
@@ -119,17 +121,6 @@ def _parse_args() -> argparse.Namespace:
 # --------------------------------------------------------------------------- #
 
 
-def _unwrap(row: Any) -> Any:
-    if row is None:
-        return None
-    if isinstance(row, tuple):
-        return row[0]
-    try:
-        return row[0]
-    except Exception:
-        return row
-
-
 def _sid(prefix: str, ctx: RequestContext, key: str) -> str:
     digest = hashlib.sha1(
         f"{ctx.tenant_id}:{ctx.workspace_id}:{key}".encode()
@@ -141,8 +132,10 @@ def _meta(**extra: Any) -> dict[str, Any]:
     return {"seed_source": SEED_SOURCE, **extra}
 
 
-def _upsert(db, model: type[Any], item_id: str, values: dict[str, Any]):
-    item = db.get(model, item_id)
+async def _upsert(
+    db: AsyncSession, model: type[Any], item_id: str, values: dict[str, Any]
+):
+    item = await db.get(model, item_id)
     if item is None:
         item = model(id=item_id, **values)
     else:
@@ -160,12 +153,12 @@ def _scoped(model: type[Any], ctx: RequestContext):
     )
 
 
-def _delete(db, items: Iterable[Any]) -> None:
+async def _delete(db: AsyncSession, items: Iterable[Any]) -> None:
     for item in items:
-        db.delete(item)
+        await db.delete(item)
 
 
-def _reset(db, ctx: RequestContext) -> None:
+async def _reset(db: AsyncSession, ctx: RequestContext) -> None:
     """Delete only this seed's rows, identified by the id infix.
 
     Children go before parents so a foreign key never blocks the delete, and
@@ -200,9 +193,9 @@ def _reset(db, ctx: RequestContext) -> None:
         Secret,
     )
     for model in ordered:
-        rows = [_unwrap(row) for row in db.exec(_scoped(model, ctx)).all()]
-        _delete(db, [row for row in rows if suffix in str(row.id)])
-    db.commit()
+        rows = (await db.exec(_scoped(model, ctx))).scalars().all()
+        await _delete(db, [row for row in rows if suffix in str(row.id)])
+    await db.commit()
 
 
 # --------------------------------------------------------------------------- #
@@ -285,10 +278,10 @@ PROVIDERS: list[dict[str, Any]] = [
 ]
 
 
-def _seed_modelhub(db, ctx: RequestContext) -> list[str]:
+async def _seed_modelhub(db: AsyncSession, ctx: RequestContext) -> list[str]:
     refs: list[str] = []
     for spec in PROVIDERS:
-        provider = _upsert(
+        provider = await _upsert(
             db,
             Provider,
             _sid("prov", ctx, spec["key"]),
@@ -306,7 +299,7 @@ def _seed_modelhub(db, ctx: RequestContext) -> list[str]:
             },
         )
         for model in spec["models"]:
-            _upsert(
+            await _upsert(
                 db,
                 ProviderModel,
                 _sid("pmdl", ctx, model["key"]),
@@ -330,7 +323,7 @@ def _seed_modelhub(db, ctx: RequestContext) -> list[str]:
                 },
             )
             refs.append(f"model:{spec['kind']}:{model['model_id']}")
-    db.commit()
+    await db.commit()
     return refs
 
 
@@ -382,14 +375,14 @@ KNOWLEDGE: list[dict[str, Any]] = [
 ]
 
 
-def _seed_knowledge(db, ctx: RequestContext) -> list[Knowledge]:
+async def _seed_knowledge(db: AsyncSession, ctx: RequestContext) -> list[Knowledge]:
     now = utc_now()
     items: list[Knowledge] = []
     for spec in KNOWLEDGE:
         knowledge_id = _sid("knw", ctx, spec["key"])
         index_id = _sid("idx", ctx, spec["key"])
         degraded = spec["index_status"] == "failed"
-        knowledge = _upsert(
+        knowledge = await _upsert(
             db,
             Knowledge,
             knowledge_id,
@@ -415,7 +408,7 @@ def _seed_knowledge(db, ctx: RequestContext) -> list[Knowledge]:
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             KnowledgeIndex,
             index_id,
@@ -454,7 +447,7 @@ def _seed_knowledge(db, ctx: RequestContext) -> list[Knowledge]:
         doc_id = _sid("doc", ctx, f"{spec['key']}:doc")
         text = f"{spec['name']}: {spec['description']}"
         checksum = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        _upsert(
+        await _upsert(
             db,
             KnowledgeDocument,
             doc_id,
@@ -488,7 +481,7 @@ def _seed_knowledge(db, ctx: RequestContext) -> list[Knowledge]:
             },
         )
         items.append(knowledge)
-    db.commit()
+    await db.commit()
     return items
 
 
@@ -574,12 +567,12 @@ def _graph(spec: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _seed_workflows(db, ctx: RequestContext) -> list[Workflow]:
+async def _seed_workflows(db: AsyncSession, ctx: RequestContext) -> list[Workflow]:
     items: list[Workflow] = []
     for spec in WORKFLOWS:
         workflow_id = _sid("wf", ctx, spec["key"])
         version_id = _sid("wfv", ctx, spec["key"])
-        workflow = _upsert(
+        workflow = await _upsert(
             db,
             Workflow,
             workflow_id,
@@ -601,7 +594,7 @@ def _seed_workflows(db, ctx: RequestContext) -> list[Workflow]:
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             WorkflowVersion,
             version_id,
@@ -617,7 +610,7 @@ def _seed_workflows(db, ctx: RequestContext) -> list[Workflow]:
             },
         )
         items.append(workflow)
-    db.commit()
+    await db.commit()
     return items
 
 
@@ -701,8 +694,8 @@ AGENTS: list[dict[str, Any]] = [
 ]
 
 
-def _seed_agents(
-    db,
+async def _seed_agents(
+    db: AsyncSession,
     ctx: RequestContext,
     knowledge: dict[str, str],
     workflows: dict[str, str],
@@ -714,7 +707,7 @@ def _seed_agents(
         agent_id = _sid("agt", ctx, spec["key"])
         version_id = _sid("agtv", ctx, spec["key"])
         published = spec["status"] == "active"
-        agent = _upsert(
+        agent = await _upsert(
             db,
             Agent,
             agent_id,
@@ -743,7 +736,7 @@ def _seed_agents(
                 "published_at": now if published else None,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             AgentVersion,
             version_id,
@@ -787,7 +780,7 @@ def _seed_agents(
             ("tool", plugin_refs[key]) for key in spec["tools"] if key in plugin_refs
         ]
         for order, (kind, ref) in enumerate(bindings):
-            _upsert(
+            await _upsert(
                 db,
                 AgentBinding,
                 _sid("agtb", ctx, f"{spec['key']}:{kind}:{ref}"),
@@ -803,7 +796,7 @@ def _seed_agents(
                 },
             )
         items.append(agent)
-    db.commit()
+    await db.commit()
     return items
 
 
@@ -857,14 +850,14 @@ def artifact_ref(name: str, plugin_type: str) -> str:
     return f"{ARTIFACT_PREFIX.get(plugin_type, 'plugin_tool')}:{name}"
 
 
-def _seed_plugins(db, ctx: RequestContext) -> list[str]:
+async def _seed_plugins(db: AsyncSession, ctx: RequestContext) -> list[str]:
     ids: list[str] = []
     for name, plugin_type, version, publisher, scopes, installed in PLUGINS:
         plugin_id = _sid("plg", ctx, name)
         version_id = _sid("plgv", ctx, name)
         spec_json = {"plugin_type": plugin_type, "exports": {"scopes": scopes}}
         manifest_json = {"name": name, "version": version, "enabled": installed}
-        _upsert(
+        await _upsert(
             db,
             Plugin,
             plugin_id,
@@ -887,7 +880,7 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
                 "created_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             PluginVersion,
             version_id,
@@ -908,7 +901,7 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
         )
         if installed:
             installation_id = _sid("inst", ctx, name)
-            _upsert(
+            await _upsert(
                 db,
                 PluginInstallation,
                 installation_id,
@@ -937,7 +930,7 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
                 payload["skill"] = {"name": name}
             else:
                 payload["tool_spec"] = {"name": name}
-            _upsert(
+            await _upsert(
                 db,
                 PluginInstalledArtifact,
                 _sid("plga", ctx, ref),
@@ -956,7 +949,7 @@ def _seed_plugins(db, ctx: RequestContext) -> list[str]:
                 },
             )
         ids.append(plugin_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -972,12 +965,12 @@ SECRETS: list[tuple[str, str, int]] = [
 ]
 
 
-def _seed_secrets(db, ctx: RequestContext) -> list[str]:
+async def _seed_secrets(db: AsyncSession, ctx: RequestContext) -> list[str]:
     now = utc_now()
     ids: list[str] = []
     for name, description, rotated_days in SECRETS:
         secret_id = _sid("sec", ctx, name)
-        _upsert(
+        await _upsert(
             db,
             Secret,
             secret_id,
@@ -996,7 +989,7 @@ def _seed_secrets(db, ctx: RequestContext) -> list[str]:
             },
         )
         ids.append(secret_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1020,8 +1013,8 @@ RUNS: list[dict[str, Any]] = [
 ]
 
 
-def _seed_runs(
-    db, ctx: RequestContext, agents: dict[str, str], total: int
+async def _seed_runs(
+    db: AsyncSession, ctx: RequestContext, agents: dict[str, str], total: int
 ) -> list[str]:
     now = utc_now()
     ids: list[str] = []
@@ -1035,7 +1028,7 @@ def _seed_runs(
             if status == "running"
             else started + timedelta(milliseconds=duration_ms)
         )
-        _upsert(
+        await _upsert(
             db,
             Run,
             run_id,
@@ -1071,7 +1064,7 @@ def _seed_runs(
                 ("tool", "tool", "failed" if error else "succeeded"),
             )
         ):
-            _upsert(
+            await _upsert(
                 db,
                 RunStep,
                 _sid("step", ctx, f"{suffix}:{step_key}"),
@@ -1114,7 +1107,7 @@ def _seed_runs(
             failures_placed += 1
         started = now - timedelta(minutes=(index * 1080) // max(1, total) + 5)
         duration_ms = 900 + (index % 40) * 300
-        _upsert(
+        await _upsert(
             db,
             Run,
             run_id,
@@ -1146,7 +1139,7 @@ def _seed_runs(
         # count reads as generated rather than observed.
         span_count = 3 + (index % 6)
         for order in range(span_count):
-            _upsert(
+            await _upsert(
                 db,
                 RunStep,
                 _sid("step", ctx, f"{suffix}:{order}"),
@@ -1165,7 +1158,7 @@ def _seed_runs(
                 },
             )
         ids.append(run_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1207,13 +1200,13 @@ THREADS: list[tuple[str, str, str, int]] = [
 ]
 
 
-def _seed_threads(db, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
+async def _seed_threads(db: AsyncSession, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
     now = utc_now()
     ids: list[str] = []
     for title, agent_key, summary, hours_ago in THREADS:
         thread_id = _sid("thr", ctx, title)
         at = now - timedelta(hours=hours_ago)
-        _upsert(
+        await _upsert(
             db,
             Thread,
             thread_id,
@@ -1238,7 +1231,7 @@ def _seed_threads(db, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
             },
         )
         for order, (role, text) in enumerate((("user", title), ("assistant", summary))):
-            _upsert(
+            await _upsert(
                 db,
                 ThreadMessage,
                 _sid("msg", ctx, f"{title}:{role}"),
@@ -1257,7 +1250,7 @@ def _seed_threads(db, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
                 },
             )
         ids.append(thread_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1277,15 +1270,15 @@ TASKS: list[dict[str, Any]] = [
 ]
 
 
-def _seed_tasks(
-    db, ctx: RequestContext, agents: dict[str, str], task_count: int
+async def _seed_tasks(
+    db: AsyncSession, ctx: RequestContext, agents: dict[str, str], task_count: int
 ) -> list[str]:
     now = utc_now()
     ids: list[str] = []
     for offset, (name, note, task_type, status, done, total) in enumerate(TASKS):
         task_id = _sid("task", ctx, name)
         started = now - timedelta(minutes=9 * (offset + 1))
-        _upsert(
+        await _upsert(
             db,
             Task,
             task_id,
@@ -1319,7 +1312,7 @@ def _seed_tasks(
         name = f"scheduled-batch-{index:03d}"
         task_id = _sid("task", ctx, name)
         started = now - timedelta(hours=index)
-        _upsert(
+        await _upsert(
             db,
             Task,
             task_id,
@@ -1341,7 +1334,7 @@ def _seed_tasks(
             },
         )
         ids.append(task_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1361,12 +1354,12 @@ APPROVALS: list[tuple[str, str, str, int]] = [
 ]
 
 
-def _seed_approvals(db, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
+async def _seed_approvals(db: AsyncSession, ctx: RequestContext, agents: dict[str, str]) -> list[str]:
     now = utc_now()
     ids: list[str] = []
     for title, policy_ref, agent_key, minutes_ago in APPROVALS:
         approval_id = _sid("apr", ctx, title)
-        _upsert(
+        await _upsert(
             db,
             ApprovalRequest,
             approval_id,
@@ -1383,7 +1376,7 @@ def _seed_approvals(db, ctx: RequestContext, agents: dict[str, str]) -> list[str
             },
         )
         ids.append(approval_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1394,12 +1387,12 @@ AUDITS: list[tuple[str, str, str, bool]] = [
 ]
 
 
-def _seed_audits(db, ctx: RequestContext, run_ids: list[str]) -> None:
+async def _seed_audits(db: AsyncSession, ctx: RequestContext, run_ids: list[str]) -> None:
     # The audit list only returns events attached to a run: with no run_id the
     # Govern > Audit log page stays empty however many events exist.
     for index, (key, operation, target, allowed) in enumerate(AUDITS):
         run_id = run_ids[index % len(run_ids)] if run_ids else None
-        _upsert(
+        await _upsert(
             db,
             AuditEvent,
             _sid("aud", ctx, key),
@@ -1418,7 +1411,7 @@ def _seed_audits(db, ctx: RequestContext, run_ids: list[str]) -> None:
                 "payload_json": _meta(allowed=allowed, target=target),
             },
         )
-    db.commit()
+    await db.commit()
 
 
 #: What each model charged per million tokens in the prototype's pricing table.
@@ -1429,7 +1422,7 @@ MODEL_PRICING: list[tuple[str, str, float, float]] = [
 ]
 
 
-def _seed_costs(db, ctx: RequestContext, run_ids: list[str]) -> list[str]:
+async def _seed_costs(db: AsyncSession, ctx: RequestContext, run_ids: list[str]) -> list[str]:
     """One cost entry per run, so the Runs page can total tokens and spend."""
     now = utc_now()
     ids: list[str] = []
@@ -1449,7 +1442,7 @@ def _seed_costs(db, ctx: RequestContext, run_ids: list[str]) -> list[str]:
             )
         )
         entry_id = _sid("cost", ctx, run_id)
-        _upsert(
+        await _upsert(
             db,
             RunCostEntry,
             entry_id,
@@ -1478,7 +1471,7 @@ def _seed_costs(db, ctx: RequestContext, run_ids: list[str]) -> list[str]:
             },
         )
         ids.append(entry_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1506,12 +1499,12 @@ def _unusable_hash() -> str:
     return hashlib.sha256(pysecrets.token_bytes(32)).hexdigest()
 
 
-def _seed_team(db, ctx: RequestContext) -> list[str]:
+async def _seed_team(db: AsyncSession, ctx: RequestContext) -> list[str]:
     ids: list[str] = []
     for email, name, role in TEAMMATES:
         user_id = _sid("u", ctx, email)
-        existing = db.get(User, user_id)
-        _upsert(
+        existing = await db.get(User, user_id)
+        await _upsert(
             db,
             User,
             user_id,
@@ -1542,9 +1535,9 @@ def _seed_team(db, ctx: RequestContext) -> list[str]:
             ),
         ):
             # Composite primary keys, so merge rather than the id-keyed upsert.
-            db.merge(model(**values))
+            await db.merge(model(**values))
         ids.append(user_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
@@ -1555,13 +1548,13 @@ API_KEYS: list[tuple[str, str, list[str]]] = [
 ]
 
 
-def _seed_api_keys(db, ctx: RequestContext) -> list[str]:
+async def _seed_api_keys(db: AsyncSession, ctx: RequestContext) -> list[str]:
     now = utc_now()
     ids: list[str] = []
     for index, (name, prefix, scopes) in enumerate(API_KEYS):
         key_id = _sid("ak", ctx, name)
-        existing = db.get(ApiKey, key_id)
-        _upsert(
+        existing = await db.get(ApiKey, key_id)
+        await _upsert(
             db,
             ApiKey,
             key_id,
@@ -1581,11 +1574,11 @@ def _seed_api_keys(db, ctx: RequestContext) -> list[str]:
             },
         )
         ids.append(key_id)
-    db.commit()
+    await db.commit()
     return ids
 
 
-def _seed_credits(db, ctx: RequestContext, cost_entry_ids: list[str]) -> None:
+async def _seed_credits(db: AsyncSession, ctx: RequestContext, cost_entry_ids: list[str]) -> None:
     """A grant and a month of consumption, matching the billing tiles.
 
     The schema refuses a deduction that names no cost entry, so the spend line
@@ -1614,7 +1607,7 @@ def _seed_credits(db, ctx: RequestContext, cost_entry_ids: list[str]) -> None:
             )
         )
     for key, kind, delta, amount, note, cost_entry_id in rows:
-        _upsert(
+        await _upsert(
             db,
             CreditLedgerEntry,
             _sid("cle", ctx, key),
@@ -1632,12 +1625,12 @@ def _seed_credits(db, ctx: RequestContext, cost_entry_ids: list[str]) -> None:
                 "created_at": now - timedelta(days=1),
             },
         )
-    db.commit()
+    await db.commit()
 
 
-def _seed_egress(db, ctx: RequestContext) -> None:
+async def _seed_egress(db: AsyncSession, ctx: RequestContext) -> None:
     """Egress rules live on the workspace row, which the Policies page reads."""
-    workspace = db.get(Workspace, ctx.workspace_id)
+    workspace = await db.get(Workspace, ctx.workspace_id)
     if workspace is None:
         return
     workspace.egress_allowlist = [
@@ -1648,7 +1641,7 @@ def _seed_egress(db, ctx: RequestContext) -> None:
     workspace.egress_blocklist = ["https://paste.example.net"]
     workspace.updated_at = utc_now()
     db.add(workspace)
-    db.commit()
+    await db.commit()
 
 
 # --------------------------------------------------------------------------- #
@@ -1656,14 +1649,16 @@ def _seed_egress(db, ctx: RequestContext) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def seed_console_prototype(db, args: argparse.Namespace) -> PrototypeSeedSummary:
-    ctx = _ensure_context(db, args)
+async def seed_console_prototype(
+    db: AsyncSession, args: argparse.Namespace
+) -> PrototypeSeedSummary:
+    ctx = await _ensure_context(db, args)
     if args.reset:
-        _reset(db, ctx)
+        await _reset(db, ctx)
 
-    model_refs = _seed_modelhub(db, ctx)
-    knowledge = _seed_knowledge(db, ctx)
-    workflows = _seed_workflows(db, ctx)
+    model_refs = await _seed_modelhub(db, ctx)
+    knowledge = await _seed_knowledge(db, ctx)
+    workflows = await _seed_workflows(db, ctx)
 
     knowledge_by_key = {
         spec["key"]: item.id for spec, item in zip(KNOWLEDGE, knowledge, strict=False)
@@ -1673,25 +1668,25 @@ async def seed_console_prototype(db, args: argparse.Namespace) -> PrototypeSeedS
     }
 
     # Plugins first: agents bind to their installed artifacts.
-    plugin_ids = _seed_plugins(db, ctx)
+    plugin_ids = await _seed_plugins(db, ctx)
     plugin_refs = {row[0]: artifact_ref(row[0], row[1]) for row in PLUGINS if row[5]}
 
-    agents = _seed_agents(db, ctx, knowledge_by_key, workflow_by_key, plugin_refs)
+    agents = await _seed_agents(db, ctx, knowledge_by_key, workflow_by_key, plugin_refs)
     agent_by_key = {
         spec["key"]: item.id for spec, item in zip(AGENTS, agents, strict=False)
     }
 
-    secret_ids = _seed_secrets(db, ctx)
-    thread_ids = _seed_threads(db, ctx, agent_by_key)
-    run_ids = _seed_runs(db, ctx, agent_by_key, args.runs)
-    task_ids = _seed_tasks(db, ctx, agent_by_key, args.tasks)
-    approval_ids = _seed_approvals(db, ctx, agent_by_key)
-    _seed_audits(db, ctx, run_ids)
-    cost_entry_ids = _seed_costs(db, ctx, run_ids)
-    _seed_team(db, ctx)
-    _seed_api_keys(db, ctx)
-    _seed_credits(db, ctx, cost_entry_ids)
-    _seed_egress(db, ctx)
+    secret_ids = await _seed_secrets(db, ctx)
+    thread_ids = await _seed_threads(db, ctx, agent_by_key)
+    run_ids = await _seed_runs(db, ctx, agent_by_key, args.runs)
+    task_ids = await _seed_tasks(db, ctx, agent_by_key, args.tasks)
+    approval_ids = await _seed_approvals(db, ctx, agent_by_key)
+    await _seed_audits(db, ctx, run_ids)
+    cost_entry_ids = await _seed_costs(db, ctx, run_ids)
+    await _seed_team(db, ctx)
+    await _seed_api_keys(db, ctx)
+    await _seed_credits(db, ctx, cost_entry_ids)
+    await _seed_egress(db, ctx)
 
     return PrototypeSeedSummary(
         tenant_id=ctx.tenant_id,
@@ -1710,11 +1705,11 @@ async def seed_console_prototype(db, args: argparse.Namespace) -> PrototypeSeedS
     )
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        summary = asyncio.run(seed_console_prototype(db, args))
+        summary = await seed_console_prototype(db, args)
         payload = json.dumps(summary.model_dump(), indent=2, sort_keys=True)
         if args.json_output:
             with open(args.json_output, "w", encoding="utf-8") as handle:
@@ -1722,8 +1717,11 @@ def main() -> int:
         print(payload)
         return 0
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        # psycopg's async driver cannot run on the default Proactor loop.
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

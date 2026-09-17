@@ -10,13 +10,15 @@ verifies that the stored specs remain valid.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
+import asyncio
+import sys
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.kernel.projections.agent_projection import build_agent_refs
 from app.kernel.projections.workflow_projection import (
@@ -27,7 +29,6 @@ from app.kernel.projections.workflow_projection import (
 from app.kernel.specs.validator import validate_runtime_spec
 from app.modules.agent.domain.models import AgentVersion
 from app.modules.workflow.domain.models import WorkflowVersion
-
 
 SUPPORTED_SPEC_SCHEMAS = {"workflow.v1", "agent.v1"}
 
@@ -64,7 +65,7 @@ def _normalize_schema(spec_schema: str | None) -> str | None:
     return normalized
 
 
-def _workflow_versions(db, ctx: RequestContext, *, workflow_id: str | None = None, version_id: str | None = None) -> list[WorkflowVersion]:
+async def _workflow_versions(db: AsyncSession, ctx: RequestContext, *, workflow_id: str | None = None, version_id: str | None = None) -> list[WorkflowVersion]:
     clauses = [
         WorkflowVersion.tenant_id == ctx.tenant_id,
         WorkflowVersion.workspace_id == ctx.workspace_id,
@@ -74,10 +75,10 @@ def _workflow_versions(db, ctx: RequestContext, *, workflow_id: str | None = Non
     if version_id:
         clauses.append(WorkflowVersion.id == version_id)
     query = select(WorkflowVersion).where(and_(*clauses)).order_by(WorkflowVersion.created_at.asc())
-    return list(db.exec(query).all())
+    return list((await db.exec(query)).scalars().all())
 
 
-def _agent_versions(db, ctx: RequestContext, *, agent_id: str | None = None, version_id: str | None = None) -> list[AgentVersion]:
+async def _agent_versions(db: AsyncSession, ctx: RequestContext, *, agent_id: str | None = None, version_id: str | None = None) -> list[AgentVersion]:
     clauses = [
         AgentVersion.tenant_id == ctx.tenant_id,
         AgentVersion.workspace_id == ctx.workspace_id,
@@ -87,7 +88,7 @@ def _agent_versions(db, ctx: RequestContext, *, agent_id: str | None = None, ver
     if version_id:
         clauses.append(AgentVersion.id == version_id)
     query = select(AgentVersion).where(and_(*clauses)).order_by(AgentVersion.created_at.asc())
-    return list(db.exec(query).all())
+    return list((await db.exec(query)).scalars().all())
 
 
 def _build_workflow_summary(version: WorkflowVersion) -> ProjectionSummary:
@@ -122,17 +123,19 @@ def _build_agent_summary(version: AgentVersion) -> ProjectionSummary:
     )
 
 
-def _iter_summaries(db, ctx: RequestContext, args: argparse.Namespace) -> Iterable[ProjectionSummary]:
+async def _iter_summaries(
+    db: AsyncSession, ctx: RequestContext, args: argparse.Namespace
+) -> AsyncIterator[ProjectionSummary]:
     spec_schema = _normalize_schema(args.spec_schema)
 
     if args.version_id:
-        workflow_versions = _workflow_versions(db, ctx, version_id=args.version_id)
+        workflow_versions = await _workflow_versions(db, ctx, version_id=args.version_id)
         if workflow_versions:
             for version in workflow_versions:
                 yield _build_workflow_summary(version)
             return
 
-        agent_versions = _agent_versions(db, ctx, version_id=args.version_id)
+        agent_versions = await _agent_versions(db, ctx, version_id=args.version_id)
         if agent_versions:
             for version in agent_versions:
                 yield _build_agent_summary(version)
@@ -141,7 +144,7 @@ def _iter_summaries(db, ctx: RequestContext, args: argparse.Namespace) -> Iterab
         raise LookupError(f"Version not found: {args.version_id}")
 
     if args.workflow_id:
-        versions = _workflow_versions(db, ctx, workflow_id=args.workflow_id)
+        versions = await _workflow_versions(db, ctx, workflow_id=args.workflow_id)
         if not versions:
             raise LookupError(f"Workflow not found or has no versions: {args.workflow_id}")
         for version in versions:
@@ -151,7 +154,7 @@ def _iter_summaries(db, ctx: RequestContext, args: argparse.Namespace) -> Iterab
         return
 
     if args.agent_id:
-        versions = _agent_versions(db, ctx, agent_id=args.agent_id)
+        versions = await _agent_versions(db, ctx, agent_id=args.agent_id)
         if not versions:
             raise LookupError(f"Agent not found or has no versions: {args.agent_id}")
         for version in versions:
@@ -161,13 +164,13 @@ def _iter_summaries(db, ctx: RequestContext, args: argparse.Namespace) -> Iterab
         return
 
     if args.all:
-        workflow_versions = _workflow_versions(db, ctx)
+        workflow_versions = await _workflow_versions(db, ctx)
         for version in workflow_versions:
             if spec_schema and version.spec_schema != spec_schema:
                 continue
             yield _build_workflow_summary(version)
 
-        agent_versions = _agent_versions(db, ctx)
+        agent_versions = await _agent_versions(db, ctx)
         for version in agent_versions:
             if spec_schema and version.spec_schema != spec_schema:
                 continue
@@ -185,26 +188,24 @@ def _print_summary(summary: ProjectionSummary) -> None:
     )
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
     ctx = RequestContext(
         tenant_id=args.tenant_id,
         workspace_id=args.workspace_id,
         user_id=args.user_id,
     )
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        summaries = list(_iter_summaries(db, ctx, args))
-    except (LookupError, ValueError) as exc:
-        print(str(exc))
-        db.close()
-        return 1
-    except Exception as exc:
-        print(f"Projection rebuild failed: {exc}")
-        db.close()
-        return 1
+        try:
+            summaries = [summary async for summary in _iter_summaries(db, ctx, args)]
+        except (LookupError, ValueError) as exc:
+            print(str(exc))
+            return 1
+        except Exception as exc:
+            print(f"Projection rebuild failed: {exc}")
+            return 1
 
-    try:
         if not summaries:
             print("No matching versions found.")
             return 1
@@ -213,8 +214,10 @@ def main() -> int:
         print(f"Rebuilt {len(summaries)} projection summaries.")
         return 0
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

@@ -25,10 +25,10 @@ def _args(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_governance_demo_verifier_builds_20_minute_evidence_chain(db):
+async def test_governance_demo_verifier_builds_20_minute_evidence_chain(async_db):
     from scripts.verify_governance_demo import verify_governance_demo
 
-    report = await verify_governance_demo(db, _args())
+    report = await verify_governance_demo(async_db, _args())
 
     assert report["scenario"] == "governance_demo_20_min"
     assert report["passed"] is True

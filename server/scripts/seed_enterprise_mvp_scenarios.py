@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import sys
 from collections.abc import Iterable
 from datetime import timedelta
 from decimal import Decimal
@@ -14,8 +15,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
@@ -103,8 +105,8 @@ def _unwrap(row: Any) -> Any:
         return row
 
 
-def _one(db, query):
-    return _unwrap(db.exec(query).first())
+async def _one(db: AsyncSession, query):
+    return _unwrap((await db.exec(query)).first())
 
 
 def _seed_id(prefix: str, ctx: RequestContext, key: str) -> str:
@@ -116,8 +118,8 @@ def _seed_meta(**extra: Any) -> dict[str, Any]:
     return {"seed_source": SEED_SOURCE, **extra}
 
 
-def _upsert(db, model: type[Any], item_id: str, values: dict[str, Any]):
-    item = db.get(model, item_id)
+async def _upsert(db: AsyncSession, model: type[Any], item_id: str, values: dict[str, Any]):
+    item = await db.get(model, item_id)
     if item is None:
         item = model(id=item_id, **values)
     else:
@@ -137,15 +139,15 @@ def _dict_has_seed(value: Any) -> bool:
     return isinstance(value, dict) and value.get("seed_source") == SEED_SOURCE
 
 
-def _delete_items(db, items: Iterable[Any]) -> None:
+async def _delete_items(db: AsyncSession, items: Iterable[Any]) -> None:
     for item in items:
-        db.delete(item)
+        await db.delete(item)
 
 
-def _reset_seed_data(db, ctx: RequestContext) -> None:
+async def _reset_seed_data(db: AsyncSession, ctx: RequestContext) -> None:
     seed_runs = [
         _unwrap(row)
-        for row in db.exec(_scoped_query(Run, ctx)).all()
+        for row in (await db.exec(_scoped_query(Run, ctx))).scalars().all()
         if str(_unwrap(row).trace_id or "").startswith(TRACE_PREFIX)
         or str(_unwrap(row).id).startswith("run_seed_")
     ]
@@ -153,36 +155,36 @@ def _reset_seed_data(db, ctx: RequestContext) -> None:
 
     for model in (RunCostEntry, RunArtifact, RunStep):
         if seed_run_ids:
-            _delete_items(db, [_unwrap(row) for row in db.exec(select(model).where(model.run_id.in_(seed_run_ids))).all()])
+            await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(model).where(model.run_id.in_(seed_run_ids)))).scalars().all()])
 
     if seed_run_ids:
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(ResponseEvent).where(ResponseEvent.run_id.in_(seed_run_ids))).all()])
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(Response).where(Response.run_id.in_(seed_run_ids))).all()])
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(WorkflowRun).where(WorkflowRun.run_id.in_(seed_run_ids))).all()])
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(ApprovalRequest).where(ApprovalRequest.run_id.in_(seed_run_ids))).all()])
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(RunFeedback).where(RunFeedback.run_id.in_(seed_run_ids))).all()])
-    _delete_items(db, seed_runs)
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(ResponseEvent).where(ResponseEvent.run_id.in_(seed_run_ids)))).scalars().all()])
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(Response).where(Response.run_id.in_(seed_run_ids)))).scalars().all()])
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(WorkflowRun).where(WorkflowRun.run_id.in_(seed_run_ids)))).scalars().all()])
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(ApprovalRequest).where(ApprovalRequest.run_id.in_(seed_run_ids)))).scalars().all()])
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(RunFeedback).where(RunFeedback.run_id.in_(seed_run_ids)))).scalars().all()])
+    await _delete_items(db, seed_runs)
 
     seed_tasks = [
         _unwrap(row)
-        for row in db.exec(_scoped_query(Task, ctx)).all()
+        for row in (await db.exec(_scoped_query(Task, ctx))).scalars().all()
         if _dict_has_seed(_unwrap(row).input_json) or str(_unwrap(row).id).startswith("task_seed_")
     ]
     seed_task_ids = [task.id for task in seed_tasks]
     if seed_task_ids:
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(TaskCheckpoint).where(TaskCheckpoint.task_id.in_(seed_task_ids))).all()])
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(TaskEvent).where(TaskEvent.task_id.in_(seed_task_ids))).all()])
-    _delete_items(db, seed_tasks)
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(TaskCheckpoint).where(TaskCheckpoint.task_id.in_(seed_task_ids)))).scalars().all()])
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(TaskEvent).where(TaskEvent.task_id.in_(seed_task_ids)))).scalars().all()])
+    await _delete_items(db, seed_tasks)
 
     seed_threads = [
         _unwrap(row)
-        for row in db.exec(_scoped_query(Thread, ctx)).all()
+        for row in (await db.exec(_scoped_query(Thread, ctx))).scalars().all()
         if _dict_has_seed(_unwrap(row).metadata_json) or str(_unwrap(row).id).startswith("thread_seed_")
     ]
     seed_thread_ids = [thread.id for thread in seed_threads]
     if seed_thread_ids:
-        _delete_items(db, [_unwrap(row) for row in db.exec(select(ThreadMessage).where(ThreadMessage.thread_id.in_(seed_thread_ids))).all()])
-    _delete_items(db, seed_threads)
+        await _delete_items(db, [_unwrap(row) for row in (await db.exec(select(ThreadMessage).where(ThreadMessage.thread_id.in_(seed_thread_ids)))).scalars().all()])
+    await _delete_items(db, seed_threads)
 
     for model, field_name in (
         (KnowledgeChunk, "source_meta_json"),
@@ -191,11 +193,11 @@ def _reset_seed_data(db, ctx: RequestContext) -> None:
         (KnowledgeIndex, "index_params_json"),
         (Knowledge, "settings_json"),
     ):
-        _delete_items(
+        await _delete_items(
             db,
             [
                 _unwrap(row)
-                for row in db.exec(_scoped_query(model, ctx)).all()
+                for row in (await db.exec(_scoped_query(model, ctx))).scalars().all()
                 if _dict_has_seed(getattr(_unwrap(row), field_name, None)) or str(_unwrap(row).id).startswith(("knw_seed_", "doc_seed_", "chunk_seed_", "idx_seed_", "ingest_seed_"))
             ],
         )
@@ -208,12 +210,12 @@ def _reset_seed_data(db, ctx: RequestContext) -> None:
         (Plugin, "metadata_json"),
     ):
         rows = []
-        for row in db.exec(_scoped_query(model, ctx)).all():
+        for row in (await db.exec(_scoped_query(model, ctx))).scalars().all():
             item = _unwrap(row)
             value = getattr(item, field_name, None)
             if _dict_has_seed(value) or value == SEED_SOURCE or str(item.id).startswith(("plg_seed_", "plgv_seed_", "plgr_seed_", "inst_seed_", "plga_seed_")):
                 rows.append(item)
-        _delete_items(db, rows)
+        await _delete_items(db, rows)
 
     for model, field_name in (
         (AgentBinding, "config_json"),
@@ -227,34 +229,34 @@ def _reset_seed_data(db, ctx: RequestContext) -> None:
         (Provider, "sync_policy_json"),
     ):
         rows = []
-        for row in db.exec(_scoped_query(model, ctx)).all():
+        for row in (await db.exec(_scoped_query(model, ctx))).scalars().all():
             item = _unwrap(row)
             value = getattr(item, field_name, None)
             if _dict_has_seed(value) or value == SEED_SOURCE or str(item.id).startswith(("agt_seed_", "agtv_seed_", "agtb_seed_", "agtp_seed_", "wf_seed_", "wfv_seed_", "wfp_seed_", "prov_seed_", "pmdl_seed_")):
                 rows.append(item)
-        _delete_items(db, rows)
+        await _delete_items(db, rows)
 
-    _delete_items(
+    await _delete_items(
         db,
         [
             _unwrap(row)
-            for row in db.exec(_scoped_query(Secret, ctx)).all()
+            for row in (await db.exec(_scoped_query(Secret, ctx))).scalars().all()
             if str(_unwrap(row).id).startswith("sec_seed_") or (SEED_SOURCE in str(_unwrap(row).description or ""))
         ],
     )
-    _delete_items(
+    await _delete_items(
         db,
         [
             _unwrap(row)
-            for row in db.exec(_scoped_query(AuditEvent, ctx)).all()
+            for row in (await db.exec(_scoped_query(AuditEvent, ctx))).scalars().all()
             if _dict_has_seed(_unwrap(row).payload_json) or str(_unwrap(row).id).startswith("aud_seed_")
         ],
     )
-    db.commit()
+    await db.commit()
 
 
-def _ensure_agent(
-    db,
+async def _ensure_agent(
+    db: AsyncSession,
     ctx: RequestContext,
     key: str,
     name: str,
@@ -270,7 +272,7 @@ def _ensure_agent(
     now = utc_now()
     resolved_tool_refs = list(dict.fromkeys(tool_refs or ["builtin.ticket.create_review_ticket"]))
     resolved_skill_refs = list(dict.fromkeys(skill_refs or []))
-    agent = _upsert(
+    agent = await _upsert(
         db,
         Agent,
         agent_id,
@@ -312,7 +314,7 @@ def _ensure_agent(
         limits={"max_iterations": 4, "max_tool_calls": 8, "max_llm_calls": 12},
         policies={"require_citations": True},
     )
-    _upsert(
+    await _upsert(
         db,
         AgentVersion,
         version_id,
@@ -328,7 +330,7 @@ def _ensure_agent(
             "created_by": ctx.user_id,
         },
     )
-    _upsert(
+    await _upsert(
         db,
         AgentPublish,
         _seed_id("agtp", ctx, key),
@@ -356,7 +358,7 @@ def _ensure_agent(
         binding_specs.append(("skill", None, skill_ref, _seed_meta()))
 
     for index, (binding_type, target_id, target_key, config_json) in enumerate(binding_specs):
-        _upsert(
+        await _upsert(
             db,
             AgentBinding,
             _seed_id("agtb", ctx, f"{key}:{binding_type}:{target_key}"),
@@ -372,12 +374,11 @@ def _ensure_agent(
                 "sort_order": index,
             },
         )
-    db.commit()
-    db.refresh(agent)
+    await db.commit()
     return agent
 
 
-def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[str, KnowledgeDocument], list[str]]:
+async def _ensure_knowledge(db: AsyncSession, ctx: RequestContext) -> tuple[list[Knowledge], dict[str, KnowledgeDocument], list[str]]:
     now = utc_now()
     specs = [
         (
@@ -431,7 +432,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
         chunk_id = _seed_id("chunk", ctx, f"{key}:chunk:0")
         checksum = hashlib.sha256(text.encode("utf-8")).hexdigest()
         has_text = bool(text)
-        knowledge = _upsert(
+        knowledge = await _upsert(
             db,
             Knowledge,
             knowledge_id,
@@ -457,7 +458,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             KnowledgeIndex,
             index_id,
@@ -486,7 +487,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
                 "updated_by": ctx.user_id,
             },
         )
-        document = _upsert(
+        document = await _upsert(
             db,
             KnowledgeDocument,
             doc_id,
@@ -517,7 +518,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             KnowledgeIngestTask,
             _seed_id("ingest", ctx, f"{key}:ingest"),
@@ -539,7 +540,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
             },
         )
         if has_text:
-            _upsert(
+            await _upsert(
                 db,
                 KnowledgeChunk,
                 chunk_id,
@@ -568,7 +569,7 @@ def _ensure_knowledge(db, ctx: RequestContext) -> tuple[list[Knowledge], dict[st
             citation_sources.append(filename)
         knowledge_items.append(knowledge)
         documents[key] = document
-    db.commit()
+    await db.commit()
     return knowledge_items, documents, citation_sources
 
 
@@ -592,7 +593,7 @@ def _workflow_spec(key: str, name: str, mode: str) -> dict[str, Any]:
     )
 
 
-def _ensure_workflows(db, ctx: RequestContext) -> list[Workflow]:
+async def _ensure_workflows(db: AsyncSession, ctx: RequestContext) -> list[Workflow]:
     specs = [
         ("ticket_success", "MVP Ticket Triage Success", "succeeded"),
         ("missing_params", "MVP Missing Parameter Failure", "missing_params"),
@@ -604,7 +605,7 @@ def _ensure_workflows(db, ctx: RequestContext) -> list[Workflow]:
     for key, name, mode in specs:
         workflow_id = _seed_id("wf", ctx, key)
         version_id = _seed_id("wfv", ctx, key)
-        workflow = _upsert(
+        workflow = await _upsert(
             db,
             Workflow,
             workflow_id,
@@ -626,7 +627,7 @@ def _ensure_workflows(db, ctx: RequestContext) -> list[Workflow]:
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             WorkflowVersion,
             version_id,
@@ -641,7 +642,7 @@ def _ensure_workflows(db, ctx: RequestContext) -> list[Workflow]:
                 "created_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             WorkflowPublish,
             _seed_id("wfp", ctx, key),
@@ -658,11 +659,11 @@ def _ensure_workflows(db, ctx: RequestContext) -> list[Workflow]:
             },
         )
         workflows.append(workflow)
-    db.commit()
+    await db.commit()
     return workflows
 
 
-def _ensure_modelhub(db, ctx: RequestContext) -> tuple[list[str], list[str]]:
+async def _ensure_modelhub(db: AsyncSession, ctx: RequestContext) -> tuple[list[str], list[str]]:
     provider_specs = [
         ("stub_active", "MVP Stub Provider", "test", "active", "stub://active"),
         ("stub_degraded", "MVP Degraded Provider", "test", "error", "stub://degraded"),
@@ -672,7 +673,7 @@ def _ensure_modelhub(db, ctx: RequestContext) -> tuple[list[str], list[str]]:
     model_refs: list[str] = []
     for key, name, kind, status, base_url in provider_specs:
         provider_id = _seed_id("prov", ctx, key)
-        provider = _upsert(
+        provider = await _upsert(
             db,
             Provider,
             provider_id,
@@ -696,7 +697,7 @@ def _ensure_modelhub(db, ctx: RequestContext) -> tuple[list[str], list[str]]:
             ("failing", "Seed Failing Model", "disabled" if status == "disabled" else "active"),
         ):
             model_id = f"{key}-{model_key}"
-            _upsert(
+            await _upsert(
                 db,
                 ProviderModel,
                 _seed_id("pmdl", ctx, f"{key}:{model_key}"),
@@ -720,11 +721,11 @@ def _ensure_modelhub(db, ctx: RequestContext) -> tuple[list[str], list[str]]:
                 },
             )
             model_refs.append(f"model:{kind}:{model_id}")
-    db.commit()
+    await db.commit()
     return provider_ids, model_refs
 
 
-def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
+async def _ensure_plugins(db: AsyncSession, ctx: RequestContext) -> list[str]:
     plugin_id = _seed_id("plg", ctx, "governed_tools")
     version_id = _seed_id("plgv", ctx, "governed_tools")
     installation_id = _seed_id("inst", ctx, "governed_tools")
@@ -738,7 +739,7 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
         },
     }
     manifest_json = {"name": "seed-governed-tools", "version": "1.0.0", "enabled": True}
-    _upsert(
+    await _upsert(
         db,
         Plugin,
         plugin_id,
@@ -761,7 +762,7 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
             "created_by": ctx.user_id,
         },
     )
-    _upsert(
+    await _upsert(
         db,
         PluginVersion,
         version_id,
@@ -780,7 +781,7 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
             "created_by": ctx.user_id,
         },
     )
-    _upsert(
+    await _upsert(
         db,
         PluginRelease,
         _seed_id("plgr", ctx, "governed_tools"),
@@ -796,7 +797,7 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
             "created_by": ctx.user_id,
         },
     )
-    _upsert(
+    await _upsert(
         db,
         PluginInstallation,
         installation_id,
@@ -834,7 +835,7 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
     ]
     refs: list[str] = []
     for artifact_kind, artifact_ref, metadata in artifacts:
-        _upsert(
+        await _upsert(
             db,
             PluginInstalledArtifact,
             _seed_id("plga", ctx, artifact_ref),
@@ -853,11 +854,11 @@ def _ensure_plugins(db, ctx: RequestContext) -> list[str]:
             },
         )
         refs.append(artifact_ref)
-    db.commit()
+    await db.commit()
     return refs
 
 
-def _ensure_secrets_and_audits(db, ctx: RequestContext) -> list[str]:
+async def _ensure_secrets_and_audits(db: AsyncSession, ctx: RequestContext) -> list[str]:
     secret_specs = [
         ("provider_key", "Seed Provider API Key"),
         ("ticket_webhook", "Seed Ticket Webhook Token"),
@@ -865,7 +866,7 @@ def _ensure_secrets_and_audits(db, ctx: RequestContext) -> list[str]:
     secret_ids: list[str] = []
     for key, name in secret_specs:
         secret_id = _seed_id("sec", ctx, key)
-        _upsert(
+        await _upsert(
             db,
             Secret,
             secret_id,
@@ -886,7 +887,7 @@ def _ensure_secrets_and_audits(db, ctx: RequestContext) -> list[str]:
         ("egress_deny", "egress.deny", False),
         ("secret_preview", "secret.preview_redacted", True),
     ):
-        _upsert(
+        await _upsert(
             db,
             AuditEvent,
             _seed_id("aud", ctx, key),
@@ -902,12 +903,12 @@ def _ensure_secrets_and_audits(db, ctx: RequestContext) -> list[str]:
                 "payload_json": _seed_meta(allowed=allowed, target="https://tickets.example.local"),
             },
         )
-    db.commit()
+    await db.commit()
     return secret_ids
 
 
-def _ensure_run(
-    db,
+async def _ensure_run(
+    db: AsyncSession,
     ctx: RequestContext,
     key: str,
     *,
@@ -930,7 +931,7 @@ def _ensure_run(
     now = utc_now()
     run_id = _seed_id("run", ctx, key)
     ended_at = None if status in {"running", "queued", "waiting_approval"} else now
-    run = _upsert(
+    run = await _upsert(
         db,
         Run,
         run_id,
@@ -1005,7 +1006,7 @@ def _ensure_run(
         if step_type == "retrieval" and not knowledge_id:
             continue
         step_id = _seed_id("step", ctx, f"{key}:{step_key}")
-        _upsert(
+        await _upsert(
             db,
             RunStep,
             step_id,
@@ -1027,7 +1028,7 @@ def _ensure_run(
                 "ended_at": now - timedelta(minutes=19, seconds=-order),
             },
         )
-    _upsert(
+    await _upsert(
         db,
         RunArtifact,
         _seed_id("art", ctx, key),
@@ -1044,7 +1045,7 @@ def _ensure_run(
             "meta_json": _seed_meta(scenario=key),
         },
     )
-    _upsert(
+    await _upsert(
         db,
         RunCostEntry,
         _seed_id("cost", ctx, key),
@@ -1067,13 +1068,12 @@ def _ensure_run(
             "latency_ms": 850,
         },
     )
-    db.commit()
-    db.refresh(run)
+    await db.commit()
     return run
 
 
-def _ensure_responses_and_threads(
-    db,
+async def _ensure_responses_and_threads(
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     agents: list[Agent],
@@ -1109,7 +1109,7 @@ def _ensure_responses_and_threads(
     for index, (key, title, agent_id, run_id, status, citations, attachments) in enumerate(thread_specs):
         thread_id = _seed_id("thread", ctx, key)
         response_id = _seed_id("resp", ctx, key)
-        _upsert(
+        await _upsert(
             db,
             Thread,
             thread_id,
@@ -1139,7 +1139,7 @@ def _ensure_responses_and_threads(
         if key == "failed_retry":
             messages.append(("assistant", "Retry succeeded with refund policy citation and ticket handoff.", "succeeded", None))
         for sequence, (role, content, message_status, error_code) in enumerate(messages, start=1):
-            _upsert(
+            await _upsert(
                 db,
                 ThreadMessage,
                 _seed_id("msg", ctx, f"{key}:{sequence}"),
@@ -1168,7 +1168,7 @@ def _ensure_responses_and_threads(
                     "created_by": ctx.user_id,
                 },
             )
-        _upsert(
+        await _upsert(
             db,
             Response,
             response_id,
@@ -1193,7 +1193,7 @@ def _ensure_responses_and_threads(
             },
         )
         for event_index, event_type in enumerate(("response.created", "message.delta", "response.completed"), start=1):
-            _upsert(
+            await _upsert(
                 db,
                 ResponseEvent,
                 _seed_id("revt", ctx, f"{key}:{event_index}"),
@@ -1212,12 +1212,12 @@ def _ensure_responses_and_threads(
             )
         thread_ids.append(thread_id)
         if index == 0:
-            db.commit()
-    db.commit()
+            await db.commit()
+    await db.commit()
     return thread_ids
 
 
-def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run], workflows: list[Workflow], agents: list[Agent], thread_ids: list[str]) -> list[str]:
+async def _ensure_tasks_and_workflow_runs(db: AsyncSession, ctx: RequestContext, *, runs: list[Run], workflows: list[Workflow], agents: list[Agent], thread_ids: list[str]) -> list[str]:
     task_specs = [
         ("queued", "queued", runs[5].id),
         ("running", "running", runs[3].id),
@@ -1233,7 +1233,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
         task_id = _seed_id("task", ctx, key)
         started_at = now - timedelta(hours=3) if key == "long_running" else now - timedelta(minutes=25)
         finished_at = now - timedelta(minutes=5) if status in {"succeeded", "failed"} else None
-        _upsert(
+        await _upsert(
             db,
             Task,
             task_id,
@@ -1256,7 +1256,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             TaskCheckpoint,
             _seed_id("chk", ctx, key),
@@ -1269,7 +1269,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
                 "payload_json": _seed_meta(scenario=key, run_id=run_id),
             },
         )
-        _upsert(
+        await _upsert(
             db,
             TaskEvent,
             _seed_id("tevt", ctx, key),
@@ -1283,7 +1283,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
         )
         task_ids.append(task_id)
     for workflow, run in zip(workflows, runs[1:], strict=False):
-        _upsert(
+        await _upsert(
             db,
             WorkflowRun,
             _seed_id("wfr", ctx, workflow.id),
@@ -1299,7 +1299,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
                 "waiting_nodes": 1 if run.status == "waiting_approval" else 0,
             },
         )
-    _upsert(
+    await _upsert(
         db,
         ApprovalRequest,
         _seed_id("apr", ctx, "approval_wait"),
@@ -1317,7 +1317,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
             "requested_by": ctx.user_id,
         },
     )
-    _upsert(
+    await _upsert(
         db,
         RunFeedback,
         _seed_id("fbk", ctx, "agent_parent"),
@@ -1335,7 +1335,7 @@ def _ensure_tasks_and_workflow_runs(db, ctx: RequestContext, *, runs: list[Run],
             "created_by": ctx.user_id,
         },
     )
-    db.commit()
+    await db.commit()
     return task_ids
 
 
@@ -1351,8 +1351,8 @@ def _citation_for(ctx: RequestContext, knowledge_id: str, document: KnowledgeDoc
     }
 
 
-def _ensure_chain_thread_response(
-    db,
+async def _ensure_chain_thread_response(
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     key: str,
@@ -1365,7 +1365,7 @@ def _ensure_chain_thread_response(
 ) -> str:
     thread_id = _seed_id("thread", ctx, f"chain:{key}")
     response_id = _seed_id("resp", ctx, f"chain:{key}")
-    _upsert(
+    await _upsert(
         db,
         Thread,
         thread_id,
@@ -1393,7 +1393,7 @@ def _ensure_chain_thread_response(
         ("assistant", f"{title} completed with plugin capability, knowledge citation, and workflow handoff evidence."),
     ]
     for sequence, (role, content) in enumerate(messages, start=1):
-        _upsert(
+        await _upsert(
             db,
             ThreadMessage,
             _seed_id("msg", ctx, f"chain:{key}:{sequence}"),
@@ -1421,7 +1421,7 @@ def _ensure_chain_thread_response(
                 "created_by": ctx.user_id,
             },
         )
-    _upsert(
+    await _upsert(
         db,
         Response,
         response_id,
@@ -1449,7 +1449,7 @@ def _ensure_chain_thread_response(
         },
     )
     for index, event_type in enumerate(("response.created", "tool.call.completed", "response.completed"), start=1):
-        _upsert(
+        await _upsert(
             db,
             ResponseEvent,
             _seed_id("revt", ctx, f"chain:{key}:{index}"),
@@ -1467,12 +1467,12 @@ def _ensure_chain_thread_response(
                 "payload_json": _seed_meta(index=index, scenario=f"chain:{key}", plugin_capability_refs=plugin_refs),
             },
         )
-    db.commit()
+    await db.commit()
     return thread_id
 
 
-def _ensure_agent_chains(
-    db,
+async def _ensure_agent_chains(
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     knowledge: list[Knowledge],
@@ -1559,7 +1559,7 @@ def _ensure_agent_chains(
         skill_refs = [ref for ref in plugin_refs if ref.startswith("plugin_skill:")]
         if not tool_refs:
             tool_refs = ["builtin.ticket.create_review_ticket"]
-        agent = _ensure_agent(
+        agent = await _ensure_agent(
             db,
             ctx,
             f"chain:{key}",
@@ -1573,7 +1573,7 @@ def _ensure_agent_chains(
         agents.append(agent)
 
         child_status = "running" if spec["task_status"] == "running" else "failed" if spec["task_status"] == "failed" else "succeeded"
-        child_run = _ensure_run(
+        child_run = await _ensure_run(
             db,
             ctx,
             f"chain:{key}:workflow",
@@ -1592,7 +1592,7 @@ def _ensure_agent_chains(
             failed=spec["task_status"] == "failed",
         )
         parent_status = "running" if spec["task_status"] == "running" else "failed" if spec["task_status"] == "failed" else "waiting_approval" if spec["task_status"] == "waiting_approval" else "succeeded"
-        parent_run = _ensure_run(
+        parent_run = await _ensure_run(
             db,
             ctx,
             f"chain:{key}:parent",
@@ -1614,7 +1614,7 @@ def _ensure_agent_chains(
         )
         task_id = _seed_id("task", ctx, f"chain:{key}")
         task_status = str(spec["task_status"])
-        _upsert(
+        await _upsert(
             db,
             Task,
             task_id,
@@ -1640,7 +1640,7 @@ def _ensure_agent_chains(
                 "updated_by": ctx.user_id,
             },
         )
-        _upsert(
+        await _upsert(
             db,
             TaskCheckpoint,
             _seed_id("chk", ctx, f"chain:{key}"),
@@ -1653,7 +1653,7 @@ def _ensure_agent_chains(
                 "payload_json": _seed_meta(scenario=f"chain:{key}", parent_run_id=parent_run.id, workflow_run_id=child_run.id),
             },
         )
-        _upsert(
+        await _upsert(
             db,
             TaskEvent,
             _seed_id("tevt", ctx, f"chain:{key}"),
@@ -1665,7 +1665,7 @@ def _ensure_agent_chains(
                 "payload_json": _seed_meta(scenario=f"chain:{key}", plugin_capability_refs=plugin_refs),
             },
         )
-        _upsert(
+        await _upsert(
             db,
             WorkflowRun,
             _seed_id("wfr", ctx, f"chain:{key}"),
@@ -1682,7 +1682,7 @@ def _ensure_agent_chains(
             },
         )
         if parent_status == "waiting_approval":
-            _upsert(
+            await _upsert(
                 db,
                 ApprovalRequest,
                 _seed_id("apr", ctx, f"chain:{key}"),
@@ -1717,7 +1717,7 @@ def _ensure_agent_chains(
                     "score": 0.0,
                 }
             ]
-        thread_id = _ensure_chain_thread_response(
+        thread_id = await _ensure_chain_thread_response(
             db,
             ctx,
             key=key,
@@ -1744,13 +1744,13 @@ def _ensure_agent_chains(
         thread_ids.append(thread_id)
         run_ids.extend([parent_run.id, child_run.id])
         task_ids.append(task_id)
-    db.commit()
+    await db.commit()
     return agents, chain_refs, thread_ids, run_ids, task_ids
 
 
-def _ensure_stress_extras(db, ctx: RequestContext, *, agent_id: str, run_ids: list[str], thread_ids: list[str], task_ids: list[str]) -> None:
+async def _ensure_stress_extras(db: AsyncSession, ctx: RequestContext, *, agent_id: str, run_ids: list[str], thread_ids: list[str], task_ids: list[str]) -> None:
     for index in range(20):
-        run = _ensure_run(
+        run = await _ensure_run(
             db,
             ctx,
             f"stress:{index}",
@@ -1766,7 +1766,7 @@ def _ensure_stress_extras(db, ctx: RequestContext, *, agent_id: str, run_ids: li
         )
         run_ids.append(run.id)
         thread_id = _seed_id("thread", ctx, f"stress:{index}")
-        _upsert(
+        await _upsert(
             db,
             Thread,
             thread_id,
@@ -1787,7 +1787,7 @@ def _ensure_stress_extras(db, ctx: RequestContext, *, agent_id: str, run_ids: li
         )
         thread_ids.append(thread_id)
         task_id = _seed_id("task", ctx, f"stress:{index}")
-        _upsert(
+        await _upsert(
             db,
             Task,
             task_id,
@@ -1806,10 +1806,10 @@ def _ensure_stress_extras(db, ctx: RequestContext, *, agent_id: str, run_ids: li
             },
         )
         task_ids.append(task_id)
-    db.commit()
+    await db.commit()
 
 
-async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> ScenarioSeedSummary:
+async def seed_enterprise_mvp_scenarios(db: AsyncSession, args: argparse.Namespace) -> ScenarioSeedSummary:
     bootstrap: BootstrapResult = await bootstrap_enterprise_mvp(db, args)
     ctx = RequestContext(
         tenant_id=bootstrap.tenant_id,
@@ -1819,19 +1819,19 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
         workspace_role="Owner",
     )
     if args.reset:
-        _reset_seed_data(db, ctx)
+        await _reset_seed_data(db, ctx)
 
-    knowledge, documents, citation_sources = _ensure_knowledge(db, ctx)
-    workflows = _ensure_workflows(db, ctx)
+    knowledge, documents, citation_sources = await _ensure_knowledge(db, ctx)
+    workflows = await _ensure_workflows(db, ctx)
     agents = [
-        _ensure_agent(db, ctx, "support_triage", "MVP Support Triage Agent", "support", [knowledge[0].id, knowledge[1].id], [workflows[0].id]),
-        _ensure_agent(db, ctx, "finance_ops", "MVP Finance Ops Agent", "finance", [knowledge[3].id], [workflows[3].id]),
-        _ensure_agent(db, ctx, "contract_reviewer", "MVP Contract Reviewer Agent", "legal", [knowledge[2].id], [workflows[2].id]),
+        await _ensure_agent(db, ctx, "support_triage", "MVP Support Triage Agent", "support", [knowledge[0].id, knowledge[1].id], [workflows[0].id]),
+        await _ensure_agent(db, ctx, "finance_ops", "MVP Finance Ops Agent", "finance", [knowledge[3].id], [workflows[3].id]),
+        await _ensure_agent(db, ctx, "contract_reviewer", "MVP Contract Reviewer Agent", "legal", [knowledge[2].id], [workflows[2].id]),
     ]
-    provider_ids, model_refs = _ensure_modelhub(db, ctx)
-    plugin_refs = _ensure_plugins(db, ctx)
-    secret_ids = _ensure_secrets_and_audits(db, ctx)
-    chain_agents, agent_chain_refs, chain_thread_ids, chain_run_ids, chain_task_ids = _ensure_agent_chains(
+    provider_ids, model_refs = await _ensure_modelhub(db, ctx)
+    plugin_refs = await _ensure_plugins(db, ctx)
+    secret_ids = await _ensure_secrets_and_audits(db, ctx)
+    chain_agents, agent_chain_refs, chain_thread_ids, chain_run_ids, chain_task_ids = await _ensure_agent_chains(
         db,
         ctx,
         knowledge=knowledge,
@@ -1841,7 +1841,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
 
     child_workflow_run = _seed_id("run", ctx, "workflow_child")
     runs = [
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "agent_parent",
@@ -1856,7 +1856,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             knowledge_id=knowledge[0].id,
             child_run_id=child_workflow_run,
         ),
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "workflow_child",
@@ -1870,7 +1870,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             workflow_id=workflows[0].id,
             knowledge_id=knowledge[0].id,
         ),
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "chat_success",
@@ -1882,7 +1882,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             input_summary="General chat success",
             output_summary="Answered with stub model.",
         ),
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "approval_wait",
@@ -1896,7 +1896,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             workflow_id=workflows[2].id,
             knowledge_id=knowledge[2].id,
         ),
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "failed_tool",
@@ -1911,7 +1911,7 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             knowledge_id=knowledge[0].id,
             failed=True,
         ),
-        _ensure_run(
+        await _ensure_run(
             db,
             ctx,
             "queued_summary",
@@ -1924,15 +1924,15 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
             output_summary="Queued for processing center.",
         ),
     ]
-    thread_ids = _ensure_responses_and_threads(db, ctx, agents=agents, knowledge=knowledge, documents=documents, runs=runs)
-    task_ids = _ensure_tasks_and_workflow_runs(db, ctx, runs=runs, workflows=workflows, agents=agents, thread_ids=thread_ids)
+    thread_ids = await _ensure_responses_and_threads(db, ctx, agents=agents, knowledge=knowledge, documents=documents, runs=runs)
+    task_ids = await _ensure_tasks_and_workflow_runs(db, ctx, runs=runs, workflows=workflows, agents=agents, thread_ids=thread_ids)
     run_ids = [run.id for run in runs]
     agents.extend(chain_agents)
     thread_ids.extend(chain_thread_ids)
     run_ids.extend(chain_run_ids)
     task_ids.extend(chain_task_ids)
     if args.profile == "stress":
-        _ensure_stress_extras(db, ctx, agent_id=agents[0].id, run_ids=run_ids, thread_ids=thread_ids, task_ids=task_ids)
+        await _ensure_stress_extras(db, ctx, agent_id=agents[0].id, run_ids=run_ids, thread_ids=thread_ids, task_ids=task_ids)
 
     summary = ScenarioSeedSummary(
         tenant_id=ctx.tenant_id,
@@ -1959,16 +1959,18 @@ async def seed_enterprise_mvp_scenarios(db, args: argparse.Namespace) -> Scenari
     return summary
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        summary = asyncio.run(seed_enterprise_mvp_scenarios(db, args))
+        summary = await seed_enterprise_mvp_scenarios(db, args)
         print(json.dumps(summary.model_dump(), indent=2, sort_keys=True))
         return 0
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))

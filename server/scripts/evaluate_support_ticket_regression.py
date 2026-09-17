@@ -6,15 +6,16 @@ import argparse
 import asyncio
 import copy
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from app.adapters.tools.router import RegistryToolRouterPort
-from app.kernel.ports.tools.sandbox import SandboxToolPort
-from app.kernel.runtime.runs.writer import TraceWriter
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -24,8 +25,10 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
     ToolCall,
 )
+from app.kernel.ports.tools.sandbox import SandboxToolPort
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.runs.service import RunService
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import AgentRunRequest
 from app.modules.knowledge.application.runtime_schemas import QueryRequest
@@ -311,7 +314,7 @@ def register_preapproved_evaluation_tool(ctx: RequestContext) -> None:
     )
 
 
-async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: SupportTicketGoldenCase) -> SupportTicketCaseReport:
+async def _run_case(db: AsyncSession, ctx: RequestContext, bootstrap: BootstrapResult, case: SupportTicketGoldenCase) -> SupportTicketCaseReport:
     start = time.perf_counter()
     workflow_ref = f"wf:{bootstrap.workflow_id}"
     service = AgentApplicationService(
@@ -340,7 +343,7 @@ async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: S
         ).model_dump(exclude_none=True),
     )
     latency_ms = max(0, int((time.perf_counter() - start) * 1000))
-    detail = RunService(db=db, ctx=ctx).get_run(result["run_id"])
+    detail = await RunService(db=db, ctx=ctx).get_run(result["run_id"])
     citations = [item for item in detail.citations if isinstance(item, dict)]
     governance_evidence = [item.model_dump() for item in detail.governance_evidence]
     governance_failures = _governance_failures(case, governance_evidence)
@@ -376,7 +379,7 @@ async def _run_case(db, ctx: RequestContext, bootstrap: BootstrapResult, case: S
     return report
 
 
-async def evaluate_support_ticket_regression(db, args: argparse.Namespace) -> dict[str, Any]:
+async def evaluate_support_ticket_regression(db: AsyncSession, args: argparse.Namespace) -> dict[str, Any]:
     bootstrap = await bootstrap_enterprise_mvp(db, args)
     ctx = RequestContext(
         tenant_id=bootstrap.tenant_id,
@@ -437,16 +440,18 @@ async def evaluate_support_ticket_regression(db, args: argparse.Namespace) -> di
     return report
 
 
-def main() -> int:
+async def main() -> int:
     args = _parse_args()
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
-        report = asyncio.run(evaluate_support_ticket_regression(db, args))
+        report = await evaluate_support_ticket_regression(db, args)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 1
     finally:
-        db.close()
+        await db.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    raise SystemExit(asyncio.run(main()))
