@@ -8,9 +8,9 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
 from app.wiring.container import get_container
@@ -65,7 +65,7 @@ async def health_check():
 
 @router.get("/health/ready", response_model=ReadyResponse)
 async def readiness_check(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     storage: StoragePort = Depends(get_readiness_storage),
     vector: VectorPort = Depends(get_readiness_vector),
 ):
@@ -82,7 +82,7 @@ async def readiness_check(
     try:
         # Try to execute a simple query
         from sqlalchemy import text
-        db.execute(text("SELECT 1"))
+        await db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception:
         raise HTTPException(

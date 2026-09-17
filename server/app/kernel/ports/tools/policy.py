@@ -306,7 +306,7 @@ class ToolPolicyGateway(ToolPort):
         try:
             if self.enable_egress_check:
                 for url in iter_http_urls(resolved_parameters):
-                    check_egress_policy(self.ctx, tool_ref, {"url": url})
+                    await check_egress_policy(self.ctx, tool_ref, {"url": url})
 
             rate_limit = kwargs.get("rate_limit_per_minute") or self.rate_limit_per_minute
             if rate_limit:

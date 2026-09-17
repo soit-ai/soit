@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.orm import Session
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
@@ -208,7 +207,7 @@ def build_knowledge_runtime_service(*, db: AsyncSession, ctx: RequestContext) ->
     return KnowledgeRuntimeService(**_build_knowledge_runtime(db=db, ctx=ctx))
 
 
-def build_identity_service(*, db: Session) -> IdentityService:
+def build_identity_service(*, db: AsyncSession) -> IdentityService:
     """IdentityService factory.
 
     Note: workspace repositories are scoped to RequestContext because they are tenant-aware.
@@ -268,7 +267,7 @@ def build_identity_service(*, db: Session) -> IdentityService:
     )
 
 
-def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubService:
+def build_modelhub_service(*, db: AsyncSession, ctx: RequestContext) -> ModelHubService:
     from app.adapters.llm.litellm import LiteLLMPort
     from app.adapters.modelhub.references import DatabaseModelReferenceUsage
     from app.kernel.ports.llm.runtime_config import (
@@ -328,7 +327,7 @@ def build_modelhub_service(*, db: Session, ctx: RequestContext) -> ModelHubServi
     )
 
 
-def _build_plugin_backend(*, db: Session, ctx: RequestContext) -> PluginService:
+def _build_plugin_backend(*, db: AsyncSession, ctx: RequestContext) -> PluginService:
     from app.modules.workflow.infra.usage_query import (
         DatabasePublishedWorkflowUsagePort,
     )
@@ -353,7 +352,7 @@ def _build_plugin_backend(*, db: Session, ctx: RequestContext) -> PluginService:
     )
 
 
-def build_plugin_service(*, db: Session, ctx: RequestContext) -> PluginService:
+def build_plugin_service(*, db: AsyncSession, ctx: RequestContext) -> PluginService:
     """Plugin service factory."""
 
     return _build_plugin_backend(db=db, ctx=ctx)
@@ -454,7 +453,7 @@ def build_memory_service(*, db: AsyncSession, ctx: RequestContext) -> MemoryServ
     )
 
 
-def build_notification_service(*, db: Session, ctx: RequestContext) -> NotificationService:
+def build_notification_service(*, db: AsyncSession, ctx: RequestContext) -> NotificationService:
     """NotificationService factory."""
     notification_repo = NotificationRepository(db, ctx)
     return NotificationService(
@@ -470,7 +469,7 @@ def build_run_service(*, db: AsyncSession, ctx: RequestContext) -> RunService:
     return RunService(db=db, ctx=ctx)
 
 
-def build_security_service(*, db: Session, ctx: RequestContext) -> SecurityService:
+def build_security_service(*, db: AsyncSession, ctx: RequestContext) -> SecurityService:
     """SecurityService factory."""
     from app.modules.identity.infra.policy_scope import DatabaseIdentityPolicyScopePort
 
@@ -481,7 +480,7 @@ def build_security_service(*, db: Session, ctx: RequestContext) -> SecurityServi
     )
 
 
-def build_secrets_service(*, db: Session, ctx: RequestContext) -> SecretsService:
+def build_secrets_service(*, db: AsyncSession, ctx: RequestContext) -> SecretsService:
     """SecretsService factory."""
     secret_repo = SecretRepository(db, ctx)
     container = get_container()

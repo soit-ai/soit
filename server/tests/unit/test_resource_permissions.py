@@ -33,7 +33,7 @@ def _owned_resource_ctx(scopes: frozenset[str] | None) -> RequestContext:
 
 
 class AllowExecuteGrantProvider:
-    def allows_resource_action(self, *, ctx, resource_type, resource_id, action, effective_action) -> bool:
+    async def allows_resource_action(self, *, ctx, resource_type, resource_id, action, effective_action) -> bool:
         return (
             ctx.user_id == "shared-user"
             and resource_type == "workflow"
@@ -43,7 +43,7 @@ class AllowExecuteGrantProvider:
 
 
 class FailingGrantProvider:
-    def allows_resource_action(self, *, ctx, resource_type, resource_id, action, effective_action) -> bool:
+    async def allows_resource_action(self, *, ctx, resource_type, resource_id, action, effective_action) -> bool:
         raise RuntimeError("repository unavailable")
 
 

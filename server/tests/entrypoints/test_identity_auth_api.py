@@ -3,6 +3,7 @@
 Integration tests for identity auth endpoints.
 """
 
+import pytest
 from fastapi import status
 
 
@@ -14,10 +15,11 @@ def _register_payload(suffix: str) -> dict:
     }
 
 
-def test_register_returns_token_and_workspace(client):
+@pytest.mark.asyncio
+async def test_register_returns_token_and_workspace(async_client):
     """Register returns token response with workspace id."""
     payload = _register_payload("register_ok")
-    response = client.post("/api/v1/register", json=payload)
+    response = await async_client.post("/api/v1/register", json=payload)
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]
     assert data["access_token"]
@@ -26,51 +28,56 @@ def test_register_returns_token_and_workspace(client):
     assert data["workspace_id"]
 
 
-def test_register_with_tenant_name_query_param(client):
+@pytest.mark.asyncio
+async def test_register_with_tenant_name_query_param(async_client):
     """Register accepts tenant_name query param."""
     payload = _register_payload("register_tenant")
-    response = client.post("/api/v1/register?tenant_name=acme", json=payload)
+    response = await async_client.post("/api/v1/register?tenant_name=acme", json=payload)
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]
     assert data["access_token"]
 
 
-def test_register_rejects_duplicate_email(client):
+@pytest.mark.asyncio
+async def test_register_rejects_duplicate_email(async_client):
     """Register rejects duplicate email."""
     payload = _register_payload("register_dup")
-    response = client.post("/api/v1/register", json=payload)
+    response = await async_client.post("/api/v1/register", json=payload)
     assert response.status_code == status.HTTP_200_OK
 
-    response = client.post("/api/v1/register", json=payload)
+    response = await async_client.post("/api/v1/register", json=payload)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_register_disabled_returns_403(client):
+@pytest.mark.asyncio
+async def test_register_disabled_returns_403(async_client):
     """Public registration can be disabled by operators."""
     from app.settings.settings import settings
 
     previous = settings.allow_public_registration
     settings.allow_public_registration = False
     try:
-        response = client.post("/api/v1/register", json=_register_payload("register_off"))
+        response = await async_client.post("/api/v1/register", json=_register_payload("register_off"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
     finally:
         settings.allow_public_registration = previous
 
 
-def test_update_profile_rejects_overlong_name(client):
+@pytest.mark.asyncio
+async def test_update_profile_rejects_overlong_name(async_client):
     """Profile name is length-bounded (schema validation): 300 chars > max_length 255."""
-    response = client.patch("/api/v1/me", json={"name": "n" * 300})
+    response = await async_client.patch("/api/v1/me", json={"name": "n" * 300})
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_login_success_and_failure(client):
+@pytest.mark.asyncio
+async def test_login_success_and_failure(async_client):
     """Login succeeds for valid credentials and fails for invalid password."""
     payload = _register_payload("login_ok")
-    response = client.post("/api/v1/register", json=payload)
+    response = await async_client.post("/api/v1/register", json=payload)
     assert response.status_code == status.HTTP_200_OK
 
-    login_ok = client.post(
+    login_ok = await async_client.post(
         "/api/v1/login",
         json={"email": payload["email"], "password": payload["password"]},
     )
@@ -79,14 +86,15 @@ def test_login_success_and_failure(client):
     assert data["access_token"]
     assert data["token_type"] == "bearer"
 
-    login_bad = client.post(
+    login_bad = await async_client.post(
         "/api/v1/login",
         json={"email": payload["email"], "password": "WrongPassword!"},
     )
     assert login_bad.status_code == status.HTTP_401_UNAUTHORIZED
 
 
-def test_get_workspace_returns_metadata_json(client, db, ctx):
+@pytest.mark.asyncio
+async def test_get_workspace_returns_metadata_json(async_client, async_db, ctx):
     """Workspace responses expose metadata_json as metadata."""
     from app.modules.identity.domain.models import Workspace
 
@@ -96,10 +104,10 @@ def test_get_workspace_returns_metadata_json(client, db, ctx):
         name="Test Workspace",
         metadata_json={"control_surface": "phase1"},
     )
-    db.add(workspace)
-    db.commit()
+    async_db.add(workspace)
+    await async_db.commit()
 
-    response = client.get(f"/api/v1/workspaces/{workspace.id}")
+    response = await async_client.get(f"/api/v1/workspaces/{workspace.id}")
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()["data"]

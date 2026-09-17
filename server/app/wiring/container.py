@@ -27,7 +27,7 @@ T = TypeVar("T")
 class IdentityResourceGrantProvider:
     """Identity-backed implementation of kernel resource grant lookup."""
 
-    def allows_resource_action(
+    async def allows_resource_action(
         self,
         *,
         ctx: RequestContext,
@@ -36,25 +36,25 @@ class IdentityResourceGrantProvider:
         action: str,
         effective_action: str,
     ) -> bool:
-        from app.infra.db.session import get_db_sync
+        from app.infra.db.session import get_async_session_local
         from app.modules.identity.infra.repository import ResourceGrantRepository
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
-            grant = ResourceGrantRepository(db, ctx).get_by_resource_user(resource_type, resource_id, ctx.user_id)
+            grant = await ResourceGrantRepository(db, ctx).get_by_resource_user(resource_type, resource_id, ctx.user_id)
             if not grant:
                 return False
             allowed_actions = {str(item).strip().lower() for item in (grant.actions or [])}
             return "*" in allowed_actions or action in allowed_actions or effective_action in allowed_actions
         finally:
-            db.close()
+            await db.close()
 
 
 class IdentityEgressScopePolicyProvider:
     """Identity-backed implementation of scoped egress policies."""
 
-    def get_scope_policy(self, ctx: RequestContext):
-        from app.infra.db.session import get_db_sync
+    async def get_scope_policy(self, ctx: RequestContext):
+        from app.infra.db.session import get_async_session_local
         from app.kernel.security.egress import EgressScopePolicy
         from app.modules.identity.infra.repository import (
             TenantRepository,
@@ -62,10 +62,10 @@ class IdentityEgressScopePolicyProvider:
         )
         from app.modules.security.application.service import SecurityService
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
-            tenant = TenantRepository(db).get_by_id(ctx.tenant_id)
-            workspace = WorkspaceRepository(db, ctx).get_by_id(ctx.workspace_id)
+            tenant = await TenantRepository(db).get_by_id(ctx.tenant_id)
+            workspace = await WorkspaceRepository(db, ctx).get_by_id(ctx.workspace_id)
             return EgressScopePolicy(
                 tenant_allowlist=list((tenant.egress_allowlist if tenant else None) or []),
                 tenant_blocklist=list((tenant.egress_blocklist if tenant else None) or []),
@@ -77,7 +77,7 @@ class IdentityEgressScopePolicyProvider:
                 workspace_bundle_id=SecurityService.bundle_id_for(workspace),
             )
         finally:
-            db.close()
+            await db.close()
 
 
 class ObserveApprovalLedger:
@@ -181,7 +181,7 @@ class AuditEgressBlockRecorder:
     and cannot drown the per-run evidence a reviewer is reading.
     """
 
-    def record_block(
+    async def record_block(
         self,
         ctx: RequestContext,
         *,
@@ -191,11 +191,11 @@ class AuditEgressBlockRecorder:
         reason: str,
         bundles: dict[str, str | None] | None = None,
     ) -> None:
-        from app.infra.db.session import get_db_sync
+        from app.infra.db.session import get_async_session_local
         from app.kernel.runtime.db.models.audit import AuditEvent
         from app.kernel.security.egress import EGRESS_BLOCK_EVENT_TYPE
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
             db.add(
                 AuditEvent(
@@ -220,9 +220,9 @@ class AuditEgressBlockRecorder:
                     },
                 )
             )
-            db.commit()
+            await db.commit()
         finally:
-            db.close()
+            await db.close()
 
 
 class Container:

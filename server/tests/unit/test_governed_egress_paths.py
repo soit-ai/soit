@@ -124,12 +124,12 @@ async def test_tool_egress_check_does_not_depend_on_tool_name(
 
 @pytest.mark.asyncio
 async def test_mcp_private_endpoint_is_rejected_before_session(
-    db,
+    async_db,
     ctx,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _configure_allowlist(monkeypatch, "mcp.example.com")
-    db.add(
+    async_db.add(
         PluginInstalledArtifact(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -151,7 +151,7 @@ async def test_mcp_private_endpoint_is_rejected_before_session(
             },
         )
     )
-    db.commit()
+    await async_db.commit()
     called = False
 
     @asynccontextmanager
@@ -163,7 +163,7 @@ async def test_mcp_private_endpoint_is_rejected_before_session(
     response = await MCPToolAdapter(
         session_factory=session_factory,
         egress_guard=_private_guard(),
-    ).invoke("mcp_tool:guarded:echo", {}, db=db, ctx=ctx)
+    ).invoke("mcp_tool:guarded:echo", {}, db=async_db, ctx=ctx)
 
     assert response.success is False
     assert "non-public" in (response.error or "")

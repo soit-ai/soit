@@ -19,7 +19,7 @@ class WorkspaceAccess:
 class WorkspaceAccessResolver(Protocol):
     """Resolve workspace access from the system of record."""
 
-    def resolve(
+    async def resolve(
         self,
         tenant_id: str,
         workspace_id: str,

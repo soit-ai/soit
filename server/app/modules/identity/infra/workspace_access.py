@@ -2,7 +2,7 @@
 
 from datetime import UTC
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 from app.kernel.commons.errors import ForbiddenError, UnauthorizedError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -20,7 +20,7 @@ from app.modules.identity.infra.repository import (
 class DatabaseWorkspaceAccessResolver:
     """Resolve membership and effective quotas from the primary database."""
 
-    def resolve(
+    async def resolve(
         self,
         tenant_id: str,
         workspace_id: str,
@@ -40,27 +40,27 @@ class DatabaseWorkspaceAccessResolver:
             workspace_id=workspace_id,
             user_id=user_id,
         )
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
             if session_id:
-                self._require_live_session(db, str(session_id))
-            tenant_membership = TenantMembershipRepository(db).get(tenant_id, user_id)
+                await self._require_live_session(db, str(session_id))
+            tenant_membership = await TenantMembershipRepository(db).get(tenant_id, user_id)
             if tenant_membership is None:
                 return None
 
-            membership = WorkspaceMembershipRepository(db, context).get(
+            membership = await WorkspaceMembershipRepository(db, context).get(
                 workspace_id,
                 user_id,
             )
             if membership is None:
                 return None
 
-            tenant = TenantRepository(db).get_by_id(tenant_id)
-            workspace = WorkspaceRepository(db, context).get_by_id(workspace_id)
+            tenant = await TenantRepository(db).get_by_id(tenant_id)
+            workspace = await WorkspaceRepository(db, context).get_by_id(workspace_id)
             if tenant is None or workspace is None:
                 return None
 
-            if getattr(workspace, "require_mfa", False) and not UserMfaRepository(
+            if getattr(workspace, "require_mfa", False) and not await UserMfaRepository(
                 db
             ).active_user_ids([user_id]):
                 # A distinct error from "not a member": the person belongs here
@@ -96,17 +96,17 @@ class DatabaseWorkspaceAccessResolver:
                 ),
             )
         finally:
-            db.close()
+            await db.close()
 
     @staticmethod
-    def _require_live_session(db, session_id: str) -> None:
+    async def _require_live_session(db, session_id: str) -> None:
         """Raise when the session behind a token has ended or expired.
 
         A token with no session id predates sessions and is never routed here;
         it stays valid until it expires, so shipping this does not sign
         everybody out.
         """
-        session = UserSessionRepository(db).get_by_id(session_id)
+        session = await UserSessionRepository(db).get_by_id(session_id)
         if session is None or session.status != "active":
             raise UnauthorizedError("Session has ended")
         expires_at = session.expires_at

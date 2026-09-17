@@ -61,7 +61,7 @@ class ContextResolver:
             NotFoundError: If workspace not found or user not member.
         """
         if api_key:
-            return self.resolve_from_api_key(api_key, workspace_id_header)
+            return await self.resolve_from_api_key(api_key, workspace_id_header)
 
         # Extract token from authorization header
         if not authorization:
@@ -100,7 +100,7 @@ class ContextResolver:
         if not workspace_id:
             raise NotFoundError("Workspace ID required but not provided")
 
-        access = self.workspace_access_resolver.resolve(
+        access = await self.workspace_access_resolver.resolve(
             str(tenant_id),
             str(workspace_id),
             str(user_id),
@@ -121,7 +121,7 @@ class ContextResolver:
             tool_daily_quota=access.tool_daily_quota,
         )
 
-    def resolve_from_api_key(
+    async def resolve_from_api_key(
         self,
         api_key: str,
         workspace_id_header: str | None = None,
@@ -137,16 +137,16 @@ class ContextResolver:
             raise UnauthorizedError("Missing API key")
 
         key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-        from app.infra.db.session import get_db_sync
+        from app.infra.db.session import get_async_session_local
         from app.modules.identity.infra.repository import (
             ApiKeyRepository,
             TenantMembershipRepository,
         )
 
-        db = get_db_sync()
+        db = get_async_session_local()()
         try:
             api_repo = ApiKeyRepository(db)
-            key = api_repo.get_by_hash(key_hash)
+            key = await api_repo.get_by_hash(key_hash)
             if not key or key.status != "active":
                 raise UnauthorizedError("Invalid or revoked API key")
             expires_at = key.expires_at
@@ -165,7 +165,7 @@ class ContextResolver:
                 raise ForbiddenError("API key has no usable scope")
 
             target_workspace_id = workspace_id_header or key.workspace_id
-            access = self.workspace_access_resolver.resolve(
+            access = await self.workspace_access_resolver.resolve(
                 key.tenant_id,
                 target_workspace_id,
                 key.user_id,
@@ -175,11 +175,11 @@ class ContextResolver:
 
             key.last_used_at = utc_now()
             key.updated_at = utc_now()
-            api_repo.update(key)
+            await api_repo.update(key)
 
             tenant_role = None
             membership_repo = TenantMembershipRepository(db)
-            tenant_membership = membership_repo.get(key.tenant_id, key.user_id)
+            tenant_membership = await membership_repo.get(key.tenant_id, key.user_id)
             if tenant_membership:
                 tenant_role = tenant_membership.role
 
@@ -196,7 +196,7 @@ class ContextResolver:
                 tool_daily_quota=access.tool_daily_quota,
             )
         finally:
-            db.close()
+            await db.close()
 
     def _extract_workspace_from_path(self, path: str) -> str | None:
         """Extract workspace ID from URL path.
@@ -253,7 +253,7 @@ class ContextResolver:
         if not resolved_workspace_id:
             raise NotFoundError("Workspace ID required")
 
-        access = self.workspace_access_resolver.resolve(
+        access = await self.workspace_access_resolver.resolve(
             str(tenant_id),
             str(resolved_workspace_id),
             str(user_id),

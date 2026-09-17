@@ -7,6 +7,7 @@ exercise that same machinery.
 """
 
 import pytest
+import pytest_asyncio
 from fastapi import status
 from sqlmodel import select
 
@@ -17,9 +18,9 @@ from app.settings.settings import settings
 HEADERS = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-@pytest.fixture
-def agent_id(client) -> str:
-    create_resp = client.post(
+@pytest_asyncio.fixture
+async def agent_id(async_client) -> str:
+    create_resp = await async_client.post(
         "/api/v1/agents",
         json={
             "name": "stream-agent",
@@ -39,12 +40,13 @@ def test_agent_stream_route_is_marked_deprecated_in_the_schema(client):
     assert route["deprecated"] is True
 
 
-def test_agent_stream_refuses_to_run_without_the_durable_worker(
-    client, agent_id, monkeypatch
+@pytest.mark.asyncio
+async def test_agent_stream_refuses_to_run_without_the_durable_worker(
+    async_client, agent_id, monkeypatch
 ):
     monkeypatch.setattr(settings, "response_interaction_worker_enabled", False)
 
-    response = client.post(
+    response = await async_client.post(
         f"/api/v1/agents/{agent_id}/stream",
         json={"input": "hello"},
         headers=HEADERS,
@@ -57,7 +59,7 @@ def test_agent_stream_refuses_to_run_without_the_durable_worker(
 
 @pytest.mark.asyncio
 async def test_agent_stream_claims_a_persisted_interaction_for_the_worker(
-    db, ctx, agent_id, monkeypatch
+    async_db, ctx, agent_id, monkeypatch
 ):
     monkeypatch.setattr(settings, "response_interaction_worker_enabled", True)
     from app.api.v1.agent.router import stream_agent
@@ -69,7 +71,7 @@ async def test_agent_stream_claims_a_persisted_interaction_for_the_worker(
         agent_id,
         AgentRunRequest(input="hello"),
         ctx,
-        get_response_projection_coordinator(ctx, db),
+        get_response_projection_coordinator(ctx, async_db),
     )
 
     assert response.media_type == "text/event-stream"
@@ -77,9 +79,9 @@ async def test_agent_stream_claims_a_persisted_interaction_for_the_worker(
     assert 'rel="successor-version"' in response.headers["Link"]
 
     claimed = list(
-        db.execute(
+        (await async_db.execute(
             select(ResponseInteraction).where(ResponseInteraction.status == "queued")
-        )
+        ))
         .scalars()
         .all()
     )

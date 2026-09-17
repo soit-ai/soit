@@ -37,7 +37,7 @@ class _WorkspaceAccessResolver:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
 
-    def resolve(self, tenant_id: str, workspace_id: str, user_id: str, session_id=None):
+    async def resolve(self, tenant_id: str, workspace_id: str, user_id: str, session_id=None):
         self.calls.append((tenant_id, workspace_id, user_id))
         return SimpleNamespace(
             tenant_role="Viewer",
@@ -47,6 +47,10 @@ class _WorkspaceAccessResolver:
             llm_daily_quota=None,
             tool_daily_quota=None,
         )
+
+
+async def _resolve_none(tenant_id, workspace_id, user_id, session_id=None):  # noqa: ARG001
+    return None
 
 
 def _request() -> Request:
@@ -59,7 +63,7 @@ def _request() -> Request:
             "query_string": b"",
             "scheme": "http",
             "server": ("testserver", 80),
-            "client": ("testclient", 50000),
+            "async_client": ("testclient", 50000),
         }
     )
 
@@ -89,7 +93,7 @@ async def test_header_workspace_uses_authoritative_membership_role() -> None:
 @pytest.mark.asyncio
 async def test_missing_workspace_membership_is_forbidden() -> None:
     access_resolver = _WorkspaceAccessResolver()
-    access_resolver.resolve = lambda tenant_id, workspace_id, user_id, session_id=None: None
+    access_resolver.resolve = _resolve_none
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,
@@ -155,9 +159,10 @@ async def test_tenant_role_comes_from_authoritative_membership() -> None:
     assert context.tenant_role == "Viewer"
 
 
-def test_api_key_scopes_reach_the_request_context(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_scopes_reach_the_request_context(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-scoped"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -168,17 +173,22 @@ def test_api_key_scopes_reach_the_request_context(db, monkeypatch) -> None:
             scopes_json=["read"],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=_WorkspaceAccessResolver(),
     )
 
-    context = resolver.resolve_from_api_key(raw_key, None)
+    context = await resolver.resolve_from_api_key(raw_key, None)
 
     # The stub resolver reports an Owner workspace role; the scope must still
     # cap the credential to reads.
@@ -187,9 +197,10 @@ def test_api_key_scopes_reach_the_request_context(db, monkeypatch) -> None:
     assert not context.can_write()
 
 
-def test_api_key_past_its_expiry_is_rejected(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_past_its_expiry_is_rejected(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-expired"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -201,23 +212,29 @@ def test_api_key_past_its_expiry_is_rejected(db, monkeypatch) -> None:
             expires_at=utc_now() - timedelta(minutes=1),
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=_WorkspaceAccessResolver(),
     )
 
     with pytest.raises(UnauthorizedError, match="expired"):
-        resolver.resolve_from_api_key(raw_key, None)
+        await resolver.resolve_from_api_key(raw_key, None)
 
 
-def test_api_key_without_a_usable_scope_is_refused(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_without_a_usable_scope_is_refused(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-unscoped"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -228,11 +245,16 @@ def test_api_key_without_a_usable_scope_is_refused(db, monkeypatch) -> None:
             scopes_json=[],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=_WorkspaceAccessResolver(),
@@ -240,12 +262,13 @@ def test_api_key_without_a_usable_scope_is_refused(db, monkeypatch) -> None:
 
     # Falling back to the owner's role is exactly the inheritance scopes remove.
     with pytest.raises(ForbiddenError, match="usable scope"):
-        resolver.resolve_from_api_key(raw_key, None)
+        await resolver.resolve_from_api_key(raw_key, None)
 
 
-def test_api_key_workspace_header_overrides_bound_workspace(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_workspace_header_overrides_bound_workspace(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-override"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -256,27 +279,33 @@ def test_api_key_workspace_header_overrides_bound_workspace(db, monkeypatch) -> 
             scopes_json=["read", "write"],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     access_resolver = _WorkspaceAccessResolver()
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,
     )
 
-    context = resolver.resolve_from_api_key(raw_key, "workspace-b")
+    context = await resolver.resolve_from_api_key(raw_key, "workspace-b")
 
     assert context.tenant_id == "tenant-1"
     assert context.workspace_id == "workspace-b"
     assert access_resolver.calls == [("tenant-1", "workspace-b", "user-1")]
 
 
-def test_api_key_without_header_keeps_bound_workspace(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_without_header_keeps_bound_workspace(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-default"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -287,26 +316,32 @@ def test_api_key_without_header_keeps_bound_workspace(db, monkeypatch) -> None:
             scopes_json=["read", "write"],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     access_resolver = _WorkspaceAccessResolver()
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,
     )
 
-    context = resolver.resolve_from_api_key(raw_key)
+    context = await resolver.resolve_from_api_key(raw_key)
 
     assert context.workspace_id == "workspace-a"
     assert access_resolver.calls == [("tenant-1", "workspace-a", "user-1")]
 
 
-def test_api_key_workspace_header_requires_target_membership(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_workspace_header_requires_target_membership(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key-forbidden"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -317,25 +352,31 @@ def test_api_key_workspace_header_requires_target_membership(db, monkeypatch) ->
             scopes_json=["read", "write"],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     access_resolver = _WorkspaceAccessResolver()
-    access_resolver.resolve = lambda tenant_id, workspace_id, user_id: None
+    access_resolver.resolve = _resolve_none
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,
     )
 
     with pytest.raises(ForbiddenError, match="workspace"):
-        resolver.resolve_from_api_key(raw_key, "workspace-b")
+        await resolver.resolve_from_api_key(raw_key, "workspace-b")
 
 
-def test_api_key_requires_current_workspace_membership(db, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_api_key_requires_current_workspace_membership(async_db, monkeypatch) -> None:
     raw_key = "soit-test-key"
-    db.add(
+    async_db.add(
         ApiKey(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -346,20 +387,25 @@ def test_api_key_requires_current_workspace_membership(db, monkeypatch) -> None:
             scopes_json=["read", "write"],
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.infra.db import session as session_module
 
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
     access_resolver = _WorkspaceAccessResolver()
-    access_resolver.resolve = lambda tenant_id, workspace_id, user_id: None
+    access_resolver.resolve = _resolve_none
     resolver = ContextResolver(
         _JWTManager(),
         workspace_access_resolver=access_resolver,
     )
 
     with pytest.raises(ForbiddenError, match="workspace"):
-        resolver.resolve_from_api_key(raw_key)
+        await resolver.resolve_from_api_key(raw_key)
 
 
 @pytest.mark.asyncio
@@ -377,7 +423,7 @@ async def test_auth_dependency_returns_403_for_missing_workspace_membership(
     )
 
     # Re-raised as the kernel error, not flattened: the app's KernelError
-    # handler answers 403 and keeps the code and details, which is how a client
+    # handler answers 403 and keeps the code and details, which is how a async_client
     # tells "enrol a second factor" apart from "you are not a member".
     with pytest.raises(ForbiddenError) as error:
         await auth_middleware.get_current_context(_request())
@@ -404,10 +450,11 @@ async def test_auth_dependency_fails_closed_when_access_store_errors(monkeypatch
     assert error.value.detail == "Authentication service unavailable"
 
 
-def test_database_access_resolver_requires_tenant_membership(db, monkeypatch) -> None:
-    db.add(Tenant(id="tenant-1", name="Tenant"))
-    db.add(Workspace(id="workspace-a", tenant_id="tenant-1", name="Workspace"))
-    db.add(
+@pytest.mark.asyncio
+async def test_database_access_resolver_requires_tenant_membership(async_db, monkeypatch) -> None:
+    async_db.add(Tenant(id="tenant-1", name="Tenant"))
+    async_db.add(Workspace(id="workspace-a", tenant_id="tenant-1", name="Workspace"))
+    async_db.add(
         WorkspaceMembership(
             tenant_id="tenant-1",
             workspace_id="workspace-a",
@@ -415,14 +462,19 @@ def test_database_access_resolver_requires_tenant_membership(db, monkeypatch) ->
             role="Owner",
         )
     )
-    db.commit()
+    await async_db.commit()
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
     from app.modules.identity.infra import workspace_access as access_module
 
-    monkeypatch.setattr(access_module, "get_db_sync", lambda: db)
+    engine = async_db.bind
+    monkeypatch.setattr(
+        access_module, "get_async_session_local", lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False))
+    )
 
     assert (
-        DatabaseWorkspaceAccessResolver().resolve(
+        await DatabaseWorkspaceAccessResolver().resolve(
             "tenant-1",
             "workspace-a",
             "user-1",

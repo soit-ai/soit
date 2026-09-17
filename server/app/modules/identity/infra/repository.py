@@ -7,9 +7,9 @@ Identity repositories using scope-aware base.
 from datetime import datetime
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.contracts.context import RequestContext
 from app.modules.identity.domain.models import (
     AccountDeletionRequest,
@@ -53,7 +53,7 @@ def _unwrap_all(results):
 class UserRepository:
     """Repository for User model (global scope)."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         """Initialize user repository.
 
         Args:
@@ -61,7 +61,7 @@ class UserRepository:
         """
         self.db = db
 
-    def get_by_id(self, user_id: str) -> User | None:
+    async def get_by_id(self, user_id: str) -> User | None:
         """Get user by ID.
 
         Args:
@@ -70,9 +70,9 @@ class UserRepository:
         Returns:
             User instance or None if not found.
         """
-        return self.db.get(User, user_id)
+        return await self.db.get(User, user_id)
 
-    def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, email: str) -> User | None:
         """Get user by email.
 
         Args:
@@ -82,10 +82,10 @@ class UserRepository:
             User instance or None if not found.
         """
         query = select(User).where(User.email == email)
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return _unwrap_result(result)
 
-    def create(self, user: User) -> User:
+    async def create(self, user: User) -> User:
         """Create a new user.
 
         Args:
@@ -95,11 +95,10 @@ class UserRepository:
             Created user instance.
         """
         self.db.add(user)
-        self.db.commit()
-        self.db.refresh(user)
+        await self.db.commit()
         return user
 
-    def update(self, user: User) -> User:
+    async def update(self, user: User) -> User:
         """Update an existing user.
 
         Args:
@@ -108,15 +107,14 @@ class UserRepository:
         Returns:
             Updated user instance.
         """
-        self.db.commit()
-        self.db.refresh(user)
+        await self.db.commit()
         return user
 
 
 class TenantRepository:
     """Repository for Tenant model (global scope)."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         """Initialize tenant repository.
 
         Args:
@@ -124,7 +122,7 @@ class TenantRepository:
         """
         self.db = db
 
-    def get_by_id(self, tenant_id: str) -> Tenant | None:
+    async def get_by_id(self, tenant_id: str) -> Tenant | None:
         """Get tenant by ID.
 
         Args:
@@ -133,9 +131,9 @@ class TenantRepository:
         Returns:
             Tenant instance or None if not found.
         """
-        return self.db.get(Tenant, tenant_id)
+        return await self.db.get(Tenant, tenant_id)
 
-    def get_by_name(self, name: str) -> Tenant | None:
+    async def get_by_name(self, name: str) -> Tenant | None:
         """Get tenant by name.
 
         Args:
@@ -145,10 +143,10 @@ class TenantRepository:
             Tenant instance or None if not found.
         """
         query = select(Tenant).where(Tenant.name == name)
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return _unwrap_result(result)
 
-    def create(self, tenant: Tenant) -> Tenant:
+    async def create(self, tenant: Tenant) -> Tenant:
         """Create a new tenant.
 
         Args:
@@ -158,11 +156,10 @@ class TenantRepository:
             Created tenant instance.
         """
         self.db.add(tenant)
-        self.db.commit()
-        self.db.refresh(tenant)
+        await self.db.commit()
         return tenant
 
-    def update(self, tenant: Tenant) -> Tenant:
+    async def update(self, tenant: Tenant) -> Tenant:
         """Update an existing tenant.
 
         Args:
@@ -171,15 +168,14 @@ class TenantRepository:
         Returns:
             Updated tenant instance.
         """
-        self.db.commit()
-        self.db.refresh(tenant)
+        await self.db.commit()
         return tenant
 
 
-class WorkspaceRepository(Repository[Workspace]):
+class WorkspaceRepository(AsyncRepository[Workspace]):
     """Repository for Workspace model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize workspace repository.
 
         Args:
@@ -188,7 +184,7 @@ class WorkspaceRepository(Repository[Workspace]):
         """
         super().__init__(Workspace, db, ctx)
 
-    def get_by_name(self, name: str) -> Workspace | None:
+    async def get_by_name(self, name: str) -> Workspace | None:
         """Get workspace by name.
 
         Args:
@@ -203,10 +199,10 @@ class WorkspaceRepository(Repository[Workspace]):
                 Workspace.name == name,
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_tenant(self) -> list[Workspace]:
+    async def list_by_tenant(self) -> list[Workspace]:
         """List all workspaces in tenant.
 
         Returns:
@@ -215,14 +211,14 @@ class WorkspaceRepository(Repository[Workspace]):
         query = select(Workspace).where(
             Workspace.tenant_id == self.ctx.tenant_id
         ).order_by(Workspace.created_at.desc())
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
 
 class TenantMembershipRepository:
     """Repository for TenantMembership model."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         """Initialize tenant membership repository.
 
         Args:
@@ -230,7 +226,7 @@ class TenantMembershipRepository:
         """
         self.db = db
 
-    def get(self, tenant_id: str, user_id: str) -> TenantMembership | None:
+    async def get(self, tenant_id: str, user_id: str) -> TenantMembership | None:
         """Get membership.
 
         Args:
@@ -240,9 +236,9 @@ class TenantMembershipRepository:
         Returns:
             TenantMembership instance or None if not found.
         """
-        return self.db.get(TenantMembership, (tenant_id, user_id))
+        return await self.db.get(TenantMembership, (tenant_id, user_id))
 
-    def get_by_user(self, user_id: str) -> list[TenantMembership]:
+    async def get_by_user(self, user_id: str) -> list[TenantMembership]:
         """Get all memberships for a user.
 
         Args:
@@ -254,10 +250,10 @@ class TenantMembershipRepository:
         query = select(TenantMembership).where(
             TenantMembership.user_id == user_id
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return _unwrap_all(results)
 
-    def get_by_tenant(self, tenant_id: str) -> list[TenantMembership]:
+    async def get_by_tenant(self, tenant_id: str) -> list[TenantMembership]:
         """Get all memberships for a tenant.
 
         Args:
@@ -269,10 +265,10 @@ class TenantMembershipRepository:
         query = select(TenantMembership).where(
             TenantMembership.tenant_id == tenant_id
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return _unwrap_all(results)
 
-    def create(self, membership: TenantMembership) -> TenantMembership:
+    async def create(self, membership: TenantMembership) -> TenantMembership:
         """Create a new membership.
 
         Args:
@@ -282,11 +278,10 @@ class TenantMembershipRepository:
             Created membership instance.
         """
         self.db.add(membership)
-        self.db.commit()
-        self.db.refresh(membership)
+        await self.db.commit()
         return membership
 
-    def update(self, membership: TenantMembership) -> TenantMembership:
+    async def update(self, membership: TenantMembership) -> TenantMembership:
         """Update an existing membership.
 
         Args:
@@ -295,11 +290,10 @@ class TenantMembershipRepository:
         Returns:
             Updated membership instance.
         """
-        self.db.commit()
-        self.db.refresh(membership)
+        await self.db.commit()
         return membership
 
-    def delete(self, tenant_id: str, user_id: str) -> bool:
+    async def delete(self, tenant_id: str, user_id: str) -> bool:
         """Delete a membership.
 
         Args:
@@ -309,19 +303,19 @@ class TenantMembershipRepository:
         Returns:
             True if deleted, False if not found.
         """
-        membership = self.get(tenant_id, user_id)
+        membership = await self.get(tenant_id, user_id)
         if not membership:
             return False
 
-        self.db.delete(membership)
-        self.db.commit()
+        await self.db.delete(membership)
+        await self.db.commit()
         return True
 
 
 class WorkspaceMembershipRepository:
     """Repository for WorkspaceMembership model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize workspace membership repository.
 
         Args:
@@ -331,7 +325,7 @@ class WorkspaceMembershipRepository:
         self.db = db
         self.ctx = ctx
 
-    def get(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None:
+    async def get(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None:
         """Get membership.
 
         Args:
@@ -341,12 +335,12 @@ class WorkspaceMembershipRepository:
         Returns:
             WorkspaceMembership instance or None if not found.
         """
-        return self.db.get(
+        return await self.db.get(
             WorkspaceMembership,
             (self.ctx.tenant_id, workspace_id, user_id)
         )
 
-    def get_by_workspace(self, workspace_id: str) -> list[WorkspaceMembership]:
+    async def get_by_workspace(self, workspace_id: str) -> list[WorkspaceMembership]:
         """Get all memberships for a workspace.
 
         Args:
@@ -361,10 +355,10 @@ class WorkspaceMembershipRepository:
                 WorkspaceMembership.workspace_id == workspace_id,
             )
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return _unwrap_all(results)
 
-    def get_by_user(self, user_id: str) -> list[WorkspaceMembership]:
+    async def get_by_user(self, user_id: str) -> list[WorkspaceMembership]:
         """Get all workspace memberships for a user.
 
         Args:
@@ -379,10 +373,10 @@ class WorkspaceMembershipRepository:
                 WorkspaceMembership.user_id == user_id,
             )
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return _unwrap_all(results)
 
-    def create(self, membership: WorkspaceMembership) -> WorkspaceMembership:
+    async def create(self, membership: WorkspaceMembership) -> WorkspaceMembership:
         """Create a new membership.
 
         Args:
@@ -394,11 +388,10 @@ class WorkspaceMembershipRepository:
         # Ensure tenant_id matches context
         membership.tenant_id = self.ctx.tenant_id
         self.db.add(membership)
-        self.db.commit()
-        self.db.refresh(membership)
+        await self.db.commit()
         return membership
 
-    def update(self, membership: WorkspaceMembership) -> WorkspaceMembership:
+    async def update(self, membership: WorkspaceMembership) -> WorkspaceMembership:
         """Update an existing membership.
 
         Args:
@@ -407,11 +400,10 @@ class WorkspaceMembershipRepository:
         Returns:
             Updated membership instance.
         """
-        self.db.commit()
-        self.db.refresh(membership)
+        await self.db.commit()
         return membership
 
-    def delete(self, workspace_id: str, user_id: str) -> bool:
+    async def delete(self, workspace_id: str, user_id: str) -> bool:
         """Delete a membership.
 
         Args:
@@ -421,35 +413,34 @@ class WorkspaceMembershipRepository:
         Returns:
             True if deleted, False if not found.
         """
-        membership = self.get(workspace_id, user_id)
+        membership = await self.get(workspace_id, user_id)
         if not membership:
             return False
 
-        self.db.delete(membership)
-        self.db.commit()
+        await self.db.delete(membership)
+        await self.db.commit()
         return True
 
 
 class UserSessionRepository:
     """Repository for sign-in sessions."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def create(self, session: UserSession) -> UserSession:
+    async def create(self, session: UserSession) -> UserSession:
         self.db.add(session)
-        self.db.commit()
-        self.db.refresh(session)
+        await self.db.commit()
         return session
 
-    def get_by_id(self, session_id: str) -> UserSession | None:
-        return self.db.get(UserSession, session_id)
+    async def get_by_id(self, session_id: str) -> UserSession | None:
+        return await self.db.get(UserSession, session_id)
 
-    def get_by_refresh_hash(self, refresh_hash: str) -> UserSession | None:
+    async def get_by_refresh_hash(self, refresh_hash: str) -> UserSession | None:
         query = select(UserSession).where(UserSession.refresh_token_hash == refresh_hash)
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def list_by_user(self, user_id: str, *, include_ended: bool = False) -> list[UserSession]:
+    async def list_by_user(self, user_id: str, *, include_ended: bool = False) -> list[UserSession]:
         clauses = [UserSession.user_id == user_id]
         if not include_ended:
             clauses.append(UserSession.status == "active")
@@ -458,15 +449,14 @@ class UserSessionRepository:
             .where(and_(*clauses))
             .order_by(UserSession.last_seen_at.desc())
         )
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def save(self, session: UserSession) -> UserSession:
+    async def save(self, session: UserSession) -> UserSession:
         self.db.add(session)
-        self.db.commit()
-        self.db.refresh(session)
+        await self.db.commit()
         return session
 
-    def last_seen_for_users(self, user_ids: list[str]) -> dict[str, datetime]:
+    async def last_seen_for_users(self, user_ids: list[str]) -> dict[str, datetime]:
         """Return the most recent activity per user across their sessions."""
         if not user_ids:
             return {}
@@ -476,7 +466,7 @@ class UserSessionRepository:
             .group_by(UserSession.user_id)
         )
         seen: dict[str, datetime] = {}
-        for row in self.db.exec(query).all():
+        for row in (await self.db.exec(query)).all():
             user_id, last_seen = row[0], row[1]
             if user_id and last_seen:
                 seen[str(user_id)] = last_seen
@@ -486,14 +476,14 @@ class UserSessionRepository:
 class IdentityTokenRepository:
     """Repository for single-use links the instance mails out."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def get_by_hash(self, token_hash: str) -> IdentityToken | None:
+    async def get_by_hash(self, token_hash: str) -> IdentityToken | None:
         query = select(IdentityToken).where(IdentityToken.token_hash == token_hash)
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def supersede_pending(self, user_id: str, purpose: str) -> None:
+    async def supersede_pending(self, user_id: str, purpose: str) -> None:
         """Retire earlier links of the same kind.
 
         Issuing a second reset link must invalidate the first: otherwise a link
@@ -506,35 +496,34 @@ class IdentityTokenRepository:
                 IdentityToken.status == "pending",
             )
         )
-        for row in _unwrap_all(list(self.db.exec(query).all())):
+        for row in _unwrap_all(list((await self.db.exec(query)).scalars().all())):
             row.status = "superseded"
             self.db.add(row)
-        self.db.commit()
+        await self.db.commit()
 
-    def save(self, token: IdentityToken) -> IdentityToken:
+    async def save(self, token: IdentityToken) -> IdentityToken:
         self.db.add(token)
-        self.db.commit()
-        self.db.refresh(token)
+        await self.db.commit()
         return token
 
 
 class WorkspaceInvitationRepository:
     """Repository for offers of workspace membership."""
 
-    def __init__(self, db: Session, ctx: RequestContext | None = None):
+    def __init__(self, db: AsyncSession, ctx: RequestContext | None = None):
         self.db = db
         self.ctx = ctx
 
-    def get_by_hash(self, token_hash: str) -> WorkspaceInvitation | None:
+    async def get_by_hash(self, token_hash: str) -> WorkspaceInvitation | None:
         query = select(WorkspaceInvitation).where(
             WorkspaceInvitation.token_hash == token_hash
         )
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def get_by_id(self, invitation_id: str) -> WorkspaceInvitation | None:
-        return self.db.get(WorkspaceInvitation, invitation_id)
+    async def get_by_id(self, invitation_id: str) -> WorkspaceInvitation | None:
+        return await self.db.get(WorkspaceInvitation, invitation_id)
 
-    def list_for_workspace(
+    async def list_for_workspace(
         self,
         workspace_id: str,
         *,
@@ -548,9 +537,9 @@ class WorkspaceInvitationRepository:
             .where(and_(*clauses))
             .order_by(WorkspaceInvitation.created_at.desc())
         )
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def get_pending_for_email(
+    async def get_pending_for_email(
         self,
         workspace_id: str,
         email: str,
@@ -562,31 +551,30 @@ class WorkspaceInvitationRepository:
                 WorkspaceInvitation.status == "pending",
             )
         )
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def save(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+    async def save(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
         self.db.add(invitation)
-        self.db.commit()
-        self.db.refresh(invitation)
+        await self.db.commit()
         return invitation
 
 
 class AccountDeletionRequestRepository:
     """Repository for account closure requests."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def get_pending_for_user(self, user_id: str) -> AccountDeletionRequest | None:
+    async def get_pending_for_user(self, user_id: str) -> AccountDeletionRequest | None:
         query = select(AccountDeletionRequest).where(
             and_(
                 AccountDeletionRequest.user_id == user_id,
                 AccountDeletionRequest.status == "pending",
             )
         )
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def list_due(self, now: datetime, limit: int = 50) -> list[AccountDeletionRequest]:
+    async def list_due(self, now: datetime, limit: int = 50) -> list[AccountDeletionRequest]:
         """Requests whose pause has elapsed and which nobody withdrew."""
         query = (
             select(AccountDeletionRequest)
@@ -599,49 +587,47 @@ class AccountDeletionRequestRepository:
             .order_by(AccountDeletionRequest.execute_after.asc())
             .limit(limit)
         )
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def save(self, request: AccountDeletionRequest) -> AccountDeletionRequest:
+    async def save(self, request: AccountDeletionRequest) -> AccountDeletionRequest:
         self.db.add(request)
-        self.db.commit()
-        self.db.refresh(request)
+        await self.db.commit()
         return request
 
 
 class UserMfaRepository:
     """Repository for second-factor enrolments."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def get_by_user(self, user_id: str) -> UserMfa | None:
+    async def get_by_user(self, user_id: str) -> UserMfa | None:
         query = select(UserMfa).where(UserMfa.user_id == user_id)
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def active_user_ids(self, user_ids: list[str]) -> set[str]:
+    async def active_user_ids(self, user_ids: list[str]) -> set[str]:
         """Which of these users have a confirmed second factor."""
         if not user_ids:
             return set()
         query = select(UserMfa.user_id).where(
             and_(UserMfa.user_id.in_(user_ids), UserMfa.status == "active")
         )
-        return {str(row[0]) for row in self.db.exec(query).all() if row[0]}
+        return {str(user_id) for user_id in (await self.db.exec(query)).scalars().all() if user_id}
 
-    def save(self, enrolment: UserMfa) -> UserMfa:
+    async def save(self, enrolment: UserMfa) -> UserMfa:
         self.db.add(enrolment)
-        self.db.commit()
-        self.db.refresh(enrolment)
+        await self.db.commit()
         return enrolment
 
-    def delete(self, enrolment: UserMfa) -> None:
-        self.db.delete(enrolment)
-        self.db.commit()
+    async def delete(self, enrolment: UserMfa) -> None:
+        await self.db.delete(enrolment)
+        await self.db.commit()
 
 
 class SavedViewRepository:
     """Repository for a user's kept filters, scoped to their workspace."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         self.db = db
         self.ctx = ctx
 
@@ -652,48 +638,47 @@ class SavedViewRepository:
             SavedView.user_id == self.ctx.user_id,
         ]
 
-    def list(self, surface: str | None = None) -> list[SavedView]:
+    async def list(self, surface: str | None = None) -> list[SavedView]:
         clauses = self._scope()
         if surface:
             clauses.append(SavedView.surface == surface)
         query = (
             select(SavedView).where(and_(*clauses)).order_by(SavedView.created_at.asc())
         )
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def get(self, view_id: str) -> SavedView | None:
+    async def get(self, view_id: str) -> SavedView | None:
         query = select(SavedView).where(and_(SavedView.id == view_id, *self._scope()))
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def get_by_name(self, surface: str, name: str) -> SavedView | None:
+    async def get_by_name(self, surface: str, name: str) -> SavedView | None:
         query = select(SavedView).where(
             and_(SavedView.surface == surface, SavedView.name == name, *self._scope())
         )
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def save(self, view: SavedView) -> SavedView:
+    async def save(self, view: SavedView) -> SavedView:
         self.db.add(view)
-        self.db.commit()
-        self.db.refresh(view)
+        await self.db.commit()
         return view
 
-    def clear_default(self, surface: str, *, except_id: str | None = None) -> None:
+    async def clear_default(self, surface: str, *, except_id: str | None = None) -> None:
         """Only one view per surface may be the default."""
-        for row in self.list(surface):
+        for row in await self.list(surface):
             if row.is_default and row.id != except_id:
                 row.is_default = False
                 self.db.add(row)
-        self.db.commit()
+        await self.db.commit()
 
-    def delete(self, view: SavedView) -> None:
-        self.db.delete(view)
-        self.db.commit()
+    async def delete(self, view: SavedView) -> None:
+        await self.db.delete(view)
+        await self.db.commit()
 
 
 class PinnedObjectRepository:
     """Repository for a user's pinned objects, scoped to their workspace."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         self.db = db
         self.ctx = ctx
 
@@ -704,19 +689,19 @@ class PinnedObjectRepository:
             PinnedObject.user_id == self.ctx.user_id,
         ]
 
-    def list(self) -> list[PinnedObject]:
+    async def list(self) -> list[PinnedObject]:
         query = (
             select(PinnedObject)
             .where(and_(*self._scope()))
             .order_by(PinnedObject.created_at.desc())
         )
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def get(self, pin_id: str) -> PinnedObject | None:
+    async def get(self, pin_id: str) -> PinnedObject | None:
         query = select(PinnedObject).where(and_(PinnedObject.id == pin_id, *self._scope()))
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def get_by_target(self, object_type: str, object_id: str) -> PinnedObject | None:
+    async def get_by_target(self, object_type: str, object_id: str) -> PinnedObject | None:
         query = select(PinnedObject).where(
             and_(
                 PinnedObject.object_type == object_type,
@@ -724,34 +709,33 @@ class PinnedObjectRepository:
                 *self._scope(),
             )
         )
-        return _unwrap_result(self.db.exec(query).first())
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
 
-    def save(self, pin: PinnedObject) -> PinnedObject:
+    async def save(self, pin: PinnedObject) -> PinnedObject:
         self.db.add(pin)
-        self.db.commit()
-        self.db.refresh(pin)
+        await self.db.commit()
         return pin
 
-    def delete(self, pin: PinnedObject) -> None:
-        self.db.delete(pin)
-        self.db.commit()
+    async def delete(self, pin: PinnedObject) -> None:
+        await self.db.delete(pin)
+        await self.db.commit()
 
 
 class ApiKeyRepository:
     """Repository for API keys."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def get_by_id(self, key_id: str) -> ApiKey | None:
-        return self.db.get(ApiKey, key_id)
+    async def get_by_id(self, key_id: str) -> ApiKey | None:
+        return await self.db.get(ApiKey, key_id)
 
-    def get_by_hash(self, key_hash: str) -> ApiKey | None:
+    async def get_by_hash(self, key_hash: str) -> ApiKey | None:
         query = select(ApiKey).where(ApiKey.key_hash == key_hash)
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return _unwrap_result(result)
 
-    def list_by_workspace(
+    async def list_by_workspace(
         self,
         tenant_id: str,
         workspace_id: str,
@@ -770,37 +754,35 @@ class ApiKeyRepository:
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return _unwrap_all(results)
 
-    def list_by_user(self, user_id: str) -> list[ApiKey]:
+    async def list_by_user(self, user_id: str) -> list[ApiKey]:
         """Every key this user issued, across workspaces.
 
         Closing an account has to reach all of them; scoping by workspace would
         leave keys alive in workspaces the closure never looked at.
         """
         query = select(ApiKey).where(ApiKey.user_id == user_id)
-        return _unwrap_all(list(self.db.exec(query).all()))
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
-    def create(self, api_key: ApiKey) -> ApiKey:
+    async def create(self, api_key: ApiKey) -> ApiKey:
         self.db.add(api_key)
-        self.db.commit()
-        self.db.refresh(api_key)
+        await self.db.commit()
         return api_key
 
-    def update(self, api_key: ApiKey) -> ApiKey:
-        self.db.commit()
-        self.db.refresh(api_key)
+    async def update(self, api_key: ApiKey) -> ApiKey:
+        await self.db.commit()
         return api_key
 
 
-class ResourceGrantRepository(Repository[ResourceGrant]):
+class ResourceGrantRepository(AsyncRepository[ResourceGrant]):
     """Repository for resource grants."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         super().__init__(ResourceGrant, db, ctx)
 
-    def get_by_resource_user(
+    async def get_by_resource_user(
         self,
         resource_type: str,
         resource_id: str,
@@ -814,10 +796,10 @@ class ResourceGrantRepository(Repository[ResourceGrant]):
             )
         )
         query = self._apply_scope(query)
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list_by_resource(
+    async def list_by_resource(
         self,
         resource_type: str,
         resource_id: str,
@@ -829,10 +811,10 @@ class ResourceGrantRepository(Repository[ResourceGrant]):
             )
         )
         query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc())
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def list_in_scope(
+    async def list_in_scope(
         self,
         *,
         resource_type: str | None = None,
@@ -847,24 +829,24 @@ class ResourceGrantRepository(Repository[ResourceGrant]):
         if resource_type:
             query = query.where(ResourceGrant.resource_type == resource_type)
         query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc()).limit(limit)
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def list_by_user(self, user_id: str) -> list[ResourceGrant]:
+    async def list_by_user(self, user_id: str) -> list[ResourceGrant]:
         query = select(ResourceGrant).where(ResourceGrant.user_id == user_id)
         query = self._apply_scope(query).order_by(ResourceGrant.created_at.desc())
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def delete_by_resource_user(
+    async def delete_by_resource_user(
         self,
         resource_type: str,
         resource_id: str,
         user_id: str,
     ) -> bool:
-        grant = self.get_by_resource_user(resource_type, resource_id, user_id)
+        grant = await self.get_by_resource_user(resource_type, resource_id, user_id)
         if not grant:
             return False
-        self.db.delete(grant)
-        self.db.commit()
+        await self.db.delete(grant)
+        await self.db.commit()
         return True

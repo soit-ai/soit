@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.events.registry import OutboxHandlerRegistry
 from app.kernel.runtime.db.models.events import EventOutbox
@@ -25,7 +25,7 @@ def register_outbox_handlers() -> None:
 
     reg = _registry
 
-    def _builtin_smoke_handler(_db: Session, _row: EventOutbox) -> None:
+    def _builtin_smoke_handler(_db: AsyncSession, _row: EventOutbox) -> None:
         """Acknowledge the outbox health-probe event."""
         return None
 
@@ -36,7 +36,7 @@ def register_outbox_handlers() -> None:
     )
 
     async def _handle_scoped_notification_delivery(
-        db: Session,
+        db: AsyncSession,
         row: EventOutbox,
     ) -> None:
         from app.kernel.contracts.context import RequestContext

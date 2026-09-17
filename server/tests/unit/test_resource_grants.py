@@ -17,10 +17,10 @@ from app.modules.identity.infra.repository import ResourceGrantRepository
 
 
 class _ResourceGrantProvider:
-    def __init__(self, db) -> None:
-        self.db = db
+    def __init__(self, async_db) -> None:
+        self.db = async_db
 
-    def allows_resource_action(
+    async def allows_resource_action(
         self,
         *,
         ctx: RequestContext,
@@ -29,7 +29,7 @@ class _ResourceGrantProvider:
         action: str,
         effective_action: str,
     ) -> bool:
-        grant = ResourceGrantRepository(self.db, ctx).get_by_resource_user(resource_type, resource_id, ctx.user_id)
+        grant = await ResourceGrantRepository(self.db, ctx).get_by_resource_user(resource_type, resource_id, ctx.user_id)
         if not grant:
             return False
         allowed_actions = {str(item).strip().lower() for item in (grant.actions or [])}
@@ -37,12 +37,9 @@ class _ResourceGrantProvider:
 
 
 @pytest.mark.asyncio
-async def test_resource_grant_allows_action(monkeypatch, db):
+async def test_resource_grant_allows_action(async_db):
     """Resource grant allows elevated actions."""
-    from app.infra.db import session as session_module
-
-    monkeypatch.setattr(session_module, "get_db_sync", lambda: db)
-    register_resource_grant_provider(_ResourceGrantProvider(db))
+    register_resource_grant_provider(_ResourceGrantProvider(async_db))
 
     ctx = RequestContext(
         tenant_id="tenant-1",
@@ -51,8 +48,8 @@ async def test_resource_grant_allows_action(monkeypatch, db):
         workspace_role="Viewer",
     )
 
-    repo = ResourceGrantRepository(db, ctx)
-    repo.create(
+    repo = ResourceGrantRepository(async_db, ctx)
+    await repo.create(
         ResourceGrant(
             resource_type="knowledge",
             resource_id="kb-1",
@@ -60,7 +57,7 @@ async def test_resource_grant_allows_action(monkeypatch, db):
             actions=["WRITE"],
         )
     )
-    repo.create(
+    await repo.create(
         ResourceGrant(
             resource_type="workflow",
             resource_id="wf-1",
@@ -73,9 +70,10 @@ async def test_resource_grant_allows_action(monkeypatch, db):
     await check_resource_permission(ctx, "workflow", "wf-1", "run")
 
 
-def test_resource_grant_audit_events_are_written(client, db):
+@pytest.mark.asyncio
+async def test_resource_grant_audit_events_are_written(async_client, async_db):
     """Resource grant writes use the unified audit_events table."""
-    response = client.post(
+    response = await async_client.post(
         "/api/v1/resource-grants",
         headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         json={
@@ -87,7 +85,7 @@ def test_resource_grant_audit_events_are_written(client, db):
     )
 
     assert response.status_code == 200
-    events = list(db.exec(select(AuditEvent)).all())
+    events = list((await async_db.exec(select(AuditEvent))).all())
     assert len(events) == 1
     assert events[0].event_type == "identity.resource_grant.changed"
     assert events[0].resource_type == "knowledge"

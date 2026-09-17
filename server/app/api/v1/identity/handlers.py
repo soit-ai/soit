@@ -107,7 +107,7 @@ async def register(
             detail="Public registration is disabled",
         )
     try:
-        _, _, access_token, workspace_id, refresh_token = service.register_user(
+        _, _, access_token, workspace_id, refresh_token = await service.register_user(
             user_data,
             tenant_name=tenant_name,
             user_agent=request.headers.get("User-Agent") if request else None,
@@ -141,7 +141,7 @@ async def login(
         Token response.
     """
     try:
-        user, access_token, workspace_id, refresh_token = service.authenticate_user(
+        user, access_token, workspace_id, refresh_token = await service.authenticate_user(
             login_data.email,
             login_data.password,
             user_agent=request.headers.get("User-Agent") if request else None,
@@ -182,7 +182,7 @@ async def refresh_token(
     from app.settings.settings import settings
 
     try:
-        access_token, rotated, workspace_id = service.refresh_session(
+        access_token, rotated, workspace_id = await service.refresh_session(
             payload.refresh_token,
             user_agent=request.headers.get("User-Agent"),
             ip_address=_client_ip(request),
@@ -211,7 +211,7 @@ async def list_sessions(
         UserSessionResponse.model_validate(session).model_copy(
             update={"current": session.id == current_id}
         )
-        for session in service.list_sessions(ctx)
+        for session in await service.list_sessions(ctx)
     ]
 
 
@@ -222,7 +222,7 @@ async def revoke_session(
 ) -> UserSessionResponse:
     """End one of the caller's own sessions."""
     try:
-        return UserSessionResponse.model_validate(service.revoke_session(ctx, session_id))
+        return UserSessionResponse.model_validate(await service.revoke_session(ctx, session_id))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -236,7 +236,7 @@ async def revoke_all_sessions(
     """Sign out everywhere, optionally leaving this device signed in."""
     except_id = _current_session_id(request) if keep_current else None
     return SessionRevokeAllResponse(
-        revoked=service.revoke_all_sessions(ctx, except_session_id=except_id)
+        revoked=await service.revoke_all_sessions(ctx, except_session_id=except_id)
     )
 
 
@@ -261,7 +261,7 @@ async def get_current_user(
 ) -> UserResponse:
     """Get current user."""
     try:
-        user = service.get_user(ctx.user_id)
+        user = await service.get_user(ctx.user_id)
         payload = UserResponse.model_validate(user).model_dump()
         payload.update(
             tenant_id=ctx.tenant_id,
@@ -281,7 +281,7 @@ async def update_current_user(
 ) -> UserResponse:
     """Update current user profile."""
     try:
-        user = service.update_user_profile(ctx, data)
+        user = await service.update_user_profile(ctx, data)
         payload = UserResponse.model_validate(user).model_dump()
         payload.update(
             tenant_id=ctx.tenant_id,
@@ -304,7 +304,7 @@ async def change_password(
 ):
     """Change current user password."""
     try:
-        service.change_password(ctx, data)
+        await service.change_password(ctx, data)
     except UnauthorizedError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
     except ValidationError as e:
@@ -344,7 +344,7 @@ async def create_tenant(
         Tenant response.
     """
     try:
-        tenant = service.create_tenant(tenant_data, ctx.user_id)
+        tenant = await service.create_tenant(tenant_data, ctx.user_id)
         return TenantResponse.model_validate(tenant)
     except ValidationError as e:
         raise HTTPException(
@@ -361,7 +361,7 @@ async def get_tenant(
     """Get tenant by ID."""
     _ = ctx
     try:
-        tenant = service.get_tenant(tenant_id)
+        tenant = await service.get_tenant(tenant_id)
         return TenantResponse.model_validate(tenant)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -382,7 +382,7 @@ async def create_workspace(
         Workspace response.
     """
     try:
-        workspace = service.create_workspace(workspace_data, ctx)
+        workspace = await service.create_workspace(workspace_data, ctx)
         return _workspace_response(workspace)
     except ValidationError as e:
         raise HTTPException(
@@ -398,7 +398,7 @@ async def list_workspaces(
 ) -> list[WorkspaceResponse]:
     """List workspaces in tenant."""
     try:
-        workspaces = service.list_workspaces(tenant_id=tenant_id, ctx=ctx)
+        workspaces = await service.list_workspaces(tenant_id=tenant_id, ctx=ctx)
         return [_workspace_response(workspace) for workspace in workspaces]
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -447,7 +447,7 @@ async def confirm_password_reset(
 ) -> None:
     """Set a new password from a reset link."""
     try:
-        service.complete_password_reset(payload.token, payload.new_password)
+        await service.complete_password_reset(payload.token, payload.new_password)
     except UnauthorizedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
@@ -472,7 +472,7 @@ async def confirm_email_verification(
 ) -> None:
     """Confirm an address from a link."""
     try:
-        service.confirm_email_verification(payload.token)
+        await service.confirm_email_verification(payload.token)
     except UnauthorizedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
@@ -488,7 +488,7 @@ async def list_invitations(
     """
     return [
         InvitationResponse.model_validate(item)
-        for item in service.list_invitations(workspace_id)
+        for item in await service.list_invitations(workspace_id)
     ]
 
 
@@ -526,7 +526,7 @@ async def revoke_invitation(
     """
     try:
         return InvitationResponse.model_validate(
-            service.revoke_invitation(ctx, invitation_id)
+            await service.revoke_invitation(ctx, invitation_id)
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -540,7 +540,7 @@ async def accept_invitation(
     """Redeem an invitation as the signed-in account."""
     try:
         return InvitationResponse.model_validate(
-            service.accept_invitation(payload.token, ctx.user_id)
+            await service.accept_invitation(payload.token, ctx.user_id)
         )
     except UnauthorizedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
@@ -553,7 +553,7 @@ async def get_account_deletion_request(
     service: IdentityService = Depends(get_identity_service),
 ) -> AccountDeletionRequestResponse | None:
     """The caller's pending closure request, or nothing."""
-    request = service.get_deletion_request(ctx)
+    request = await service.get_deletion_request(ctx)
     return AccountDeletionRequestResponse.model_validate(request) if request else None
 
 
@@ -564,7 +564,7 @@ async def request_account_deletion(
 ) -> AccountDeletionRequestResponse:
     """Ask for the account to be closed after a pause it can be withdrawn in."""
     try:
-        request = service.request_account_deletion(ctx, payload.reason)
+        request = await service.request_account_deletion(ctx, payload.reason)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return AccountDeletionRequestResponse.model_validate(request)
@@ -577,7 +577,7 @@ async def cancel_account_deletion(
     """Withdraw a pending closure request."""
     try:
         return AccountDeletionRequestResponse.model_validate(
-            service.cancel_account_deletion(ctx)
+            await service.cancel_account_deletion(ctx)
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -588,7 +588,7 @@ async def get_mfa_status(
     service: IdentityService = Depends(get_identity_service),
 ) -> MfaStatusResponse:
     """Report whether the caller has a second factor, and its state."""
-    enrolment = service.get_mfa(ctx.user_id)
+    enrolment = await service.get_mfa(ctx.user_id)
     if enrolment is None:
         return MfaStatusResponse(enabled=False)
     return MfaStatusResponse(
@@ -606,7 +606,7 @@ async def start_mfa_enrolment(
 ) -> MfaSetupResponse:
     """Begin enrolment. The secret is shown once and never returned again."""
     try:
-        secret, uri = service.start_mfa_enrolment(ctx)
+        secret, uri = await service.start_mfa_enrolment(ctx)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return MfaSetupResponse(secret=secret, provisioning_uri=uri)
@@ -619,7 +619,7 @@ async def confirm_mfa_enrolment(
 ) -> MfaRecoveryCodesResponse:
     """Activate the second factor and hand back the recovery codes."""
     try:
-        codes = service.confirm_mfa_enrolment(ctx, payload.code)
+        codes = await service.confirm_mfa_enrolment(ctx, payload.code)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValidationError as exc:
@@ -636,7 +636,7 @@ async def regenerate_mfa_recovery_codes(
 ) -> MfaRecoveryCodesResponse:
     """Replace the recovery codes. The old ones stop working immediately."""
     try:
-        codes = service.regenerate_recovery_codes(ctx, payload.code)
+        codes = await service.regenerate_recovery_codes(ctx, payload.code)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except UnauthorizedError as exc:
@@ -651,7 +651,7 @@ async def disable_mfa(
 ) -> None:
     """Turn the second factor off, after the password proves who is asking."""
     try:
-        service.disable_mfa(ctx, payload.password)
+        await service.disable_mfa(ctx, payload.password)
     except UnauthorizedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
@@ -665,7 +665,7 @@ async def complete_mfa_login(
     from app.settings.settings import settings
 
     try:
-        _user, access_token, workspace_id, refresh_token = service.complete_mfa_login(
+        _user, access_token, workspace_id, refresh_token = await service.complete_mfa_login(
             payload.mfa_token,
             payload.code,
             user_agent=request.headers.get("User-Agent"),
@@ -689,7 +689,7 @@ async def list_saved_views(
     """List the caller's kept filters, optionally for one screen."""
     return [
         SavedViewResponse.model_validate(view)
-        for view in service.list_saved_views(ctx, surface)
+        for view in await service.list_saved_views(ctx, surface)
     ]
 
 
@@ -699,7 +699,7 @@ async def create_saved_view(
     service: IdentityService = Depends(get_identity_service),
 ) -> SavedViewResponse:
     """Keep a filter under a name. Saving over a name replaces it."""
-    return SavedViewResponse.model_validate(service.create_saved_view(ctx, data))
+    return SavedViewResponse.model_validate(await service.create_saved_view(ctx, data))
 
 
 async def update_saved_view(
@@ -710,7 +710,7 @@ async def update_saved_view(
 ) -> SavedViewResponse:
     """Rename a kept filter, repoint it, or make it the default."""
     try:
-        return SavedViewResponse.model_validate(service.update_saved_view(ctx, view_id, data))
+        return SavedViewResponse.model_validate(await service.update_saved_view(ctx, view_id, data))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -722,7 +722,7 @@ async def delete_saved_view(
 ) -> None:
     """Drop one of the caller's kept filters."""
     try:
-        service.delete_saved_view(ctx, view_id)
+        await service.delete_saved_view(ctx, view_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -732,7 +732,7 @@ async def list_pins(
     service: IdentityService = Depends(get_identity_service),
 ) -> list[PinResponse]:
     """List the caller's pinned objects."""
-    return [PinResponse.model_validate(pin) for pin in service.list_pins(ctx)]
+    return [PinResponse.model_validate(pin) for pin in await service.list_pins(ctx)]
 
 
 async def create_pin(
@@ -741,7 +741,7 @@ async def create_pin(
     service: IdentityService = Depends(get_identity_service),
 ) -> PinResponse:
     """Pin an object. Pinning what is already pinned changes nothing."""
-    return PinResponse.model_validate(service.create_pin(ctx, data))
+    return PinResponse.model_validate(await service.create_pin(ctx, data))
 
 
 async def delete_pin(
@@ -751,7 +751,7 @@ async def delete_pin(
 ) -> None:
     """Unpin an object."""
     try:
-        service.delete_pin(ctx, pin_id)
+        await service.delete_pin(ctx, pin_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -769,7 +769,7 @@ async def list_my_workspaces(
             role=role,
             created_at=workspace.created_at,
         )
-        for workspace, role in service.list_my_workspaces(ctx)
+        for workspace, role in await service.list_my_workspaces(ctx)
     ]
 
 
@@ -780,7 +780,7 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     """Get workspace by ID."""
     try:
-        workspace = service.get_workspace(workspace_id=workspace_id, ctx=ctx)
+        workspace = await service.get_workspace(workspace_id=workspace_id, ctx=ctx)
         return _workspace_response(workspace)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -793,7 +793,7 @@ async def update_workspace(
 ) -> WorkspaceResponse:
     """Update workspace."""
     try:
-        workspace = service.update_workspace(workspace_id, ctx, data)
+        workspace = await service.update_workspace(workspace_id, ctx, data)
         return _workspace_response(workspace)
     except (ValidationError, NotFoundError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -805,14 +805,14 @@ async def list_workspace_members(
 ) -> list[WorkspaceMemberResponse]:
     """List workspace members."""
     try:
-        memberships = service.list_workspace_members(workspace_id, ctx)
+        memberships = await service.list_workspace_members(workspace_id, ctx)
         # One read for everyone's last activity rather than a query per member.
         member_ids = [membership.user_id for membership in memberships]
-        last_active = service.session_repo.last_seen_for_users(member_ids)
-        with_mfa = service.mfa_repo.active_user_ids(member_ids)
+        last_active = await service.session_repo.last_seen_for_users(member_ids)
+        with_mfa = await service.mfa_repo.active_user_ids(member_ids)
         members = []
         for membership in memberships:
-            user = service.get_user(membership.user_id)
+            user = await service.get_user(membership.user_id)
             members.append(
                 WorkspaceMemberResponse(
                     user_id=membership.user_id,
@@ -838,7 +838,7 @@ async def update_workspace_member(
 ) -> MembershipResponse:
     """Update workspace member role."""
     try:
-        membership = service.update_workspace_member_role(
+        membership = await service.update_workspace_member_role(
             workspace_id=workspace_id,
             user_id=user_id,
             role=data.role,
@@ -856,7 +856,7 @@ async def remove_workspace_member(
 ):
     """Remove a member from workspace."""
     try:
-        service.remove_workspace_member(workspace_id, user_id, ctx)
+        await service.remove_workspace_member(workspace_id, user_id, ctx)
     except (ValidationError, NotFoundError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -878,7 +878,7 @@ async def add_tenant_member(
         Membership response.
     """
     try:
-        membership = service.add_tenant_member(tenant_id, membership_data, ctx)
+        membership = await service.add_tenant_member(tenant_id, membership_data, ctx)
         return MembershipResponse.model_validate(membership)
     except (ValidationError, NotFoundError) as e:
         raise HTTPException(
@@ -905,7 +905,7 @@ async def add_workspace_member(
         Membership response.
     """
     try:
-        membership = service.add_workspace_member(workspace_id, membership_data, ctx)
+        membership = await service.add_workspace_member(workspace_id, membership_data, ctx)
         return MembershipResponse.model_validate(membership)
     except (ValidationError, NotFoundError) as e:
         raise HTTPException(
@@ -921,7 +921,7 @@ async def create_api_key(
 ) -> ApiKeyCreateResponse:
     """Create an API key."""
     try:
-        api_key, raw_key = service.create_api_key(data, ctx)
+        api_key, raw_key = await service.create_api_key(data, ctx)
         return ApiKeyCreateResponse(
             api_key=raw_key,
             item=ApiKeyResponse.model_validate(api_key),
@@ -946,7 +946,7 @@ async def list_api_keys(
     offset = token_obj.offset if token_obj else 0
     limit_plus = limit + 1
 
-    keys = service.list_api_keys(ctx, limit=limit_plus, offset=offset)
+    keys = await service.list_api_keys(ctx, limit=limit_plus, offset=offset)
     has_next = len(keys) > limit
     items = [ApiKeyResponse.model_validate(item) for item in keys[:limit]]
     next_offset = offset + len(items) if has_next else None
@@ -966,7 +966,7 @@ async def revoke_api_key(
 ) -> ApiKeyResponse:
     """Revoke an API key."""
     try:
-        api_key = service.revoke_api_key(key_id, ctx)
+        api_key = await service.revoke_api_key(key_id, ctx)
         return ApiKeyResponse.model_validate(api_key)
     except NotFoundError as exc:
         raise HTTPException(
@@ -987,7 +987,7 @@ async def rotate_api_key(
 ) -> ApiKeyRotateResponse:
     """Rotate an API key."""
     try:
-        api_key, raw_key = service.rotate_api_key(key_id, ctx)
+        api_key, raw_key = await service.rotate_api_key(key_id, ctx)
         return ApiKeyRotateResponse(
             api_key=raw_key,
             item=ApiKeyResponse.model_validate(api_key),
@@ -1011,7 +1011,7 @@ async def create_resource_grant(
 ) -> ResourceGrantResponse:
     """Create or update a resource grant."""
     try:
-        grant = service.create_resource_grant(data, ctx)
+        grant = await service.create_resource_grant(data, ctx)
         return ResourceGrantResponse.model_validate(grant)
     except ValidationError as exc:
         raise HTTPException(
@@ -1029,7 +1029,7 @@ async def list_resource_grants(
 ) -> list[ResourceGrantResponse]:
     """List resource grants for one resource, or across the workspace."""
     try:
-        grants = service.list_resource_grants(
+        grants = await service.list_resource_grants(
             resource_type,
             resource_id,
             ctx,
@@ -1052,7 +1052,7 @@ async def revoke_resource_grant(
 ):
     """Revoke a resource grant."""
     try:
-        service.revoke_resource_grant(resource_type, resource_id, user_id, ctx)
+        await service.revoke_resource_grant(resource_type, resource_id, user_id, ctx)
     except NotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

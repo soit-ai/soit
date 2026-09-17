@@ -36,7 +36,7 @@ PERMISSION_CACHE_VERSION = "v3"
 class ResourceGrantProvider(Protocol):
     """Provider boundary for resource grant lookup."""
 
-    def allows_resource_action(
+    async def allows_resource_action(
         self,
         *,
         ctx: RequestContext,
@@ -333,7 +333,7 @@ async def check_resource_permission(
 
     granted_by_resource_grant = False
     if not allowed and scope_allows:
-        granted_by_resource_grant = _check_resource_grant(
+        granted_by_resource_grant = await _check_resource_grant(
             ctx=ctx,
             resource_type=resource_type,
             resource_id=resource_id,
@@ -393,7 +393,7 @@ def _required_scope(effective_action: str) -> str:
     return "admin"
 
 
-def _check_resource_grant(
+async def _check_resource_grant(
     *,
     ctx: RequestContext,
     resource_type: str,
@@ -406,7 +406,7 @@ def _check_resource_grant(
         return False
     try:
         for alias in _resource_type_aliases(resource_type):
-            if provider.allows_resource_action(
+            if await provider.allows_resource_action(
                 ctx=ctx,
                 resource_type=alias,
                 resource_id=resource_id,

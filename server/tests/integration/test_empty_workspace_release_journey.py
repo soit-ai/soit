@@ -46,11 +46,10 @@ class JourneyToolPort(ToolPort):
 
 @pytest.fixture
 def empty_workspace_client(tmp_path, monkeypatch):
-    """A TestClient whose sync and async routes share one SQLite file.
+    """A TestClient whose routes and the auth resolver share one SQLite file.
 
-    Identity still resolves on the sync session while the agent path runs on
-    the async one; a file-backed database is what lets both see the rows the
-    other wrote.
+    The workspace-access resolver opens its own session outside the request;
+    a file-backed database is what lets it see the rows the routes wrote.
     """
     import app.kernel.runtime.db.models  # noqa: F401
     import app.modules  # noqa: F401
@@ -82,8 +81,8 @@ def empty_workspace_client(tmp_path, monkeypatch):
         finally:
             await session.close()
 
-    def scoped_session():
-        return SQLModelSession(bind=engine, expire_on_commit=False)
+    def scoped_session_factory():
+        return lambda: AsyncSession(async_engine, expire_on_commit=False)
 
     previous_registration = settings.allow_public_registration
     previous_ingest_worker = settings.knowledge_ingest_worker_enabled
@@ -91,7 +90,7 @@ def empty_workspace_client(tmp_path, monkeypatch):
     settings.allow_public_registration = True
     settings.knowledge_ingest_worker_enabled = False
     settings.outbox_dispatcher_enabled = False
-    monkeypatch.setattr(workspace_access, "get_db_sync", scoped_session)
+    monkeypatch.setattr(workspace_access, "get_async_session_local", scoped_session_factory)
     monkeypatch.setattr(middleware.auth, "_context_resolver", None)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_async_db] = override_get_async_db

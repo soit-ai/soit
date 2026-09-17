@@ -47,7 +47,7 @@ class EgressScopePolicy:
 class EgressScopePolicyProvider(Protocol):
     """Provider boundary for tenant/workspace egress policy lookup."""
 
-    def get_scope_policy(self, ctx: RequestContext) -> EgressScopePolicy:
+    async def get_scope_policy(self, ctx: RequestContext) -> EgressScopePolicy:
         """Return scoped egress policy for the request context."""
 
 
@@ -75,7 +75,7 @@ class SocketAddressResolver:
 class EgressBlockRecorder(Protocol):
     """Sink for outbound requests the policy refused."""
 
-    def record_block(
+    async def record_block(
         self,
         ctx: RequestContext,
         *,
@@ -106,7 +106,7 @@ def reset_egress_block_recorder() -> None:
     _egress_block_recorder = None
 
 
-def record_egress_block(
+async def record_egress_block(
     ctx: RequestContext,
     *,
     resource_ref: str,
@@ -125,7 +125,7 @@ def record_egress_block(
     if recorder is None:
         return
     try:
-        recorder.record_block(
+        await recorder.record_block(
             ctx,
             resource_ref=resource_ref,
             url=url,
@@ -316,7 +316,7 @@ def get_egress_policy() -> EgressPolicy:
     return _egress_policy
 
 
-def check_egress_policy(
+async def check_egress_policy(
     ctx: RequestContext,
     resource_ref: str,
     parameters: dict[str, Any],
@@ -374,7 +374,7 @@ def check_egress_policy(
     provider = get_egress_scope_policy_provider()
     if provider is not None:
         try:
-            scope_policy = provider.get_scope_policy(ctx)
+            scope_policy = await provider.get_scope_policy(ctx)
             tenant_allowlist = list(scope_policy.tenant_allowlist or [])
             tenant_blocklist = list(scope_policy.tenant_blocklist or [])
             workspace_allowlist = list(scope_policy.workspace_allowlist or [])
@@ -384,7 +384,7 @@ def check_egress_policy(
                 "workspace_bundle_id": scope_policy.workspace_bundle_id,
             }
         except Exception as exc:
-            record_egress_block(
+            await record_egress_block(
                 ctx,
                 resource_ref=resource_ref,
                 url=str(url),
@@ -401,7 +401,7 @@ def check_egress_policy(
         if tenant_blocklist:
             tenant_patterns = [policy._compile_pattern(p) for p in tenant_blocklist]
             if policy._matches_pattern(domain, tenant_patterns):
-                record_egress_block(
+                await record_egress_block(
                     ctx,
                     resource_ref=resource_ref,
                     url=str(url),
@@ -420,7 +420,7 @@ def check_egress_policy(
         if workspace_blocklist:
             workspace_patterns = [policy._compile_pattern(p) for p in workspace_blocklist]
             if policy._matches_pattern(domain, workspace_patterns):
-                record_egress_block(
+                await record_egress_block(
                     ctx,
                     resource_ref=resource_ref,
                     url=str(url),
@@ -446,7 +446,7 @@ def check_egress_policy(
 
     if not is_allowed:
         domain = policy._extract_domain(url)
-        record_egress_block(
+        await record_egress_block(
             ctx,
             resource_ref=resource_ref,
             url=str(url),
@@ -577,7 +577,7 @@ class GovernedEgressGuard:
             parsed_port,
             scheme=scheme if scheme in {"http", "https"} else "https",
         )
-        check_egress_policy(ctx, resource_ref, {"url": policy_url})
+        await check_egress_policy(ctx, resource_ref, {"url": policy_url})
 
         try:
             addresses = await self.address_resolver.resolve(hostname, port)
@@ -604,7 +604,7 @@ class GovernedEgressGuard:
                     {"resource_ref": resource_ref, "hostname": hostname},
                 ) from exc
             if not is_public:
-                record_egress_block(
+                await record_egress_block(
                     ctx,
                     resource_ref=resource_ref,
                     url=policy_url,

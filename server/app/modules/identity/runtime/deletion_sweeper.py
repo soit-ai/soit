@@ -13,21 +13,21 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.infra.db.session import get_db_sync
+from app.infra.db.session import get_async_session_local
 
 logger = logging.getLogger(__name__)
 
 
-def sweep_due_account_deletions(limit: int = 50) -> int:
+async def sweep_due_account_deletions(limit: int = 50) -> int:
     """Close every account past its pause. Returns how many were closed."""
     from app.wiring.services import build_identity_service
 
-    db = get_db_sync()
+    db = get_async_session_local()()
     try:
         service = build_identity_service(db=db)
-        return service.execute_due_account_deletions(limit=limit)
+        return await service.execute_due_account_deletions(limit=limit)
     finally:
-        db.close()
+        await db.close()
 
 
 async def run_deletion_sweeper(
@@ -42,7 +42,7 @@ async def run_deletion_sweeper(
     """
     while True:
         try:
-            closed = await asyncio.to_thread(sweep_due_account_deletions, limit)
+            closed = await sweep_due_account_deletions(limit)
             if closed:
                 logger.info("Closed %s account(s) whose withdrawal period elapsed", closed)
         except asyncio.CancelledError:

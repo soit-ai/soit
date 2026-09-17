@@ -7,15 +7,15 @@ from app.api.v1.health.router import readiness_check
 
 
 class _UnavailableDatabase:
-    def execute(self, statement):
+    async def execute(self, statement):
         raise RuntimeError("database unavailable")
 
 
 class _AvailableDatabase:
-    def execute(self, statement):
+    async def execute(self, statement):
         return None
 
-    def exec(self, statement):
+    async def exec(self, statement):
         return type("Result", (), {"all": lambda self: []})()
 
 
