@@ -101,7 +101,14 @@ def observe_step_status_transition(
 
 
 def observe_task_lifecycle(task: Task, event_type: str, **extra: Any) -> None:
-    """Write the usage log line a task lifecycle fact used to reach via the outbox."""
+    """Write the usage log line a task lifecycle fact used to reach via the outbox.
+
+    This runs on the execution path now rather than in a dispatcher, so the
+    payload is built only when something is listening; serialising it for a
+    record that logging would discard is pure cost.
+    """
+    if not logger.isEnabledFor(logging.INFO):
+        return
     payload = task_fact_payload(task, **extra)
     logger.info(
         "usage.task %s %s",
