@@ -454,19 +454,20 @@ def test_node_spec_validation_with_refs():
     assert validate_spec(node_doc, "node_spec") is True
 
 
-def test_actual_runtrace_export_matches_runtime_contract(db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run(
+@pytest.mark.asyncio
+async def test_actual_runtrace_export_matches_runtime_contract(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run(
         "response",
         kind="response",
         request_id="request-trace",
         source_run_id="run_previous",
         attempt_no=2,
     )
-    step = writer.create_step(run.id, "llm")
-    writer.update_step_status(step.id, "running")
-    writer.update_step_status(step.id, "succeeded")
-    usage = writer.record_cost(
+    step = await writer.create_step(run.id, "llm")
+    await writer.update_step_status(step.id, "running")
+    await writer.update_step_status(step.id, "succeeded")
+    usage = await writer.record_cost(
         run_id=run.id,
         step_id=step.id,
         billing_basis="tokens",
