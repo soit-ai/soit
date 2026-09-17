@@ -6,7 +6,8 @@ from time import perf_counter, time
 
 import psutil
 from sqlalchemy import func, text
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -32,7 +33,7 @@ class DiagnosticsService:
     def __init__(
         self,
         *,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         storage: StoragePort,
     ) -> None:
@@ -41,11 +42,11 @@ class DiagnosticsService:
         self.storage = storage
 
     async def snapshot(self) -> DiagnosticsSnapshot:
-        database = self._probe_database()
+        database = await self._probe_database()
         storage = await self._probe_storage()
         dependencies = [database, storage]
         workspace = (
-            self._workspace_snapshot()
+            await self._workspace_snapshot()
             if database.status == "healthy"
             else WorkspaceDiagnostic()
         )
@@ -63,10 +64,10 @@ class DiagnosticsService:
             workspace=workspace,
         )
 
-    def _probe_database(self) -> DependencyDiagnostic:
+    async def _probe_database(self) -> DependencyDiagnostic:
         started = perf_counter()
         try:
-            self.db.execute(text("SELECT 1"))
+            await self.db.execute(text("SELECT 1"))
             return DependencyDiagnostic(
                 name="database",
                 status="healthy",
@@ -97,56 +98,56 @@ class DiagnosticsService:
                 message=type(exc).__name__,
             )
 
-    def _workspace_snapshot(self) -> WorkspaceDiagnostic:
+    async def _workspace_snapshot(self) -> WorkspaceDiagnostic:
         scope = (
             Agent.tenant_id == self.ctx.tenant_id,
             Agent.workspace_id == self.ctx.workspace_id,
         )
         since = utc_now() - timedelta(hours=24)
         return WorkspaceDiagnostic(
-            agents=self._count(Agent, *scope, Agent.deleted_at.is_(None)),
-            workflows=self._count(
+            agents=await self._count(Agent, *scope, Agent.deleted_at.is_(None)),
+            workflows=await self._count(
                 Workflow,
                 Workflow.tenant_id == self.ctx.tenant_id,
                 Workflow.workspace_id == self.ctx.workspace_id,
                 Workflow.deleted_at.is_(None),
             ),
-            knowledge_bases=self._count(
+            knowledge_bases=await self._count(
                 Knowledge,
                 Knowledge.tenant_id == self.ctx.tenant_id,
                 Knowledge.workspace_id == self.ctx.workspace_id,
                 Knowledge.deleted_at.is_(None),
             ),
-            plugins=self._count(
+            plugins=await self._count(
                 Plugin,
                 Plugin.tenant_id == self.ctx.tenant_id,
                 Plugin.workspace_id == self.ctx.workspace_id,
             ),
-            models=self._count(
+            models=await self._count(
                 ProviderModel,
                 ProviderModel.tenant_id == self.ctx.tenant_id,
                 ProviderModel.workspace_id == self.ctx.workspace_id,
             ),
-            threads=self._count(
+            threads=await self._count(
                 Thread,
                 Thread.tenant_id == self.ctx.tenant_id,
                 Thread.workspace_id == self.ctx.workspace_id,
                 Thread.deleted_at.is_(None),
             ),
-            active_runs=self._count(
+            active_runs=await self._count(
                 Run,
                 Run.tenant_id == self.ctx.tenant_id,
                 Run.workspace_id == self.ctx.workspace_id,
                 Run.status.in_(("queued", "running", "paused")),
             ),
-            failed_runs_24h=self._count(
+            failed_runs_24h=await self._count(
                 Run,
                 Run.tenant_id == self.ctx.tenant_id,
                 Run.workspace_id == self.ctx.workspace_id,
                 Run.status == "failed",
                 Run.created_at >= since,
             ),
-            open_feedback=self._count(
+            open_feedback=await self._count(
                 ProductFeedback,
                 ProductFeedback.tenant_id == self.ctx.tenant_id,
                 ProductFeedback.workspace_id == self.ctx.workspace_id,
@@ -154,8 +155,8 @@ class DiagnosticsService:
             ),
         )
 
-    def _count(self, model, *filters) -> int:
-        result = self.db.exec(select(func.count()).select_from(model).where(*filters)).one()
+    async def _count(self, model, *filters) -> int:
+        result = (await self.db.exec(select(func.count()).select_from(model).where(*filters))).one()
         if isinstance(result, tuple):
             return int(result[0])
         return int(result)

@@ -21,4 +21,4 @@ async def global_search(
     _ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: GlobalSearchService = Depends(get_global_search_service),
 ) -> GlobalSearchResponse:
-    return service.search(query_text=q, kinds=types, limit=limit)
+    return await service.search(query_text=q, kinds=types, limit=limit)

@@ -1,5 +1,6 @@
 """Entrypoint tests for workspace-scoped global search."""
 
+import pytest
 from fastapi import status
 
 from app.kernel.runtime.db.models.runs import Run
@@ -11,9 +12,9 @@ from app.modules.plugin.domain.models import Plugin
 from app.modules.workflow.domain.models import Workflow
 
 
-def _seed_searchable_resources(db) -> None:
+async def _seed_searchable_resources(async_db) -> None:
     scope = {"tenant_id": "test-tenant", "workspace_id": "test-workspace"}
-    db.add_all(
+    async_db.add_all(
         [
             Agent(
                 id="agt_customer",
@@ -78,13 +79,14 @@ def _seed_searchable_resources(db) -> None:
             ),
         ]
     )
-    db.commit()
+    await async_db.commit()
 
 
-def test_global_search_aggregates_supported_workspace_resources(client, db) -> None:
-    _seed_searchable_resources(db)
+@pytest.mark.asyncio
+async def test_global_search_aggregates_supported_workspace_resources(async_client, async_db) -> None:
+    await _seed_searchable_resources(async_db)
 
-    response = client.get("/api/v1/search", params={"q": "customer", "limit": 5})
+    response = await async_client.get("/api/v1/search", params={"q": "customer", "limit": 5})
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
@@ -116,10 +118,11 @@ def test_global_search_aggregates_supported_workspace_resources(client, db) -> N
     assert "agt_outside" not in by_id
 
 
-def test_global_search_can_filter_resource_kinds(client, db) -> None:
-    _seed_searchable_resources(db)
+@pytest.mark.asyncio
+async def test_global_search_can_filter_resource_kinds(async_client, async_db) -> None:
+    await _seed_searchable_resources(async_db)
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/search",
         params=[("q", "customer"), ("types", "agent"), ("types", "workflow")],
     )
@@ -130,18 +133,20 @@ def test_global_search_can_filter_resource_kinds(client, db) -> None:
     assert payload["counts"] == {"agent": 1, "workflow": 1}
 
 
-def test_global_search_treats_like_wildcards_as_literal_text(client, db) -> None:
-    _seed_searchable_resources(db)
+@pytest.mark.asyncio
+async def test_global_search_treats_like_wildcards_as_literal_text(async_client, async_db) -> None:
+    await _seed_searchable_resources(async_db)
 
-    response = client.get("/api/v1/search", params={"q": "%%"})
+    response = await async_client.get("/api/v1/search", params={"q": "%%"})
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["data"]["items"] == []
 
 
-def test_global_search_validates_query_and_resource_kind(client) -> None:
-    too_short = client.get("/api/v1/search", params={"q": "x"})
-    invalid_type = client.get(
+@pytest.mark.asyncio
+async def test_global_search_validates_query_and_resource_kind(async_client) -> None:
+    too_short = await async_client.get("/api/v1/search", params={"q": "x"})
+    invalid_type = await async_client.get(
         "/api/v1/search",
         params={"q": "customer", "types": "unknown"},
     )

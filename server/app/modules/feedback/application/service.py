@@ -25,8 +25,8 @@ class ProductFeedbackService:
         self.ctx = ctx
         self.repository = repository
 
-    def create(self, data: ProductFeedbackCreate) -> ProductFeedback:
-        return self.repository.create(
+    async def create(self, data: ProductFeedbackCreate) -> ProductFeedback:
+        return await self.repository.create(
             ProductFeedback(
                 tenant_id=self.ctx.tenant_id,
                 workspace_id=self.ctx.workspace_id,
@@ -46,7 +46,7 @@ class ProductFeedbackService:
             raise ForbiddenError("Workspace owner role required to list workspace feedback")
         return None if scope == "workspace" else self.ctx.user_id
 
-    def list(
+    async def list(
         self,
         *,
         scope: str,
@@ -58,7 +58,7 @@ class ProductFeedbackService:
         query_text: str | None = None,
     ) -> list[ProductFeedback]:
         creator_id = self._creator_for_scope(scope)
-        return self.repository.list_for_scope(
+        return await self.repository.list_for_scope(
             creator_id=creator_id,
             limit=limit,
             offset=offset,
@@ -68,9 +68,9 @@ class ProductFeedbackService:
             query_text=query_text,
         )
 
-    def summary(self, *, scope: str) -> ProductFeedbackSummary:
+    async def summary(self, *, scope: str) -> ProductFeedbackSummary:
         creator_id = self._creator_for_scope(scope)
-        raw = self.repository.summarize(creator_id=creator_id)
+        raw = await self.repository.summarize(creator_id=creator_id)
         status_counts: dict[FeedbackStatus, int] = {
             "open": raw["by_status"].get("open", 0),
             "in_progress": raw["by_status"].get("in_progress", 0),
@@ -97,16 +97,16 @@ class ProductFeedbackService:
             by_priority=priority_counts,
         )
 
-    def get(self, feedback_id: str) -> ProductFeedback:
-        feedback = self.repository.get_by_id(feedback_id)
+    async def get(self, feedback_id: str) -> ProductFeedback:
+        feedback = await self.repository.get_by_id(feedback_id)
         if feedback is None:
             raise NotFoundError("Product feedback not found")
         if not self.ctx.is_workspace_owner() and feedback.created_by != self.ctx.user_id:
             raise NotFoundError("Product feedback not found")
         return feedback
 
-    def update(self, feedback_id: str, data: ProductFeedbackUpdate) -> ProductFeedback:
-        feedback = self.get(feedback_id)
+    async def update(self, feedback_id: str, data: ProductFeedbackUpdate) -> ProductFeedback:
+        feedback = await self.get(feedback_id)
         now = utc_now()
         if data.priority is not None:
             feedback.priority = data.priority
@@ -123,4 +123,4 @@ class ProductFeedbackService:
             feedback.resolution_note = data.resolution_note
         feedback.updated_by = self.ctx.user_id
         feedback.updated_at = now
-        return self.repository.save(feedback)
+        return await self.repository.save(feedback)

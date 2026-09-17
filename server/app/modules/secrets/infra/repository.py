@@ -7,9 +7,9 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import and_, desc, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.secrets.domain.models import Secret
@@ -18,14 +18,14 @@ SECRET_RESOLVED_EVENT_TYPE = "security.secret.resolved"
 """Audit event type for a secret handed to a governed caller."""
 
 
-class SecretRepository(Repository[Secret]):
+class SecretRepository(AsyncRepository[Secret]):
     """Repository for Secret model."""
 
-    def __init__(self, db: Session, ctx: RequestContext):
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
         """Initialize secret repository."""
         super().__init__(Secret, db, ctx)
 
-    def resolution_counts(
+    async def resolution_counts(
         self,
         *,
         since: datetime | None = None,
@@ -49,19 +49,18 @@ class SecretRepository(Repository[Secret]):
             func.count(),
             func.count(func.distinct(AuditEvent.resource_id)),
         ).select_from(AuditEvent).where(and_(*clauses))
-        row = self.db.exec(query).first()
+        row = (await self.db.exec(query)).first()
         if row is None:
             return 0, 0
         return int(row[0] or 0), int(row[1] or 0)
 
-    def create(self, secret: Secret) -> Secret:
+    async def create(self, secret: Secret) -> Secret:
         """Create a secret metadata record."""
         self.db.add(secret)
-        self.db.commit()
-        self.db.refresh(secret)
+        await self.db.commit()
         return secret
 
-    def get_by_id(self, secret_id: str) -> Secret | None:
+    async def get_by_id(self, secret_id: str) -> Secret | None:
         """Get secret by ID."""
         query = select(Secret).where(
             and_(
@@ -71,10 +70,10 @@ class SecretRepository(Repository[Secret]):
                 Secret.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def get_by_name(self, name: str) -> Secret | None:
+    async def get_by_name(self, name: str) -> Secret | None:
         """Get secret by name."""
         query = select(Secret).where(
             and_(
@@ -84,10 +83,10 @@ class SecretRepository(Repository[Secret]):
                 Secret.deleted_at.is_(None),
             )
         )
-        result = self.db.exec(query).first()
+        result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
-    def list(
+    async def list(
         self,
         limit: int = 50,
         offset: int = 0,
@@ -106,10 +105,10 @@ class SecretRepository(Repository[Secret]):
             .offset(offset)
             .limit(limit)
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
-    def update(
+    async def update(
         self,
         secret: Secret,
         *,
@@ -130,17 +129,15 @@ class SecretRepository(Repository[Secret]):
 
         from app.kernel.commons.time import utc_now
         secret.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(secret)
+        await self.db.commit()
         return secret
 
-    def soft_delete(self, secret: Secret, updated_by: str | None = None) -> Secret:
+    async def soft_delete(self, secret: Secret, updated_by: str | None = None) -> Secret:
         """Soft delete a secret record."""
         from app.kernel.commons.time import utc_now
         secret.deleted_at = utc_now()
         secret.updated_at = utc_now()
         if updated_by is not None:
             secret.updated_by = updated_by
-        self.db.commit()
-        self.db.refresh(secret)
+        await self.db.commit()
         return secret

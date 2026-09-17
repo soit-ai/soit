@@ -1,10 +1,11 @@
 """Workspace-scoped aggregate search queries."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
 from sqlalchemy import desc, or_
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run
@@ -43,11 +44,11 @@ def _summary(*values: str | None) -> str | None:
 class GlobalSearchService:
     """Search user-facing resources in the current workspace."""
 
-    def __init__(self, *, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, *, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def search(
+    async def search(
         self,
         *,
         query_text: str,
@@ -59,7 +60,7 @@ class GlobalSearchService:
         requested = tuple(dict.fromkeys(kinds or SEARCH_KINDS))
         handlers: dict[
             SearchKind,
-            Callable[[str, int, str], list[GlobalSearchResult]],
+            Callable[[str, int, str], Awaitable[list[GlobalSearchResult]]],
         ] = {
             "agent": self._search_agents,
             "workflow": self._search_workflows,
@@ -72,7 +73,7 @@ class GlobalSearchService:
         items: list[GlobalSearchResult] = []
         counts: dict[SearchKind, int] = {}
         for kind in requested:
-            matches = handlers[kind](pattern, limit, normalized)
+            matches = await handlers[kind](pattern, limit, normalized)
             items.extend(matches)
             counts[kind] = len(matches)
         return GlobalSearchResponse(query=normalized, items=items, counts=counts)
@@ -112,22 +113,24 @@ class GlobalSearchService:
     def _fetch_limit(limit: int) -> int:
         return max(20, limit * 4)
 
-    def _search_agents(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Agent)
-            .where(
-                Agent.tenant_id == self.ctx.tenant_id,
-                Agent.workspace_id == self.ctx.workspace_id,
-                Agent.deleted_at.is_(None),
-                or_(
-                    Agent.id.ilike(pattern, escape="\\"),
-                    Agent.name.ilike(pattern, escape="\\"),
-                    Agent.description.ilike(pattern, escape="\\"),
-                    Agent.category.ilike(pattern, escape="\\"),
-                ),
+    async def _search_agents(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Agent)
+                .where(
+                    Agent.tenant_id == self.ctx.tenant_id,
+                    Agent.workspace_id == self.ctx.workspace_id,
+                    Agent.deleted_at.is_(None),
+                    or_(
+                        Agent.id.ilike(pattern, escape="\\"),
+                        Agent.name.ilike(pattern, escape="\\"),
+                        Agent.description.ilike(pattern, escape="\\"),
+                        Agent.category.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Agent.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Agent.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -146,23 +149,25 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_workflows(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Workflow)
-            .where(
-                Workflow.tenant_id == self.ctx.tenant_id,
-                Workflow.workspace_id == self.ctx.workspace_id,
-                Workflow.deleted_at.is_(None),
-                or_(
-                    Workflow.id.ilike(pattern, escape="\\"),
-                    Workflow.name.ilike(pattern, escape="\\"),
-                    Workflow.description.ilike(pattern, escape="\\"),
-                    Workflow.summary.ilike(pattern, escape="\\"),
-                    Workflow.category.ilike(pattern, escape="\\"),
-                ),
+    async def _search_workflows(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Workflow)
+                .where(
+                    Workflow.tenant_id == self.ctx.tenant_id,
+                    Workflow.workspace_id == self.ctx.workspace_id,
+                    Workflow.deleted_at.is_(None),
+                    or_(
+                        Workflow.id.ilike(pattern, escape="\\"),
+                        Workflow.name.ilike(pattern, escape="\\"),
+                        Workflow.description.ilike(pattern, escape="\\"),
+                        Workflow.summary.ilike(pattern, escape="\\"),
+                        Workflow.category.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Workflow.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Workflow.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -181,22 +186,24 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_knowledge(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Knowledge)
-            .where(
-                Knowledge.tenant_id == self.ctx.tenant_id,
-                Knowledge.workspace_id == self.ctx.workspace_id,
-                Knowledge.deleted_at.is_(None),
-                or_(
-                    Knowledge.id.ilike(pattern, escape="\\"),
-                    Knowledge.name.ilike(pattern, escape="\\"),
-                    Knowledge.description.ilike(pattern, escape="\\"),
-                    Knowledge.type.ilike(pattern, escape="\\"),
-                ),
+    async def _search_knowledge(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Knowledge)
+                .where(
+                    Knowledge.tenant_id == self.ctx.tenant_id,
+                    Knowledge.workspace_id == self.ctx.workspace_id,
+                    Knowledge.deleted_at.is_(None),
+                    or_(
+                        Knowledge.id.ilike(pattern, escape="\\"),
+                        Knowledge.name.ilike(pattern, escape="\\"),
+                        Knowledge.description.ilike(pattern, escape="\\"),
+                        Knowledge.type.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Knowledge.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Knowledge.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -215,22 +222,24 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_plugins(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Plugin)
-            .where(
-                Plugin.tenant_id == self.ctx.tenant_id,
-                Plugin.workspace_id == self.ctx.workspace_id,
-                or_(
-                    Plugin.id.ilike(pattern, escape="\\"),
-                    Plugin.name.ilike(pattern, escape="\\"),
-                    Plugin.description.ilike(pattern, escape="\\"),
-                    Plugin.publisher.ilike(pattern, escape="\\"),
-                    Plugin.version.ilike(pattern, escape="\\"),
-                ),
+    async def _search_plugins(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Plugin)
+                .where(
+                    Plugin.tenant_id == self.ctx.tenant_id,
+                    Plugin.workspace_id == self.ctx.workspace_id,
+                    or_(
+                        Plugin.id.ilike(pattern, escape="\\"),
+                        Plugin.name.ilike(pattern, escape="\\"),
+                        Plugin.description.ilike(pattern, escape="\\"),
+                        Plugin.publisher.ilike(pattern, escape="\\"),
+                        Plugin.version.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Plugin.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Plugin.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -249,22 +258,24 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_models(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(ProviderModel)
-            .where(
-                ProviderModel.tenant_id == self.ctx.tenant_id,
-                ProviderModel.workspace_id == self.ctx.workspace_id,
-                or_(
-                    ProviderModel.id.ilike(pattern, escape="\\"),
-                    ProviderModel.model_id.ilike(pattern, escape="\\"),
-                    ProviderModel.display_name.ilike(pattern, escape="\\"),
-                    ProviderModel.description.ilike(pattern, escape="\\"),
-                    ProviderModel.provider_kind.ilike(pattern, escape="\\"),
-                ),
+    async def _search_models(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(ProviderModel)
+                .where(
+                    ProviderModel.tenant_id == self.ctx.tenant_id,
+                    ProviderModel.workspace_id == self.ctx.workspace_id,
+                    or_(
+                        ProviderModel.id.ilike(pattern, escape="\\"),
+                        ProviderModel.model_id.ilike(pattern, escape="\\"),
+                        ProviderModel.display_name.ilike(pattern, escape="\\"),
+                        ProviderModel.description.ilike(pattern, escape="\\"),
+                        ProviderModel.provider_kind.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(ProviderModel.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(ProviderModel.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -283,21 +294,23 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_threads(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Thread)
-            .where(
-                Thread.tenant_id == self.ctx.tenant_id,
-                Thread.workspace_id == self.ctx.workspace_id,
-                Thread.deleted_at.is_(None),
-                or_(
-                    Thread.id.ilike(pattern, escape="\\"),
-                    Thread.title.ilike(pattern, escape="\\"),
-                    Thread.summary.ilike(pattern, escape="\\"),
-                ),
+    async def _search_threads(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Thread)
+                .where(
+                    Thread.tenant_id == self.ctx.tenant_id,
+                    Thread.workspace_id == self.ctx.workspace_id,
+                    Thread.deleted_at.is_(None),
+                    or_(
+                        Thread.id.ilike(pattern, escape="\\"),
+                        Thread.title.ilike(pattern, escape="\\"),
+                        Thread.summary.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Thread.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Thread.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [
@@ -316,22 +329,24 @@ class GlobalSearchService:
             limit,
         )
 
-    def _search_runs(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
-        rows = self.db.exec(
-            select(Run)
-            .where(
-                Run.tenant_id == self.ctx.tenant_id,
-                Run.workspace_id == self.ctx.workspace_id,
-                or_(
-                    Run.id.ilike(pattern, escape="\\"),
-                    Run.subject_id.ilike(pattern, escape="\\"),
-                    Run.input_summary.ilike(pattern, escape="\\"),
-                    Run.output_summary.ilike(pattern, escape="\\"),
-                    Run.error_message.ilike(pattern, escape="\\"),
-                ),
+    async def _search_runs(self, pattern: str, limit: int, query_text: str) -> list[GlobalSearchResult]:
+        rows = (
+            await self.db.exec(
+                select(Run)
+                .where(
+                    Run.tenant_id == self.ctx.tenant_id,
+                    Run.workspace_id == self.ctx.workspace_id,
+                    or_(
+                        Run.id.ilike(pattern, escape="\\"),
+                        Run.subject_id.ilike(pattern, escape="\\"),
+                        Run.input_summary.ilike(pattern, escape="\\"),
+                        Run.output_summary.ilike(pattern, escape="\\"),
+                        Run.error_message.ilike(pattern, escape="\\"),
+                    ),
+                )
+                .order_by(desc(Run.updated_at))
+                .limit(self._fetch_limit(limit))
             )
-            .order_by(desc(Run.updated_at))
-            .limit(self._fetch_limit(limit))
         ).all()
         return self._rank(
             [

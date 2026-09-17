@@ -3,9 +3,9 @@
 from typing import TypedDict
 
 from sqlalchemy import desc, func, or_, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.repository import Repository
+from app.infra.db.repository import AsyncRepository
 from app.kernel.contracts.context import RequestContext
 from app.modules.feedback.domain.models import ProductFeedback
 
@@ -17,11 +17,11 @@ class ProductFeedbackSummaryData(TypedDict):
     by_priority: dict[str, int]
 
 
-class ProductFeedbackRepository(Repository[ProductFeedback]):
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+class ProductFeedbackRepository(AsyncRepository[ProductFeedback]):
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         super().__init__(ProductFeedback, db, ctx)
 
-    def list_for_scope(
+    async def list_for_scope(
         self,
         *,
         creator_id: str | None,
@@ -56,34 +56,37 @@ class ProductFeedbackRepository(Repository[ProductFeedback]):
                 )
             )
         results = list(
-            self.db.exec(
-                query.order_by(desc(ProductFeedback.created_at), desc(ProductFeedback.id))
-                .offset(offset)
-                .limit(limit + 1)
-            ).all()
+            (
+                await self.db.exec(
+                    query.order_by(desc(ProductFeedback.created_at), desc(ProductFeedback.id))
+                    .offset(offset)
+                    .limit(limit + 1)
+                )
+            )
+            .scalars()
+            .all()
         )
         return self._unwrap_all(results)
 
-    def summarize(self, *, creator_id: str | None) -> ProductFeedbackSummaryData:
-        def _counts(column) -> dict[str, int]:
+    async def summarize(self, *, creator_id: str | None) -> ProductFeedbackSummaryData:
+        async def _counts(column) -> dict[str, int]:
             query = self._apply_scope(
                 select(column, func.count()).select_from(ProductFeedback)
             )
             if creator_id is not None:
                 query = query.where(ProductFeedback.created_by == creator_id)
-            rows = self.db.exec(query.group_by(column)).all()
+            rows = (await self.db.exec(query.group_by(column))).all()
             return {str(row[0]): int(row[1]) for row in rows}
 
-        status_counts = _counts(ProductFeedback.status)
+        status_counts = await _counts(ProductFeedback.status)
         return {
             "total": sum(status_counts.values()),
             "by_status": status_counts,
-            "by_category": _counts(ProductFeedback.category),
-            "by_priority": _counts(ProductFeedback.priority),
+            "by_category": await _counts(ProductFeedback.category),
+            "by_priority": await _counts(ProductFeedback.priority),
         }
 
-    def save(self, feedback: ProductFeedback) -> ProductFeedback:
+    async def save(self, feedback: ProductFeedback) -> ProductFeedback:
         self.db.add(feedback)
-        self.db.commit()
-        self.db.refresh(feedback)
+        await self.db.commit()
         return feedback

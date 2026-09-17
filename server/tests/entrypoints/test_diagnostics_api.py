@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 
+import pytest
 from fastapi import status
 
 from app.kernel.contracts.context import RequestContext
@@ -51,9 +52,9 @@ def _with_storage(storage):
         app.dependency_overrides.pop(get_diagnostics_storage, None)
 
 
-def _seed_diagnostics_data(db) -> None:
+async def _seed_diagnostics_data(async_db) -> None:
     scope = {"tenant_id": "test-tenant", "workspace_id": "test-workspace"}
-    db.add_all(
+    async_db.add_all(
         [
             Agent(id="agt_diag", name="Diagnostic agent", **scope),
             Workflow(id="wf_diag", name="Diagnostic workflow", **scope),
@@ -92,14 +93,15 @@ def _seed_diagnostics_data(db) -> None:
             ),
         ]
     )
-    db.commit()
+    await async_db.commit()
 
 
-def test_owner_gets_real_time_dependency_process_and_workspace_snapshot(client, db) -> None:
-    _seed_diagnostics_data(db)
+@pytest.mark.asyncio
+async def test_owner_gets_real_time_dependency_process_and_workspace_snapshot(async_client, async_db) -> None:
+    await _seed_diagnostics_data(async_db)
 
     with _with_storage(_AvailableStorage()):
-        response = client.get("/api/v1/diagnostics")
+        response = await async_client.get("/api/v1/diagnostics")
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
@@ -119,7 +121,8 @@ def test_owner_gets_real_time_dependency_process_and_workspace_snapshot(client, 
     assert payload["generated_at"]
 
 
-def test_diagnostics_is_workspace_owner_only(client) -> None:
+@pytest.mark.asyncio
+async def test_diagnostics_is_workspace_owner_only(async_client) -> None:
     viewer = RequestContext(
         tenant_id="test-tenant",
         workspace_id="test-workspace",
@@ -129,14 +132,15 @@ def test_diagnostics_is_workspace_owner_only(client) -> None:
     )
 
     with _as_context(viewer), _with_storage(_AvailableStorage()):
-        response = client.get("/api/v1/diagnostics")
+        response = await async_client.get("/api/v1/diagnostics")
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-def test_diagnostics_reports_probe_failure_without_hiding_the_snapshot(client) -> None:
+@pytest.mark.asyncio
+async def test_diagnostics_reports_probe_failure_without_hiding_the_snapshot(async_client) -> None:
     with _with_storage(_UnavailableStorage()):
-        response = client.get("/api/v1/diagnostics")
+        response = await async_client.get("/api/v1/diagnostics")
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]

@@ -36,7 +36,7 @@ class SecretsService:
     @workspace_guard("read")
     async def list_secrets(self, limit: int = 50, offset: int = 0) -> list[Secret]:
         """List secrets for workspace."""
-        return self.repo.list(limit=limit, offset=offset)
+        return await self.repo.list(limit=limit, offset=offset)
 
     @workspace_guard("read")
     async def summarize_resolutions(
@@ -46,7 +46,7 @@ class SecretsService:
         until: datetime | None = None,
     ) -> SecretResolutionSummary:
         """Report how often secrets were resolved inside a window."""
-        total, secrets = self.repo.resolution_counts(since=since, until=until)
+        total, secrets = await self.repo.resolution_counts(since=since, until=until)
         return SecretResolutionSummary(
             since=since,
             until=until,
@@ -57,7 +57,7 @@ class SecretsService:
     @workspace_guard("read")
     async def get_secret(self, secret_id: str) -> Secret:
         """Get secret metadata by ID."""
-        secret = self.repo.get_by_id(secret_id)
+        secret = await self.repo.get_by_id(secret_id)
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
         return secret
@@ -65,7 +65,7 @@ class SecretsService:
     @workspace_guard("write")
     async def create_secret(self, data: SecretCreate) -> Secret:
         """Create secret (store value in Vault and metadata in DB)."""
-        if self.repo.get_by_name(data.name):
+        if await self.repo.get_by_name(data.name):
             raise ValidationError(f"Secret name already exists: {data.name}")
 
         from app.kernel.commons.ids import generate_secret_id
@@ -85,7 +85,7 @@ class SecretsService:
             updated_by=self.ctx.user_id,
         )
 
-        secret = self.repo.create(secret)
+        secret = await self.repo.create(secret)
 
         try:
             await self.value_store.set_secret_value(
@@ -93,7 +93,7 @@ class SecretsService:
             )
         except Exception as exc:
             # Roll back metadata if vault write fails.
-            self.repo.soft_delete(secret, updated_by=self.ctx.user_id)
+            await self.repo.soft_delete(secret, updated_by=self.ctx.user_id)
             raise KernelError("SECRETS_WRITE_FAILED", f"Failed to write secret: {str(exc)}")
 
         return secret
@@ -101,12 +101,12 @@ class SecretsService:
     @workspace_guard("write")
     async def update_secret(self, secret_id: str, data: SecretUpdate) -> Secret:
         """Update secret metadata and optionally rotate value."""
-        secret = self.repo.get_by_id(secret_id)
+        secret = await self.repo.get_by_id(secret_id)
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
 
         if data.name and data.name.strip() != secret.name:
-            if self.repo.get_by_name(data.name.strip()):
+            if await self.repo.get_by_name(data.name.strip()):
                 raise ValidationError(f"Secret name already exists: {data.name.strip()}")
 
         if data.value is not None:
@@ -120,7 +120,7 @@ class SecretsService:
         from app.kernel.commons.time import utc_now
         last_rotated_at = utc_now() if data.value is not None else None
 
-        return self.repo.update(
+        return await self.repo.update(
             secret,
             name=data.name.strip() if data.name else None,
             description=data.description if data.description is not None else None,
@@ -131,7 +131,7 @@ class SecretsService:
     @workspace_guard("write")
     async def delete_secret(self, secret_id: str) -> None:
         """Delete secret from Vault and soft delete metadata."""
-        secret = self.repo.get_by_id(secret_id)
+        secret = await self.repo.get_by_id(secret_id)
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
 
@@ -142,12 +142,12 @@ class SecretsService:
         except Exception as exc:
             raise KernelError("SECRETS_DELETE_FAILED", f"Failed to delete secret: {str(exc)}")
 
-        self.repo.soft_delete(secret, updated_by=self.ctx.user_id)
+        await self.repo.soft_delete(secret, updated_by=self.ctx.user_id)
 
     @workspace_guard("write")
     async def test_secret(self, secret_id: str) -> None:
         """Test secret reference resolution."""
-        secret = self.repo.get_by_id(secret_id)
+        secret = await self.repo.get_by_id(secret_id)
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
         try:

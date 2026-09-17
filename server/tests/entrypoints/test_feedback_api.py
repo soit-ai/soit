@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 
+import pytest
 from fastapi import status
 
 from app.kernel.contracts.context import RequestContext
@@ -36,8 +37,9 @@ def _create_payload(title: str) -> dict[str, object]:
     }
 
 
-def test_workspace_member_can_submit_product_feedback(client) -> None:
-    response = client.post(
+@pytest.mark.asyncio
+async def test_workspace_member_can_submit_product_feedback(async_client) -> None:
+    response = await async_client.post(
         "/api/v1/feedback",
         json={
             "title": "Workflow editor loses unsaved changes",
@@ -62,11 +64,12 @@ def test_workspace_member_can_submit_product_feedback(client) -> None:
     assert payload["workspace_id"] == "test-workspace"
 
 
-def test_feedback_list_is_creator_scoped_until_owner_requests_workspace(client) -> None:
-    owner_feedback = client.post(
+@pytest.mark.asyncio
+async def test_feedback_list_is_creator_scoped_until_owner_requests_workspace(async_client) -> None:
+    owner_feedback = (await async_client.post(
         "/api/v1/feedback",
         json=_create_payload("Owner issue"),
-    ).json()["data"]
+    )).json()["data"]
     viewer = RequestContext(
         tenant_id="test-tenant",
         workspace_id="test-workspace",
@@ -76,23 +79,23 @@ def test_feedback_list_is_creator_scoped_until_owner_requests_workspace(client) 
     )
 
     with _as_context(viewer):
-        viewer_response = client.post(
+        viewer_response = await async_client.post(
             "/api/v1/feedback",
             json=_create_payload("Viewer issue"),
         )
         assert viewer_response.status_code == status.HTTP_201_CREATED
         viewer_feedback = viewer_response.json()["data"]
 
-        mine_response = client.get("/api/v1/feedback")
+        mine_response = await async_client.get("/api/v1/feedback")
         assert mine_response.status_code == status.HTTP_200_OK
         assert [item["id"] for item in mine_response.json()["data"]["items"]] == [
             viewer_feedback["id"]
         ]
 
-        workspace_response = client.get("/api/v1/feedback", params={"scope": "workspace"})
+        workspace_response = await async_client.get("/api/v1/feedback", params={"scope": "workspace"})
         assert workspace_response.status_code == status.HTTP_403_FORBIDDEN
 
-    owner_workspace_response = client.get(
+    owner_workspace_response = await async_client.get(
         "/api/v1/feedback",
         params={"scope": "workspace"},
     )
@@ -103,7 +106,8 @@ def test_feedback_list_is_creator_scoped_until_owner_requests_workspace(client) 
     }
 
 
-def test_owner_resolves_feedback_and_creator_can_read_the_result(client) -> None:
+@pytest.mark.asyncio
+async def test_owner_resolves_feedback_and_creator_can_read_the_result(async_client) -> None:
     viewer = RequestContext(
         tenant_id="test-tenant",
         workspace_id="test-workspace",
@@ -112,18 +116,18 @@ def test_owner_resolves_feedback_and_creator_can_read_the_result(client) -> None
         tenant_role="Viewer",
     )
     with _as_context(viewer):
-        created = client.post(
+        created = (await async_client.post(
             "/api/v1/feedback",
             json=_create_payload("Viewer issue"),
-        ).json()["data"]
+        )).json()["data"]
 
-    missing_note = client.patch(
+    missing_note = await async_client.patch(
         f"/api/v1/feedback/{created['id']}",
         json={"status": "resolved"},
     )
     assert missing_note.status_code == status.HTTP_400_BAD_REQUEST
 
-    resolved = client.patch(
+    resolved = await async_client.patch(
         f"/api/v1/feedback/{created['id']}",
         json={
             "status": "resolved",
@@ -136,17 +140,18 @@ def test_owner_resolves_feedback_and_creator_can_read_the_result(client) -> None
     assert resolved.json()["data"]["resolved_by"] == "test-user"
 
     with _as_context(viewer):
-        detail = client.get(f"/api/v1/feedback/{created['id']}")
+        detail = await async_client.get(f"/api/v1/feedback/{created['id']}")
         assert detail.status_code == status.HTTP_200_OK
         assert detail.json()["data"]["resolution_note"] == "Fixed in the workflow editor."
 
 
-def test_feedback_filters_and_summary_use_the_requested_scope(client) -> None:
-    first = client.post(
+@pytest.mark.asyncio
+async def test_feedback_filters_and_summary_use_the_requested_scope(async_client) -> None:
+    first = (await async_client.post(
         "/api/v1/feedback",
         json=_create_payload("Workflow owner issue"),
-    ).json()["data"]
-    client.post(
+    )).json()["data"]
+    await async_client.post(
         "/api/v1/feedback",
         json={
             **_create_payload("Feature request"),
@@ -154,12 +159,12 @@ def test_feedback_filters_and_summary_use_the_requested_scope(client) -> None:
             "priority": "low",
         },
     )
-    client.patch(
+    await async_client.patch(
         f"/api/v1/feedback/{first['id']}",
         json={"status": "resolved", "resolution_note": "Released."},
     )
 
-    filtered = client.get(
+    filtered = await async_client.get(
         "/api/v1/feedback",
         params={
             "scope": "workspace",
@@ -172,7 +177,7 @@ def test_feedback_filters_and_summary_use_the_requested_scope(client) -> None:
     assert filtered.status_code == status.HTTP_200_OK
     assert [item["id"] for item in filtered.json()["data"]["items"]] == [first["id"]]
 
-    summary = client.get("/api/v1/feedback/summary", params={"scope": "workspace"})
+    summary = await async_client.get("/api/v1/feedback/summary", params={"scope": "workspace"})
     assert summary.status_code == status.HTTP_200_OK
     assert summary.json()["data"] == {
         "total": 2,
@@ -188,7 +193,8 @@ def test_feedback_filters_and_summary_use_the_requested_scope(client) -> None:
     }
 
 
-def test_feedback_from_another_workspace_is_not_visible(client, db) -> None:
+@pytest.mark.asyncio
+async def test_feedback_from_another_workspace_is_not_visible(async_client, async_db) -> None:
     from app.modules.feedback.domain.models import ProductFeedback
 
     outside = ProductFeedback(
@@ -203,13 +209,13 @@ def test_feedback_from_another_workspace_is_not_visible(client, db) -> None:
         created_by="test-user",
         updated_by="test-user",
     )
-    db.add(outside)
-    db.commit()
+    async_db.add(outside)
+    await async_db.commit()
 
-    detail = client.get(f"/api/v1/feedback/{outside.id}")
+    detail = await async_client.get(f"/api/v1/feedback/{outside.id}")
     assert detail.status_code == status.HTTP_404_NOT_FOUND
-    workspace_items = client.get(
+    workspace_items = (await async_client.get(
         "/api/v1/feedback",
         params={"scope": "workspace"},
-    ).json()["data"]["items"]
+    )).json()["data"]["items"]
     assert outside.id not in {item["id"] for item in workspace_items}

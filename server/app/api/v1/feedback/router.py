@@ -28,7 +28,7 @@ async def create_product_feedback(
     _ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ProductFeedbackService = Depends(get_product_feedback_service),
 ) -> ProductFeedbackResponse:
-    return ProductFeedbackResponse.model_validate(service.create(payload))
+    return ProductFeedbackResponse.model_validate(await service.create(payload))
 
 
 @router.get("", response_model=PaginatedResponse[ProductFeedbackResponse])
@@ -45,7 +45,7 @@ async def list_product_feedback(
 ) -> PaginatedResponse[ProductFeedbackResponse]:
     limit, token = parse_page_params(page_token, page_size)
     offset = token.offset if token else 0
-    rows = service.list(
+    rows = await service.list(
         scope=scope,
         limit=limit,
         offset=offset,
@@ -70,7 +70,7 @@ async def summarize_product_feedback(
     _ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ProductFeedbackService = Depends(get_product_feedback_service),
 ) -> ProductFeedbackSummary:
-    return service.summary(scope=scope)
+    return await service.summary(scope=scope)
 
 
 @router.get("/{feedback_id}", response_model=ProductFeedbackResponse)
@@ -79,7 +79,7 @@ async def get_product_feedback(
     _ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: ProductFeedbackService = Depends(get_product_feedback_service),
 ) -> ProductFeedbackResponse:
-    return ProductFeedbackResponse.model_validate(service.get(feedback_id))
+    return ProductFeedbackResponse.model_validate(await service.get(feedback_id))
 
 
 @router.patch("/{feedback_id}", response_model=ProductFeedbackResponse)
@@ -89,4 +89,4 @@ async def update_product_feedback(
     _ctx: RequestContext = Depends(require_workspace_owner_ctx),
     service: ProductFeedbackService = Depends(get_product_feedback_service),
 ) -> ProductFeedbackResponse:
-    return ProductFeedbackResponse.model_validate(service.update(feedback_id, payload))
+    return ProductFeedbackResponse.model_validate(await service.update(feedback_id, payload))

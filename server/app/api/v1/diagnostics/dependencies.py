@@ -3,9 +3,9 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.middleware.auth import get_current_context
@@ -19,7 +19,7 @@ def get_diagnostics_storage() -> StoragePort:
 
 def get_diagnostics_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
     storage: Annotated[StoragePort, Depends(get_diagnostics_storage)],
 ) -> DiagnosticsService:
     return DiagnosticsService(db=db, ctx=ctx, storage=storage)
