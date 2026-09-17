@@ -107,8 +107,8 @@ def test_ticket_triage_template_contains_mvp_nodes_and_valid_edges():
 
 
 @pytest.mark.asyncio
-async def test_workflow_service_creates_ticket_triage_draft(db, ctx):
-    service = WorkflowService(db=db, ctx=ctx)
+async def test_workflow_service_creates_ticket_triage_draft(async_db, ctx):
+    service = WorkflowService(db=async_db, ctx=ctx)
 
     workflow = await service.create_ticket_triage_template(name="Ticket triage unit")
     version = await service.get_current_version(workflow.id)
@@ -130,8 +130,8 @@ async def test_workflow_service_creates_ticket_triage_draft(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_workflow_service_creates_a_schema_valid_default_draft(db, ctx):
-    service = WorkflowService(db=db, ctx=ctx)
+async def test_workflow_service_creates_a_schema_valid_default_draft(async_db, ctx):
+    service = WorkflowService(db=async_db, ctx=ctx)
 
     workflow = await service.create_workflow(WorkflowCreate(name="Default workflow unit"))
     version = await service.get_current_version(workflow.id)

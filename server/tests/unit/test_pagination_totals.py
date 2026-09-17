@@ -49,13 +49,13 @@ def test_paginated_response_total_is_absent_unless_supplied():
 
 
 @pytest.mark.asyncio
-async def test_list_runs_total_counts_beyond_the_page(db, ctx):
+async def test_list_runs_total_counts_beyond_the_page(async_db, ctx):
     """The count covers every matching run, not just the page returned."""
     for _ in range(3):
-        db.add(_make_run(ctx))
-    db.commit()
+        async_db.add(_make_run(ctx))
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
 
     without = await handlers.list_runs(ctx, subject_id="agt_total", page_size=2)
     assert without.total is None
@@ -72,13 +72,13 @@ async def test_list_runs_total_counts_beyond_the_page(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_runs_total_respects_the_same_filters(db, ctx):
+async def test_list_runs_total_respects_the_same_filters(async_db, ctx):
     """A filtered listing and its count agree on what matches."""
-    db.add(_make_run(ctx, status="succeeded"))
-    db.add(_make_run(ctx, status="failed"))
-    db.commit()
+    async_db.add(_make_run(ctx, status="succeeded"))
+    async_db.add(_make_run(ctx, status="failed"))
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
 
     counted = await handlers.list_runs(
         ctx,
@@ -91,24 +91,25 @@ async def test_list_runs_total_respects_the_same_filters(db, ctx):
     assert len(counted.items) == 1
 
 
-def test_count_runs_is_zero_when_an_observe_filter_excludes_everything(db, ctx):
+@pytest.mark.asyncio
+async def test_count_runs_is_zero_when_an_observe_filter_excludes_everything(async_db, ctx):
     """A filter that cannot match anything counts zero without a query error."""
-    db.add(_make_run(ctx))
-    db.commit()
+    async_db.add(_make_run(ctx))
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    assert service.count_runs(subject_id="agt_total") == 1
-    assert service.count_runs(subject_id="agt_total", has_tool_call=True) == 0
+    service = RunService(async_db, ctx)
+    assert await service.count_runs(subject_id="agt_total") == 1
+    assert await service.count_runs(subject_id="agt_total", has_tool_call=True) == 0
 
 
 @pytest.mark.asyncio
-async def test_list_steps_total_counts_all_matching_steps(db, ctx):
+async def test_list_steps_total_counts_all_matching_steps(async_db, ctx):
     """Trace pages count spans across the whole trace, not the page."""
     run = _make_run(ctx, trace_id="trace_steps")
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
     for index in range(3):
-        db.add(
+        async_db.add(
             RunStep(
                 id=f"step_total_{index}",
                 tenant_id=ctx.tenant_id,
@@ -121,9 +122,9 @@ async def test_list_steps_total_counts_all_matching_steps(db, ctx):
                 started_at=utc_now(),
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     counted = await handlers.list_steps(
         ctx,
         trace_id="trace_steps",
@@ -136,14 +137,14 @@ async def test_list_steps_total_counts_all_matching_steps(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_audits_window_filters_and_counts(db, ctx):
+async def test_list_audits_window_filters_and_counts(async_db, ctx):
     """Audits accept a creation window, and the count honours it."""
     now = utc_now()
     run = _make_run(ctx, trace_id="trace_audit")
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
     for age_hours in (1, 48):
-        db.add(
+        async_db.add(
             AuditEvent(
                 tenant_id=ctx.tenant_id,
                 workspace_id=ctx.workspace_id,
@@ -156,9 +157,9 @@ async def test_list_audits_window_filters_and_counts(db, ctx):
                 created_at=now - timedelta(hours=age_hours),
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
 
     all_audits = await handlers.list_audits(ctx, page_size=50, with_total=True)
     assert all_audits.total == 2
@@ -183,11 +184,11 @@ async def test_list_audits_window_filters_and_counts(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_window_filters_and_counts(db, ctx):
+async def test_list_tasks_window_filters_and_counts(async_db, ctx):
     """Tasks accept the same creation window and report a total."""
     now = utc_now()
     for age_hours in (2, 72):
-        db.add(
+        async_db.add(
             Task(
                 tenant_id=ctx.tenant_id,
                 workspace_id=ctx.workspace_id,
@@ -196,9 +197,9 @@ async def test_list_tasks_window_filters_and_counts(db, ctx):
                 created_at=now - timedelta(hours=age_hours),
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    handlers = TaskHandlers(TaskQueryService(db, ctx))
+    handlers = TaskHandlers(TaskQueryService(async_db, ctx))
 
     without = await handlers.list_tasks(
         ctx,
@@ -227,14 +228,14 @@ async def test_list_tasks_window_filters_and_counts(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_run_window_summary_counts_outcomes_and_spend(db, ctx):
+async def test_run_window_summary_counts_outcomes_and_spend(async_db, ctx):
     """The window summary counts every run, not a sampled page."""
     now = utc_now()
     for status in ("succeeded", "succeeded", "failed", "running"):
-        db.add(_make_run(ctx, status=status))
-    db.commit()
+        async_db.add(_make_run(ctx, status=status))
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     summary = await handlers.summarize_run_window(ctx, since=now - timedelta(hours=1))
 
     assert summary.total == 4
@@ -246,12 +247,12 @@ async def test_run_window_summary_counts_outcomes_and_spend(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_run_window_pass_rate_is_absent_before_anything_settles(db, ctx):
+async def test_run_window_pass_rate_is_absent_before_anything_settles(async_db, ctx):
     """A window with nothing finished reports no rate rather than zero."""
-    db.add(_make_run(ctx, status="running"))
-    db.commit()
+    async_db.add(_make_run(ctx, status="running"))
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     summary = await handlers.summarize_run_window(ctx)
 
     assert summary.total == 1
@@ -259,14 +260,14 @@ async def test_run_window_pass_rate_is_absent_before_anything_settles(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_invocations_are_counted_from_the_cost_ledger(db, ctx):
+async def test_tool_invocations_are_counted_from_the_cost_ledger(async_db, ctx):
     """Per-tool invocation counts come from entries the tool path already writes."""
     run = _make_run(ctx)
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
     for tool_ref, count in (("plugin:pagerduty.page", 2), ("plugin:jira.create", 1)):
         for index in range(count):
-            db.add(
+            async_db.add(
                 RunCostEntry(
                     tenant_id=ctx.tenant_id,
                     workspace_id=ctx.workspace_id,
@@ -281,9 +282,9 @@ async def test_tool_invocations_are_counted_from_the_cost_ledger(db, ctx):
                     latency_ms=10,
                 )
             )
-    db.commit()
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     rows = await handlers.summarize_tool_invocations(ctx)
 
     counts = {row.tool_ref: row.invocations for row in rows}
@@ -293,12 +294,12 @@ async def test_tool_invocations_are_counted_from_the_cost_ledger(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_tool_invocations_ignore_non_tool_usage(db, ctx):
+async def test_tool_invocations_ignore_non_tool_usage(async_db, ctx):
     """Model usage is priced through the same ledger and must not be counted."""
     run = _make_run(ctx)
-    db.add(run)
-    db.commit()
-    db.add(
+    async_db.add(run)
+    await async_db.commit()
+    async_db.add(
         RunCostEntry(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -312,7 +313,7 @@ async def test_tool_invocations_ignore_non_tool_usage(db, ctx):
             request_count=1,
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     assert await handlers.summarize_tool_invocations(ctx) == []

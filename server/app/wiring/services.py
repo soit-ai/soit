@@ -378,7 +378,7 @@ def build_evaluation_service(*, db: AsyncSession, ctx: RequestContext) -> Regres
     return RegressionEvaluationService(db=db, ctx=ctx, judge=judge)
 
 
-def build_workflow_service(*, db: Session, ctx: RequestContext) -> WorkflowService:
+def build_workflow_service(*, db: AsyncSession, ctx: RequestContext) -> WorkflowService:
     container = get_container()
     workflow_repo = WorkflowRepository(db, ctx)
     version_repo = WorkflowVersionRepository(db, ctx)

@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from datetime import timedelta
 
-from sqlmodel import Session as SQLModelSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -21,7 +21,7 @@ from app.wiring import get_container
 _detached_workflow_tasks: set[asyncio.Task] = set()
 
 
-def _claim_workflow_execution(
+async def _claim_workflow_execution(
     db,
     ctx: RequestContext,
     *,
@@ -46,8 +46,7 @@ def _claim_workflow_execution(
         attempt_count=1,
     )
     db.add(claim)
-    db.commit()
-    db.refresh(claim)
+    await db.commit()
     return claim.id
 
 
@@ -65,8 +64,8 @@ def _start_detached_execution(
     expiry makes the orphan visible.
     """
 
-    def _session() -> SQLModelSession:
-        return SQLModelSession(bind=bind, expire_on_commit=False)
+    def _session() -> AsyncSession:
+        return AsyncSession(bind=bind, expire_on_commit=False)
 
     async def _execute() -> None:
         from app.wiring.services import build_workflow_service
@@ -76,8 +75,8 @@ def _start_detached_execution(
             await service.engine.execute(plan)
 
         claim = None
-        with _session() as probe:
-            claim = probe.get(WorkflowRun, claim_id)
+        async with _session() as probe:
+            claim = await probe.get(WorkflowRun, claim_id)
             worker_id = claim.lease_owner if claim else None
             attempt = claim.attempt_count if claim else 0
         stop = asyncio.Event()
@@ -98,7 +97,7 @@ def _start_detached_execution(
                 ).run(stop, lease_lost)
             )
         try:
-            with _session() as exec_db:
+            async with _session() as exec_db:
                 try:
                     await service_engine_execute(exec_db)
                 finally:
@@ -106,7 +105,7 @@ def _start_detached_execution(
                     # (request sessions used to flush it during teardown).
                     # Closing without committing would roll the terminal
                     # status back and strand the run as "running".
-                    exec_db.commit()
+                    await exec_db.commit()
         finally:
             stop.set()
             if heartbeat is not None:
@@ -270,7 +269,7 @@ class SSEHandlers:
             # Claim the execution before it starts: the leased row with its
             # input snapshot is what makes the run recoverable evidence rather
             # than request-local state.
-            claim_id = _claim_workflow_execution(
+            claim_id = await _claim_workflow_execution(
                 db,
                 ctx,
                 run_id=run_id,
@@ -282,7 +281,7 @@ class SSEHandlers:
             # database session and survives the SSE consumer disconnecting.
             # This stream only tails persisted events.
             execution_task = _start_detached_execution(
-                bind=db.get_bind(),
+                bind=db.bind,
                 ctx=ctx,
                 plan=execution_plan,
                 claim_id=claim_id,
@@ -304,7 +303,7 @@ class SSEHandlers:
                             RunStep.workspace_id == ctx.workspace_id,
                         )
                     ).order_by(RunStep.created_at)
-                    steps = [_unwrap_model(item) for item in db.exec(steps_query).all()]
+                    steps = [_unwrap_model(item) for item in (await db.exec(steps_query)).all()]
                     for step in steps:
                         if step.id in known_step_ids:
                             continue
@@ -367,7 +366,7 @@ class SSEHandlers:
                 )
                 .execution_options(populate_existing=True)
             )
-            run = _unwrap_model(db.exec(final_query).first())
+            run = _unwrap_model((await db.exec(final_query)).first())
 
             if run:
                 yield "event: complete\n"
@@ -485,7 +484,7 @@ class SSEHandlers:
             # The execution writes from its own session, so this tailer must
             # bypass any instance this session cached earlier.
             run = _unwrap_model(
-                db.exec(run_query.execution_options(populate_existing=True)).first()
+                (await db.exec(run_query.execution_options(populate_existing=True))).first()
             )
             if not run:
                 yield "event: error\n"
@@ -505,7 +504,7 @@ class SSEHandlers:
                         RunStep.workspace_id == ctx.workspace_id,
                     )
                 )
-                last_step = db.exec(step_query).first()
+                last_step = (await db.exec(step_query)).first()
                 if last_step:
                     last_step_time = last_step.created_at
                     known_step_ids.add(last_step.id)
@@ -518,7 +517,7 @@ class SSEHandlers:
                     RunStep.created_at > last_step_time if last_step_time else True,
                 )
             ).order_by(RunStep.created_at)
-            steps = [_unwrap_model(item) for item in db.exec(steps_query).all()]
+            steps = [_unwrap_model(item) for item in (await db.exec(steps_query)).all()]
             for step in steps:
                 if step.id in known_step_ids:
                     continue
@@ -586,7 +585,7 @@ class SSEHandlers:
                             RunStep.workspace_id == ctx.workspace_id,
                         )
                     ).order_by(RunStep.created_at)
-                    steps = [_unwrap_model(item) for item in db.exec(steps_query).all()]
+                    steps = [_unwrap_model(item) for item in (await db.exec(steps_query)).all()]
                     for step in steps:
                         if step.id in known_step_ids:
                             continue
@@ -606,9 +605,9 @@ class SSEHandlers:
                     # writer is another session, so force a fresh read.
                     run = (
                         _unwrap_model(
-                            db.exec(
+                            (await db.exec(
                                 run_query.execution_options(populate_existing=True)
-                            ).first()
+                            )).first()
                         )
                         or run
                     )

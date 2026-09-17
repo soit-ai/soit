@@ -81,7 +81,7 @@ class LLMNodeExecutor(NodeExecutor):
 
         linked_response = None
         if context.response_service:
-            linked_response = context.response_service.create_linked_response(
+            linked_response = await context.response_service.create_linked_response(
                 run_id=context.run_id,
                 model=model,
                 input_json={
@@ -99,7 +99,7 @@ class LLMNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response = context.response_service.mark_running(linked_response)
+            linked_response = await context.response_service.mark_running(linked_response)
 
         try:
             response: ChatResponse = await context.llm_port.chat(
@@ -111,7 +111,7 @@ class LLMNodeExecutor(NodeExecutor):
             )
         except Exception as exc:
             if linked_response:
-                linked_response = context.response_service.fail_response(
+                linked_response = await context.response_service.fail_response(
                     response=linked_response,
                     error_code="workflow_llm_failed",
                     error_message=str(exc),
@@ -130,7 +130,7 @@ class LLMNodeExecutor(NodeExecutor):
         if linked_response:
             output_payload = self._response_output_payload(response, model)
             usage_payload = self._response_usage_payload(response)
-            linked_response = context.response_service.complete_response(
+            linked_response = await context.response_service.complete_response(
                 response=linked_response,
                 output_json=output_payload,
                 usage_json=usage_payload,

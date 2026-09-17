@@ -19,7 +19,7 @@ from app.kernel.runtime.runs.service import RunService
 from app.kernel.runtime.runs.writer import TraceWriter
 
 
-def _persist_tool_call_ledger(db, ctx, step) -> RunStepToolCall:
+async def _persist_tool_call_ledger(async_db, ctx, step) -> RunStepToolCall:
     metrics = step.metrics_json if isinstance(step.metrics_json, dict) else {}
     tool_call = metrics.get("tool_call") if isinstance(metrics.get("tool_call"), dict) else {}
     raw_result = tool_call.get("result")
@@ -44,14 +44,14 @@ def _persist_tool_call_ledger(db, ctx, step) -> RunStepToolCall:
         outbound_started_at=step.started_at,
         completed_at=step.ended_at or utc_now(),
     )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
+    async_db.add(record)
+    await async_db.commit()
+    await async_db.refresh(record)
     return record
 
 
 @pytest.mark.asyncio
-async def test_export_runs_csv_returns_rows(db, ctx):
+async def test_export_runs_csv_returns_rows(async_db, ctx):
     """CSV export includes header and run row."""
     run = Run(
         id=generate_run_id(),
@@ -67,10 +67,10 @@ async def test_export_runs_csv_returns_rows(db, ctx):
         status="succeeded",
         started_at=utc_now(),
     )
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
+    service = RunService(async_db, ctx)
     handlers = RunHandlers(service)
 
     csv_text = await handlers.export_runs_csv(ctx, limit=10)
@@ -88,7 +88,7 @@ def test_run_handlers_do_not_expose_workflow_id_alias():
 
 
 @pytest.mark.asyncio
-async def test_list_runs_filters_by_subject_scope(db, ctx):
+async def test_list_runs_filters_by_subject_scope(async_db, ctx):
     """Subject scope filters workflow runs."""
     run = Run(
         id=generate_run_id(),
@@ -104,10 +104,10 @@ async def test_list_runs_filters_by_subject_scope(db, ctx):
         status="succeeded",
         started_at=utc_now(),
     )
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
+    service = RunService(async_db, ctx)
     handlers = RunHandlers(service)
 
     response = await handlers.list_runs(ctx, subject_kind="workflow", subject_id="wf_workflow", page_size=10)
@@ -116,25 +116,25 @@ async def test_list_runs_filters_by_subject_scope(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_runs_can_include_observe_summary(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+async def test_list_runs_can_include_observe_summary(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_observe_summary",
         subject_version_id="agent_v1",
     )
-    child = trace_writer.create_run(
+    child = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
         subject_id="workflow_observe_summary",
         subject_version_id="workflow_v1",
     )
-    step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="call_workflow")
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    step = await trace_writer.create_step(run_id=run.id, step_type="tool", step_id="call_workflow")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={
@@ -153,7 +153,7 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
         request_data={"tool_ref": "wf:observe-summary"},
         response_data={"success": True},
     )
-    db.add(
+    async_db.add(
         RunCostEntry(
             run_id=run.id,
             step_id=step.id,
@@ -177,10 +177,10 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
         usage_json={},
         metadata_json={},
     )
-    db.add(response)
-    db.commit()
-    db.refresh(response)
-    db.add(
+    async_db.add(response)
+    await async_db.commit()
+    await async_db.refresh(response)
+    async_db.add(
         ResponseEvent(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -192,9 +192,9 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
             payload_json={"status": "succeeded"},
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    result = await RunHandlers(RunService(db, ctx)).list_runs(
+    result = await RunHandlers(RunService(async_db, ctx)).list_runs(
         ctx,
         include_observe_summary=True,
         page_size=10,
@@ -214,15 +214,15 @@ async def test_list_runs_can_include_observe_summary(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_runs_filters_by_observe_summary_flags(db, ctx):
-    trace_writer = TraceWriter(db, ctx)
-    tool_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_tool")
-    citation_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_citation")
-    audit_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit")
-    step = trace_writer.create_step(run_id=tool_run.id, step_type="tool", step_id="call_tool")
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(step.id, "succeeded", metrics={"tool_call": {"tool_name": "tool.demo"}})
-    audit_step = trace_writer.create_step(run_id=audit_run.id, step_type="llm", step_id="audit_llm")
+async def test_list_runs_filters_by_observe_summary_flags(async_db, ctx):
+    trace_writer = TraceWriter(async_db, ctx)
+    tool_run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_tool")
+    citation_run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_citation")
+    audit_run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit")
+    step = await trace_writer.create_step(run_id=tool_run.id, step_type="tool", step_id="call_tool")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(step.id, "succeeded", metrics={"tool_call": {"tool_name": "tool.demo"}})
+    audit_step = await trace_writer.create_step(run_id=audit_run.id, step_type="llm", step_id="audit_llm")
     await log_gateway_request(
         trace_writer=trace_writer,
         run_id=audit_run.id,
@@ -231,7 +231,7 @@ async def test_list_runs_filters_by_observe_summary_flags(db, ctx):
         request_data={"tool_ref": "tool.audit"},
         response_data={"success": True},
     )
-    db.add(
+    async_db.add(
         Response(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -244,9 +244,9 @@ async def test_list_runs_filters_by_observe_summary_flags(db, ctx):
             metadata_json={},
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    handlers = RunHandlers(RunService(db, ctx))
+    handlers = RunHandlers(RunService(async_db, ctx))
     tool_result = await handlers.list_runs(ctx, has_tool_call=True, page_size=10)
     citation_result = await handlers.list_runs(ctx, has_citation=True, page_size=10)
     audit_result = await handlers.list_runs(ctx, has_audit=True, page_size=10)
@@ -257,16 +257,16 @@ async def test_list_runs_filters_by_observe_summary_flags(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_audits_returns_entries(db, ctx):
+async def test_list_audits_returns_entries(async_db, ctx):
     """Audit entries can be queried by run_id."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="tool",
         subject_kind="tool",
         subject_id="tool_runtime",
         subject_version_id="app_v1",
     )
-    step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_audit")
+    step = await trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_audit")
 
     await log_gateway_request(
         trace_writer=trace_writer,
@@ -277,7 +277,7 @@ async def test_list_audits_returns_entries(db, ctx):
         response_data={"success": True},
     )
 
-    service = RunService(db, ctx)
+    service = RunService(async_db, ctx)
     handlers = RunHandlers(service)
     response = await handlers.list_audits(ctx, run_id=run.id, page_size=10)
 
@@ -286,13 +286,13 @@ async def test_list_audits_returns_entries(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_list_audits_can_query_workspace_audits_without_run_id(db, ctx):
+async def test_list_audits_can_query_workspace_audits_without_run_id(async_db, ctx):
     """Audit explorer can query workspace audit entries across runs."""
-    trace_writer = TraceWriter(db, ctx)
-    tool_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_tool")
-    llm_run = trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_llm")
-    tool_step = trace_writer.create_step(run_id=tool_run.id, step_type="tool", step_id="step_tool_audit")
-    llm_step = trace_writer.create_step(run_id=llm_run.id, step_type="llm", step_id="step_llm_audit")
+    trace_writer = TraceWriter(async_db, ctx)
+    tool_run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_tool")
+    llm_run = await trace_writer.create_run(mode="agent", subject_kind="agent", subject_id="agent_audit_llm")
+    tool_step = await trace_writer.create_step(run_id=tool_run.id, step_type="tool", step_id="step_tool_audit")
+    llm_step = await trace_writer.create_step(run_id=llm_run.id, step_type="llm", step_id="step_llm_audit")
 
     await log_gateway_request(
         trace_writer=trace_writer,
@@ -311,7 +311,7 @@ async def test_list_audits_can_query_workspace_audits_without_run_id(db, ctx):
         response_data={"success": True},
     )
 
-    response = await RunHandlers(RunService(db, ctx)).list_audits(
+    response = await RunHandlers(RunService(async_db, ctx)).list_audits(
         ctx,
         step_type="tool",
         gateway_type="tool",
@@ -324,26 +324,26 @@ async def test_list_audits_can_query_workspace_audits_without_run_id(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_get_run_returns_normalized_detail_contract(db, ctx):
+async def test_get_run_returns_normalized_detail_contract(async_db, ctx):
     """Run detail includes normalized explainability arrays."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_enterprise",
         subject_version_id="agent_v1",
     )
-    child = trace_writer.create_run(
+    child = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
         subject_id="wf_ticket_triage",
         subject_version_id="workflow_v1",
     )
-    step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_ticket")
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    step = await trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_ticket")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={
@@ -363,7 +363,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
             }
         },
     )
-    _persist_tool_call_ledger(db, ctx, step)
+    await _persist_tool_call_ledger(async_db, ctx, step)
     await log_gateway_request(
         trace_writer=trace_writer,
         run_id=run.id,
@@ -372,7 +372,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         request_data={"tool_ref": "wf:wf_ticket_triage"},
         response_data={"success": True},
     )
-    child_step = trace_writer.create_step(run_id=child.id, step_type="tool", step_id="step_ticket_child")
+    child_step = await trace_writer.create_step(run_id=child.id, step_type="tool", step_id="step_ticket_child")
     await log_gateway_request(
         trace_writer=trace_writer,
         run_id=child.id,
@@ -381,7 +381,7 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         request_data={"tool_ref": "builtin.ticket.create_review_ticket"},
         response_data={"success": True},
     )
-    trace_writer.record_cost(
+    await trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
         billing_basis="tokens",
@@ -412,10 +412,10 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
         usage_json={},
         metadata_json={},
     )
-    db.add(response)
-    db.commit()
-    db.refresh(response)
-    db.add(
+    async_db.add(response)
+    await async_db.commit()
+    await async_db.refresh(response)
+    async_db.add(
         ResponseEvent(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -427,9 +427,9 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
             payload_json={"response_id": response.id, "status": "succeeded"},
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    detail = await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+    detail = await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
     payload = detail.model_dump()
 
     for key in ("costs", "response_events", "tool_calls", "citations", "audits", "child_runs"):
@@ -446,26 +446,26 @@ async def test_get_run_returns_normalized_detail_contract(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_get_run_includes_governance_evidence_matrix(db, ctx):
+async def test_get_run_includes_governance_evidence_matrix(async_db, ctx):
     """Run detail exposes a machine-readable governance evidence matrix."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_governed",
         subject_version_id="agent_version_governed",
     )
-    child = trace_writer.create_run(
+    child = await trace_writer.create_run(
         mode="workflow",
         kind="workflow",
         subject_kind="workflow",
         subject_id="workflow_ticket",
         subject_version_id="workflow_version_governed",
     )
-    step = trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_governed_tool")
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    step = await trace_writer.create_step(run_id=run.id, step_type="tool", step_id="step_governed_tool")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={
@@ -495,7 +495,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
             },
         },
     )
-    _persist_tool_call_ledger(db, ctx, step)
+    await _persist_tool_call_ledger(async_db, ctx, step)
     await log_gateway_request(
         trace_writer=trace_writer,
         run_id=run.id,
@@ -508,7 +508,7 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
         },
         response_data={"success": True},
     )
-    trace_writer.record_cost(
+    await trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
         billing_basis="tokens",
@@ -532,10 +532,10 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
         usage_json={},
         metadata_json={},
     )
-    db.add(response)
-    db.commit()
-    db.refresh(response)
-    db.add(
+    async_db.add(response)
+    await async_db.commit()
+    await async_db.refresh(response)
+    async_db.add(
         ResponseEvent(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -547,9 +547,9 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
             payload_json={"response_id": response.id},
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    detail = await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+    detail = await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
     evidence = {item["key"]: item for item in detail.model_dump()["governance_evidence"]}
 
     assert set(evidence) == {
@@ -585,10 +585,10 @@ async def test_get_run_includes_governance_evidence_matrix(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_governance_evidence_reports_missing_required_items(db, ctx):
+async def test_governance_evidence_reports_missing_required_items(async_db, ctx):
     """Missing governance proof is explicit instead of silently empty."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
@@ -596,7 +596,7 @@ async def test_governance_evidence_reports_missing_required_items(db, ctx):
         subject_version_id=None,
     )
 
-    detail = await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+    detail = await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
     evidence = {item["key"]: item for item in detail.model_dump()["governance_evidence"]}
 
     assert evidence["actor_scope"]["status"] == "pass"
@@ -610,27 +610,27 @@ async def test_governance_evidence_reports_missing_required_items(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_governance_evidence_is_applicability_aware_for_direct_chat(db, ctx):
+async def test_governance_evidence_is_applicability_aware_for_direct_chat(async_db, ctx):
     """Optional agent governance surfaces do not fail a plain model response."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="response",
         kind="response",
         subject_kind="thread",
         subject_id="thread_direct_chat",
     )
-    step = trace_writer.create_step(
+    step = await trace_writer.create_step(
         run_id=run.id,
         step_type="llm",
         step_id="step_direct_chat_llm",
     )
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={"model_ref": "model:openai-main:gpt-5.5"},
     )
-    trace_writer.record_cost(
+    await trace_writer.record_cost(
         run_id=run.id,
         step_id=step.id,
         billing_basis="tokens",
@@ -652,10 +652,10 @@ async def test_governance_evidence_is_applicability_aware_for_direct_chat(db, ct
         usage_json={},
         metadata_json={},
     )
-    db.add(response)
-    db.commit()
-    db.refresh(response)
-    db.add(
+    async_db.add(response)
+    await async_db.commit()
+    await async_db.refresh(response)
+    async_db.add(
         ResponseEvent(
             tenant_id=ctx.tenant_id,
             workspace_id=ctx.workspace_id,
@@ -668,9 +668,9 @@ async def test_governance_evidence_is_applicability_aware_for_direct_chat(db, ct
             payload_json={"response_id": response.id},
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    detail = await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+    detail = await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
     evidence = {item["key"]: item for item in detail.model_dump()["governance_evidence"]}
 
     assert evidence["subject_version"]["status"] == "not_applicable"
@@ -685,23 +685,23 @@ async def test_governance_evidence_is_applicability_aware_for_direct_chat(db, ct
 
 
 @pytest.mark.asyncio
-async def test_governance_evidence_requires_proof_for_an_executed_tool(db, ctx):
+async def test_governance_evidence_requires_proof_for_an_executed_tool(async_db, ctx):
     """A real tool call keeps its audit, secret, and egress proof requirements."""
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_tool_without_proof",
         subject_version_id="agent_version_tool_without_proof",
     )
-    step = trace_writer.create_step(
+    step = await trace_writer.create_step(
         run_id=run.id,
         step_type="tool",
         step_id="step_tool_without_proof",
     )
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(
         step.id,
         "succeeded",
         metrics={
@@ -715,9 +715,9 @@ async def test_governance_evidence_requires_proof_for_an_executed_tool(db, ctx):
             }
         },
     )
-    _persist_tool_call_ledger(db, ctx, step)
+    await _persist_tool_call_ledger(async_db, ctx, step)
 
-    detail = await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+    detail = await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
     evidence = {item["key"]: item for item in detail.model_dump()["governance_evidence"]}
 
     assert evidence["tool_call"]["status"] == "pass"
@@ -728,26 +728,26 @@ async def test_governance_evidence_requires_proof_for_an_executed_tool(db, ctx):
 
 
 @pytest.mark.asyncio
-async def test_governance_evidence_fails_when_tool_step_has_no_call_ledger(db, ctx):
+async def test_governance_evidence_fails_when_tool_step_has_no_call_ledger(async_db, ctx):
     """A tool step must not be treated as non-applicable when its ledger is missing."""
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="agent",
         kind="agent",
         subject_kind="agent",
         subject_id="agent_tool_missing_ledger",
         subject_version_id="agent_version_tool_missing_ledger",
     )
-    step = trace_writer.create_step(
+    step = await trace_writer.create_step(
         run_id=run.id,
         step_type="tool",
         step_id="step_tool_missing_ledger",
     )
-    trace_writer.update_step_status(step.id, "running")
-    trace_writer.update_step_status(step.id, "succeeded")
+    await trace_writer.update_step_status(step.id, "running")
+    await trace_writer.update_step_status(step.id, "succeeded")
 
     with pytest.raises(KernelError, match="missing a run_step_tool_calls record"):
-        await RunHandlers(RunService(db, ctx)).get_run(ctx, run.id)
+        await RunHandlers(RunService(async_db, ctx)).get_run(ctx, run.id)
 
 

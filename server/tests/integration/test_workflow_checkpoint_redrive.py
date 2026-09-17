@@ -71,8 +71,8 @@ def _plan(workflow_id: str, run_id: str, *, fail_second: bool = False) -> Execut
     )
 
 
-def _seed_workflow(db: Session, ctx: RequestContext, workflow_id: str) -> None:
-    db.add(
+async def _seed_workflow(async_db: Session, ctx: RequestContext, workflow_id: str) -> None:
+    async_db.add(
         Workflow(
             id=workflow_id,
             tenant_id=ctx.tenant_id,
@@ -80,24 +80,24 @@ def _seed_workflow(db: Session, ctx: RequestContext, workflow_id: str) -> None:
             name=workflow_id,
         )
     )
-    db.commit()
+    await async_db.commit()
 
 
 @pytest.mark.asyncio
 @patch("app.wiring.get_container")
 async def test_checkpoint_records_progress_and_clears_on_success(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
-    _seed_workflow(db, ctx, "wf-ckpt-ok")
+    await _seed_workflow(async_db, ctx, "wf-ckpt-ok")
 
-    engine = ExecutionEngine(db, ctx, TraceWriter(db, ctx), response_service=None)
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx), response_service=None)
     await engine.execute(_plan("wf-ckpt-ok", "run_ckpt_ok"))
 
     row = (
-        db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_ckpt_ok"))
+        (await async_db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_ckpt_ok")))
         .scalars()
         .one()
     )
@@ -110,18 +110,18 @@ async def test_checkpoint_records_progress_and_clears_on_success(
 @patch("app.wiring.get_container")
 async def test_failed_run_keeps_a_checkpoint_of_completed_nodes(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
-    _seed_workflow(db, ctx, "wf-ckpt-fail")
+    await _seed_workflow(async_db, ctx, "wf-ckpt-fail")
 
-    engine = ExecutionEngine(db, ctx, TraceWriter(db, ctx), response_service=None)
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx), response_service=None)
     with pytest.raises(ValidationError):
         await engine.execute(_plan("wf-ckpt-fail", "run_ckpt_fail", fail_second=True))
 
     row = (
-        db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_ckpt_fail"))
+        (await async_db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_ckpt_fail")))
         .scalars()
         .one()
     )
@@ -139,18 +139,18 @@ async def test_failed_run_keeps_a_checkpoint_of_completed_nodes(
 @patch("app.wiring.get_container")
 async def test_redrive_resumes_from_checkpoint_without_rerunning_done_nodes(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
-    _seed_workflow(db, ctx, "wf-redrive")
+    await _seed_workflow(async_db, ctx, "wf-redrive")
 
-    engine = ExecutionEngine(db, ctx, TraceWriter(db, ctx), response_service=None)
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx), response_service=None)
     with pytest.raises(ValidationError):
         await engine.execute(_plan("wf-redrive", "run_redrive", fail_second=True))
 
     row = (
-        db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_redrive"))
+        (await async_db.execute(select(WorkflowRun).where(WorkflowRun.run_id == "run_redrive")))
         .scalars()
         .one()
     )
@@ -159,12 +159,12 @@ async def test_redrive_resumes_from_checkpoint_without_rerunning_done_nodes(
     # Stage the redrive the way the dead-letter source does.
     row.status = "queued"
     row.lease_owner = "redrive-test"
-    db.add(row)
-    run = db.get(Run, "run_redrive")
+    async_db.add(row)
+    run = await async_db.get(Run, "run_redrive")
     assert run is not None
     run.status = "retrying"
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
     # The healthy plan stands in for a fixed workflow version.
     result = await engine.redrive_workflow(
@@ -174,17 +174,17 @@ async def test_redrive_resumes_from_checkpoint_without_rerunning_done_nodes(
     )
 
     assert result.get("value") == 1
-    refreshed = db.get(WorkflowRun, row.id)
+    refreshed = await async_db.get(WorkflowRun, row.id)
     assert refreshed is not None
     assert refreshed.status == "succeeded"
     assert refreshed.lease_owner is None
     steps_for_a = (
-        db.execute(
+        (await async_db.execute(
             select(RunStep).where(
                 RunStep.run_id == "run_redrive",
                 RunStep.node_id == "a",
             )
-        )
+        ))
         .scalars()
         .all()
     )

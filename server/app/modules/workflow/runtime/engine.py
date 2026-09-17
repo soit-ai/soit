@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import generate_run_id
 from app.kernel.commons.time import utc_now
@@ -33,7 +33,7 @@ class ExecutionEngine:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         trace_writer: TraceWriter,
         response_service: ResponseService | None = None,
@@ -142,7 +142,7 @@ class ExecutionEngine:
         if plan.inputs is not None:
             input_summary = json.dumps(plan.inputs, ensure_ascii=True, default=str)[:8192]
 
-        run = self.trace_writer.create_run(
+        run = await self.trace_writer.create_run(
             mode=plan.mode,
             subject_kind=plan.subject_kind,
             subject_id=plan.subject_id,
@@ -153,7 +153,7 @@ class ExecutionEngine:
 
         # Transition to running
         self.state_machine.transition_run(run, RunStatus.RUNNING.value)
-        self.trace_writer.update_run_status(run.id, run.status)
+        await self.trace_writer.update_run_status(run.id, run.status)
 
         try:
             # Execute based on mode
@@ -175,7 +175,7 @@ class ExecutionEngine:
                     run,
                     RunStatus.WAITING_APPROVAL.value,
                 )
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run.id,
                     run.status,
                     output_summary="waiting_approval",
@@ -184,7 +184,7 @@ class ExecutionEngine:
 
             # Transition to succeeded (metrics are recorded in trace_writer)
             self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=str(result)[:8192] if result else None,
@@ -194,13 +194,13 @@ class ExecutionEngine:
         except asyncio.CancelledError:
             # Transition to canceled
             self.state_machine.transition_run(run, RunStatus.CANCELED.value)
-            self.trace_writer.update_run_status(run.id, run.status)
+            await self.trace_writer.update_run_status(run.id, run.status)
             raise
         except Exception as exc:
             # Transition to failed (metrics are recorded in trace_writer)
             error_message = str(exc)
             self.state_machine.transition_run(run, RunStatus.FAILED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=error_message[:8192],
@@ -216,7 +216,7 @@ class ExecutionEngine:
     ) -> dict[str, Any]:
         """Resume one workflow from a durable approval checkpoint."""
 
-        run = self.db.get(Run, plan.run_id)
+        run = await self.db.get(Run, plan.run_id)
         if (
             run is None
             or run.tenant_id != self.ctx.tenant_id
@@ -225,7 +225,7 @@ class ExecutionEngine:
         ):
             raise ValueError("Workflow run is not waiting for approval")
         self.state_machine.transition_run(run, RunStatus.RUNNING.value)
-        self.trace_writer.update_run_status(run.id, run.status)
+        await self.trace_writer.update_run_status(run.id, run.status)
         try:
             result = await self._execute_workflow(
                 plan,
@@ -237,14 +237,14 @@ class ExecutionEngine:
                     run,
                     RunStatus.WAITING_APPROVAL.value,
                 )
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run.id,
                     run.status,
                     output_summary="waiting_approval",
                 )
                 return result
             self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=str(result)[:8192] if result else None,
@@ -252,7 +252,7 @@ class ExecutionEngine:
             return result
         except Exception as exc:
             self.state_machine.transition_run(run, RunStatus.FAILED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=str(exc)[:8192],
@@ -274,7 +274,7 @@ class ExecutionEngine:
         same run twice.
         """
 
-        run = self.db.get(Run, plan.run_id)
+        run = await self.db.get(Run, plan.run_id)
         if (
             run is None
             or run.tenant_id != self.ctx.tenant_id
@@ -283,7 +283,7 @@ class ExecutionEngine:
         ):
             raise ValueError("Workflow run is not staged for redrive")
         self.state_machine.transition_run(run, RunStatus.RUNNING.value)
-        self.trace_writer.update_run_status(run.id, run.status)
+        await self.trace_writer.update_run_status(run.id, run.status)
         try:
             result = await self._execute_workflow(
                 plan,
@@ -296,14 +296,14 @@ class ExecutionEngine:
                     run,
                     RunStatus.WAITING_APPROVAL.value,
                 )
-                self.trace_writer.update_run_status(
+                await self.trace_writer.update_run_status(
                     run.id,
                     run.status,
                     output_summary="waiting_approval",
                 )
                 return result
             self.state_machine.transition_run(run, RunStatus.SUCCEEDED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=str(result)[:8192] if result else None,
@@ -311,7 +311,7 @@ class ExecutionEngine:
             return result
         except Exception as exc:
             self.state_machine.transition_run(run, RunStatus.FAILED.value)
-            self.trace_writer.update_run_status(
+            await self.trace_writer.update_run_status(
                 run.id,
                 run.status,
                 output_summary=str(exc)[:8192],
@@ -352,17 +352,17 @@ class ExecutionEngine:
 
         if not all_messages:
             raise ValueError("No messages provided for chat execution")
-        step = self.trace_writer.create_step(
+        step = await self.trace_writer.create_step(
             run_id=plan.run_id,
             step_type="llm",
             input_summary=str(messages_data)[:8192] if messages_data else None,
         )
         self.state_machine.transition_step(step, "running")
-        self.trace_writer.update_step_status(step.id, step.status)
+        await self.trace_writer.update_step_status(step.id, step.status)
 
         linked_response = None
         if self.response_service:
-            linked_response = self.response_service.create_linked_response(
+            linked_response = await self.response_service.create_linked_response(
                 run_id=plan.run_id,
                 model=model,
                 provider=self._resolve_provider(model),
@@ -378,7 +378,7 @@ class ExecutionEngine:
                     "step_id": step.id,
                 },
             )
-            linked_response = self.response_service.mark_running(linked_response)
+            linked_response = await self.response_service.mark_running(linked_response)
 
         try:
             response = await llm_port.chat(
@@ -392,7 +392,7 @@ class ExecutionEngine:
             response_text = response.text
 
             self.state_machine.transition_step(step, "succeeded")
-            self.trace_writer.update_step_status(
+            await self.trace_writer.update_step_status(
                 step.id,
                 step.status,
                 output_summary=response_text[:8192] if response_text else None,
@@ -412,7 +412,7 @@ class ExecutionEngine:
                     prompt_tokens=response.tokens_prompt,
                     completion_tokens=response.tokens_completion,
                 )
-                linked_response = self.response_service.complete_response(
+                linked_response = await self.response_service.complete_response(
                     response=linked_response,
                     output_json=output_payload,
                     usage_json=usage_payload,
@@ -441,7 +441,7 @@ class ExecutionEngine:
             }
         except Exception as e:
             self.state_machine.transition_step(step, "failed")
-            self.trace_writer.update_step_status(
+            await self.trace_writer.update_step_status(
                 step.id,
                 step.status,
                 output_summary=str(e)[:8192],
@@ -449,7 +449,7 @@ class ExecutionEngine:
                 error_message=str(e),
             )
             if linked_response:
-                linked_response = self.response_service.fail_response(
+                linked_response = await self.response_service.fail_response(
                     response=linked_response,
                     error_code="chat_execution_failed",
                     error_message=str(e),
@@ -481,7 +481,7 @@ class ExecutionEngine:
         nodes_dict = plan.plan_data.get("nodes") or {}
         total_nodes = len(nodes_dict)
         if workflow_run_id:
-            workflow_run_row = self.db.get(WorkflowRun, workflow_run_id)
+            workflow_run_row = await self.db.get(WorkflowRun, workflow_run_id)
             if (
                 workflow_run_row is None
                 or workflow_run_row.tenant_id != self.ctx.tenant_id
@@ -493,7 +493,7 @@ class ExecutionEngine:
             workflow_run_row.status = "running"
             workflow_run_row.updated_at = utc_now()
             self.db.add(workflow_run_row)
-            self.db.flush()
+            await self.db.flush()
         else:
             from sqlalchemy import select as sa_select
 
@@ -501,14 +501,14 @@ class ExecutionEngine:
             # input snapshot) before execution starts. Adopt that row instead
             # of creating a duplicate aggregate for the same run.
             claimed = (
-                self.db.execute(
+                (await self.db.execute(
                     sa_select(WorkflowRun).where(
                         WorkflowRun.tenant_id == self.ctx.tenant_id,
                         WorkflowRun.workspace_id == self.ctx.workspace_id,
                         WorkflowRun.run_id == plan.run_id,
                         WorkflowRun.status.in_(("queued", "running")),
                     )
-                )
+                ))
                 .scalars()
                 .first()
             )
@@ -520,7 +520,7 @@ class ExecutionEngine:
                 claimed.waiting_nodes = total_nodes
                 claimed.updated_at = utc_now()
                 self.db.add(claimed)
-                self.db.flush()
+                await self.db.flush()
                 workflow_run_row = claimed
             else:
                 workflow_run_row = WorkflowRun(
@@ -535,7 +535,7 @@ class ExecutionEngine:
                     status="running",
                 )
                 self.db.add(workflow_run_row)
-                self.db.flush()
+                await self.db.flush()
             workflow_run_id = workflow_run_row.id
 
         # Get ports from container
@@ -585,7 +585,7 @@ class ExecutionEngine:
                 checkpoint=checkpoint,
             )
         except Exception:
-            row = self.db.get(WorkflowRun, workflow_run_id)
+            row = await self.db.get(WorkflowRun, workflow_run_id)
             if row is not None:
                 row.status = "failed"
                 # The execution attempt is over; a terminal row must never
@@ -594,10 +594,10 @@ class ExecutionEngine:
                 row.lease_expires_at = None
                 row.updated_at = utc_now()
                 self.db.add(row)
-            self.db.commit()
+            await self.db.commit()
             raise
 
-        row = self.db.get(WorkflowRun, workflow_run_id)
+        row = await self.db.get(WorkflowRun, workflow_run_id)
         if row is not None:
             if result.get("status") == "waiting_approval":
                 row.status = "waiting_approval"
@@ -609,7 +609,7 @@ class ExecutionEngine:
             row.lease_expires_at = None
             row.updated_at = utc_now()
             self.db.add(row)
-        self.db.commit()
+        await self.db.commit()
 
         return result
 
@@ -645,7 +645,7 @@ class ExecutionEngine:
         tools = plan.inputs.get("tools", [])
         linked_response = None
         if self.response_service:
-            linked_response = self.response_service.create_linked_response(
+            linked_response = await self.response_service.create_linked_response(
                 run_id=plan.run_id,
                 model=model,
                 provider=self._resolve_provider(model),
@@ -658,7 +658,7 @@ class ExecutionEngine:
                 },
                 metadata_json={"source": "execution_engine.agent"},
             )
-            linked_response = self.response_service.mark_running(linked_response)
+            linked_response = await self.response_service.mark_running(linked_response)
 
         # Convert messages to ChatMessage format
         messages = [
@@ -687,7 +687,7 @@ class ExecutionEngine:
             iteration += 1
 
             # Create step for agent iteration
-            step = self.trace_writer.create_step(
+            step = await self.trace_writer.create_step(
                 run_id=plan.run_id,
                 step_type="agent_plan",
                 input_summary=f"Agent iteration {iteration}",
@@ -695,7 +695,7 @@ class ExecutionEngine:
 
             # Transition step to running
             self.state_machine.transition_step(step, "running")
-            self.trace_writer.update_step_status(step.id, step.status)
+            await self.trace_writer.update_step_status(step.id, step.status)
 
             try:
                 # Call LLM to get response or tool call
@@ -740,16 +740,16 @@ class ExecutionEngine:
                     if tool_ref and tool_ref in [t.get("ref") or t.get("name") for t in tools]:
                         tool_call_count += 1
                         # Create step for tool execution
-                        tool_step = self.trace_writer.create_step(
+                        tool_step = await self.trace_writer.create_step(
                             run_id=plan.run_id,
                             step_type="tool",
                             input_summary=f"Tool: {tool_ref}",
                         )
 
                         self.state_machine.transition_step(tool_step, "running")
-                        self.trace_writer.update_step_status(tool_step.id, tool_step.status)
+                        await self.trace_writer.update_step_status(tool_step.id, tool_step.status)
                         if linked_response:
-                            self.response_service.append_event(
+                            await self.response_service.append_event(
                                 response=linked_response,
                                 event_type="tool.call.requested",
                                 payload={
@@ -764,7 +764,7 @@ class ExecutionEngine:
                                 },
                                 source="execution_engine",
                             )
-                            self.response_service.append_event(
+                            await self.response_service.append_event(
                                 response=linked_response,
                                 event_type="tool.call.started",
                                 payload={
@@ -778,7 +778,7 @@ class ExecutionEngine:
                                 },
                                 source="execution_engine",
                             )
-                        self.trace_writer.update_step_metrics(
+                        await self.trace_writer.update_step_metrics(
                             tool_step.id,
                             self._tool_metrics(
                                 tool_ref=tool_ref,
@@ -809,7 +809,7 @@ class ExecutionEngine:
 
                             # Update tool step status
                             self.state_machine.transition_step(tool_step, "succeeded")
-                            self.trace_writer.update_step_status(
+                            await self.trace_writer.update_step_status(
                                 tool_step.id,
                                 "succeeded",
                                 output_summary=(
@@ -832,7 +832,7 @@ class ExecutionEngine:
                                 ),
                             )
                             if linked_response:
-                                self.response_service.append_event(
+                                await self.response_service.append_event(
                                     response=linked_response,
                                     event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
                                     payload={
@@ -862,7 +862,7 @@ class ExecutionEngine:
                             # Tool execution failed
                             error_message = str(e)
                             self.state_machine.transition_step(tool_step, "failed")
-                            self.trace_writer.update_step_status(
+                            await self.trace_writer.update_step_status(
                                 tool_step.id,
                                 "failed",
                                 metrics=self._tool_metrics(
@@ -877,7 +877,7 @@ class ExecutionEngine:
                                 error_message=error_message[:1024],
                             )
                             if linked_response:
-                                self.response_service.append_event(
+                                await self.response_service.append_event(
                                     response=linked_response,
                                     event_type="tool.call.failed",
                                     payload={
@@ -908,7 +908,7 @@ class ExecutionEngine:
 
                 # Update planning step status
                 self.state_machine.transition_step(step, "succeeded")
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     output_summary=f"Iteration {iteration} completed",
@@ -918,7 +918,7 @@ class ExecutionEngine:
                 # Planning iteration failed
                 error_message = str(e)
                 self.state_machine.transition_step(step, "failed")
-                self.trace_writer.update_step_status(
+                await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
                     error_code="AGENT_ERROR",
@@ -941,7 +941,7 @@ class ExecutionEngine:
                 completion_tokens=total_completion_tokens,
                 tool_calls=tool_call_count,
             )
-            linked_response = self.response_service.complete_response(
+            linked_response = await self.response_service.complete_response(
                 response=linked_response,
                 output_json=output_payload,
                 usage_json=usage_payload,

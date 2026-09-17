@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any
 
-from sqlmodel import Session as SQLModelSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
@@ -34,14 +34,14 @@ def start_detached_redrive(
 ) -> asyncio.Task:
     """Resume the staged run on an independent session with lease heartbeat."""
 
-    def _session() -> SQLModelSession:
-        return SQLModelSession(bind=bind, expire_on_commit=False)
+    def _session() -> AsyncSession:
+        return AsyncSession(bind=bind, expire_on_commit=False)
 
     async def _execute() -> None:
         from app.wiring.services import build_workflow_service
 
-        with _session() as probe:
-            claim = probe.get(WorkflowRun, workflow_run_id)
+        async with _session() as probe:
+            claim = await probe.get(WorkflowRun, workflow_run_id)
             worker_id = claim.lease_owner if claim else None
             attempt = claim.attempt_count if claim else 0
         stop = asyncio.Event()
@@ -62,7 +62,7 @@ def start_detached_redrive(
                 ).run(stop, lease_lost)
             )
         try:
-            with _session() as exec_db:
+            async with _session() as exec_db:
                 try:
                     service = build_workflow_service(db=exec_db, ctx=ctx)
                     await service.engine.redrive_workflow(
@@ -81,7 +81,7 @@ def start_detached_redrive(
                     # The engine leaves its final run transition uncommitted;
                     # closing without committing would roll the terminal
                     # status back and strand the run.
-                    exec_db.commit()
+                    await exec_db.commit()
         finally:
             stop.set()
             if heartbeat is not None:

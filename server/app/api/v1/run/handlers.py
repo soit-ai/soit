@@ -62,7 +62,7 @@ class RunHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        runs = self.service.list_runs(
+        runs = await self.service.list_runs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -86,7 +86,7 @@ class RunHandlers:
         items = runs[:limit]
         next_offset = offset + len(items) if has_next else None
         total = (
-            self.service.count_runs(
+            await self.service.count_runs(
                 mode=mode,
                 kind=kind,
                 subject_version_id=subject_version_id,
@@ -124,7 +124,7 @@ class RunHandlers:
         include_cost: bool = True,
     ) -> RunDetailResponse:
         """Get run detail."""
-        return self.service.get_run(
+        return await self.service.get_run(
             run_id,
             include_steps=include_steps,
             include_artifacts=include_artifacts,
@@ -154,7 +154,7 @@ class RunHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        steps = self.service.list_steps(
+        steps = await self.service.list_steps(
             run_id=run_id,
             trace_id=trace_id,
             step_id=step_id,
@@ -173,7 +173,7 @@ class RunHandlers:
         items = steps[:limit]
         next_offset = offset + len(items) if has_next else None
         total = (
-            self.service.count_steps(
+            await self.service.count_steps(
                 run_id=run_id,
                 trace_id=trace_id,
                 step_id=step_id,
@@ -213,7 +213,7 @@ class RunHandlers:
         ended_before: datetime | None = None,
     ) -> list[RunStepMetricsSummaryResponse]:
         """Summarize run step metrics by type/status."""
-        return self.service.summarize_step_metrics(
+        return await self.service.summarize_step_metrics(
             run_id=run_id,
             trace_id=trace_id,
             step_id=step_id,
@@ -241,7 +241,7 @@ class RunHandlers:
         started_before: datetime | None = None,
     ) -> RunCostSummaryResponse:
         """Summarize run costs."""
-        return self.service.summarize_costs(
+        return await self.service.summarize_costs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -262,7 +262,7 @@ class RunHandlers:
         include_sandbox: bool = False,
     ) -> RunWindowSummaryResponse:
         """Summarize run outcomes and spend inside one window."""
-        return self.service.summarize_run_window(
+        return await self.service.summarize_run_window(
             since=since,
             until=until,
             include_sandbox=include_sandbox,
@@ -277,7 +277,7 @@ class RunHandlers:
         include_sandbox: bool = False,
     ) -> list[RunToolInvocationResponse]:
         """Count governed tool invocations per tool inside a window."""
-        return self.service.summarize_tool_invocations(
+        return await self.service.summarize_tool_invocations(
             since=since,
             until=until,
             include_sandbox=include_sandbox,
@@ -298,7 +298,7 @@ class RunHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        entries = self.service.list_cost_entries(
+        entries = await self.service.list_cost_entries(
             since=since,
             until=until,
             run_id=run_id,
@@ -332,7 +332,7 @@ class RunHandlers:
         started_before: datetime | None = None,
     ) -> list[RunCostDailyResponse]:
         """Summarize run costs by day."""
-        return self.service.summarize_costs_by_day(
+        return await self.service.summarize_costs_by_day(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -359,7 +359,7 @@ class RunHandlers:
         started_before: datetime | None = None,
     ) -> list[RunCostBySubjectResponse]:
         """Summarize run costs by subject version."""
-        return self.service.summarize_costs_by_subject(
+        return await self.service.summarize_costs_by_subject(
             mode=mode,
             kind=kind,
             subject_version_ids=subject_version_ids,
@@ -386,7 +386,7 @@ class RunHandlers:
         kind: str | None = None,
     ) -> list[RunCostByModeResponse]:
         """Summarize run costs by mode."""
-        return self.service.summarize_costs_by_mode(
+        return await self.service.summarize_costs_by_mode(
             mode=mode,
             subject_version_id=subject_version_id,
             subject_version_ids=subject_version_ids,
@@ -413,7 +413,7 @@ class RunHandlers:
         started_before: datetime | None = None,
     ) -> list[RunCostByProviderResponse]:
         """Summarize run costs by provider."""
-        return self.service.summarize_costs_by_provider(
+        return await self.service.summarize_costs_by_provider(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -440,7 +440,7 @@ class RunHandlers:
         started_before: datetime | None = None,
     ) -> list[RunCostByModelResponse]:
         """Summarize run costs by model."""
-        return self.service.summarize_costs_by_model(
+        return await self.service.summarize_costs_by_model(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -470,7 +470,7 @@ class RunHandlers:
         limit: int = 1000,
     ) -> str:
         """Export runs to CSV."""
-        runs = self.service.list_runs(
+        runs = await self.service.list_runs(
             mode=mode,
             kind=kind,
             subject_version_id=subject_version_id,
@@ -543,7 +543,7 @@ class RunHandlers:
         offset = token_obj.offset if token_obj else 0
         limit_plus = limit + 1
 
-        entries = self.service.list_audits(
+        entries = await self.service.list_audits(
             run_id=run_id,
             step_id=step_id,
             step_type=step_type,
@@ -562,7 +562,7 @@ class RunHandlers:
         items = entries[:limit]
         next_offset = offset + len(items) if has_next else None
         total = (
-            self.service.count_audits(
+            await self.service.count_audits(
                 run_id=run_id,
                 step_id=step_id,
                 step_type=step_type,

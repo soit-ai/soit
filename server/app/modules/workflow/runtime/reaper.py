@@ -15,7 +15,7 @@ import logging
 from collections.abc import Callable
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.runtime.db.models.runs import Run
@@ -32,7 +32,7 @@ ORPHANED_ERROR_MESSAGE = (
 _TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "expired"}
 
 
-def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
+async def reap_orphaned_workflow_runs(db: AsyncSession, *, limit: int = 50) -> int:
     """Fail running workflow rows whose lease expired. Returns rows reaped.
 
     Rows are locked with ``SKIP LOCKED`` so concurrent sweeps — every API
@@ -41,22 +41,24 @@ def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
     """
     now = utc_now()
     orphans = (
-        db.execute(
-            select(WorkflowRun)
-            .where(
-                WorkflowRun.status == "running",
-                WorkflowRun.lease_expires_at.is_not(None),
-                WorkflowRun.lease_expires_at < now,
+        (
+            await db.execute(
+                select(WorkflowRun)
+                .where(
+                    WorkflowRun.status == "running",
+                    WorkflowRun.lease_expires_at.is_not(None),
+                    WorkflowRun.lease_expires_at < now,
+                )
+                .limit(limit)
+                .with_for_update(skip_locked=True)
             )
-            .limit(limit)
-            .with_for_update(skip_locked=True)
         )
         .scalars()
         .all()
     )
     if not orphans:
         # Release the snapshot this sweep opened.
-        db.rollback()
+        await db.rollback()
         return 0
     reaped = 0
     for row in orphans:
@@ -66,7 +68,7 @@ def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
         row.updated_at = now
         db.add(row)
 
-        run = db.get(Run, row.run_id)
+        run = await db.get(Run, row.run_id)
         if run is not None and run.status not in _TERMINAL_RUN_STATUSES:
             run.status = "failed"
             run.error_code = ORPHANED_ERROR_CODE
@@ -80,30 +82,28 @@ def reap_orphaned_workflow_runs(db: Session, *, limit: int = 50) -> int:
             extra={"workflow_run_id": row.id, "run_id": row.run_id},
         )
         reaped += 1
-    db.commit()
+    await db.commit()
     return reaped
 
 
 async def run_reaper_loop(
-    db_factory: Callable[[], Session],
+    db_factory: Callable[[], AsyncSession],
     *,
     interval_seconds: float,
 ) -> None:
     """Periodically sweep for orphaned workflow runs."""
     interval = max(5.0, float(interval_seconds or 0))
 
-    def _sweep() -> None:
+    async def _sweep() -> None:
         db = db_factory()
         try:
-            reap_orphaned_workflow_runs(db)
+            await reap_orphaned_workflow_runs(db)
         finally:
-            db.close()
+            await db.close()
 
     while True:
         try:
-            # The sweep is synchronous database work; keep it off the event
-            # loop so a slow query cannot stall the API process.
-            await asyncio.to_thread(_sweep)
+            await _sweep()
         except Exception:
             logger.exception("Workflow orphan sweep failed")
         await asyncio.sleep(interval)

@@ -115,7 +115,7 @@ class ToolNodeExecutor(NodeExecutor):
             and context.trace_writer
             and context.resume_tool_run_step_id
         ):
-            tool_step = context.trace_writer.db.get(
+            tool_step = await context.trace_writer.db.get(
                 RunStep,
                 context.resume_tool_run_step_id,
             )
@@ -129,7 +129,7 @@ class ToolNodeExecutor(NodeExecutor):
             tool_run_step_id = tool_step.id
         elif context.trace_writer:
             prior_claim = (
-                tool_execution_service.get_by_call(
+                await tool_execution_service.get_by_call(
                     run_id=context.run_id,
                     tool_call_id=tool_call_id,
                 )
@@ -142,7 +142,7 @@ class ToolNodeExecutor(NodeExecutor):
                 # orphaned queued step in the trace.
                 tool_run_step_id = prior_claim.run_step.id
             else:
-                tool_step = context.trace_writer.create_step(
+                tool_step = await context.trace_writer.create_step(
                     run_id=context.run_id,
                     step_type="tool",
                     step_id=f"tool:{node_id}:{node_attempt_step_id}",
@@ -180,11 +180,11 @@ class ToolNodeExecutor(NodeExecutor):
             and context.response_service
             and context.resume_response_id
         ):
-            linked_response = context.response_service.get_response(
+            linked_response = await context.response_service.get_response(
                 context.resume_response_id
             )
         elif context.response_service:
-            linked_response = context.response_service.create_linked_response(
+            linked_response = await context.response_service.create_linked_response(
                 run_id=context.run_id,
                 input_json={
                     "tool_ref": tool_ref,
@@ -200,7 +200,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "node_type": node.get("type"),
                 },
             )
-            linked_response = context.response_service.mark_running(linked_response)
+            linked_response = await context.response_service.mark_running(linked_response)
 
         tool_policy = resolve_tool_policy(
             tool_ref=str(tool_ref),
@@ -271,7 +271,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "risk_level": risk_level,
                 }
                 if tool_execution_service is not None and tool_run_step_id:
-                    waiting_claim = tool_execution_service.prepare_waiting_approval(
+                    waiting_claim = await tool_execution_service.prepare_waiting_approval(
                         ToolExecutionCommand(
                             run_id=context.run_id,
                             run_step_id=tool_run_step_id,
@@ -283,7 +283,7 @@ class ToolNodeExecutor(NodeExecutor):
                         )
                     )
                     tool_run_step_id = waiting_claim.run_step.id
-                    context.trace_writer.update_step_metrics(
+                    await context.trace_writer.update_step_metrics(
                         tool_run_step_id,
                         build_tool_metrics(
                             status=approval_status,
@@ -291,7 +291,7 @@ class ToolNodeExecutor(NodeExecutor):
                         ),
                     )
                 if linked_response:
-                    context.response_service.append_event(
+                    await context.response_service.append_event(
                         response=linked_response,
                         event_type="tool.call.requested",
                         payload={
@@ -306,7 +306,7 @@ class ToolNodeExecutor(NodeExecutor):
                         },
                         source="workflow",
                     )
-                    context.response_service.append_event(
+                    await context.response_service.append_event(
                         response=linked_response,
                         event_type="tool.call.approval_required",
                         payload={
@@ -358,7 +358,7 @@ class ToolNodeExecutor(NodeExecutor):
                 return output
 
         if tool_execution_service is not None:
-            tool_execution_claim = tool_execution_service.claim(
+            tool_execution_claim = await tool_execution_service.claim(
                 ToolExecutionCommand(
                     run_id=context.run_id,
                     run_step_id=tool_run_step_id,
@@ -377,7 +377,7 @@ class ToolNodeExecutor(NodeExecutor):
             tool_run_step_id = tool_execution_claim.run_step.id
         if linked_response:
             if not resuming_approval:
-                context.response_service.append_event(
+                await context.response_service.append_event(
                     response=linked_response,
                     event_type="tool.call.requested",
                     payload={
@@ -392,7 +392,7 @@ class ToolNodeExecutor(NodeExecutor):
                     },
                     source="workflow",
                 )
-            context.response_service.append_event(
+            await context.response_service.append_event(
                 response=linked_response,
                 event_type="tool.call.started",
                 payload={
@@ -407,7 +407,7 @@ class ToolNodeExecutor(NodeExecutor):
                 source="workflow",
             )
         if context.trace_writer and tool_run_step_id:
-            context.trace_writer.update_step_metrics(
+            await context.trace_writer.update_step_metrics(
                 tool_run_step_id,
                 build_tool_metrics(
                     status="started",
@@ -424,7 +424,7 @@ class ToolNodeExecutor(NodeExecutor):
                     raise RuntimeError("Durable workflow tool replay is unavailable")
             else:
                 if tool_execution_claim is not None:
-                    tool_execution_service.mark_running(tool_execution_claim.record.id)
+                    await tool_execution_service.mark_running(tool_execution_claim.record.id)
                 response = await context.tool_port.invoke(
                     tool_ref=tool_ref,
                     parameters=parameters,
@@ -444,9 +444,9 @@ class ToolNodeExecutor(NodeExecutor):
                     )
         except Exception as exc:
             if tool_execution_claim is not None and not tool_execution_claim.replayed:
-                tool_execution_service.fail(tool_execution_claim.record.id, exc)
+                await tool_execution_service.fail(tool_execution_claim.record.id, exc)
             if context.trace_writer and tool_run_step_id:
-                context.trace_writer.update_step_metrics(
+                await context.trace_writer.update_step_metrics(
                     tool_run_step_id,
                     build_tool_metrics(
                         status="failed",
@@ -456,7 +456,7 @@ class ToolNodeExecutor(NodeExecutor):
                     ),
                 )
             if linked_response:
-                linked_response = context.response_service.fail_response(
+                linked_response = await context.response_service.fail_response(
                     response=linked_response,
                     error_code="workflow_tool_failed",
                     error_message=str(exc),
@@ -470,7 +470,7 @@ class ToolNodeExecutor(NodeExecutor):
                         "error": {"code": "workflow_tool_failed", "message": str(exc)},
                     },
                 )
-                context.response_service.append_event(
+                await context.response_service.append_event(
                     response=linked_response,
                     event_type="tool.call.failed",
                     payload={
@@ -491,7 +491,7 @@ class ToolNodeExecutor(NodeExecutor):
             response_metadata = response.metadata or {}
             effective_tool_type = str(response_metadata.get("source_kind") or "builtin")
             if context.trace_writer and tool_run_step_id:
-                context.trace_writer.update_step_metrics(
+                await context.trace_writer.update_step_metrics(
                     tool_run_step_id,
                     build_tool_metrics(
                         status="failed",
@@ -502,7 +502,7 @@ class ToolNodeExecutor(NodeExecutor):
                     ),
                 )
             if linked_response:
-                linked_response = context.response_service.fail_response(
+                linked_response = await context.response_service.fail_response(
                     response=linked_response,
                     error_code="workflow_tool_failed",
                     error_message=response.error or "Tool execution failed",
@@ -516,7 +516,7 @@ class ToolNodeExecutor(NodeExecutor):
                         "error": {"code": "workflow_tool_failed", "message": response.error or "Tool execution failed"},
                     },
                 )
-                context.response_service.append_event(
+                await context.response_service.append_event(
                     response=linked_response,
                     event_type="tool.call.failed",
                     payload={
@@ -540,7 +540,7 @@ class ToolNodeExecutor(NodeExecutor):
         persisted_result = summarize_tool_payload(result_payload)
         persisted_metadata = summarize_tool_payload(response_metadata)
         if context.trace_writer and tool_run_step_id:
-            context.trace_writer.update_step_metrics(
+            await context.trace_writer.update_step_metrics(
                 tool_run_step_id,
                 build_tool_metrics(
                     status="completed",
@@ -555,7 +555,7 @@ class ToolNodeExecutor(NodeExecutor):
                 "metadata": persisted_metadata,
                 "tool_ref": tool_ref,
             }
-            linked_response = context.response_service.complete_response(
+            linked_response = await context.response_service.complete_response(
                 response=linked_response,
                 output_json=output_payload,
                 usage_json={},
@@ -571,7 +571,7 @@ class ToolNodeExecutor(NodeExecutor):
                     "output": output_payload,
                 },
             )
-            context.response_service.append_event(
+            await context.response_service.append_event(
                 response=linked_response,
                 event_type="tool.call.completed",
                 payload={
@@ -587,7 +587,7 @@ class ToolNodeExecutor(NodeExecutor):
                 },
                 source="workflow",
             )
-            context.response_service.append_event(
+            await context.response_service.append_event(
                 response=linked_response,
                 event_type="response.succeeded",
                 payload={

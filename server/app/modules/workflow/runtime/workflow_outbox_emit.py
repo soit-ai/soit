@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -13,7 +13,7 @@ from app.modules.workflow.domain.workflow_events import WorkflowEventType
 
 
 def enqueue_workflow_node_completed(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     workflow_run_id: str,
@@ -49,7 +49,7 @@ def enqueue_workflow_node_completed(
 
 
 def enqueue_workflow_node_failed(
-    db: Session,
+    db: AsyncSession,
     ctx: RequestContext,
     *,
     workflow_run_id: str,

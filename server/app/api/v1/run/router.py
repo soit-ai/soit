@@ -514,7 +514,7 @@ async def download_run_artifact(
     """Download governed Run artifact content without exposing its storage key."""
 
     del ctx
-    artifact = service.get_artifact(run_id, artifact_id)
+    artifact = await service.get_artifact(run_id, artifact_id)
     content = await storage.get(artifact.storage_key)
     metadata = artifact.meta_json or {}
     filename = str(metadata.get("name") or metadata.get("filename") or artifact.id)

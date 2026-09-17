@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from fastapi import status
 
 from app.kernel.commons.time import utc_now
@@ -47,7 +48,7 @@ def _task(
     )
 
 
-def _seed_tasks(db) -> None:
+async def _seed_tasks(async_db) -> None:
     tasks = [
         _task(
             task_id="task_failed_contract",
@@ -89,8 +90,8 @@ def _seed_tasks(db) -> None:
             error_message="hidden",
         ),
     ]
-    db.add_all(tasks)
-    db.add(
+    async_db.add_all(tasks)
+    async_db.add(
         TaskEvent(
             tenant_id="test-tenant",
             workspace_id="test-workspace",
@@ -99,7 +100,7 @@ def _seed_tasks(db) -> None:
             payload_json={"message": "contract_id is empty"},
         )
     )
-    db.add(
+    async_db.add(
         TaskCheckpoint(
             tenant_id="test-tenant",
             workspace_id="test-workspace",
@@ -109,13 +110,14 @@ def _seed_tasks(db) -> None:
             payload_json={"node": "contract review"},
         )
     )
-    db.commit()
+    await async_db.commit()
 
 
-def test_task_workbench_returns_summary_tabs_and_rows(client, db):
-    _seed_tasks(db)
+@pytest.mark.asyncio
+async def test_task_workbench_returns_summary_tabs_and_rows(async_client, async_db):
+    await _seed_tasks(async_db)
 
-    response = client.get("/api/v1/tasks/workbench?page_size=10", headers=_headers())
+    response = await async_client.get("/api/v1/tasks/workbench?page_size=10", headers=_headers())
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
@@ -135,13 +137,14 @@ def test_task_workbench_returns_summary_tabs_and_rows(client, db):
     assert all(item["workspace_id"] == "test-workspace" for item in payload["items"])
 
 
-def test_task_workbench_items_support_filters_total_and_static_route(client, db):
-    _seed_tasks(db)
-    failed_task = db.get(Task, "task_failed_contract")
+@pytest.mark.asyncio
+async def test_task_workbench_items_support_filters_total_and_static_route(async_client, async_db):
+    await _seed_tasks(async_db)
+    failed_task = await async_db.get(Task, "task_failed_contract")
     assert failed_task is not None
     today = failed_task.updated_at.date().isoformat()
 
-    response = client.get(
+    response = await async_client.get(
         f"/api/v1/tasks/workbench/items?tab=failed&keyword=contract&page_size=1&date_from={today}&date_to={today}",
         headers=_headers(),
     )
@@ -155,14 +158,15 @@ def test_task_workbench_items_support_filters_total_and_static_route(client, db)
     assert payload["next_page_token"] is None
 
 
-def test_task_handling_returns_available_actions_and_runtime_context(client, db):
-    _seed_tasks(db)
+@pytest.mark.asyncio
+async def test_task_handling_returns_available_actions_and_runtime_context(async_client, async_db):
+    await _seed_tasks(async_db)
 
-    failed = client.get("/api/v1/tasks/task_failed_contract/handling", headers=_headers())
-    waiting = client.get("/api/v1/tasks/task_waiting_input_contract/handling", headers=_headers())
-    running = client.get("/api/v1/tasks/task_running_contract/handling", headers=_headers())
-    succeeded = client.get("/api/v1/tasks/task_succeeded_contract/handling", headers=_headers())
-    hidden = client.get("/api/v1/tasks/task_other_workspace_contract/handling", headers=_headers())
+    failed = await async_client.get("/api/v1/tasks/task_failed_contract/handling", headers=_headers())
+    waiting = await async_client.get("/api/v1/tasks/task_waiting_input_contract/handling", headers=_headers())
+    running = await async_client.get("/api/v1/tasks/task_running_contract/handling", headers=_headers())
+    succeeded = await async_client.get("/api/v1/tasks/task_succeeded_contract/handling", headers=_headers())
+    hidden = await async_client.get("/api/v1/tasks/task_other_workspace_contract/handling", headers=_headers())
 
     assert failed.status_code == status.HTTP_200_OK
     failed_payload = failed.json()["data"]
@@ -180,11 +184,12 @@ def test_task_handling_returns_available_actions_and_runtime_context(client, db)
     assert hidden.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_task_handling_offers_retry_once_a_driver_is_registered(client, db):
-    _seed_tasks(db)
+@pytest.mark.asyncio
+async def test_task_handling_offers_retry_once_a_driver_is_registered(async_client, async_db):
+    await _seed_tasks(async_db)
     drivers.register_task_driver("wf_step", lambda _db, _task: None)
     try:
-        failed = client.get(
+        failed = await async_client.get(
             "/api/v1/tasks/task_failed_contract/handling", headers=_headers()
         )
     finally:

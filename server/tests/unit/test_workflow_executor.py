@@ -312,17 +312,17 @@ def _unwrap_steps(rows: list[Any]) -> list[RunStep]:
     return steps
 
 
-def _branching_output_execution(
-    db: Session,
+async def _branching_output_execution(
+    async_db: Session,
     ctx: RequestContext,
     *,
     approved: bool,
     true_when: str = "{{ steps.condition.output.result }}",
     false_when: str = "{{ steps.condition.output.result }} == false",
 ) -> tuple[Run, ExecutionPlan, WorkflowExecutor, ExecutionContext]:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_active_output",
@@ -382,14 +382,15 @@ def _branching_output_execution(
         ("false", False),
     ],
 )
-def test_workflow_executor_distinguishes_quoted_boolean_literals(
-    db: Session,
+@pytest.mark.asyncio
+async def test_workflow_executor_distinguishes_quoted_boolean_literals(
+    async_db: Session,
     ctx: RequestContext,
     expression: str,
     expected: bool,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    executor = WorkflowExecutor(ExecutionEngine(db, ctx, trace_writer))
+    trace_writer = TraceWriter(async_db, ctx)
+    executor = WorkflowExecutor(ExecutionEngine(async_db, ctx, trace_writer))
 
     assert executor._evaluate_condition(expression, {}) is expected
 
@@ -409,12 +410,12 @@ def test_workflow_compiler_rejects_conflicting_condition_and_when() -> None:
 
 @pytest.mark.asyncio
 async def test_retrieve_step_delegates_exact_reference_and_options(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_retrieve",
@@ -568,6 +569,7 @@ async def test_scoped_workflow_knowledge_adapter_rejects_context_mismatch(
         {"tenant_role": "Viewer"},
     ],
 )
+@pytest.mark.asyncio
 async def test_scoped_workflow_knowledge_adapter_rejects_rebound_identity(
     ctx: RequestContext,
     ctx_overrides: dict[str, str],
@@ -603,12 +605,12 @@ async def test_scoped_workflow_knowledge_adapter_rejects_rebound_identity(
 
 @pytest.mark.asyncio
 async def test_tool_node_uses_canonical_arguments_payload(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     tool_port = FakeToolPort()
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_tool_arguments",
@@ -659,7 +661,7 @@ class TransientlyRaisingToolPort(ToolPort):
         return ToolResponse(result={"call_count": len(self.calls)}, success=True, metadata={})
 
 
-def _attempt_context(
+async def _attempt_context(
     trace_writer: TraceWriter,
     ctx: RequestContext,
     run_id: str,
@@ -668,7 +670,7 @@ def _attempt_context(
     attempt: int,
     tool_port: ToolPort,
 ) -> ExecutionContext:
-    step = trace_writer.create_step(
+    step = await trace_writer.create_step(
         run_id=run_id,
         step_type="workflow_node",
         step_id=f"st_{node_id}" if attempt == 1 else f"st_{node_id}_retry{attempt}",
@@ -686,14 +688,14 @@ def _attempt_context(
 
 @pytest.mark.asyncio
 async def test_tool_node_second_attempt_replays_completed_call(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     """A retry after a completed tool call must not reissue the side effect."""
 
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     tool_port = TransientlyRaisingToolPort(fail_times=0)
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_tool_replay",
@@ -702,11 +704,11 @@ async def test_tool_node_second_attempt_replays_completed_call(
     node = {"id": "ticket", "type": "tool"}
     inputs = {"tool_ref": "builtin.ticket.create", "arguments": {"customer_id": "c1"}}
 
-    first_ctx = _attempt_context(
+    first_ctx = await _attempt_context(
         trace_writer, ctx, run.id, node_id="ticket", attempt=1, tool_port=tool_port
     )
     first = await ToolNodeExecutor().execute(node, first_ctx, inputs)
-    second_ctx = _attempt_context(
+    second_ctx = await _attempt_context(
         trace_writer, ctx, run.id, node_id="ticket", attempt=2, tool_port=tool_port
     )
     second = await ToolNodeExecutor().execute(node, second_ctx, inputs)
@@ -714,27 +716,27 @@ async def test_tool_node_second_attempt_replays_completed_call(
     assert len(tool_port.calls) == 1
     assert first["result"]["call_count"] == 1
     assert second["result"]["call_count"] == 1
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
+    )).scalars().one()
     assert record.tool_call_id == f"workflow:{run.id}:ticket:0"
     assert record.status == "succeeded"
-    tool_steps = db.execute(
+    tool_steps = (await async_db.execute(
         select(RunStep).where(RunStep.run_id == run.id, RunStep.step_type == "tool")
-    ).scalars().all()
+    )).scalars().all()
     assert len(tool_steps) == 1
 
 
 @pytest.mark.asyncio
 async def test_tool_node_retry_reexecutes_failed_call(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     """A retry after a failed tool call must re-execute, not replay the failure."""
 
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     tool_port = TransientlyRaisingToolPort(fail_times=1)
-    run = trace_writer.create_run(
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_tool_retry",
@@ -743,30 +745,30 @@ async def test_tool_node_retry_reexecutes_failed_call(
     node = {"id": "ticket", "type": "tool"}
     inputs = {"tool_ref": "builtin.ticket.create", "arguments": {"customer_id": "c1"}}
 
-    first_ctx = _attempt_context(
+    first_ctx = await _attempt_context(
         trace_writer, ctx, run.id, node_id="ticket", attempt=1, tool_port=tool_port
     )
     with pytest.raises(RuntimeError, match="transient adapter outage"):
         await ToolNodeExecutor().execute(node, first_ctx, inputs)
-    second_ctx = _attempt_context(
+    second_ctx = await _attempt_context(
         trace_writer, ctx, run.id, node_id="ticket", attempt=2, tool_port=tool_port
     )
     second = await ToolNodeExecutor().execute(node, second_ctx, inputs)
 
     assert len(tool_port.calls) == 2
     assert second["result"]["call_count"] == 2
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
+    )).scalars().one()
     assert record.status == "succeeded"
     assert record.attempt_count == 2
 
 
 @pytest.mark.asyncio
-async def test_input_node_exposes_validated_workflow_inputs(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+async def test_input_node_exposes_validated_workflow_inputs(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_input",
@@ -810,7 +812,7 @@ async def test_input_node_exposes_validated_workflow_inputs(db: Session, ctx: Re
     result = await WorkflowExecutor(engine).execute(plan, context)
 
     assert result == {"value": "T-100"}
-    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    rows = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()
     start_step = next(step for step in _unwrap_steps(rows) if step.node_id == "start")
     assert "T-100" in (start_step.output_summary or "")
     assert "ignored" not in (start_step.output_summary or "")
@@ -818,12 +820,12 @@ async def test_input_node_exposes_validated_workflow_inputs(db: Session, ctx: Re
 
 
 @pytest.mark.asyncio
-async def test_input_node_safely_ignores_malformed_select(db: Session, ctx: RequestContext) -> None:
+async def test_input_node_safely_ignores_malformed_select(async_db: Session, ctx: RequestContext) -> None:
     context = ExecutionContext(
         run_id="run_input_malformed",
         step_id="step_input_malformed",
         ctx=ctx,
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
         workflow_inputs={"ticket_id": "T-100"},
     )
 
@@ -833,12 +835,12 @@ async def test_input_node_safely_ignores_malformed_select(db: Session, ctx: Requ
 
 
 @pytest.mark.asyncio
-async def test_input_node_ignores_malformed_select_entries(db: Session, ctx: RequestContext) -> None:
+async def test_input_node_ignores_malformed_select_entries(async_db: Session, ctx: RequestContext) -> None:
     context = ExecutionContext(
         run_id="run_input_mixed_select",
         step_id="step_input_mixed_select",
         ctx=ctx,
-        trace_writer=TraceWriter(db, ctx),
+        trace_writer=TraceWriter(async_db, ctx),
         workflow_inputs={"ticket_id": "T-100"},
     )
 
@@ -859,27 +861,28 @@ async def test_input_node_ignores_malformed_select_entries(db: Session, ctx: Req
         (False, {"path": "false"}, "true_output"),
     ],
 )
+@pytest.mark.asyncio
 async def test_workflow_executor_returns_only_the_active_output(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
     approved: bool,
     expected_output: dict[str, str],
     inactive_output: str,
 ) -> None:
-    run, plan, executor, context = _branching_output_execution(db, ctx, approved=approved)
+    run, plan, executor, context = await _branching_output_execution(async_db, ctx, approved=approved)
 
     result = await executor.execute(plan, context)
 
     assert result == expected_output
-    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    rows = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()
     status_by_node = {step.node_id: step.status for step in _unwrap_steps(rows)}
     assert status_by_node[inactive_output] == "skipped"
 
 
 @pytest.mark.asyncio
-async def test_workflow_executor_rejects_zero_active_outputs(db: Session, ctx: RequestContext) -> None:
-    _, plan, executor, context = _branching_output_execution(
-        db,
+async def test_workflow_executor_rejects_zero_active_outputs(async_db: Session, ctx: RequestContext) -> None:
+    _, plan, executor, context = await _branching_output_execution(
+        async_db,
         ctx,
         approved=True,
         true_when="false",
@@ -892,11 +895,11 @@ async def test_workflow_executor_rejects_zero_active_outputs(db: Session, ctx: R
 
 @pytest.mark.asyncio
 async def test_workflow_executor_rejects_more_than_one_active_output(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
-    _, plan, executor, context = _branching_output_execution(
-        db,
+    _, plan, executor, context = await _branching_output_execution(
+        async_db,
         ctx,
         approved=True,
         true_when="true",
@@ -908,10 +911,10 @@ async def test_workflow_executor_rejects_more_than_one_active_output(
 
 
 @pytest.mark.asyncio
-async def test_workflow_executor_runs_nodes_and_records_steps(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+async def test_workflow_executor_runs_nodes_and_records_steps(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_executor",
@@ -972,7 +975,7 @@ async def test_workflow_executor_runs_nodes_and_records_steps(db: Session, ctx: 
     assert all(call["kwargs"].get("tool_call_id") for call in fake_tool.calls)
     assert all(call["kwargs"].get("idempotency_key") for call in fake_tool.calls)
 
-    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    rows = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()
     steps = _unwrap_steps(rows)
     status_by_node = {step.node_id: step.status for step in steps}
     for node_id in ("set1", "cond1", "tool1", "http1", "llm1", "out1"):
@@ -980,12 +983,12 @@ async def test_workflow_executor_runs_nodes_and_records_steps(db: Session, ctx: 
 
 
 @pytest.mark.asyncio
-async def test_registry_workflow_node_passes_stable_tool_identity(db: Session, ctx: RequestContext) -> None:
+async def test_registry_workflow_node_passes_stable_tool_identity(async_db: Session, ctx: RequestContext) -> None:
     from app.kernel.registry.deps import get_registry
 
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(mode="workflow", kind="workflow")
-    node_step = trace_writer.create_step(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
+    node_step = await trace_writer.create_step(
         run_id=run.id,
         step_type="workflow_node",
         step_id="node:plugin1",
@@ -1037,7 +1040,7 @@ async def test_registry_workflow_node_passes_stable_tool_identity(db: Session, c
 
 @pytest.mark.asyncio
 async def test_execution_engine_agent_passes_existing_tool_step_identity(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1068,9 +1071,9 @@ async def test_execution_engine_agent_passes_existing_tool_step_identity(
     import app.wiring
 
     monkeypatch.setattr(app.wiring, "get_container", lambda: FakeContainer())
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(mode="agent", kind="agent")
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(mode="agent", kind="agent")
     plan = ExecutionPlan(
         run_id=run.id,
         mode="agent",
@@ -1091,10 +1094,10 @@ async def test_execution_engine_agent_passes_existing_tool_step_identity(
 
 
 @pytest.mark.asyncio
-async def test_workflow_executor_skips_nodes_when_edge_condition_false(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+async def test_workflow_executor_skips_nodes_when_edge_condition_false(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_skip",
@@ -1139,7 +1142,7 @@ async def test_workflow_executor_skips_nodes_when_edge_condition_false(db: Sessi
     output = await executor.execute(plan, context)
     assert output["value"] is False
 
-    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    rows = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()
     steps = _unwrap_steps(rows)
     status_by_node = {step.node_id: step.status for step in steps}
     assert status_by_node.get("tool1") == "skipped"
@@ -1147,10 +1150,10 @@ async def test_workflow_executor_skips_nodes_when_edge_condition_false(db: Sessi
 
 
 @pytest.mark.asyncio
-async def test_workflow_executor_defaults_to_fail_fast_on_node_failure(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+async def test_workflow_executor_defaults_to_fail_fast_on_node_failure(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_default_fail_fast",
@@ -1191,11 +1194,11 @@ async def test_workflow_executor_defaults_to_fail_fast_on_node_failure(db: Sessi
 
 
 @pytest.mark.asyncio
-async def test_workflow_executor_creates_retry_steps(db: Session, ctx: RequestContext) -> None:
+async def test_workflow_executor_creates_retry_steps(async_db: Session, ctx: RequestContext) -> None:
     """Retry attempts create additional steps instead of overwriting."""
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_retry",
@@ -1239,7 +1242,7 @@ async def test_workflow_executor_creates_retry_steps(db: Session, ctx: RequestCo
     output = await executor.execute(plan, context)
     assert output["value"] is True
 
-    rows = db.exec(select(RunStep).where(RunStep.run_id == run.id)).all()
+    rows = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).all()
     steps = _unwrap_steps(rows)
     tool_steps = [step for step in steps if step.node_id == "tool1"]
     assert len(tool_steps) == 2
@@ -1249,17 +1252,17 @@ async def test_workflow_executor_creates_retry_steps(db: Session, ctx: RequestCo
 
 
 @pytest.mark.asyncio
-async def test_workflow_llm_node_creates_linked_response_events(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
+async def test_workflow_llm_node_creates_linked_response_events(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    engine = ExecutionEngine(db, ctx, trace_writer, response_service=response_service)
-    run = trace_writer.create_run(
+    engine = ExecutionEngine(async_db, ctx, trace_writer, response_service=response_service)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_llm",
@@ -1314,8 +1317,8 @@ async def test_workflow_llm_node_creates_linked_response_events(db: Session, ctx
 
     assert response_id.startswith("resp_")
 
-    response = response_service.get_response(response_id)
-    events = response_service.list_response_events(response_id, limit=20, offset=0)
+    response = await response_service.get_response(response_id)
+    events = await response_service.list_response_events(response_id, limit=20, offset=0)
     assert response.run_id == run.id
     assert response.status == "succeeded"
     assert [event.type for event in events] == [
@@ -1327,17 +1330,17 @@ async def test_workflow_llm_node_creates_linked_response_events(db: Session, ctx
 
 
 @pytest.mark.asyncio
-async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
+async def test_workflow_tool_node_creates_tool_call_detail(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    engine = ExecutionEngine(db, ctx, trace_writer, response_service=response_service)
-    run = trace_writer.create_run(
+    engine = ExecutionEngine(async_db, ctx, trace_writer, response_service=response_service)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_tool",
@@ -1396,9 +1399,9 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
     response_id = output["value"]["response_id"]
 
     assert response_id.startswith("resp_")
-    response = response_service.get_response(response_id)
-    events = response_service.list_response_events(response_id, limit=20, offset=0)
-    _, _, tool_calls = response_service.get_response_detail(response_id)
+    response = await response_service.get_response(response_id)
+    events = await response_service.list_response_events(response_id, limit=20, offset=0)
+    _, _, tool_calls = await response_service.get_response_detail(response_id)
 
     assert response.run_id == run.id
     assert response.status == "succeeded"
@@ -1407,17 +1410,17 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
     assert tool_calls[0]["status"] == "completed"
     assert tool_calls[0]["arguments_json"] == {"zone": "UTC"}
     assert tool_calls[0]["result_json"]["result"]["tool_ref"] == "tool:function:time_now"
-    node_step = db.execute(
+    node_step = (await async_db.execute(
         select(RunStep).where(
             RunStep.run_id == run.id,
             RunStep.node_id == "tool1",
             RunStep.step_type == "workflow_node",
         )
-    ).scalars().one()
-    call_record = db.execute(
+    )).scalars().one()
+    call_record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
-    tool_step = db.get(RunStep, call_record.run_step_id)
+    )).scalars().one()
+    tool_step = await async_db.get(RunStep, call_record.run_step_id)
     assert call_record.tool_call_id == f"workflow:{run.id}:tool1:0"
     # The identity must stay attempt-independent or retries re-run side effects.
     assert node_step.id not in call_record.tool_call_id
@@ -1437,17 +1440,17 @@ async def test_workflow_tool_node_creates_tool_call_detail(db: Session, ctx: Req
 
 
 @pytest.mark.asyncio
-async def test_workflow_tool_node_records_plugin_tool_type(db: Session, ctx: RequestContext) -> None:
-    trace_writer = TraceWriter(db, ctx)
+async def test_workflow_tool_node_records_plugin_tool_type(async_db: Session, ctx: RequestContext) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    engine = ExecutionEngine(db, ctx, trace_writer, response_service=response_service)
-    run = trace_writer.create_run(
+    engine = ExecutionEngine(async_db, ctx, trace_writer, response_service=response_service)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_plugin_tool",
@@ -1505,37 +1508,37 @@ async def test_workflow_tool_node_records_plugin_tool_type(db: Session, ctx: Req
     output = await executor.execute(plan, context)
     response_id = output["value"]["response_id"]
 
-    events = response_service.list_response_events(response_id, limit=20, offset=0)
+    events = await response_service.list_response_events(response_id, limit=20, offset=0)
     completed_event = next(event for event in events if event.type == "tool.call.completed")
-    _, _, tool_calls = response_service.get_response_detail(response_id)
+    _, _, tool_calls = await response_service.get_response_detail(response_id)
 
     assert output["value"]["metadata"]["source_kind"] == "plugin"
     assert completed_event.payload_json["tool_type"] == "plugin"
     assert completed_event.payload_json["metadata"]["plugin_name"] == "demo-plugin"
     assert tool_calls[0]["tool_type"] == "plugin"
     assert tool_calls[0]["metadata_json"]["plugin_name"] == "demo-plugin"
-    call_record = db.execute(
+    call_record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
+    )).scalars().one()
     assert call_record.tool_ref == "tool:http:plugin_echo"
     assert call_record.status == "succeeded"
 
 
 @pytest.mark.asyncio
 async def test_workflow_tool_node_intercepts_required_approval_before_tool_invocation(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     response_service = ResponseService(
-        db=db,
+        db=async_db,
         ctx=ctx,
-        response_repo=ResponseRepository(db, ctx),
-        event_repo=ResponseEventRepository(db, ctx),
+        response_repo=ResponseRepository(async_db, ctx),
+        event_repo=ResponseEventRepository(async_db, ctx),
         trace_writer=trace_writer,
     )
-    engine = ExecutionEngine(db, ctx, trace_writer, response_service=response_service)
-    run = trace_writer.create_run(
+    engine = ExecutionEngine(async_db, ctx, trace_writer, response_service=response_service)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_approval_tool",
@@ -1598,8 +1601,8 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
     assert output["status"] == "waiting_approval"
     checkpoint = output["_checkpoint"]
     response_id = output["response_id"]
-    events = response_service.list_response_events(response_id, limit=20, offset=0)
-    _, _, tool_calls = response_service.get_response_detail(response_id)
+    events = await response_service.list_response_events(response_id, limit=20, offset=0)
+    _, _, tool_calls = await response_service.get_response_detail(response_id)
 
     assert tool_backend.calls == []
     assert approval_gateway.requests == [
@@ -1621,10 +1624,10 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
         }
     ]
     assert any(event.type == "tool.call.approval_required" for event in events)
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
-    tool_step = db.get(RunStep, record.run_step_id)
+    )).scalars().one()
+    tool_step = await async_db.get(RunStep, record.run_step_id)
     assert record.status == "waiting_approval"
     assert record.outbound_started_at is None
     assert tool_step is not None
@@ -1644,21 +1647,21 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
     assert resumed["value"]["response_id"] == response_id
     assert len(tool_backend.calls) == 1
     assert tool_backend.calls[0]["kwargs"]["resume_approval"] is True
-    resumed_record = db.get(RunStepToolCall, record.id)
+    resumed_record = await async_db.get(RunStepToolCall, record.id)
     assert resumed_record is not None
     assert resumed_record.status == "succeeded"
-    assert db.execute(
+    assert (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().all() == [resumed_record]
+    )).scalars().all() == [resumed_record]
 
 
 @pytest.mark.asyncio
 async def test_workflow_tool_spec_approval_interrupts_without_optional_gateway(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
-    run = trace_writer.create_run(
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(
         mode="workflow",
         subject_kind="workflow",
         subject_id="wf_explicit_tool_approval",
@@ -1683,20 +1686,20 @@ async def test_workflow_tool_spec_approval_interrupts_without_optional_gateway(
     assert output["metadata"]["reason"] == "tool_spec_approval_required"
     assert output["metadata"]["risk_level"] == "high"
     assert tool_port.calls == []
-    record = db.execute(
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
-    ).scalars().one()
+    )).scalars().one()
     assert record.status == "waiting_approval"
     assert record.outbound_started_at is None
 
 
 @pytest.mark.asyncio
 async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoint(
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    trace_writer = TraceWriter(db, ctx)
+    trace_writer = TraceWriter(async_db, ctx)
     backend = ExplicitApprovalToolPort()
     tool_port = ToolPolicyGateway(
         gateway=backend,
@@ -1719,7 +1722,7 @@ async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoin
             return None
 
     monkeypatch.setattr("app.wiring.get_container", lambda: FakeContainer())
-    engine = ExecutionEngine(db, ctx, trace_writer)
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
     plan = ExecutionPlan(
         run_id="",
         mode="workflow",
@@ -1754,13 +1757,13 @@ async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoin
 
     waiting = await engine.execute(plan)
 
-    run = db.get(Run, plan.run_id)
-    workflow_run = db.execute(
+    run = await async_db.get(Run, plan.run_id)
+    workflow_run = (await async_db.execute(
         select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id)
-    ).scalars().one()
-    record = db.execute(
+    )).scalars().one()
+    record = (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
-    ).scalars().one()
+    )).scalars().one()
     assert waiting["status"] == "waiting_approval"
     assert "_checkpoint" not in waiting
     assert run is not None and run.status == "waiting_approval"
@@ -1774,15 +1777,15 @@ async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoin
         checkpoint=dict(workflow_run.checkpoint_json),
     )
 
-    db.refresh(run)
-    db.refresh(workflow_run)
-    db.refresh(record)
+    await async_db.refresh(run)
+    await async_db.refresh(workflow_run)
+    await async_db.refresh(record)
     assert completed == {"value": "approved"}
     assert run.status == "succeeded"
     assert workflow_run.status == "succeeded"
     assert workflow_run.checkpoint_json is None
     assert record.status == "succeeded"
     assert len(backend.calls) == 1
-    assert db.execute(
+    assert (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
-    ).scalars().all() == [record]
+    )).scalars().all() == [record]

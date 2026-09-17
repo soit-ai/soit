@@ -114,11 +114,11 @@ async def lifespan(app: FastAPI):
     workflow_reaper_coro = None
     if getattr(app_settings, "workflow_orphan_reaper_enabled", False):
         try:
-            from app.infra.db.session import get_db_sync
+            from app.infra.db.session import get_async_session_local
             from app.modules.workflow.runtime.reaper import run_reaper_loop
 
             workflow_reaper_coro = run_reaper_loop(
-                get_db_sync,
+                get_async_session_local(),
                 interval_seconds=app_settings.workflow_orphan_reaper_interval,
             )
         except Exception as exc:

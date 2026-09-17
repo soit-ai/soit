@@ -47,7 +47,7 @@ class TaskHandlers:
     ) -> PaginatedResponse[TaskResponse]:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        tasks = self.service.list_tasks(
+        tasks = await self.service.list_tasks(
             limit=limit,
             offset=offset,
             status=status,
@@ -61,7 +61,7 @@ class TaskHandlers:
         has_next = len(tasks) == limit
         next_offset = offset + len(tasks) if has_next else None
         total = (
-            self.service.count_tasks(
+            await self.service.count_tasks(
                 status=status,
                 task_type=task_type,
                 agent_id=agent_id,
@@ -89,7 +89,7 @@ class TaskHandlers:
     ) -> TaskWorkbenchResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        return self.service.get_task_workbench(limit=limit, offset=offset)
+        return await self.service.get_task_workbench(limit=limit, offset=offset)
 
     async def get_workbench_items(
         self,
@@ -105,7 +105,7 @@ class TaskHandlers:
     ) -> TaskWorkbenchItemsResponse:
         limit, token_obj = parse_page_params(page_token, page_size)
         offset = token_obj.offset if token_obj else 0
-        return self.service.get_task_workbench_items(
+        return await self.service.get_task_workbench_items(
             limit=limit,
             offset=offset,
             tab=tab,
@@ -116,9 +116,9 @@ class TaskHandlers:
         )
 
     async def get_task(self, ctx: RequestContext, task_id: str) -> TaskDetailResponse:
-        task = self.service.get_task(task_id)
-        checkpoints = self.service.list_task_checkpoints(task_id)
-        events = self.service.list_task_events(task_id)
+        task = await self.service.get_task(task_id)
+        checkpoints = await self.service.list_task_checkpoints(task_id)
+        events = await self.service.list_task_events(task_id)
         return TaskDetailResponse(
             task=TaskResponse.model_validate(task),
             checkpoints=[TaskCheckpointResponse.model_validate(item) for item in checkpoints],
@@ -127,22 +127,22 @@ class TaskHandlers:
         )
 
     async def get_task_handling(self, ctx: RequestContext, task_id: str) -> TaskHandlingResponse:
-        return self.service.get_task_handling(task_id)
+        return await self.service.get_task_handling(task_id)
 
     async def cancel_task(self, ctx: RequestContext, task_id: str) -> TaskControlResponse:
         if not self.runtime_service:
             raise RuntimeError("Task runtime service is not configured")
-        task = self.runtime_service.cancel_task(task_id=task_id)
+        task = await self.runtime_service.cancel_task(task_id=task_id)
         return TaskControlResponse(task=TaskResponse.model_validate(task), action="cancel")
 
     async def resume_task(self, ctx: RequestContext, task_id: str) -> TaskControlResponse:
         if not self.runtime_service:
             raise RuntimeError("Task runtime service is not configured")
-        task = self.runtime_service.resume_task(task_id=task_id)
+        task = await self.runtime_service.resume_task(task_id=task_id)
         return TaskControlResponse(task=TaskResponse.model_validate(task), action="resume")
 
     async def retry_task(self, ctx: RequestContext, task_id: str) -> TaskControlResponse:
         if not self.runtime_service:
             raise RuntimeError("Task runtime service is not configured")
-        task = self.runtime_service.retry_task(task_id=task_id)
+        task = await self.runtime_service.retry_task(task_id=task_id)
         return TaskControlResponse(task=TaskResponse.model_validate(task), action="retry")

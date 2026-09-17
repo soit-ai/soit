@@ -3,9 +3,9 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.infra.db.session import get_db
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.tasks.query_service import TaskQueryService
 from app.kernel.runtime.tasks.service import TaskService
@@ -14,7 +14,7 @@ from app.middleware.auth import get_current_context
 
 def get_task_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> TaskQueryService:
     """Resolve runtime task query service."""
 
@@ -23,7 +23,7 @@ def get_task_service(
 
 def get_task_runtime_service(
     ctx: Annotated[RequestContext, Depends(get_current_context)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
 ) -> TaskService:
     """Resolve runtime task write service."""
 

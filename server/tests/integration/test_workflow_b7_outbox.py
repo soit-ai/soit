@@ -69,23 +69,23 @@ def _patched_container() -> MagicMock:
 @patch("app.wiring.get_container")
 async def test_b7_workflow_engine_emits_node_outbox_and_projection(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
     register_outbox_handlers()
     reg = get_outbox_registry()
 
-    trace_writer = TraceWriter(db, ctx)
-    engine = ExecutionEngine(db, ctx, trace_writer, response_service=None)
+    trace_writer = TraceWriter(async_db, ctx)
+    engine = ExecutionEngine(async_db, ctx, trace_writer, response_service=None)
     workflow = Workflow(
         id="wf-b7-outbox",
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         name="workflow-b7-outbox",
     )
-    db.add(workflow)
-    db.commit()
+    async_db.add(workflow)
+    await async_db.commit()
 
     plan = ExecutionPlan(
         mode="workflow",
@@ -108,34 +108,34 @@ async def test_b7_workflow_engine_emits_node_outbox_and_projection(
     result = await engine.execute(plan)
     assert result.get("value") == 42
 
-    wfr = db.exec(select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id)).first()
+    wfr = (await async_db.exec(select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id))).first()
     assert wfr is not None
     assert wfr.status == "succeeded"
     assert wfr.workflow_id == workflow.id
 
     pending = list(
-        db.exec(
+        (await async_db.exec(
             select(EventOutbox).where(
                 EventOutbox.workflow_run_id == wfr.id,
                 EventOutbox.event_type == "workflow.node.completed",
             )
-        ).all()
+        )).all()
     )
     assert len(pending) >= 2
 
-    dispatcher = OutboxDispatcher(db, reg)
+    dispatcher = OutboxDispatcher(async_db, reg)
     for _ in range(20):
         n = await dispatcher.run_once(batch_limit=40)
-        db.commit()
+        await async_db.commit()
         if n == 0:
             break
 
-    db.refresh(wfr)
+    await async_db.refresh(wfr)
     assert wfr.completed_nodes == 2
     assert wfr.waiting_nodes == 0
 
-    all_wf = list(db.exec(select(EventOutbox).where(EventOutbox.workflow_run_id == wfr.id)).all())
+    all_wf = list((await async_db.exec(select(EventOutbox).where(EventOutbox.workflow_run_id == wfr.id))).all())
     for ob in all_wf:
-        refreshed = db.get(EventOutbox, ob.id)
+        refreshed = await async_db.get(EventOutbox, ob.id)
         assert refreshed is not None
         assert refreshed.status == "done"

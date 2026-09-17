@@ -22,9 +22,9 @@ def _headers() -> dict:
     return {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
 
-def _seed_runs(db, count: int) -> None:
+async def _seed_runs(async_db, count: int) -> None:
     for index in range(count):
-        db.add(
+        async_db.add(
             Run(
                 id=f"run_window_{index}",
                 tenant_id="test-tenant",
@@ -40,17 +40,18 @@ def _seed_runs(db, count: int) -> None:
                 started_at=utc_now(),
             )
         )
-    db.commit()
+    await async_db.commit()
 
 
-def test_runs_list_reports_a_total_only_when_asked(client, db):
-    _seed_runs(db, 3)
+@pytest.mark.asyncio
+async def test_runs_list_reports_a_total_only_when_asked(async_client, async_db):
+    await _seed_runs(async_db, 3)
 
-    plain = client.get("/api/v1/runs", params={"page_size": 2}, headers=_headers())
+    plain = await async_client.get("/api/v1/runs", params={"page_size": 2}, headers=_headers())
     assert plain.status_code == status.HTTP_200_OK
     assert plain.json()["data"]["total"] is None
 
-    counted = client.get(
+    counted = await async_client.get(
         "/api/v1/runs",
         params={"page_size": 2, "with_total": "true"},
         headers=_headers(),
@@ -61,11 +62,12 @@ def test_runs_list_reports_a_total_only_when_asked(client, db):
     assert payload["total"] == 3
 
 
-def test_runs_list_accepts_the_started_window(client, db):
-    _seed_runs(db, 2)
+@pytest.mark.asyncio
+async def test_runs_list_accepts_the_started_window(async_client, async_db):
+    await _seed_runs(async_db, 2)
     future = (utc_now() + timedelta(hours=1)).isoformat()
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/runs",
         params={"started_after": future, "with_total": "true"},
         headers=_headers(),
@@ -74,11 +76,12 @@ def test_runs_list_accepts_the_started_window(client, db):
     assert response.json()["data"]["total"] == 0
 
 
-def test_audits_list_accepts_a_creation_window_and_total(client, db):
+@pytest.mark.asyncio
+async def test_audits_list_accepts_a_creation_window_and_total(async_client, async_db):
     now = utc_now()
-    _seed_runs(db, 1)
+    await _seed_runs(async_db, 1)
     for age_hours in (1, 48):
-        db.add(
+        async_db.add(
             AuditEvent(
                 tenant_id="test-tenant",
                 workspace_id="test-workspace",
@@ -91,9 +94,9 @@ def test_audits_list_accepts_a_creation_window_and_total(client, db):
                 created_at=now - timedelta(hours=age_hours),
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/runs/audits",
         params={"since": (now - timedelta(hours=24)).isoformat(), "with_total": "true"},
         headers=_headers(),
@@ -102,10 +105,11 @@ def test_audits_list_accepts_a_creation_window_and_total(client, db):
     assert response.json()["data"]["total"] == 1
 
 
-def test_tasks_list_accepts_a_creation_window_and_total(client, db):
+@pytest.mark.asyncio
+async def test_tasks_list_accepts_a_creation_window_and_total(async_client, async_db):
     now = utc_now()
     for index, age_hours in enumerate((2, 72)):
-        db.add(
+        async_db.add(
             Task(
                 id=f"task_window_{index}",
                 tenant_id="test-tenant",
@@ -115,9 +119,9 @@ def test_tasks_list_accepts_a_creation_window_and_total(client, db):
                 created_at=now - timedelta(hours=age_hours),
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/tasks",
         params={"since": (now - timedelta(hours=24)).isoformat(), "with_total": "true"},
         headers=_headers(),
@@ -126,14 +130,15 @@ def test_tasks_list_accepts_a_creation_window_and_total(client, db):
     assert response.json()["data"]["total"] == 1
 
 
-def test_a_malformed_window_is_rejected_rather_than_ignored(client):
+@pytest.mark.asyncio
+async def test_a_malformed_window_is_rejected_rather_than_ignored(async_client):
     """A bad timestamp must fail loudly; silently ignoring it would show the
     wrong window's numbers as if they were the requested one.
 
     The app maps request validation to its own 400 envelope, so that is the
     contract here rather than FastAPI's default 422.
     """
-    response = client.get(
+    response = await async_client.get(
         "/api/v1/runs/audits",
         params={"since": "last-tuesday"},
         headers=_headers(),
@@ -142,10 +147,11 @@ def test_a_malformed_window_is_rejected_rather_than_ignored(client):
     assert response.json()["code"] == "VALIDATION_ERROR"
 
 
-def test_run_window_summary_answers_the_overview_in_one_call(client, db):
+@pytest.mark.asyncio
+async def test_run_window_summary_answers_the_overview_in_one_call(async_client, async_db):
     """Volume, pass rate and spend come back together so they cannot disagree."""
-    _seed_runs(db, 2)
-    db.add(
+    await _seed_runs(async_db, 2)
+    async_db.add(
         Run(
             id="run_window_failed",
             tenant_id="test-tenant",
@@ -161,9 +167,9 @@ def test_run_window_summary_answers_the_overview_in_one_call(client, db):
             started_at=utc_now(),
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    response = client.get("/api/v1/runs/summary/window", headers=_headers())
+    response = await async_client.get("/api/v1/runs/summary/window", headers=_headers())
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()["data"]
     assert payload["total"] == 3
@@ -173,10 +179,11 @@ def test_run_window_summary_answers_the_overview_in_one_call(client, db):
     assert payload["charges"]["entry_count"] == 0
 
 
-def test_resource_grants_can_be_listed_for_the_whole_workspace(client, db):
+@pytest.mark.asyncio
+async def test_resource_grants_can_be_listed_for_the_whole_workspace(async_client, async_db):
     """The access surface reads every grant in one call, not one per object."""
     for index, resource_type in enumerate(("agent", "workflow")):
-        db.add(
+        async_db.add(
             ResourceGrant(
                 tenant_id="test-tenant",
                 workspace_id="test-workspace",
@@ -186,20 +193,20 @@ def test_resource_grants_can_be_listed_for_the_whole_workspace(client, db):
                 actions=["read"],
             )
         )
-    db.commit()
+    await async_db.commit()
 
-    everything = client.get("/api/v1/resource-grants", headers=_headers())
+    everything = await async_client.get("/api/v1/resource-grants", headers=_headers())
     assert everything.status_code == status.HTTP_200_OK
     assert len(everything.json()["data"]) == 2
 
-    one_kind = client.get(
+    one_kind = await async_client.get(
         "/api/v1/resource-grants",
         params={"resource_type": "agent"},
         headers=_headers(),
     )
     assert [row["resource_type"] for row in one_kind.json()["data"]] == ["agent"]
 
-    named = client.get(
+    named = await async_client.get(
         "/api/v1/resource-grants",
         params={"resource_type": "agent", "resource_id": "res_0"},
         headers=_headers(),

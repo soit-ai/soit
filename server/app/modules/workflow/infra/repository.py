@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import and_, desc, func, select
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -15,29 +15,27 @@ from app.modules.workflow.domain.models import (
 
 
 class WorkflowRepository:
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, workflow: Workflow) -> Workflow:
+    async def create(self, workflow: Workflow) -> Workflow:
         workflow.tenant_id = self.ctx.tenant_id
         workflow.workspace_id = self.ctx.workspace_id
         workflow.created_by = workflow.created_by or self.ctx.user_id
         workflow.updated_by = workflow.updated_by or self.ctx.user_id
         self.db.add(workflow)
-        self.db.commit()
-        self.db.refresh(workflow)
+        await self.db.commit()
         return workflow
 
-    def update(self, workflow: Workflow) -> Workflow:
+    async def update(self, workflow: Workflow) -> Workflow:
         workflow.updated_at = utc_now()
         workflow.updated_by = self.ctx.user_id
         self.db.add(workflow)
-        self.db.commit()
-        self.db.refresh(workflow)
+        await self.db.commit()
         return workflow
 
-    def get_by_id(self, workflow_id: str) -> Workflow | None:
+    async def get_by_id(self, workflow_id: str) -> Workflow | None:
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_id,
@@ -46,9 +44,9 @@ class WorkflowRepository:
                 Workflow.deleted_at.is_(None),
             )
         )
-        return self.db.execute(query).scalars().first()
+        return (await self.db.execute(query)).scalars().first()
 
-    def get_by_name(self, name: str) -> Workflow | None:
+    async def get_by_name(self, name: str) -> Workflow | None:
         query = select(Workflow).where(
             and_(
                 Workflow.name == name,
@@ -57,9 +55,9 @@ class WorkflowRepository:
                 Workflow.deleted_at.is_(None),
             )
         )
-        return self.db.execute(query).scalars().first()
+        return (await self.db.execute(query)).scalars().first()
 
-    def list(self, *, limit: int, offset: int) -> list[Workflow]:
+    async def list(self, *, limit: int, offset: int) -> list[Workflow]:
         query = (
             select(Workflow)
             .where(
@@ -74,9 +72,9 @@ class WorkflowRepository:
             .limit(limit)
             .offset(offset)
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())
 
-    def next_version_number(self, workflow_id: str) -> int:
+    async def next_version_number(self, workflow_id: str) -> int:
         query = select(func.max(WorkflowVersion.version)).where(
             and_(
                 WorkflowVersion.workflow_id == workflow_id,
@@ -84,31 +82,29 @@ class WorkflowRepository:
                 WorkflowVersion.workspace_id == self.ctx.workspace_id,
             )
         )
-        max_val = self.db.execute(query).scalar_one_or_none()
+        max_val = (await self.db.execute(query)).scalar_one_or_none()
         return int(max_val or 0) + 1
 
 
 class WorkflowVersionRepository:
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, version: WorkflowVersion) -> WorkflowVersion:
+    async def create(self, version: WorkflowVersion) -> WorkflowVersion:
         version.tenant_id = self.ctx.tenant_id
         version.workspace_id = self.ctx.workspace_id
         version.created_by = version.created_by or self.ctx.user_id
         self.db.add(version)
-        self.db.commit()
-        self.db.refresh(version)
+        await self.db.commit()
         return version
 
-    def update(self, version: WorkflowVersion) -> WorkflowVersion:
+    async def update(self, version: WorkflowVersion) -> WorkflowVersion:
         self.db.add(version)
-        self.db.commit()
-        self.db.refresh(version)
+        await self.db.commit()
         return version
 
-    def get_by_id(self, version_id: str) -> WorkflowVersion | None:
+    async def get_by_id(self, version_id: str) -> WorkflowVersion | None:
         query = select(WorkflowVersion).where(
             and_(
                 WorkflowVersion.id == version_id,
@@ -116,9 +112,9 @@ class WorkflowVersionRepository:
                 WorkflowVersion.workspace_id == self.ctx.workspace_id,
             )
         )
-        return self.db.execute(query).scalars().first()
+        return (await self.db.execute(query)).scalars().first()
 
-    def list_by_workflow(self, workflow_id: str, *, limit: int, offset: int) -> list[WorkflowVersion]:
+    async def list_by_workflow(self, workflow_id: str, *, limit: int, offset: int) -> list[WorkflowVersion]:
         query = (
             select(WorkflowVersion)
             .where(
@@ -132,24 +128,23 @@ class WorkflowVersionRepository:
             .limit(limit)
             .offset(offset)
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())
 
 
 class WorkflowPublishRepository:
-    def __init__(self, db: Session, ctx: RequestContext) -> None:
+    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
         self.db = db
         self.ctx = ctx
 
-    def create(self, publish: WorkflowPublish) -> WorkflowPublish:
+    async def create(self, publish: WorkflowPublish) -> WorkflowPublish:
         publish.tenant_id = self.ctx.tenant_id
         publish.workspace_id = self.ctx.workspace_id
         publish.created_by = publish.created_by or self.ctx.user_id
         self.db.add(publish)
-        self.db.commit()
-        self.db.refresh(publish)
+        await self.db.commit()
         return publish
 
-    def list_by_workflow(self, workflow_id: str) -> list[WorkflowPublish]:
+    async def list_by_workflow(self, workflow_id: str) -> list[WorkflowPublish]:
         query = (
             select(WorkflowPublish)
             .where(
@@ -161,4 +156,4 @@ class WorkflowPublishRepository:
             )
             .order_by(desc(WorkflowPublish.created_at))
         )
-        return list(self.db.execute(query).scalars().all())
+        return list((await self.db.execute(query)).scalars().all())

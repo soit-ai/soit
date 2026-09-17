@@ -16,10 +16,11 @@ from tests.fixtures.workflow_specs import canonical_workflow_spec
 class TestWorkflowAPI:
     """Test workflow API endpoints."""
 
-    def test_get_workflow_capabilities(self, client):
+    @pytest.mark.asyncio
+    async def test_get_workflow_capabilities(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-        response = client.get("/api/v1/workflows/capabilities", headers=headers)
+        response = await async_client.get("/api/v1/workflows/capabilities", headers=headers)
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()["data"]
@@ -63,16 +64,17 @@ class TestWorkflowAPI:
             {"type": "output", "ui_type": "output-node", "category": "output", "executable": True, "effect_class": "pure"},
         ]
 
-    def test_create_workflow_version_rejects_spoofed_created_by(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow_version_rejects_spoofed_created_by(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "reject-version-actor-spoof"},
             headers=headers,
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
             json={"graph_json": canonical_workflow_spec(), "created_by": "spoofed-user"},
             headers=headers,
@@ -80,16 +82,17 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    def test_import_workflow_dsl_rejects_spoofed_created_by(self, client):
+    @pytest.mark.asyncio
+    async def test_import_workflow_dsl_rejects_spoofed_created_by(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "reject-import-actor-spoof"},
             headers=headers,
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/dsl",
             json={
                 "dsl": canonical_workflow_spec(),
@@ -101,14 +104,15 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    def test_create_workflow_version_empty_body_preserves_validation_response(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow_version_empty_body_preserves_validation_response(self, async_client):
         headers = {
             "Content-Type": "application/json",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/workflows/wf-empty-version-body/versions",
             content=b"",
             headers=headers,
@@ -116,14 +120,15 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_import_workflow_dsl_empty_body_preserves_validation_response(self, client):
+    @pytest.mark.asyncio
+    async def test_import_workflow_dsl_empty_body_preserves_validation_response(self, async_client):
         headers = {
             "Content-Type": "application/json",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/workflows/wf-empty-import-body/dsl",
             content=b"",
             headers=headers,
@@ -138,14 +143,15 @@ class TestWorkflowAPI:
             "/api/v1/workflows/wf-invalid-bytes/dsl",
         ],
     )
-    def test_workflow_actor_guard_invalid_text_bytes_preserve_validation_response(self, client, path):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_invalid_text_bytes_preserve_validation_response(self, async_client, path):
         headers = {
             "Content-Type": "text/plain",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(path, content=b"\xff", headers=headers)
+        response = await async_client.post(path, content=b"\xff", headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -156,14 +162,15 @@ class TestWorkflowAPI:
             "/api/v1/workflows/wf-malformed-json/dsl",
         ],
     )
-    def test_workflow_actor_guard_malformed_json_preserves_validation_response(self, client, path):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_malformed_json_preserves_validation_response(self, async_client, path):
         headers = {
             "Content-Type": "application/json",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(path, content=b"{", headers=headers)
+        response = await async_client.post(path, content=b"{", headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -176,10 +183,11 @@ class TestWorkflowAPI:
             ("/api/v1/workflows/wf-scalar-body/dsl", "created_by"),
         ],
     )
-    def test_workflow_actor_guard_non_object_json_preserves_validation_response(self, client, path, payload):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_non_object_json_preserves_validation_response(self, async_client, path, payload):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
-        response = client.post(path, json=payload, headers=headers)
+        response = await async_client.post(path, json=payload, headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -190,14 +198,15 @@ class TestWorkflowAPI:
             "/api/v1/workflows/wf-wrong-media/dsl",
         ],
     )
-    def test_workflow_actor_guard_ignores_wrong_media_type(self, client, path):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_ignores_wrong_media_type(self, async_client, path):
         headers = {
             "Content-Type": "text/plain; charset=utf-8",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(
+        response = await async_client.post(
             path,
             content=b'{"created_by":"spoofed-user"}',
             headers=headers,
@@ -212,14 +221,15 @@ class TestWorkflowAPI:
             "/api/v1/workflows/wf-structured-json/dsl",
         ],
     )
-    def test_workflow_actor_guard_inspects_structured_json_media_type(self, client, path):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_inspects_structured_json_media_type(self, async_client, path):
         headers = {
             "Content-Type": "Application/Vnd.Soit+Json; charset=utf-8",
             "X-Tenant-Id": "test-tenant",
             "X-Workspace-Id": "test-workspace",
         }
 
-        response = client.post(
+        response = await async_client.post(
             path,
             content=b'{"created_by":"spoofed-user"}',
             headers=headers,
@@ -244,7 +254,8 @@ class TestWorkflowAPI:
             ),
         ],
     )
-    def test_workflow_actor_guard_authorization_precedes_actor_rejection(self, client, path, payload):
+    @pytest.mark.asyncio
+    async def test_workflow_actor_guard_authorization_precedes_actor_rejection(self, async_client, path, payload):
         from app.kernel.contracts.context import RequestContext
         from app.main import app
         from app.middleware.auth import get_current_context
@@ -261,7 +272,7 @@ class TestWorkflowAPI:
         previous_override = app.dependency_overrides.get(get_current_context)
         app.dependency_overrides[get_current_context] = _override_get_current_context
         try:
-            response = client.post(
+            response = await async_client.post(
                 path,
                 json=payload,
                 headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -274,16 +285,17 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_create_workflow_version_uses_authenticated_actor(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow_version_uses_authenticated_actor(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "authenticated-version-actor"},
             headers=headers,
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
             json={"graph_json": canonical_workflow_spec()},
             headers=headers,
@@ -292,16 +304,17 @@ class TestWorkflowAPI:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["data"]["created_by"] == "test-user"
 
-    def test_import_workflow_dsl_uses_authenticated_actor(self, client):
+    @pytest.mark.asyncio
+    async def test_import_workflow_dsl_uses_authenticated_actor(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "authenticated-import-actor"},
             headers=headers,
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/dsl",
             json={"dsl": canonical_workflow_spec(), "format": "json"},
             headers=headers,
@@ -310,9 +323,10 @@ class TestWorkflowAPI:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["data"]["created_by"] == "test-user"
 
-    def test_create_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow(self, async_client):
         """Test creating a workflow."""
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow",
@@ -361,7 +375,7 @@ class TestWorkflowAPI:
         assert payload["category"] == "automation"
         assert payload["tags"] == ["ops", "etl"]
 
-        current_version = client.get(
+        current_version = await async_client.get(
             f"/api/v1/workflows/{payload['id']}/version/current",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -369,9 +383,10 @@ class TestWorkflowAPI:
         transform = current_version.json()["data"]["graph_json"]["graph"]["nodes"][0]
         assert transform["params"] == {"mapping": {}}
 
-    def test_create_ticket_triage_template_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_create_ticket_triage_template_workflow(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        response = client.post(
+        response = await async_client.post(
             "/api/v1/workflows/templates/ticket-triage",
             json={"name": "ticket-triage-template-api"},
             headers=headers,
@@ -383,7 +398,7 @@ class TestWorkflowAPI:
         assert payload["published_version_id"] is None
         assert payload["metadata_json"]["template_key"] == "ticket_triage"
 
-        version_response = client.get(
+        version_response = await async_client.get(
             f"/api/v1/workflows/{payload['id']}/version/current",
             headers=headers,
         )
@@ -399,10 +414,11 @@ class TestWorkflowAPI:
             "reject",
         ]
 
-    def test_list_workflows(self, client):
+    @pytest.mark.asyncio
+    async def test_list_workflows(self, async_client):
         """Test listing workflows."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_list",
@@ -413,7 +429,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
 
         # List workflows
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/workflows",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -424,12 +440,13 @@ class TestWorkflowAPI:
         assert "items" in payload
         assert isinstance(payload["items"], list)
 
-    def test_workflow_workbench_returns_rows_and_runtime_metrics(self, client, db):
+    @pytest.mark.asyncio
+    async def test_workflow_workbench_returns_rows_and_runtime_metrics(self, async_client, async_db):
         """Workflow workbench should aggregate workflow state and run health."""
         from app.kernel.commons.time import utc_now
 
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        published_response = client.post(
+        published_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "Published Workflow", "description": "Ready workflow"},
             headers=headers,
@@ -439,14 +456,14 @@ class TestWorkflowAPI:
         workflow_id = published_payload["id"]
         version_id = published_payload["current_version_id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        draft_response = client.post(
+        draft_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "Draft Workflow", "description": "Needs publish"},
             headers=headers,
@@ -454,7 +471,7 @@ class TestWorkflowAPI:
         assert draft_response.status_code == status.HTTP_201_CREATED
 
         now = utc_now()
-        db.add_all(
+        async_db.add_all(
             [
                 Run(
                     id="run_workflow_workbench_success",
@@ -490,9 +507,9 @@ class TestWorkflowAPI:
                 ),
             ]
         )
-        db.commit()
+        await async_db.commit()
 
-        response = client.get("/api/v1/workflows/workbench?page_size=20", headers=headers)
+        response = await async_client.get("/api/v1/workflows/workbench?page_size=20", headers=headers)
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()["data"]
@@ -520,7 +537,7 @@ class TestWorkflowAPI:
         assert draft_row["status"] == "draft"
         assert draft_row["action_enabled"] is False
 
-        items_response = client.get(
+        items_response = await async_client.get(
             "/api/v1/workflows/workbench/items?tab=abnormal&keyword=Published&page_size=1",
             headers=headers,
         )
@@ -531,14 +548,15 @@ class TestWorkflowAPI:
         assert items_payload["next_page_token"] is None
         assert [item["id"] for item in items_payload["items"]] == [workflow_id]
 
-        paged_response = client.get("/api/v1/workflows/workbench/items?page_size=1", headers=headers)
+        paged_response = await async_client.get("/api/v1/workflows/workbench/items?page_size=1", headers=headers)
         assert paged_response.status_code == status.HTTP_200_OK
         assert paged_response.json()["data"]["next_page_token"] is not None
 
-    def test_get_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_get_workflow(self, async_client):
         """Test getting a workflow by ID."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_get",
@@ -550,7 +568,7 @@ class TestWorkflowAPI:
         workflow_id = create_response.json()["data"]["id"]
 
         # Get workflow
-        response = client.get(
+        response = await async_client.get(
             f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -563,9 +581,10 @@ class TestWorkflowAPI:
         for key in ("tenant_id", "workspace_id", "created_at", "updated_at"):
             assert key in payload
 
-    def test_create_workflow_version_contract(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow_version_contract(self, async_client):
         """Workflow version response matches frontend contract."""
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_version",
@@ -576,7 +595,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -616,7 +635,7 @@ class TestWorkflowAPI:
         for key in required_keys:
             assert key in payload
 
-        preview_response = client.post(
+        preview_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions/{payload['id']}/preview",
             json={"inputs": {}},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -624,7 +643,7 @@ class TestWorkflowAPI:
         assert preview_response.status_code == status.HTTP_200_OK
         assert preview_response.json()["data"]["output"] == {"value": True}
 
-        detail_response = client.get(
+        detail_response = await async_client.get(
             f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
@@ -633,9 +652,10 @@ class TestWorkflowAPI:
         assert detail_payload["current_version_id"] == payload["id"]
         assert detail_payload["published_version_id"] is None
 
-    def test_create_workflow_version_preserves_original_spec_json(self, client):
+    @pytest.mark.asyncio
+    async def test_create_workflow_version_preserves_original_spec_json(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "preserve-workflow-spec"},
             headers=headers,
@@ -643,7 +663,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
 
         original_spec = canonical_workflow_spec()
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{create_response.json()['data']['id']}/versions",
             json={"graph_json": original_spec},
             headers=headers,
@@ -652,7 +672,8 @@ class TestWorkflowAPI:
         assert version_response.status_code == status.HTTP_201_CREATED
         assert version_response.json()["data"]["graph_json"] == original_spec
 
-    def test_preview_executes_exact_draft_without_changing_live_version(self, client, db):
+    @pytest.mark.asyncio
+    async def test_preview_executes_exact_draft_without_changing_live_version(self, async_client, async_db):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
 
         def version_spec(value: str) -> dict:
@@ -669,7 +690,7 @@ class TestWorkflowAPI:
                 },
             }
 
-        workflow_response = client.post(
+        workflow_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "exact-draft-preview"},
             headers=headers,
@@ -677,21 +698,21 @@ class TestWorkflowAPI:
         assert workflow_response.status_code == status.HTTP_201_CREATED
         workflow_id = workflow_response.json()["data"]["id"]
 
-        live_version_response = client.post(
+        live_version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={"graph_json": version_spec("live-v1")},
             headers=headers,
         )
         assert live_version_response.status_code == status.HTTP_201_CREATED
         live_version_id = live_version_response.json()["data"]["id"]
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": live_version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        draft_version_response = client.post(
+        draft_version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={"graph_json": version_spec("draft-v2")},
             headers=headers,
@@ -699,7 +720,7 @@ class TestWorkflowAPI:
         assert draft_version_response.status_code == status.HTTP_201_CREATED
         draft_version_id = draft_version_response.json()["data"]["id"]
 
-        preview_response = client.post(
+        preview_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions/{draft_version_id}/preview",
             json={"inputs": {}},
             headers=headers,
@@ -708,12 +729,12 @@ class TestWorkflowAPI:
         preview_payload = preview_response.json()["data"]
         assert preview_payload["workflow_version_id"] == draft_version_id
         assert preview_payload["output"] == {"value": "draft-v2"}
-        preview_run = db.get(Run, preview_payload["run_id"])
+        preview_run = await async_db.get(Run, preview_payload["run_id"])
         assert preview_run is not None
         assert preview_run.subject_id == workflow_id
         assert preview_run.subject_version_id == draft_version_id
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/execute",
             json={},
             headers=headers,
@@ -721,24 +742,25 @@ class TestWorkflowAPI:
         assert execute_response.status_code == status.HTTP_200_OK
         execute_payload = execute_response.json()["data"]
         assert execute_payload["output"] == {"value": "live-v1"}
-        live_run = db.get(Run, execute_payload["run_id"])
+        live_run = await async_db.get(Run, execute_payload["run_id"])
         assert live_run is not None
         assert live_run.subject_version_id == live_version_id
 
-        workflow_detail = client.get(f"/api/v1/workflows/{workflow_id}", headers=headers)
+        workflow_detail = await async_client.get(f"/api/v1/workflows/{workflow_id}", headers=headers)
         assert workflow_detail.status_code == status.HTTP_200_OK
         assert workflow_detail.json()["data"]["published_version_id"] == live_version_id
 
-    def test_preview_rejects_unknown_request_fields(self, client):
+    @pytest.mark.asyncio
+    async def test_preview_rejects_unknown_request_fields(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        workflow_response = client.post(
+        workflow_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "strict-preview-request"},
             headers=headers,
         )
         workflow = workflow_response.json()["data"]
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{workflow['id']}/versions/{workflow['current_version_id']}/preview",
             json={"inputs": {}, "unexpected": True},
             headers=headers,
@@ -746,14 +768,15 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_preview_rejects_version_owned_by_another_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_preview_rejects_version_owned_by_another_workflow(self, async_client):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        first = client.post("/api/v1/workflows", json={"name": "preview-owner-one"}, headers=headers)
-        second = client.post("/api/v1/workflows", json={"name": "preview-owner-two"}, headers=headers)
+        first = await async_client.post("/api/v1/workflows", json={"name": "preview-owner-one"}, headers=headers)
+        second = await async_client.post("/api/v1/workflows", json={"name": "preview-owner-two"}, headers=headers)
         assert first.status_code == status.HTTP_201_CREATED
         assert second.status_code == status.HTTP_201_CREATED
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{first.json()['data']['id']}/versions/{second.json()['data']['current_version_id']}/preview",
             json={"inputs": {}},
             headers=headers,
@@ -761,9 +784,10 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_preview_rejects_version_outside_request_scope(self, client, db):
+    @pytest.mark.asyncio
+    async def test_preview_rejects_version_outside_request_scope(self, async_client, async_db):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        workflow_response = client.post(
+        workflow_response = await async_client.post(
             "/api/v1/workflows",
             json={"name": "scoped-preview"},
             headers=headers,
@@ -779,10 +803,10 @@ class TestWorkflowAPI:
             spec_json=canonical_workflow_spec(),
             created_by="foreign-user",
         )
-        db.add(foreign_version)
-        db.commit()
+        async_db.add(foreign_version)
+        await async_db.commit()
 
-        response = client.post(
+        response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions/{foreign_version.id}/preview",
             json={"inputs": {}},
             headers=headers,
@@ -790,9 +814,10 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_publish_workflow_promotes_existing_draft(self, client, db):
+    @pytest.mark.asyncio
+    async def test_publish_workflow_promotes_existing_draft(self, async_client, async_db):
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_publish",
@@ -805,7 +830,7 @@ class TestWorkflowAPI:
         workflow_id = workflow_payload["id"]
         initial_version_id = workflow_payload["current_version_id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -830,7 +855,7 @@ class TestWorkflowAPI:
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": version_id},
             headers=headers,
@@ -840,7 +865,7 @@ class TestWorkflowAPI:
         assert payload["current_version_id"] == version_id
         assert payload["published_version_id"] == version_id
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/execute",
             json={},
             headers=headers,
@@ -848,7 +873,7 @@ class TestWorkflowAPI:
         assert execute_response.status_code == status.HTTP_200_OK
         assert execute_response.json()["data"]["output"] == {"value": True}
 
-        rollback_response = client.post(
+        rollback_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/rollback",
             json={"version_id": initial_version_id, "notes": "rollback default"},
             headers=headers,
@@ -858,7 +883,7 @@ class TestWorkflowAPI:
         assert rolled_back["current_version_id"] == version_id
         assert rolled_back["published_version_id"] == initial_version_id
 
-        releases_response = client.get(
+        releases_response = await async_client.get(
             f"/api/v1/workflows/{workflow_id}/releases",
             headers=headers,
         )
@@ -872,11 +897,11 @@ class TestWorkflowAPI:
         assert releases[1]["action"] == "publish"
         assert releases[1]["to_version_id"] == version_id
 
-        rows = db.execute(
+        rows = (await async_db.execute(
             select(WorkflowPublish)
             .where(WorkflowPublish.workflow_id == workflow_id)
             .order_by(WorkflowPublish.created_at.desc())
-        ).scalars().all()
+        )).scalars().all()
         assert len(rows) >= 2
         latest = rows[0]
         previous = rows[1]
@@ -886,10 +911,11 @@ class TestWorkflowAPI:
         assert latest.rollback_of_publish_id == previous.id
         assert latest.notes == "rollback default"
 
-    def test_update_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_update_workflow(self, async_client):
         """Test updating a workflow."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_update",
@@ -901,7 +927,7 @@ class TestWorkflowAPI:
         workflow_id = create_response.json()["data"]["id"]
 
         # Update workflow
-        response = client.put(
+        response = await async_client.put(
             f"/api/v1/workflows/{workflow_id}",
             json={
                 "name": "test_workflow_updated",
@@ -924,10 +950,11 @@ class TestWorkflowAPI:
         assert payload["category"] == "updated-category"
         assert payload["tags"] == ["updated"]
 
-    def test_delete_workflow(self, client):
+    @pytest.mark.asyncio
+    async def test_delete_workflow(self, async_client):
         """Test deleting a workflow."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_delete",
@@ -939,21 +966,22 @@ class TestWorkflowAPI:
         workflow_id = create_response.json()["data"]["id"]
 
         # Delete workflow
-        response = client.delete(
+        response = await async_client.delete(
             f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Verify workflow is deleted
-        get_response = client.get(
+        get_response = await async_client.get(
             f"/api/v1/workflows/{workflow_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         # Should return 404 or handle soft delete appropriately
         assert get_response.status_code in [status.HTTP_404_NOT_FOUND, status.HTTP_200_OK]
 
-    def test_viewer_cannot_create_workflow(self, db):
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_create_workflow(self, async_db):
         """Viewer role should not be able to create workflows."""
         from fastapi.testclient import TestClient
 
@@ -964,7 +992,7 @@ class TestWorkflowAPI:
 
         def _override_get_db():
             try:
-                yield db
+                yield async_db
             finally:
                 pass
 
@@ -992,10 +1020,11 @@ class TestWorkflowAPI:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_context, None)
 
-    def test_list_runs(self, client):
+    @pytest.mark.asyncio
+    async def test_list_runs(self, async_client):
         """Test listing workflow runs via run API."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_runs",
@@ -1007,7 +1036,7 @@ class TestWorkflowAPI:
         workflow_id = create_response.json()["data"]["id"]
 
         # List runs (should be empty initially)
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/runs",
             params={"subject_kind": "workflow", "subject_id": workflow_id, "mode": "workflow"},
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
@@ -1019,10 +1048,11 @@ class TestWorkflowAPI:
         assert "items" in payload
         assert isinstance(payload["items"], list)
 
-    def test_get_run(self, client):
+    @pytest.mark.asyncio
+    async def test_get_run(self, async_client):
         """Test getting a workflow run via run API."""
         # Create a workflow first
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_get_run",
@@ -1034,17 +1064,18 @@ class TestWorkflowAPI:
 
         # Get a non-existent run
         run_id = "test-run-id"
-        response = client.get(
+        response = await async_client.get(
             f"/api/v1/runs/{run_id}",
             headers={"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"},
         )
         # Should return 404 for non-existent run
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_sse_execution_creates_linked_response(self, client, db):
+    @pytest.mark.asyncio
+    async def test_sse_execution_creates_linked_response(self, async_client, async_db):
         """Workflow SSE execution should reuse the response-aware engine wiring."""
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_workflow_sse_execute",
@@ -1055,7 +1086,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -1083,21 +1114,21 @@ class TestWorkflowAPI:
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        with client.stream(
+        async with async_client.stream(
             "POST",
             f"/api/v1/workflows/{workflow_id}/stream",
             json={"inputs": {}},
             headers=headers,
         ) as response:
             assert response.status_code == status.HTTP_200_OK
-            body = response.read().decode("utf-8")
+            body = (await response.aread()).decode("utf-8")
 
         assert "event: start" in body
         assert "event: compiled" in body
@@ -1119,32 +1150,33 @@ class TestWorkflowAPI:
                 break
 
         assert run_id is not None
-        rows = db.exec(
+        rows = (await async_db.exec(
             select(Response).where(
                 Response.tenant_id == "test-tenant",
                 Response.workspace_id == "test-workspace",
                 Response.run_id == run_id,
             )
-        ).all()
+        )).all()
         linked_responses = [item if isinstance(item, Response) else item[0] for item in rows]
         assert len(linked_responses) >= 1
         assert any(item.status == "succeeded" for item in linked_responses)
 
-        with client.stream(
+        async with async_client.stream(
             "GET",
             f"/api/v1/runs/{run_id}/stream",
             headers=headers,
         ) as response:
             assert response.status_code == status.HTTP_200_OK
-            replay_body = response.read().decode("utf-8")
+            replay_body = (await response.aread()).decode("utf-8")
 
         assert "event: run" in replay_body
         assert "event: complete" in replay_body
 
-    def test_execute_ticket_tool_workflow_projects_tool_call_timeline(self, client):
+    @pytest.mark.asyncio
+    async def test_execute_ticket_tool_workflow_projects_tool_call_timeline(self, async_client):
         """Ticket demo workflow execution should expose tool-call detail through Responses timeline."""
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_ticket_tool_workflow",
@@ -1155,7 +1187,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -1194,14 +1226,14 @@ class TestWorkflowAPI:
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": version_id},
             headers=headers,
         )
         assert publish_response.status_code == status.HTTP_200_OK
 
-        execute_response = client.post(
+        execute_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/execute",
             json={"ticket_id": "TCK-1001"},
             headers=headers,
@@ -1209,7 +1241,7 @@ class TestWorkflowAPI:
         assert execute_response.status_code == status.HTTP_200_OK
         run_id = execute_response.json()["data"]["run_id"]
 
-        timeline_response = client.get(
+        timeline_response = await async_client.get(
             f"/api/v1/responses/by-run/{run_id}",
             headers=headers,
         )
@@ -1222,10 +1254,11 @@ class TestWorkflowAPI:
         assert tool_call["status"] == "completed"
         assert tool_call["arguments_json"]["ticket_id"] == "TCK-1001"
 
-    def test_ticket_workflow_run_control_contract(self, client, db):
+    @pytest.mark.asyncio
+    async def test_ticket_workflow_run_control_contract(self, async_client, async_db):
         """Ticket workflow run controls should pause/resume active runs and replay/retry failed runs."""
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
-        create_response = client.post(
+        create_response = await async_client.post(
             "/api/v1/workflows",
             json={
                 "name": "test_ticket_workflow_controls",
@@ -1236,7 +1269,7 @@ class TestWorkflowAPI:
         assert create_response.status_code == status.HTTP_201_CREATED
         workflow_id = create_response.json()["data"]["id"]
 
-        version_response = client.post(
+        version_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/versions",
             json={
                 "graph_json": {
@@ -1282,7 +1315,7 @@ class TestWorkflowAPI:
         assert version_response.status_code == status.HTTP_201_CREATED
         version_id = version_response.json()["data"]["id"]
 
-        publish_response = client.post(
+        publish_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/publish",
             json={"version_id": version_id},
             headers=headers,
@@ -1330,46 +1363,46 @@ class TestWorkflowAPI:
             status="queued",
             input_summary='{"ticket_id":"TCK-2004"}',
         )
-        db.add(running_run)
-        db.add(failed_run)
-        db.add(queued_run)
-        db.commit()
+        async_db.add(running_run)
+        async_db.add(failed_run)
+        async_db.add(queued_run)
+        await async_db.commit()
 
-        pause_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/pause", headers=headers)
+        pause_response = await async_client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/pause", headers=headers)
         assert pause_response.status_code == status.HTTP_200_OK
         assert pause_response.json()["data"] == {"run_id": running_run.id, "status": "paused"}
 
-        resume_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/resume", headers=headers)
+        resume_response = await async_client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/resume", headers=headers)
         assert resume_response.status_code == status.HTTP_200_OK
         assert resume_response.json()["data"] == {"run_id": running_run.id, "status": "running"}
 
-        cancel_response = client.post(
+        cancel_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/cancel",
             json={"reason": "No longer needed"},
             headers=headers,
         )
         assert cancel_response.status_code == status.HTTP_200_OK
         assert cancel_response.json()["data"] == {"run_id": running_run.id, "status": "canceled"}
-        db.refresh(running_run)
+        await async_db.refresh(running_run)
         assert running_run.status == "canceled"
         assert running_run.error_code == "workflow_run_canceled"
         assert running_run.error_message == "No longer needed"
         assert running_run.ended_at is not None
 
-        fail_response = client.post(
+        fail_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/runs/{queued_run.id}/fail",
             json={"error_code": "manual_fail", "error_message": "Manual test failure"},
             headers=headers,
         )
         assert fail_response.status_code == status.HTTP_200_OK
         assert fail_response.json()["data"] == {"run_id": queued_run.id, "status": "failed"}
-        db.refresh(queued_run)
+        await async_db.refresh(queued_run)
         assert queued_run.status == "failed"
         assert queued_run.error_code == "manual_fail"
         assert queued_run.error_message == "Manual test failure"
         assert queued_run.ended_at is not None
 
-        retry_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/retry", headers=headers)
+        retry_response = await async_client.post(f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/retry", headers=headers)
         assert retry_response.status_code == status.HTTP_200_OK
         retry_payload = retry_response.json()["data"]
         assert retry_payload["run_id"]
@@ -1377,7 +1410,7 @@ class TestWorkflowAPI:
         assert retry_payload["control_action"] == "retry"
         assert retry_payload["output"]["value"]["ticket_id"] == "TCK-2002"
 
-        retry_canceled_response = client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/retry", headers=headers)
+        retry_canceled_response = await async_client.post(f"/api/v1/workflows/{workflow_id}/runs/{running_run.id}/retry", headers=headers)
         assert retry_canceled_response.status_code == status.HTTP_200_OK
         retry_canceled_payload = retry_canceled_response.json()["data"]
         assert retry_canceled_payload["run_id"]
@@ -1385,7 +1418,7 @@ class TestWorkflowAPI:
         assert retry_canceled_payload["control_action"] == "retry"
         assert retry_canceled_payload["output"]["value"]["ticket_id"] == "TCK-2001"
 
-        replay_response = client.post(
+        replay_response = await async_client.post(
             f"/api/v1/workflows/{workflow_id}/runs/{failed_run.id}/replay",
             json={"ticket_id": "TCK-2003"},
             headers=headers,

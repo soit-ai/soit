@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import and_, desc, select, update
-from sqlalchemy.orm import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
@@ -24,7 +24,7 @@ from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.specs.validator import validate_runtime_spec
-from app.modules.identity.application.display import resolve_user_display_names
+from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.versioning.application.service import VersionControlService
 from app.modules.workflow.application.capabilities import (
     BUILDER_NODE_TYPES,
@@ -80,7 +80,7 @@ class WorkflowService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         ctx: RequestContext,
         workflow_repo: WorkflowRepository | None = None,
         version_repo: WorkflowVersionRepository | None = None,
@@ -142,8 +142,8 @@ class WorkflowService:
             },
         }
 
-    def _get_workflow(self, workflow_id: str) -> Workflow:
-        workflow = self.workflow_repo.get_by_id(workflow_id)
+    async def _get_workflow(self, workflow_id: str) -> Workflow:
+        workflow = await self.workflow_repo.get_by_id(workflow_id)
         if not workflow:
             raise NotFoundError(f"Workflow not found: {workflow_id}")
         return workflow
@@ -160,7 +160,7 @@ class WorkflowService:
         except Exception:
             return None
 
-    def _get_run_record(self, workflow_id: str, run_id: str) -> Run:
+    async def _get_run_record(self, workflow_id: str, run_id: str) -> Run:
         from app.kernel.runtime.db.models.runs import Run
 
         query = select(Run).where(
@@ -171,7 +171,7 @@ class WorkflowService:
                 Run.mode == "workflow",
             )
         )
-        run = self.db.exec(query).first()
+        run = (await self.db.exec(query)).first()
         if run and not hasattr(run, "status"):
             run = run[0]
         if not run:
@@ -187,7 +187,7 @@ class WorkflowService:
         *,
         metadata_json: dict[str, Any] | None = None,
     ) -> Workflow:
-        existing = self.workflow_repo.get_by_name(data.name)
+        existing = await self.workflow_repo.get_by_name(data.name)
         if existing:
             raise ValidationError(f"Workflow with name '{data.name}' already exists")
 
@@ -204,7 +204,7 @@ class WorkflowService:
             metadata_json=metadata_json or {},
             created_by=self.ctx.user_id,
         )
-        workflow = self.workflow_repo.create(workflow)
+        workflow = await self.workflow_repo.create(workflow)
 
         await self.create_version(
             workflow.id,
@@ -212,7 +212,7 @@ class WorkflowService:
                 graph_json=spec_json,
             ),
         )
-        return self._get_workflow(workflow.id)
+        return await self._get_workflow(workflow.id)
 
     @rbac_guard(RESOURCE_WORKFLOW, "create", resource_id_resolver=_resolve_workflow_create_id)
     async def create_workflow(self, data: WorkflowCreate) -> Workflow:
@@ -239,10 +239,10 @@ class WorkflowService:
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
     async def update_workflow(self, workflow_id: str, data: WorkflowUpdate) -> Workflow:
-        workflow = self._get_workflow(workflow_id)
+        workflow = await self._get_workflow(workflow_id)
 
         if data.name and data.name != workflow.name:
-            existing = self.workflow_repo.get_by_name(data.name)
+            existing = await self.workflow_repo.get_by_name(data.name)
             if existing:
                 raise ValidationError(f"Workflow with name '{data.name}' already exists")
             workflow.name = data.name
@@ -264,15 +264,15 @@ class WorkflowService:
         if data.metadata_json is not None:
             workflow.metadata_json = data.metadata_json
 
-        return self.workflow_repo.update(workflow)
+        return await self.workflow_repo.update(workflow)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def get_workflow(self, workflow_id: str) -> Workflow:
-        return self._get_workflow(workflow_id)
+        return await self._get_workflow(workflow_id)
 
     @workspace_guard("read")
     async def list_workflows(self, limit: int = 20, offset: int = 0) -> list[Workflow]:
-        return self.workflow_repo.list(limit=limit, offset=offset)
+        return await self.workflow_repo.list(limit=limit, offset=offset)
 
     @workspace_guard("read")
     async def get_capabilities(self) -> WorkflowCapabilitiesResponse:
@@ -293,7 +293,7 @@ class WorkflowService:
 
     @workspace_guard("read")
     async def get_workbench(self, limit: int = 20, offset: int = 0) -> WorkflowWorkbenchResponse:
-        rows, runs_by_workflow = self._build_workbench_rows()
+        rows, runs_by_workflow = await self._build_workbench_rows()
         all_today_runs = [
             run
             for workflow_runs in runs_by_workflow.values()
@@ -336,7 +336,7 @@ class WorkflowService:
         tab: str | None = None,
         keyword: str | None = None,
     ) -> WorkflowWorkbenchItemsResponse:
-        rows, _ = self._build_workbench_rows()
+        rows, _ = await self._build_workbench_rows()
         filtered_rows = self._filter_workbench_rows(rows, tab=tab, keyword=keyword)
         visible_rows = filtered_rows[offset: offset + limit]
         has_next = offset + len(visible_rows) < len(filtered_rows)
@@ -347,15 +347,15 @@ class WorkflowService:
             page_size=len(visible_rows),
         )
 
-    def _build_workbench_rows(self) -> tuple[list[WorkflowWorkbenchRow], dict[str, list[Run]]]:
-        workflows = self._list_workbench_workflows()
+    async def _build_workbench_rows(self) -> tuple[list[WorkflowWorkbenchRow], dict[str, list[Run]]]:
+        workflows = await self._list_workbench_workflows()
         workflow_ids = [workflow.id for workflow in workflows]
-        runs_by_workflow = self._workbench_runs_by_workflow(workflow_ids)
+        runs_by_workflow = await self._workbench_runs_by_workflow(workflow_ids)
         rows = [
             self._build_workbench_row(workflow, runs_by_workflow.get(workflow.id, []))
             for workflow in workflows
         ]
-        owner_names = resolve_user_display_names(self.db, (row.owner for row in rows))
+        owner_names = await resolve_user_display_names_async(self.db, (row.owner for row in rows))
         for row in rows:
             if row.owner:
                 row.owner = owner_names.get(row.owner, row.owner)
@@ -398,7 +398,7 @@ class WorkflowService:
 
         return [row for row in rows if tab_matches(row) and keyword_matches(row)]
 
-    def _list_workbench_workflows(self) -> list[Workflow]:
+    async def _list_workbench_workflows(self) -> list[Workflow]:
         query = (
             select(Workflow)
             .where(
@@ -410,10 +410,10 @@ class WorkflowService:
             )
             .order_by(desc(Workflow.updated_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, Workflow) else item[0] for item in results]
 
-    def _workbench_runs_by_workflow(self, workflow_ids: list[str]) -> dict[str, list[Run]]:
+    async def _workbench_runs_by_workflow(self, workflow_ids: list[str]) -> dict[str, list[Run]]:
         if not workflow_ids:
             return {}
         query = (
@@ -428,7 +428,7 @@ class WorkflowService:
             )
             .order_by(desc(Run.started_at))
         )
-        results = list(self.db.exec(query).all())
+        results = list((await self.db.exec(query)).all())
         grouped: dict[str, list[Run]] = defaultdict(list)
         for item in results:
             run = item if isinstance(item, Run) else item[0]
@@ -515,10 +515,10 @@ class WorkflowService:
 
     @rbac_guard(RESOURCE_WORKFLOW, "delete", resource_id_arg="workflow_id")
     async def delete_workflow(self, workflow_id: str) -> None:
-        workflow = self._get_workflow(workflow_id)
+        workflow = await self._get_workflow(workflow_id)
         workflow.status = "archived"
         workflow.deleted_at = utc_now()
-        self.workflow_repo.update(workflow)
+        await self.workflow_repo.update(workflow)
 
     def validate_spec(self, graph_json: dict) -> None:
         try:
@@ -529,7 +529,7 @@ class WorkflowService:
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
     async def create_version(self, workflow_id: str, data: WorkflowVersionCreate) -> WorkflowVersion:
-        return self.versioning.create_draft(
+        return await self.versioning.create_draft(
             workflow_id,
             spec_schema="workflow.v1",
             spec_json=data.graph_json,
@@ -545,23 +545,23 @@ class WorkflowService:
         run_preflight: bool = False,
         notes: str | None = None,
     ) -> Workflow:
-        return self.versioning.publish(workflow_id, version_id, notes=notes)
+        return await self.versioning.publish(workflow_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def get_current_version(self, workflow_id: str) -> WorkflowVersion | None:
-        return self.versioning.get_head_version(workflow_id)
+        return await self.versioning.get_head_version(workflow_id)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def get_live_version(self, workflow_id: str) -> WorkflowVersion | None:
-        return self.versioning.get_live_version(workflow_id)
+        return await self.versioning.get_live_version(workflow_id)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def list_versions(self, workflow_id: str, limit: int = 20, offset: int = 0) -> list[WorkflowVersion]:
-        return self.versioning.list_versions(workflow_id, limit=limit, offset=offset)
+        return await self.versioning.list_versions(workflow_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def list_releases(self, workflow_id: str, limit: int = 20, offset: int = 0) -> list[WorkflowPublish]:
-        return self.versioning.list_releases(workflow_id, limit=limit, offset=offset)
+        return await self.versioning.list_releases(workflow_id, limit=limit, offset=offset)
 
     @rbac_guard(RESOURCE_WORKFLOW, "update", resource_id_arg="workflow_id")
     async def rollback_version(
@@ -572,7 +572,7 @@ class WorkflowService:
         run_preflight: bool = False,
         notes: str | None = None,
     ) -> Workflow:
-        return self.versioning.rollback(workflow_id, version_id, notes=notes)
+        return await self.versioning.rollback(workflow_id, version_id, notes=notes)
 
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     async def compile_workflow(
@@ -604,8 +604,8 @@ class WorkflowService:
         version_id: str,
         inputs: dict[str, Any],
     ) -> dict[str, Any]:
-        workflow = self._get_workflow(workflow_id)
-        version = self.version_repo.get_by_id(version_id)
+        workflow = await self._get_workflow(workflow_id)
+        version = await self.version_repo.get_by_id(version_id)
         if version is None or version.workflow_id != workflow.id:
             raise NotFoundError(f"Workflow version not found: {version_id}")
 
@@ -623,23 +623,23 @@ class WorkflowService:
     @rbac_guard(RESOURCE_WORKFLOW, "read", resource_id_arg="workflow_id")
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def pause_run(self, workflow_id: str, run_id: str) -> dict:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         if run.status != "running":
             raise ValidationError("Only running runs can be paused")
-        self.trace_writer.update_run_status(run.id, "paused")
+        await self.trace_writer.update_run_status(run.id, "paused")
         return {"run_id": run.id, "status": "paused"}
 
     @rbac_guard(RESOURCE_WORKFLOW, "run", resource_id_arg="workflow_id")
     async def resume_run(self, workflow_id: str, run_id: str) -> dict:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         if run.status == "paused":
-            self.trace_writer.update_run_status(run.id, "running")
+            await self.trace_writer.update_run_status(run.id, "running")
             return {"run_id": run.id, "status": "running"}
         if run.status != "waiting_approval":
             raise ValidationError(
                 "Only paused or approval-waiting runs can be resumed"
             )
-        workflow_run = self.db.execute(
+        workflow_run = (await self.db.execute(
             select(WorkflowRun).where(
                 and_(
                     WorkflowRun.tenant_id == self.ctx.tenant_id,
@@ -648,12 +648,12 @@ class WorkflowService:
                     WorkflowRun.run_id == run.id,
                 )
             )
-        ).scalars().first()
+        )).scalars().first()
         if workflow_run is None or not workflow_run.checkpoint_json:
             raise ValidationError("Workflow approval checkpoint is missing")
         if not run.subject_version_id:
             raise ValidationError("Workflow run has no pinned version")
-        version = self.version_repo.get_by_id(run.subject_version_id)
+        version = await self.version_repo.get_by_id(run.subject_version_id)
         if version is None or version.workflow_id != workflow_id:
             raise ValidationError("Pinned workflow version is unavailable")
         checkpoint = dict(workflow_run.checkpoint_json)
@@ -669,14 +669,14 @@ class WorkflowService:
             workflow_run_id=workflow_run.id,
             checkpoint=checkpoint,
         )
-        refreshed = self._get_run_record(workflow_id, run_id)
+        refreshed = await self._get_run_record(workflow_id, run_id)
         return {
             "run_id": run.id,
             "status": refreshed.status,
             "output": result,
         }
 
-    def prepare_redrive(self, workflow_run_id: str) -> PreparedRedrive:
+    async def prepare_redrive(self, workflow_run_id: str) -> PreparedRedrive:
         """Stage one failed workflow run for resume from its crash checkpoint.
 
         Staging is a compare-and-set on the failed status, so exactly one of
@@ -684,7 +684,7 @@ class WorkflowService:
         dead instead of double-claiming it.
         """
 
-        workflow_run = self.db.get(WorkflowRun, workflow_run_id)
+        workflow_run = await self.db.get(WorkflowRun, workflow_run_id)
         if (
             workflow_run is None
             or workflow_run.tenant_id != self.ctx.tenant_id
@@ -695,10 +695,10 @@ class WorkflowService:
             raise ConflictError(
                 f"Workflow run is {workflow_run.status}, not a dead letter"
             )
-        run = self._get_run_record(workflow_run.workflow_id, workflow_run.run_id)
+        run = await self._get_run_record(workflow_run.workflow_id, workflow_run.run_id)
         if not run.subject_version_id:
             raise ValidationError("Workflow run has no pinned version")
-        version = self.version_repo.get_by_id(run.subject_version_id)
+        version = await self.version_repo.get_by_id(run.subject_version_id)
         if version is None or version.workflow_id != workflow_run.workflow_id:
             raise ValidationError("Pinned workflow version is unavailable")
 
@@ -729,7 +729,7 @@ class WorkflowService:
         lease_seconds = runtime_lease.normalize_lease_seconds(
             settings.workflow_execution_lease_seconds
         )
-        staged = self.db.execute(
+        staged = await self.db.execute(
             update(WorkflowRun)
             .where(
                 WorkflowRun.id == workflow_run.id,
@@ -745,8 +745,8 @@ class WorkflowService:
         )
         if staged.rowcount != 1:
             raise ConflictError("Workflow run was already redriven")
-        self.trace_writer.update_run_status(run.id, "retrying")
-        self.db.commit()
+        await self.trace_writer.update_run_status(run.id, "retrying")
+        await self.db.commit()
         return PreparedRedrive(
             workflow_run_id=workflow_run.id,
             run_id=run.id,
@@ -761,13 +761,13 @@ class WorkflowService:
         run_id: str,
         reason: str | None = None,
     ) -> dict:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         if run.status not in ("queued", "running", "paused", "waiting_approval"):
             raise ValidationError(
                 "Only queued, running, paused, or approval-waiting runs can be canceled"
             )
         message = reason or "Workflow run canceled by user"
-        self.trace_writer.update_run_status(
+        await self.trace_writer.update_run_status(
             run.id,
             "canceled",
             output_summary=message,
@@ -785,13 +785,13 @@ class WorkflowService:
         error_code: str = "workflow_run_failed",
         error_message: str | None = None,
     ) -> dict:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         if run.status not in ("queued", "running", "paused", "waiting_approval"):
             raise ValidationError(
                 "Only queued, running, paused, or approval-waiting runs can be marked failed"
             )
         message = error_message or "Workflow run marked failed by user"
-        self.trace_writer.update_run_status(
+        await self.trace_writer.update_run_status(
             run.id,
             "failed",
             output_summary=message,
@@ -807,7 +807,7 @@ class WorkflowService:
         run_id: str,
         inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         if run.status not in ("failed", "canceled"):
             raise ValidationError("Only failed or canceled runs can be retried")
         payload = inputs or self._load_run_inputs(run)
@@ -825,7 +825,7 @@ class WorkflowService:
         run_id: str,
         inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        run = self._get_run_record(workflow_id, run_id)
+        run = await self._get_run_record(workflow_id, run_id)
         payload = inputs or self._load_run_inputs(run)
         if payload is None:
             raise ValidationError("Replay requires inputs or a parseable run input_summary")
@@ -844,7 +844,7 @@ class WorkflowService:
     ) -> dict[str, Any]:
         version = None
         if version_id:
-            version = self.version_repo.get_by_id(version_id)
+            version = await self.version_repo.get_by_id(version_id)
             if not version or version.workflow_id != workflow_id:
                 raise NotFoundError(f"Version not found: {version_id}")
         else:
@@ -881,7 +881,7 @@ class WorkflowService:
                 payload = json.loads(payload)
         if not isinstance(payload, dict):
             raise ValidationError("Workflow DSL must be an object")
-        return self.versioning.create_draft(
+        return await self.versioning.create_draft(
             workflow_id,
             spec_schema="workflow.v1",
             spec_json=payload,

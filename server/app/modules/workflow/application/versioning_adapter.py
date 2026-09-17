@@ -32,19 +32,19 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         self.publish_repo = publish_repo
         self.validate_spec_callback = validate_spec
 
-    def get_subject(self, subject_id: str) -> Any | None:
-        return self.workflow_repo.get_by_id(subject_id)
+    async def get_subject(self, subject_id: str) -> Any | None:
+        return await self.workflow_repo.get_by_id(subject_id)
 
-    def get_version(self, version_id: str) -> WorkflowVersion | None:
-        return self.version_repo.get_by_id(version_id)
+    async def get_version(self, version_id: str) -> WorkflowVersion | None:
+        return await self.version_repo.get_by_id(version_id)
 
     def version_matches_subject(self, version: WorkflowVersion, subject_id: str) -> bool:
         return version.workflow_id == subject_id
 
-    def next_version_number(self, subject_id: str) -> int:
-        return self.workflow_repo.next_version_number(subject_id)
+    async def next_version_number(self, subject_id: str) -> int:
+        return await self.workflow_repo.next_version_number(subject_id)
 
-    def create_version(
+    async def create_version(
         self,
         subject_id: str,
         *,
@@ -55,7 +55,7 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         metadata: dict[str, Any] | None,
     ) -> WorkflowVersion:
         payload = metadata or {}
-        return self.version_repo.create(
+        return await self.version_repo.create(
             WorkflowVersion(
                 workflow_id=subject_id,
                 version=version_no,
@@ -67,18 +67,18 @@ class WorkflowVersioningAdapter(VersioningAdapter):
             )
         )
 
-    def update_version(self, version: WorkflowVersion) -> WorkflowVersion:
-        return self.version_repo.update(version)
+    async def update_version(self, version: WorkflowVersion) -> WorkflowVersion:
+        return await self.version_repo.update(version)
 
-    def update_head(self, subject: Any, version: WorkflowVersion) -> Any:
+    async def update_head(self, subject: Any, version: WorkflowVersion) -> Any:
         subject.current_version_id = version.id
-        return self.workflow_repo.update(subject)
+        return await self.workflow_repo.update(subject)
 
-    def update_live(self, subject: Any, version: WorkflowVersion) -> Any:
+    async def update_live(self, subject: Any, version: WorkflowVersion) -> Any:
         subject.published_version_id = version.id
-        return self.workflow_repo.update(subject)
+        return await self.workflow_repo.update(subject)
 
-    def create_release(
+    async def create_release(
         self,
         subject: Any,
         version: WorkflowVersion,
@@ -89,7 +89,7 @@ class WorkflowVersioningAdapter(VersioningAdapter):
         previous_live_version_id: str | None,
         rollback_of_publish_id: str | None = None,
     ) -> Any:
-        return self.publish_repo.create(
+        return await self.publish_repo.create(
             WorkflowPublish(
                 workflow_id=subject.id,
                 workflow_version_id=version.id,
@@ -103,22 +103,22 @@ class WorkflowVersioningAdapter(VersioningAdapter):
             )
         )
 
-    def list_versions(self, subject_id: str, *, limit: int, offset: int) -> list[Any]:
-        return self.version_repo.list_by_workflow(subject_id, limit=limit, offset=offset)
+    async def list_versions(self, subject_id: str, *, limit: int, offset: int) -> list[Any]:
+        return await self.version_repo.list_by_workflow(subject_id, limit=limit, offset=offset)
 
-    def list_releases(self, subject_id: str, *, limit: int, offset: int) -> list[Any]:
-        releases = self.publish_repo.list_by_workflow(subject_id)
+    async def list_releases(self, subject_id: str, *, limit: int, offset: int) -> list[Any]:
+        releases = await self.publish_repo.list_by_workflow(subject_id)
         return releases[offset : offset + limit]
 
-    def find_release_id_for_version(self, subject_id: str, version_id: str | None) -> str | None:
+    async def find_release_id_for_version(self, subject_id: str, version_id: str | None) -> str | None:
         if not version_id:
             return None
-        for release in self.publish_repo.list_by_workflow(subject_id):
+        for release in await self.publish_repo.list_by_workflow(subject_id):
             if release.workflow_version_id == version_id or release.to_version_id == version_id:
                 return release.id
         return None
 
-    def validate_for_draft(
+    async def validate_for_draft(
         self,
         subject: Any,
         *,
@@ -128,8 +128,8 @@ class WorkflowVersioningAdapter(VersioningAdapter):
     ) -> None:
         self.validate_spec_callback(spec_json)
 
-    def validate_for_publish(self, subject: Any, version: WorkflowVersion) -> None:
+    async def validate_for_publish(self, subject: Any, version: WorkflowVersion) -> None:
         self.validate_spec_callback(version.spec_json)
 
-    def validate_for_rollback(self, subject: Any, version: WorkflowVersion) -> None:
+    async def validate_for_rollback(self, subject: Any, version: WorkflowVersion) -> None:
         self.validate_spec_callback(version.spec_json)

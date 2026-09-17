@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+import pytest
+
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run
@@ -12,8 +14,8 @@ from app.modules.workflow.runtime.reaper import (
 )
 
 
-def _running_workflow(
-    db,
+async def _running_workflow(
+    async_db,
     ctx: RequestContext,
     *,
     run_id: str,
@@ -40,20 +42,21 @@ def _running_workflow(
         lease_expires_at=utc_now() + timedelta(minutes=lease_delta_minutes),
         attempt_count=1,
     )
-    db.add(run)
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+    async_db.add(run)
+    async_db.add(row)
+    await async_db.commit()
+    await async_db.refresh(row)
     return row
 
 
-def test_reaper_fails_runs_whose_lease_expired(db, ctx):
-    orphan = _running_workflow(db, ctx, run_id="run_orphaned", lease_delta_minutes=-5)
+@pytest.mark.asyncio
+async def test_reaper_fails_runs_whose_lease_expired(async_db, ctx):
+    orphan = await _running_workflow(async_db, ctx, run_id="run_orphaned", lease_delta_minutes=-5)
 
-    reaped = reap_orphaned_workflow_runs(db)
+    reaped = await reap_orphaned_workflow_runs(async_db)
 
-    db.refresh(orphan)
-    run = db.get(Run, "run_orphaned")
+    await async_db.refresh(orphan)
+    run = await async_db.get(Run, "run_orphaned")
     assert reaped == 1
     # An interrupted execution must become an honest failure, not report
     # "running" forever for work nothing will ever finish.
@@ -64,28 +67,30 @@ def test_reaper_fails_runs_whose_lease_expired(db, ctx):
     assert run.ended_at is not None
 
 
-def test_reaper_leaves_live_leases_alone(db, ctx):
-    live = _running_workflow(db, ctx, run_id="run_live", lease_delta_minutes=10)
+@pytest.mark.asyncio
+async def test_reaper_leaves_live_leases_alone(async_db, ctx):
+    live = await _running_workflow(async_db, ctx, run_id="run_live", lease_delta_minutes=10)
 
-    reaped = reap_orphaned_workflow_runs(db)
+    reaped = await reap_orphaned_workflow_runs(async_db)
 
-    db.refresh(live)
+    await async_db.refresh(live)
     assert reaped == 0
     assert live.status == "running"
     assert live.lease_owner == "workflow-api-dead"
 
 
-def test_reaper_does_not_override_a_terminal_trace_run(db, ctx):
-    orphan = _running_workflow(db, ctx, run_id="run_already_done", lease_delta_minutes=-5)
-    run = db.get(Run, "run_already_done")
+@pytest.mark.asyncio
+async def test_reaper_does_not_override_a_terminal_trace_run(async_db, ctx):
+    orphan = await _running_workflow(async_db, ctx, run_id="run_already_done", lease_delta_minutes=-5)
+    run = await async_db.get(Run, "run_already_done")
     run.status = "canceled"
-    db.add(run)
-    db.commit()
+    async_db.add(run)
+    await async_db.commit()
 
-    reap_orphaned_workflow_runs(db)
+    await reap_orphaned_workflow_runs(async_db)
 
-    db.refresh(orphan)
-    db.refresh(run)
+    await async_db.refresh(orphan)
+    await async_db.refresh(run)
     # The aggregate row is closed out, but a run that already reached a
     # terminal state keeps its verdict.
     assert orphan.status == "failed"

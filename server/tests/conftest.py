@@ -198,13 +198,21 @@ async def async_client(async_db, ctx: RequestContext):
     """
     from httpx import ASGITransport, AsyncClient
 
-    from app.infra.db.session import get_async_db
+    from app.infra.db.session import get_async_db, get_db
     from app.main import app
     from app.middleware.auth import get_current_context
     from app.settings.settings import settings
 
     async def _override_get_async_db():
         yield async_db
+
+    def _override_get_db():
+        # A route still on the sync session cannot see this fixture's
+        # database; fail loudly instead of reaching for the configured engine.
+        raise RuntimeError(
+            "This route still depends on get_db; it cannot be driven with async_client"
+        )
+        yield  # pragma: no cover - makes this a dependency generator
 
     async def _override_get_current_context() -> RequestContext:
         return ctx
@@ -214,6 +222,7 @@ async def async_client(async_db, ctx: RequestContext):
     settings.knowledge_ingest_worker_enabled = False
     settings.outbox_dispatcher_enabled = False
     app.dependency_overrides[get_async_db] = _override_get_async_db
+    app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_context] = _override_get_current_context
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
@@ -222,4 +231,5 @@ async def async_client(async_db, ctx: RequestContext):
         settings.knowledge_ingest_worker_enabled = previous_knowledge_ingest_worker_enabled
         settings.outbox_dispatcher_enabled = previous_outbox_dispatcher_enabled
         app.dependency_overrides.pop(get_async_db, None)
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_context, None)

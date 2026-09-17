@@ -69,7 +69,7 @@ def _plan(workflow_id: str, run_id: str) -> ExecutionPlan:
 @patch("app.wiring.get_container")
 async def test_engine_adopts_the_claimed_row_and_releases_its_lease(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
@@ -93,17 +93,17 @@ async def test_engine_adopts_the_claimed_row_and_releases_its_lease(
         lease_expires_at=utc_now() + timedelta(minutes=5),
         attempt_count=1,
     )
-    db.add(workflow)
-    db.add(claim)
-    db.commit()
+    async_db.add(workflow)
+    async_db.add(claim)
+    await async_db.commit()
 
-    engine = ExecutionEngine(db, ctx, TraceWriter(db, ctx), response_service=None)
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx), response_service=None)
     result = await engine.execute(_plan(workflow.id, "run_claimed_exec"))
 
     rows = (
-        db.execute(
+        (await async_db.execute(
             select(WorkflowRun).where(WorkflowRun.run_id == "run_claimed_exec")
-        )
+        ))
         .scalars()
         .all()
     )
@@ -127,7 +127,7 @@ async def test_engine_adopts_the_claimed_row_and_releases_its_lease(
 @patch("app.wiring.get_container")
 async def test_engine_without_a_claim_still_creates_its_own_row(
     mock_get_container: MagicMock,
-    db: Session,
+    async_db: Session,
     ctx: RequestContext,
 ) -> None:
     mock_get_container.return_value = _patched_container()
@@ -138,16 +138,16 @@ async def test_engine_without_a_claim_still_creates_its_own_row(
         workspace_id=ctx.workspace_id,
         name="workflow-unclaimed",
     )
-    db.add(workflow)
-    db.commit()
+    async_db.add(workflow)
+    await async_db.commit()
 
-    engine = ExecutionEngine(db, ctx, TraceWriter(db, ctx), response_service=None)
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx), response_service=None)
     await engine.execute(_plan(workflow.id, "run_unclaimed_exec"))
 
     rows = (
-        db.execute(
+        (await async_db.execute(
             select(WorkflowRun).where(WorkflowRun.run_id == "run_unclaimed_exec")
-        )
+        ))
         .scalars()
         .all()
     )

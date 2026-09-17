@@ -296,7 +296,7 @@ class WorkflowRunDeadLetterSource:
             run = await db.get(Run, row.run_id)
             if run is None or not run.subject_version_id:
                 return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
-            version = service.version_repo.get_by_id(run.subject_version_id)
+            version = await service.version_repo.get_by_id(run.subject_version_id)
             if version is None:
                 return ResumeAssessment(False, RESUME_BLOCKED_CHECKPOINT_MISSING)
             checkpoint = dict(row.checkpoint_json or {})
@@ -377,7 +377,7 @@ class WorkflowRunDeadLetterSource:
             )
         service = build_workflow_service(db=db, ctx=ctx)
         try:
-            prepared = service.prepare_redrive(dead_letter_id)
+            prepared = await service.prepare_redrive(dead_letter_id)
         except ValidationError as exc:
             # Resuming would risk repeating a side effect, or the checkpoint
             # cannot carry the run forward. Say which, rather than pretending

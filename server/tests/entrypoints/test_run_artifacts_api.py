@@ -2,6 +2,7 @@
 
 import hashlib
 
+import pytest
 from fastapi import status
 
 from app.api.v1.run.dependencies import get_run_artifact_storage
@@ -16,11 +17,12 @@ class _ArtifactStorage:
         return b"name,value\nSOIT,1\n"
 
 
-def test_run_artifact_download_is_scoped_and_does_not_expose_storage_key(client, db, ctx):
-    writer = TraceWriter(db, ctx)
-    run = writer.create_run("agent", kind="agent")
+@pytest.mark.asyncio
+async def test_run_artifact_download_is_scoped_and_does_not_expose_storage_key(async_client, async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent", kind="agent")
     content = b"name,value\nSOIT,1\n"
-    artifact = writer.create_artifact(
+    artifact = await writer.create_artifact(
         run.id,
         "file",
         (
@@ -32,10 +34,10 @@ def test_run_artifact_download_is_scoped_and_does_not_expose_storage_key(client,
         size_bytes=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
     )
-    db.commit()
+    await async_db.commit()
     app.dependency_overrides[get_run_artifact_storage] = lambda: _ArtifactStorage()
     try:
-        response = client.get(f"/api/v1/runs/{run.id}/artifacts/{artifact.id}/content")
+        response = await async_client.get(f"/api/v1/runs/{run.id}/artifacts/{artifact.id}/content")
     finally:
         app.dependency_overrides.pop(get_run_artifact_storage, None)
 

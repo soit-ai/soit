@@ -5,7 +5,7 @@ Unit tests for RunService cost summaries and filtering.
 
 from datetime import UTC, datetime
 
-from sqlmodel import SQLModel
+import pytest
 
 from app.kernel.commons.ids import (
     generate_artifact_id,
@@ -17,9 +17,9 @@ from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, Ru
 from app.kernel.runtime.runs.service import RunService
 
 
-def test_run_cost_summary_filters(db):
+@pytest.mark.asyncio
+async def test_run_cost_summary_filters(async_db):
     """Cost summary aggregates only matching runs."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -50,8 +50,8 @@ def test_run_cost_summary_filters(db):
         subject_version_id="agtv-1",
         status="succeeded",
     )
-    db.add(run_chat)
-    db.add(run_agent)
+    async_db.add(run_chat)
+    async_db.add(run_agent)
 
     cost_chat = RunCostEntry(
         run_id=run_id_chat,
@@ -83,12 +83,12 @@ def test_run_cost_summary_filters(db):
         completion_tokens=2,
         total_tokens=6,
     )
-    db.add(cost_chat)
-    db.add(cost_agent)
-    db.commit()
+    async_db.add(cost_chat)
+    async_db.add(cost_agent)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    summary = service.summarize_costs(mode="chat")
+    service = RunService(async_db, ctx)
+    summary = await service.summarize_costs(mode="chat")
 
     assert summary.tokens_prompt == 12
     assert summary.tokens_completion == 7
@@ -97,9 +97,9 @@ def test_run_cost_summary_filters(db):
     assert summary.ms_total == 0
 
 
-def test_list_cost_entries_scope_since_and_order(db):
+@pytest.mark.asyncio
+async def test_list_cost_entries_scope_since_and_order(async_db):
     """Cost entry listing scopes by workspace, filters by since, orders ascending."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -108,7 +108,7 @@ def test_list_cost_entries_scope_since_and_order(db):
     )
 
     run_id = generate_run_id()
-    db.add(
+    async_db.add(
         Run(
             id=run_id,
             tenant_id=ctx.tenant_id,
@@ -149,28 +149,28 @@ def test_list_cost_entries_scope_since_and_order(db):
         billed_quantity=1,
         created_at=datetime(2026, 7, 5, tzinfo=UTC),
     )
-    db.add(early)
-    db.add(late)
-    db.add(foreign)
-    db.commit()
+    async_db.add(early)
+    async_db.add(late)
+    async_db.add(foreign)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
+    service = RunService(async_db, ctx)
 
-    entries = service.list_cost_entries(limit=10, offset=0)
+    entries = await service.list_cost_entries(limit=10, offset=0)
     assert [entry.id for entry in entries] == [early.id, late.id]
     assert entries[0].run_id == run_id
     assert entries[0].prompt_tokens == 3
 
-    since_entries = service.list_cost_entries(since=datetime(2026, 7, 10, tzinfo=UTC))
+    since_entries = await service.list_cost_entries(since=datetime(2026, 7, 10, tzinfo=UTC))
     assert [entry.id for entry in since_entries] == [late.id]
 
-    paged = service.list_cost_entries(limit=1, offset=1)
+    paged = await service.list_cost_entries(limit=1, offset=1)
     assert [entry.id for entry in paged] == [late.id]
 
 
-def test_list_runs_scope_filtering(db):
+@pytest.mark.asyncio
+async def test_list_runs_scope_filtering(async_db):
     """List runs respects tenant/workspace scope."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -199,20 +199,20 @@ def test_list_runs_scope_filtering(db):
         subject_version_id="ver-chat",
         status="succeeded",
     )
-    db.add(run_local)
-    db.add(run_other)
-    db.commit()
+    async_db.add(run_local)
+    async_db.add(run_other)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    runs = service.list_runs(limit=10, offset=0)
+    service = RunService(async_db, ctx)
+    runs = await service.list_runs(limit=10, offset=0)
 
     assert len(runs) == 1
     assert runs[0].id == run_id
 
 
-def test_get_run_includes_steps_artifacts_costs(db):
+@pytest.mark.asyncio
+async def test_get_run_includes_steps_artifacts_costs(async_db):
     """Run detail returns steps, artifacts, and cost summary."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -272,14 +272,14 @@ def test_get_run_includes_steps_artifacts_costs(db):
         completion_tokens=4,
         total_tokens=10,
     )
-    db.add(run)
-    db.add(step)
-    db.add(artifact)
-    db.add(cost)
-    db.commit()
+    async_db.add(run)
+    async_db.add(step)
+    async_db.add(artifact)
+    async_db.add(cost)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    detail = service.get_run(run_id)
+    service = RunService(async_db, ctx)
+    detail = await service.get_run(run_id)
 
     assert detail.run.id == run_id
     assert len(detail.steps) == 1
@@ -290,9 +290,9 @@ def test_get_run_includes_steps_artifacts_costs(db):
     assert detail.usage_summary.tokens_completion == 4
 
 
-def test_list_runs_filters_by_trace_id(db):
+@pytest.mark.asyncio
+async def test_list_runs_filters_by_trace_id(async_db):
     """List runs can filter by trace id."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -322,20 +322,20 @@ def test_list_runs_filters_by_trace_id(db):
         status="succeeded",
         trace_id="trace-b",
     )
-    db.add(run_a)
-    db.add(run_b)
-    db.commit()
+    async_db.add(run_a)
+    async_db.add(run_b)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    runs = service.list_runs(trace_id="trace-a", limit=10, offset=0)
+    service = RunService(async_db, ctx)
+    runs = await service.list_runs(trace_id="trace-a", limit=10, offset=0)
 
     assert len(runs) == 1
     assert runs[0].id == run_a.id
 
 
-def test_cost_summaries_group_by_day_mode_subject(db):
+@pytest.mark.asyncio
+async def test_cost_summaries_group_by_day_mode_subject(async_db):
     """Cost summaries aggregate by day, mode, and subject."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -365,11 +365,11 @@ def test_cost_summaries_group_by_day_mode_subject(db):
         subject_version_id="subj-2",
         started_at=datetime(2024, 1, 2, tzinfo=UTC),
     )
-    db.add(run_day1)
-    db.add(run_day2)
-    db.commit()
+    async_db.add(run_day1)
+    async_db.add(run_day2)
+    await async_db.commit()
 
-    db.add(
+    async_db.add(
         RunCostEntry(
             run_id=run_day1.id,
             step_id=None,
@@ -386,7 +386,7 @@ def test_cost_summaries_group_by_day_mode_subject(db):
             total_tokens=5,
         )
     )
-    db.add(
+    async_db.add(
         RunCostEntry(
             run_id=run_day2.id,
             step_id=None,
@@ -403,35 +403,35 @@ def test_cost_summaries_group_by_day_mode_subject(db):
             total_tokens=7,
         )
     )
-    db.commit()
+    await async_db.commit()
 
-    service = RunService(db, ctx)
+    service = RunService(async_db, ctx)
 
-    by_day = service.summarize_costs_by_day()
+    by_day = await service.summarize_costs_by_day()
     assert len(by_day) == 2
     assert by_day[0].tokens_prompt == 3
     assert by_day[1].tokens_prompt == 4
 
-    by_mode = service.summarize_costs_by_mode()
+    by_mode = await service.summarize_costs_by_mode()
     assert {item.mode for item in by_mode} == {"chat", "workflow"}
 
-    by_mode_filtered = service.summarize_costs_by_mode(mode="chat")
+    by_mode_filtered = await service.summarize_costs_by_mode(mode="chat")
     assert len(by_mode_filtered) == 1
     assert by_mode_filtered[0].mode == "chat"
 
-    by_subject = service.summarize_costs_by_subject()
+    by_subject = await service.summarize_costs_by_subject()
     assert {item.subject_version_id for item in by_subject} == {"subj-1", "subj-2"}
 
-    by_provider = service.summarize_costs_by_provider()
+    by_provider = await service.summarize_costs_by_provider()
     assert {item.provider for item in by_provider} == {"openai", "anthropic"}
 
-    by_model = service.summarize_costs_by_model()
+    by_model = await service.summarize_costs_by_model()
     assert {item.model_ref for item in by_model} == {"model:openai:gpt-4", "model:anthropic:claude-3"}
 
 
-def test_list_steps_filters_by_run_and_scope(db):
+@pytest.mark.asyncio
+async def test_list_steps_filters_by_run_and_scope(async_db):
     """List steps respects tenant/workspace scope and run filters."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -442,7 +442,7 @@ def test_list_steps_filters_by_run_and_scope(db):
     run_id = generate_run_id()
     other_run_id = generate_run_id()
 
-    db.add(
+    async_db.add(
         Run(
             id=run_id,
             tenant_id=ctx.tenant_id,
@@ -454,7 +454,7 @@ def test_list_steps_filters_by_run_and_scope(db):
             status="succeeded",
         )
     )
-    db.add(
+    async_db.add(
         Run(
             id=other_run_id,
             tenant_id=ctx.tenant_id,
@@ -466,7 +466,7 @@ def test_list_steps_filters_by_run_and_scope(db):
             status="succeeded",
         )
     )
-    db.commit()
+    await async_db.commit()
 
     step_ok = RunStep(
         id=generate_step_id(),
@@ -495,21 +495,21 @@ def test_list_steps_filters_by_run_and_scope(db):
         step_type="tool",
         status="succeeded",
     )
-    db.add(step_ok)
-    db.add(step_other_run)
-    db.add(step_other_scope)
-    db.commit()
+    async_db.add(step_ok)
+    async_db.add(step_other_run)
+    async_db.add(step_other_scope)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    steps = service.list_steps(run_id=run_id, limit=10, offset=0)
+    service = RunService(async_db, ctx)
+    steps = await service.list_steps(run_id=run_id, limit=10, offset=0)
 
     assert len(steps) == 1
     assert steps[0].id == step_ok.id
 
 
-def test_summarize_step_metrics(db):
+@pytest.mark.asyncio
+async def test_summarize_step_metrics(async_db):
     """Summarize step metrics by type/status."""
-    SQLModel.metadata.create_all(db.get_bind())
 
     ctx = RequestContext(
         tenant_id="test_tenant",
@@ -517,7 +517,7 @@ def test_summarize_step_metrics(db):
         user_id="test_user",
     )
     run_id = generate_run_id()
-    db.add(
+    async_db.add(
         Run(
             id=run_id,
             tenant_id=ctx.tenant_id,
@@ -529,7 +529,7 @@ def test_summarize_step_metrics(db):
             status="succeeded",
         )
     )
-    db.commit()
+    await async_db.commit()
 
     steps = [
         RunStep(
@@ -574,11 +574,11 @@ def test_summarize_step_metrics(db):
         ),
     ]
     for step in steps:
-        db.add(step)
-    db.commit()
+        async_db.add(step)
+    await async_db.commit()
 
-    service = RunService(db, ctx)
-    summary = service.summarize_step_metrics(run_id=run_id)
+    service = RunService(async_db, ctx)
+    summary = await service.summarize_step_metrics(run_id=run_id)
 
     summary_map = {(item.step_type, item.status): item for item in summary}
     tool_ok = summary_map[("tool", "succeeded")]
