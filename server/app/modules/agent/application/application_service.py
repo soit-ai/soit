@@ -1643,7 +1643,6 @@ class AgentApplicationService:
         )
         for task in tasks:
             await self.task_service.cancel_task(task_id=task.id)
-        await self.db.refresh(run)
         return {
             "run_id": run.id,
             "status": run.status,

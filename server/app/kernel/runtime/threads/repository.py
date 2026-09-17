@@ -25,7 +25,6 @@ class ThreadRepository:
         thread.owner_user_id = thread.owner_user_id or self.ctx.user_id
         self.db.add(thread)
         await self.db.flush()
-        await self.db.refresh(thread)
         return thread
 
     async def get_thread(self, thread_id: str) -> Thread | None:
@@ -155,7 +154,6 @@ class ThreadRepository:
         self.db.add(thread)
         self.db.add(message)
         await self.db.flush()
-        await self.db.refresh(message)
         return message
 
     async def list_messages(self, thread_id: str) -> list[ThreadMessage]:
@@ -220,7 +218,6 @@ class ThreadRepository:
             thread.archived_at = None
         self.db.add(thread)
         await self.db.flush()
-        await self.db.refresh(thread)
         return thread
 
     async def update_thread(

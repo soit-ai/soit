@@ -127,7 +127,6 @@ class MemoryService:
                     memory.vector_ref = memory.id
                     memory.updated_at = utc_now()
                     await self.db.commit()
-                    await self.db.refresh(memory)
 
             if step_id and self.trace_writer:
                 await self.trace_writer.update_step_status(step_id, "succeeded")

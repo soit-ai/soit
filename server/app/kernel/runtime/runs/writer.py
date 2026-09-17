@@ -297,7 +297,6 @@ class TraceWriter:
         )
         OutboxPublisher(OutboxRepository(self.db)).publish(envelope)
         await self.db.flush()
-        await self.db.refresh(run)
 
         set_run_context(run.id)
 
@@ -360,7 +359,6 @@ class TraceWriter:
             if error_step_id:
                 run.error_step_id = error_step_id
             await self.db.flush()
-            await self.db.refresh(run)
             return run
 
         changed_at = utc_now()
@@ -438,7 +436,6 @@ class TraceWriter:
                 )
             )
             await self.db.flush()
-            await self.db.refresh(run)
         else:
             observe_run_status_transition(
                 run,
@@ -499,7 +496,6 @@ class TraceWriter:
         )
         self.db.add(step)
         await self.db.flush()
-        await self.db.refresh(step)
 
         set_step_context(step.id)
         observe_step_created(step, tenant_id=self.ctx.tenant_id)
@@ -568,7 +564,6 @@ class TraceWriter:
             if error_details:
                 step.error_details = error_details
             await self.db.flush()
-            await self.db.refresh(step)
             return step
 
         changed_at = utc_now()
@@ -623,7 +618,6 @@ class TraceWriter:
                 run.updated_at = utc_now()
 
         await self.db.flush()
-        await self.db.refresh(step)
         observe_step_status_transition(
             step,
             old_status=old_status,
@@ -665,7 +659,6 @@ class TraceWriter:
         step.metrics_json = merged
 
         await self.db.flush()
-        await self.db.refresh(step)
         return step
 
     async def _require_scoped_run(self, run_id: str) -> Run:
@@ -728,7 +721,6 @@ class TraceWriter:
         )
         self.db.add(artifact)
         await self.db.flush()
-        await self.db.refresh(artifact)
         return artifact
 
     async def record_cost(
@@ -888,7 +880,6 @@ class TraceWriter:
             )
         )
         await self.db.flush()
-        await self.db.refresh(entry)
 
         self._emit_event(
             "cost.recorded",
@@ -942,5 +933,4 @@ class TraceWriter:
         )
         self.db.add(event)
         await self.db.flush()
-        await self.db.refresh(event)
         return event

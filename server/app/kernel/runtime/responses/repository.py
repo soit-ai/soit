@@ -25,7 +25,6 @@ class ResponseRepository:
         response.updated_by = self.ctx.user_id
         self.db.add(response)
         await self.db.flush()
-        await self.db.refresh(response)
         return response
 
     async def get(self, response_id: str) -> Response | None:
@@ -50,7 +49,6 @@ class ResponseRepository:
         response.updated_by = self.ctx.user_id
         self.db.add(response)
         await self.db.flush()
-        await self.db.refresh(response)
         return response
 
     async def list_for_run(self, run_id: str) -> list[Response]:
@@ -112,7 +110,6 @@ class ResponseEventRepository:
         event.workspace_id = self.ctx.workspace_id
         self.db.add(event)
         await self.db.flush()
-        await self.db.refresh(event)
         return event
 
     async def list_for_response(

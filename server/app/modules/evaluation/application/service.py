@@ -94,7 +94,6 @@ class RegressionEvaluationService:
         )
         self.db.add(case)
         await self.db.commit()
-        await self.db.refresh(case)
         return case
 
     async def evaluate_subject_version(
@@ -151,7 +150,6 @@ class RegressionEvaluationService:
         )
         self.db.add(report)
         await self.db.commit()
-        await self.db.refresh(report)
         return RegressionEvaluationResult(
             report_id=report.id,
             passed=report.passed,
@@ -303,7 +301,6 @@ class RegressionEvaluationService:
         )
         self.db.add(annotation)
         await self.db.commit()
-        await self.db.refresh(annotation)
         return annotation
 
     async def list_annotations(

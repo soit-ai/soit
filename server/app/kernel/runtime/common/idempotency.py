@@ -54,7 +54,6 @@ class IdempotencyRepository:
         )
         self.db.add(record)
         await self.db.commit()
-        await self.db.refresh(record)
         return record
 
     async def update_response(
@@ -67,7 +66,6 @@ class IdempotencyRepository:
         record.response_json = response_json
         record.updated_at = utc_now()
         await self.db.commit()
-        await self.db.refresh(record)
         return record
 
     async def mark_in_progress(
@@ -78,7 +76,6 @@ class IdempotencyRepository:
         record.response_json = None
         record.updated_at = utc_now()
         await self.db.commit()
-        await self.db.refresh(record)
         return record
 
     async def mark_failed(
@@ -88,5 +85,4 @@ class IdempotencyRepository:
         record.status = "failed"
         record.updated_at = utc_now()
         await self.db.commit()
-        await self.db.refresh(record)
         return record

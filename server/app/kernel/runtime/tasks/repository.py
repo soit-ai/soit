@@ -54,12 +54,10 @@ class TaskRepository:
         task.created_by = self.ctx.user_id
         task.updated_by = self.ctx.user_id
         self.db.add(task)
-        await self.db.flush()
         events = list(outbox_events) if outbox_events is not None else [TaskEventType.CREATED]
         for et in events:
             enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
         await self.db.flush()
-        await self.db.refresh(task)
         return task
 
     async def get_task(self, task_id: str) -> Task | None:
@@ -325,11 +323,9 @@ class TaskRepository:
         task.updated_at = utc_now()
         task.updated_by = self.ctx.user_id
         self.db.add(task)
-        await self.db.flush()
         for et in outbox_events or []:
             enqueue_task_outbox_event(self.db, self.ctx, event_type=et, task=task)
         await self.db.flush()
-        await self.db.refresh(task)
         return task
 
     async def add_checkpoint(self, checkpoint: TaskCheckpoint) -> TaskCheckpoint:
@@ -341,7 +337,6 @@ class TaskRepository:
         if task:
             enqueue_task_checkpoint_outbox(self.db, self.ctx, task=task, checkpoint=checkpoint)
         await self.db.flush()
-        await self.db.refresh(checkpoint)
         return checkpoint
 
     async def list_checkpoints(self, task_id: str) -> list[TaskCheckpoint]:
@@ -364,7 +359,6 @@ class TaskRepository:
         event.workspace_id = self.ctx.workspace_id
         self.db.add(event)
         await self.db.flush()
-        await self.db.refresh(event)
         return event
 
     async def list_events(self, task_id: str) -> list[TaskEvent]:

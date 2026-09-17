@@ -228,7 +228,6 @@ class RuntimeToolExecutionService:
             existing.updated_at = now
             self.db.add(existing)
             await self.db.commit()
-            await self.db.refresh(existing)
             step = await self._require_tool_step(
                 run_id=existing.run_id,
                 run_step_id=existing.run_step_id,
@@ -267,8 +266,6 @@ class RuntimeToolExecutionService:
             existing.completed_at = None
             self.db.add(existing)
             await self.db.commit()
-            await self.db.refresh(existing)
-            await self.db.refresh(step)
             return ToolExecutionClaim(record=existing, run_step=step)
         if existing.status in {"succeeded", "failed"}:
             payload = existing.result_json or {}
@@ -330,7 +327,6 @@ class RuntimeToolExecutionService:
             existing.updated_at = now
             self.db.add(existing)
             await self.db.commit()
-            await self.db.refresh(existing)
             step = await self._require_tool_step(
                 run_id=existing.run_id,
                 run_step_id=existing.run_step_id,
@@ -391,8 +387,6 @@ class RuntimeToolExecutionService:
             if concurrent is not None:
                 raise ConflictError("Tool call is already claimed") from exc
             raise
-        await self.db.refresh(record)
-        await self.db.refresh(run_step)
         return ToolExecutionClaim(record=record, run_step=run_step)
 
     async def prepare_waiting_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
@@ -441,8 +435,6 @@ class RuntimeToolExecutionService:
         )
         self.db.add(record)
         await self.db.commit()
-        await self.db.refresh(record)
-        await self.db.refresh(run_step)
         return ToolExecutionClaim(record=record, run_step=run_step)
 
     async def reject_approval(self, command: ToolExecutionCommand) -> ToolExecutionClaim:
@@ -476,8 +468,6 @@ class RuntimeToolExecutionService:
         )
         self.db.add(existing)
         await self.db.commit()
-        await self.db.refresh(existing)
-        await self.db.refresh(step)
         return ToolExecutionClaim(record=existing, run_step=step)
 
     async def mark_running(self, record_id: str) -> RunStepToolCall:
@@ -502,7 +492,6 @@ class RuntimeToolExecutionService:
             await self.trace_writer.update_step_status(step.id, "running")
         self.db.add(record)
         await self.db.commit()
-        await self.db.refresh(record)
         return record
 
     async def renew_lease(self, record_id: str) -> RunStepToolCall:
@@ -529,7 +518,10 @@ class RuntimeToolExecutionService:
             raise ConflictError("Tool-call lease owner no longer matches")
         await self.db.commit()
         record = await self._require_record(record_id)
-        await self.db.refresh(record)
+        # The UPDATE bypassed the identity map; mirror it in memory so the
+        # caller keeps the same aware timestamps it started with.
+        record.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
+        record.updated_at = now
         return record
 
     async def complete(self, record_id: str, response: ToolResponse) -> RunStepToolCall:
@@ -616,7 +608,6 @@ class RuntimeToolExecutionService:
         )
         self.db.add(record)
         await self.db.commit()
-        await self.db.refresh(record)
         return record
 
     async def load_cached_response(self, claim: ToolExecutionClaim) -> ToolResponse | None:
@@ -681,5 +672,4 @@ class RuntimeToolExecutionService:
             )
         self.db.add(record)
         await self.db.commit()
-        await self.db.refresh(record)
         return record

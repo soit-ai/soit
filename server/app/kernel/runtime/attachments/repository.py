@@ -29,7 +29,6 @@ class AttachmentRepository:
         attachment.created_by = self.ctx.user_id
         self.db.add(attachment)
         await self.db.flush()
-        await self.db.refresh(attachment)
         return attachment
 
     async def get(self, attachment_id: str) -> Attachment | None:
@@ -56,5 +55,4 @@ class AttachmentRepository:
         attachment.updated_at = utc_now()
         self.db.add(attachment)
         await self.db.flush()
-        await self.db.refresh(attachment)
         return attachment

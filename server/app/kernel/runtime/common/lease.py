@@ -116,7 +116,6 @@ async def claim_next(
     row.updated_at = moment
     db.add(row)
     await db.commit()
-    await db.refresh(row)
     return row
 
 

@@ -574,8 +574,6 @@ class ResponseService:
                     "Interaction ID was already used with a different request"
                 ) from None
             return winner, False
-        if commit:
-            await self.db.refresh(interaction)
         return interaction, True
 
     async def claim_interaction_resume(
@@ -640,7 +638,6 @@ class ResponseService:
                 existing.updated_at = utc_now()
                 self.db.add(existing)
                 await self.db.flush()
-                await self.db.refresh(existing)
             return existing
         interaction = ResponseInteraction(
             tenant_id=self.ctx.tenant_id,
@@ -657,7 +654,6 @@ class ResponseService:
         )
         self.db.add(interaction)
         await self.db.flush()
-        await self.db.refresh(interaction)
         return interaction
 
     async def update_interaction_status(self, interaction_id: str, status: str) -> None:

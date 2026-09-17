@@ -37,7 +37,6 @@ class AgentRepository:
         agent.updated_by = self.ctx.user_id
         self.db.add(agent)
         await self.db.commit()
-        await self.db.refresh(agent)
         return agent
 
     async def get_by_id(self, agent_id: str) -> Agent | None:
@@ -83,7 +82,6 @@ class AgentRepository:
         agent.updated_by = self.ctx.user_id
         self.db.add(agent)
         await self.db.commit()
-        await self.db.refresh(agent)
         return agent
 
     async def next_version_number(self, agent_id: str) -> int:
@@ -111,7 +109,6 @@ class AgentVersionRepository:
         version.created_by = self.ctx.user_id
         self.db.add(version)
         await self.db.commit()
-        await self.db.refresh(version)
         return version
 
     async def get_by_id(self, version_id: str) -> AgentVersion | None:
@@ -163,7 +160,6 @@ class AgentVersionRepository:
     async def update(self, version: AgentVersion) -> AgentVersion:
         self.db.add(version)
         await self.db.commit()
-        await self.db.refresh(version)
         return version
 
 
@@ -179,7 +175,6 @@ class AgentBindingRepository:
         binding.workspace_id = self.ctx.workspace_id
         self.db.add(binding)
         await self.db.commit()
-        await self.db.refresh(binding)
         return binding
 
     async def create_many(self, bindings: list[AgentBinding]) -> list[AgentBinding]:
@@ -188,8 +183,6 @@ class AgentBindingRepository:
             binding.workspace_id = self.ctx.workspace_id
         self.db.add_all(bindings)
         await self.db.commit()
-        for binding in bindings:
-            await self.db.refresh(binding)
         return bindings
 
     async def list_for_version(self, agent_version_id: str) -> list[AgentBinding]:
@@ -229,7 +222,6 @@ class AgentPublishRepository:
         publish.sequence = int(max_value or 0) + 1
         self.db.add(publish)
         await self.db.commit()
-        await self.db.refresh(publish)
         return publish
 
     async def list_by_agent(self, agent_id: str) -> list[AgentPublish]:
