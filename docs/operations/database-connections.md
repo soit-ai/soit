@@ -10,14 +10,27 @@ DATABASE_MAX_OVERFLOW` connections at once, and so can each worker process.
 | Process | Count in `docker-compose.production.yml` | Max connections each |
 |---|---:|---:|
 | `api` (uvicorn `--workers ${API_WORKERS:-4}`) | 4 | pool + overflow |
+| `response-worker` | 1 | pool + overflow |
 | `outbox-dispatcher` | 1 | pool + overflow |
 | `ingest-worker` | 1 | pool + overflow |
 | `schedule-worker` | 1 | pool + overflow |
 | `migrate` (short-lived) | 1 | a handful |
 
 With the defaults (`DATABASE_POOL_SIZE=10`, `DATABASE_MAX_OVERFLOW=20`) that is
-`7 x 30 = 210` connections at full load, before superuser reserves, backups and
+`8 x 30 = 240` connections at full load, before superuser reserves, backups and
 ad-hoc sessions. PostgreSQL's own default `max_connections` is 100.
+
+## The response worker's in-flight bound
+
+`response-worker` executes `RESPONSE_INTERACTION_WORKER_CONCURRENCY`
+interactions at once. An execution gives its connection back while it waits
+on the model, but every other phase needs one, and so do the claim loop and
+each lease heartbeat, so the worker caps that setting at
+`DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW - 4` and logs a warning when the
+setting is higher. Measured on an 8-core host with the default 30-connection
+pool, 24 in flight is the knee for one process; 64 in flight on the same pool
+starved the heartbeats and was slower. For more capacity run more replicas of
+`response-worker` and count each one in the formula below.
 
 ## Rule of thumb
 
@@ -29,7 +42,7 @@ Pick one side and derive the other:
 
 - **Managed database with a fixed ceiling** (the production compose expects an
   external `DATABASE_URL`): set `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW`
-  so the formula holds. With `max_connections=100` and seven processes, use
+  so the formula holds. With `max_connections=100` and eight processes, use
   `DATABASE_POOL_SIZE=5` and `DATABASE_MAX_OVERFLOW=5`.
 - **Self-hosted PostgreSQL**: raise `max_connections` instead. The development
   compose file starts PostgreSQL with `-c max_connections=200`

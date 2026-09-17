@@ -736,6 +736,7 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, messages={len(messages)}",
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         safety_evidence: list[dict[str, Any]] = []
@@ -886,6 +887,7 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, messages={len(messages)}",
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         tokens_prompt = 0
@@ -1101,6 +1103,7 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, texts={len(texts)}",
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         try:
@@ -1235,6 +1238,7 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, images={n}, prompt={prompt[:200]}",
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         try:
@@ -1401,6 +1405,7 @@ class LLMPolicyGateway(LLMPort):
                 ),
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         try:
@@ -1562,6 +1567,7 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, documents={len(documents)}",
             )
             await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         try:

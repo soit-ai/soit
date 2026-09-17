@@ -8,7 +8,7 @@
 # What it does provide is the process topology the runtime requires: a TLS
 # terminator in front of the API, the outbox dispatcher as its own process
 # (settings refuse an in-process dispatcher in production), the durable
-# interaction worker enabled, and the knowledge ingest worker separate.
+# interaction worker as its own process, and the knowledge ingest worker separate.
 #
 # Copy .env.production.example, fill in every value, then:
 #   docker compose -f docker/docker-compose.production.yml config --quiet
@@ -48,9 +48,11 @@ x-server-environment: &server_environment
   EVENT_BUS_BACKEND: redis
   EVENT_BUS_REDIS_URL: ${EVENT_BUS_REDIS_URL:?production requires the Redis event bus}
 
-  # Execution must not run inside the API request.
+  # Execution must not run inside the API request. The worker runs as its own
+  # service below, so the API only enqueues and tails.
   RESPONSE_INTERACTION_INLINE_EXECUTION: "false"
   RESPONSE_INTERACTION_WORKER_ENABLED: "true"
+  RESPONSE_INTERACTION_WORKER_IN_API: "false"
   WORKFLOW_ORPHAN_REAPER_ENABLED: "true"
   ACCOUNT_DELETION_SWEEPER_ENABLED: "true"
   # The dispatcher runs as its own service below, so the API must not also run one.
@@ -162,6 +164,22 @@ services:
       - "5000"
     depends_on:
       - api
+    restart: unless-stopped
+    logging: *default-logging
+
+  response-worker:
+    build:
+      context: ../server
+    environment:
+      <<: *server_environment
+      # In-flight executions per worker process. Capped in code at pool +
+      # overflow - 4 (30 - 4 with the defaults above); 24 is the measured knee
+      # for one process. For more capacity run more replicas of this service.
+      RESPONSE_INTERACTION_WORKER_CONCURRENCY: ${RESPONSE_INTERACTION_WORKER_CONCURRENCY:-24}
+    command: ["python", "scripts/response_interaction_worker.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     logging: *default-logging
 

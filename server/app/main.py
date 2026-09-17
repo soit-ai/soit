@@ -190,22 +190,17 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("outbox retention", exc)
 
-    response_interaction_workers = []
-    if getattr(app_settings, "response_interaction_worker_enabled", False):
+    response_interaction_worker = None
+    if getattr(app_settings, "response_interaction_worker_enabled", False) and getattr(
+        app_settings, "response_interaction_worker_in_api", True
+    ):
         try:
             from app.wiring.response_interaction_worker import (
                 GlobalResponseInteractionWorker,
+                bounded_concurrency,
             )
 
-            response_interaction_workers = [
-                GlobalResponseInteractionWorker()
-                for _ in range(
-                    max(
-                        1,
-                        int(app_settings.response_interaction_worker_concurrency),
-                    )
-                )
-            ]
+            response_interaction_worker = GlobalResponseInteractionWorker()
         except Exception as exc:
             _handle_startup_failure("response interaction worker", exc)
 
@@ -252,14 +247,17 @@ async def lifespan(app: FastAPI):
                     )
                 )
             )
-        for response_interaction_worker in response_interaction_workers:
+        if response_interaction_worker is not None:
             background_tasks.append(
                 asyncio.create_task(
                     response_interaction_worker.run_loop(
                         poll_interval=max(
                             0.05,
                             float(app_settings.response_interaction_worker_poll_interval),
-                        )
+                        ),
+                        concurrency=bounded_concurrency(
+                            app_settings.response_interaction_worker_concurrency
+                        ),
                     )
                 )
             )

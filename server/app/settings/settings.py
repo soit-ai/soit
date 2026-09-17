@@ -293,8 +293,25 @@ class Settings(BaseSettings):
     response_interaction_worker_poll_interval: float = 0.25
     """Polling interval for the durable chat interaction worker."""
 
-    response_interaction_worker_concurrency: int = 4
-    """Number of durable chat interaction workers in each API process."""
+    response_interaction_worker_in_api: bool = True
+    """Host the interaction worker loop inside each API process.
+
+    Set false when `scripts/response_interaction_worker.py` runs as its own
+    service; the worker stays enabled so the API knows executions will happen.
+    """
+
+    response_interaction_worker_concurrency: int = 16
+    """Interactions one worker process executes at once.
+
+    An execution holds no connection while it waits on the model, but every
+    other phase needs one, so this is capped at the pool size plus overflow
+    minus four (claim loop and heartbeats). Measured on an 8-core host: 24 in
+    flight on a 30-connection pool is the knee for one process; more in
+    flight per process only lengthens the queue. Scale by worker replicas.
+    """
+
+    response_interaction_worker_metrics_port: int = 9202
+    """Prometheus port for the dedicated response interaction worker process."""
 
     response_interaction_lease_seconds: int = 90
     """Lease duration for one durable chat interaction claim."""

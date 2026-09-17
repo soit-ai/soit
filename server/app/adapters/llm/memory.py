@@ -5,6 +5,8 @@ In-memory LLM adapter for tests and local runs.
 
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -32,6 +34,9 @@ class InMemoryLLMPort(LLMPort):
 
     def __init__(self) -> None:
         self.last_edit: dict[str, Any] | None = None
+        # Load tests set this to stand in for a real model's latency, so the
+        # measurement is about how many executions can wait at once.
+        self.latency_seconds = max(0.0, float(os.getenv("SOIT_TESTING_MODEL_LATENCY_MS", "0") or 0)) / 1000
 
     async def chat(
         self,
@@ -44,6 +49,8 @@ class InMemoryLLMPort(LLMPort):
         tool_choice: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
+        if self.latency_seconds:
+            await asyncio.sleep(self.latency_seconds)
         model_name = model.split(":")[-1] if ":" in model else model
         prompt_tokens = sum(len((m.content or "").split()) for m in messages)
         last_user = ""

@@ -379,7 +379,7 @@ async def test_worker_loop_recovers_after_a_transient_poll_failure(async_db):
     recovered = asyncio.Event()
     attempts = 0
 
-    async def run_once():
+    async def claim():
         nonlocal attempts
         attempts += 1
         if attempts == 1:
@@ -387,7 +387,7 @@ async def test_worker_loop_recovers_after_a_transient_poll_failure(async_db):
         recovered.set()
         return None
 
-    worker.run_once = run_once  # type: ignore[method-assign]
+    worker.claim = claim  # type: ignore[method-assign]
     task = asyncio.create_task(worker.run_loop(poll_interval=0.01))
     await asyncio.wait_for(recovered.wait(), timeout=1)
     task.cancel()

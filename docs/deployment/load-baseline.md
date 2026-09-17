@@ -23,6 +23,25 @@ docker compose -f docker/docker-compose.production.yml up -d
 Use the deterministic `model:test:*` provider path for repeatability. Measuring
 against a live model measures the provider, not SOIT.
 
+## Load generator
+
+`server/scripts/load_baseline.py` drives the stack and prints a JSON report
+(throughput, latency percentiles, failures). Run it in `--mode worker` against
+the production profile: the request claims an interaction over
+`POST /responses`, the `response-worker` service executes it, and the report's
+`wait_ms` is how long a claim waited for a worker. That number, taken while
+raising `RESPONSE_INTERACTION_WORKER_CONCURRENCY`, is the capacity figure for
+model-bound execution. The default `--mode inline` measures the API's own
+execution rate and only applies to the development profile.
+
+```bash
+cd server && uv run python scripts/load_baseline.py --mode worker \
+    --base-url https://<gateway>/api/v1 --concurrency 50 --requests 200 --out worker.json
+```
+
+Set `SOIT_TESTING_MODEL_LATENCY_MS` on the worker when using the deterministic
+provider, otherwise the mock answers instantly and nothing waits.
+
 ## What to measure
 
 | Metric | Source | Why |

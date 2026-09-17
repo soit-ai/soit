@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import Callable
@@ -30,6 +31,28 @@ logger = logging.getLogger(__name__)
 
 def _default_session_factory() -> AsyncSession:
     return get_async_session_local()()
+
+
+def bounded_concurrency(requested: int) -> int:
+    """Cap in-flight executions to what one process's connection pool sustains.
+
+    An execution holds no connection while it waits on the model, but every
+    other phase of it does, and the claim loop and each lease heartbeat need
+    one too. The load ladder put 64 executions on a 30-connection pool: the
+    heartbeats starved and throughput fell below 24 in flight. Four
+    connections are kept back for the loop and heartbeats.
+    """
+    ceiling = max(1, settings.database_pool_size + settings.database_max_overflow - 4)
+    requested = max(1, int(requested or 1))
+    if requested > ceiling:
+        logger.warning(
+            "Response worker concurrency %s exceeds what the pool sustains; using %s",
+            requested,
+            ceiling,
+            extra={"pool_size": settings.database_pool_size, "max_overflow": settings.database_max_overflow},
+        )
+        return ceiling
+    return requested
 
 
 class GlobalResponseInteractionWorker:
@@ -77,19 +100,30 @@ class GlobalResponseInteractionWorker:
             log_label=f"Durable response interaction lease {interaction_id}",
         ).run(stop, lease_lost)
 
-    async def _assert_lease(self, interaction_pk: str, attempt_count: int) -> None:
-        db = self.db_factory()
-        try:
-            if not await lease.holds_lease(
-                db,
-                ResponseInteraction,
-                interaction_pk,
-                worker_id=self.worker_id,
-                attempt_count=attempt_count,
-            ):
-                raise ConflictError("Interaction execution lease was lost")
-        finally:
-            await db.close()
+    async def _assert_lease(self, db: AsyncSession, interaction_pk: str, attempt_count: int) -> None:
+        """Fail the execution if another worker now owns the interaction.
+
+        This reads on the execution's own session. A separate session would
+        need a second pooled connection while the execution's transaction
+        holds its first, so past pool/2 executions every one of them would
+        wait on the others: the load ladder found exactly that deadlock.
+
+        Reading our own session means seeing our own staged writes, and the
+        terminal transition clears ``lease_owner`` before the final events
+        are persisted. A takeover is therefore judged by ``attempt_count``,
+        which only a reclaim bumps; a cleared owner with our attempt count
+        is our own release, not a loss.
+        """
+        current = await db.get(ResponseInteraction, interaction_pk)
+        if current is not None:
+            await db.refresh(current)
+        owned = (
+            current is not None
+            and current.attempt_count == attempt_count
+            and current.lease_owner in (self.worker_id, None)
+        )
+        if not owned:
+            raise ConflictError("Interaction execution lease was lost")
 
     @staticmethod
     def _context(interaction: ResponseInteraction) -> RequestContext:
@@ -322,7 +356,7 @@ class GlobalResponseInteractionWorker:
             )
             iterator = aiter(stream)
             while True:
-                await self._assert_lease(interaction.id, interaction.attempt_count)
+                await self._assert_lease(db, interaction.id, interaction.attempt_count)
                 try:
                     await anext(iterator)
                 except StopAsyncIteration:
@@ -348,6 +382,7 @@ class GlobalResponseInteractionWorker:
                 thread_id=interaction.thread_id,
                 assistant_message_id=job.get("assistant_message_id"),
                 lease_guard=lambda: self._assert_lease(
+                    db,
                     interaction.id,
                     interaction.attempt_count,
                 ),
@@ -390,18 +425,34 @@ class GlobalResponseInteractionWorker:
         await emitter("agent.interaction.finished", {"result": result})
         await db.commit()
 
-    async def run_once(self) -> ResponseInteraction | None:
+    async def claim(self) -> ResponseInteraction | None:
+        """Claim the next ready interaction on a session of its own.
+
+        The claim commits, so the row it returns is detached and can be
+        executed on any session; that is what lets one poller feed many
+        concurrent executions.
+        """
         db = self.db_factory()
-        interaction: ResponseInteraction | None = None
+        try:
+            return await self._claim_next(db)
+        finally:
+            await db.close()
+
+    async def run_once(self) -> ResponseInteraction | None:
+        interaction = await self.claim()
+        if interaction is None:
+            return None
+        return await self.execute_claimed(interaction)
+
+    async def execute_claimed(self, interaction: ResponseInteraction) -> ResponseInteraction:
+        """Execute a claimed interaction, terminalizing it if execution fails."""
+        db = self.db_factory()
         heartbeat_stop = asyncio.Event()
         lease_lost = asyncio.Event()
         heartbeat_task: asyncio.Task | None = None
         execute_task: asyncio.Task | None = None
         lease_wait_task: asyncio.Task | None = None
         try:
-            interaction = await self._claim_next(db)
-            if interaction is None:
-                return None
             heartbeat_task = asyncio.create_task(
                 self._heartbeat(
                     interaction.id,
@@ -482,23 +533,60 @@ class GlobalResponseInteractionWorker:
                 except Exception:
                     logger.exception(
                         "Durable response interaction heartbeat stopped unexpectedly",
-                        extra={
-                            "interaction_id": (
-                                interaction.interaction_id if interaction else None
-                            )
-                        },
+                        extra={"interaction_id": interaction.interaction_id},
                     )
             await db.close()
 
-    async def run_loop(self, poll_interval: float = 0.25) -> None:
-        while True:
+    async def run_loop(self, poll_interval: float = 0.25, concurrency: int = 1) -> None:
+        """Claim from one loop and execute up to ``concurrency`` interactions at once.
+
+        One poller per process keeps idle polling at one query per interval
+        however many executions may run, and a claim that finds work claims
+        again at once, so a backlog drains as fast as slots free up rather
+        than one row per interval. Executions mostly wait on the model with
+        their transaction committed, so the slot count is not bounded by the
+        connection pool.
+        """
+        poll_interval = max(0.05, poll_interval)
+        slots = asyncio.Semaphore(max(1, int(concurrency or 1)))
+        in_flight: set[asyncio.Task] = set()
+
+        async def execute(interaction: ResponseInteraction) -> None:
             try:
-                result = await self.run_once()
+                await self.execute_claimed(interaction)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Durable response interaction poll failed")
-                await asyncio.sleep(max(0.05, poll_interval))
-                continue
-            if result is None:
-                await asyncio.sleep(max(0.05, poll_interval))
+                logger.exception(
+                    "Durable response interaction execution failed outside recovery",
+                    extra={"interaction_id": interaction.interaction_id},
+                )
+            finally:
+                slots.release()
+
+        try:
+            while True:
+                await slots.acquire()
+                try:
+                    interaction = await self.claim()
+                except asyncio.CancelledError:
+                    slots.release()
+                    raise
+                except Exception:
+                    slots.release()
+                    logger.exception("Durable response interaction poll failed")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                if interaction is None:
+                    slots.release()
+                    await asyncio.sleep(poll_interval)
+                    continue
+                task = asyncio.create_task(execute(interaction))
+                in_flight.add(task)
+                task.add_done_callback(in_flight.discard)
+        finally:
+            for task in list(in_flight):
+                task.cancel()
+            for task in list(in_flight):
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task

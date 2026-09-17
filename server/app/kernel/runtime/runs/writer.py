@@ -160,6 +160,19 @@ class TraceWriter:
         self.event_bus = event_bus
         self.sandbox = sandbox
 
+    async def release_before_wait(self) -> None:
+        """Commit what is staged before a long wait on an external provider.
+
+        A step marked running and left in an open transaction pins one pooled
+        connection for the whole model or tool round trip, so the pool, not
+        memory, would cap how many executions can wait at once. Committing
+        here makes the running step durable (it is running) and hands the
+        connection back until the next write.
+        """
+        commit = getattr(self.db, "commit", None)
+        if commit is not None:
+            await commit()
+
     def _emit_event(
         self,
         event_type: str,

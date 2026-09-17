@@ -4,13 +4,28 @@ Fires concurrent agent executions at a live API and reports latency
 percentiles, throughput, and failure counts as machine-readable JSON.
 The numbers describe the platform overhead of the governed execution
 path (API, ledger, PostgreSQL); when the target runs with a mock model
-(SOIT_TESTING=1) they deliberately exclude model latency.
+(SOIT_TESTING=1) they deliberately exclude model latency unless the
+target sets SOIT_TESTING_MODEL_LATENCY_MS.
+
+Two modes, matching the two ways a stack can execute:
+
+- ``inline`` (default): ``POST /agents/{id}/execute``; the request runs
+  the agent and returns. Measures how many executions per second one API
+  process can drive.
+- ``worker``: ``POST /responses`` with an AG-UI run input; the request
+  claims the interaction, the durable worker executes it, and the
+  response tails the persisted events. This is the production shape.
+  Measures how many executions can be in flight at once and how long a
+  claim waits for a worker (``wait_ms``, claim to RUN_STARTED).
 
 Usage, from server/ against a stack on 127.0.0.1:9200:
 
     uv run python scripts/load_baseline.py \
         --base-url http://127.0.0.1:9200/api/v1 \
         --concurrency 10 --requests 100 --out baseline.json
+
+    uv run python scripts/load_baseline.py --mode worker \
+        --concurrency 50 --requests 200 --out worker.json
 """
 
 from __future__ import annotations
@@ -33,6 +48,17 @@ def _percentile(sorted_values: list[float], fraction: float) -> float:
         return 0.0
     index = min(len(sorted_values) - 1, max(0, round(fraction * (len(sorted_values) - 1))))
     return sorted_values[index]
+
+
+def _summary(values: list[float]) -> dict[str, float]:
+    ordered = sorted(values)
+    return {
+        "p50": round(_percentile(ordered, 0.50), 1),
+        "p95": round(_percentile(ordered, 0.95), 1),
+        "p99": round(_percentile(ordered, 0.99), 1),
+        "mean": round(statistics.fmean(ordered), 1) if ordered else 0.0,
+        "max": round(ordered[-1], 1) if ordered else 0.0,
+    }
 
 
 async def _signup(client: httpx.AsyncClient, suffix: str) -> dict[str, str]:
@@ -91,13 +117,43 @@ async def _publish_agent(
     return agent["id"]
 
 
-async def _one_request(
+async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], agent_id: str) -> str:
+    response = await client.post(
+        "/threads",
+        headers=headers,
+        json={"agent_id": agent_id, "title": "Load baseline thread"},
+    )
+    response.raise_for_status()
+    return str(response.json()["data"]["id"])
+
+
+def _agui_run_input(*, thread_id: str, agent_id: str, run_id: str, content: str) -> dict[str, Any]:
+    return {
+        "threadId": thread_id,
+        "runId": run_id,
+        "state": {},
+        "messages": [{"id": f"msg_{run_id}", "role": "user", "content": content}],
+        "tools": [],
+        "context": [],
+        "forwardedProps": {"soit": {"mode": "agent", "agentId": agent_id}},
+    }
+
+
+class _Sample:
+    """One request's outcome; ``wait_ms`` is only known in worker mode."""
+
+    def __init__(self) -> None:
+        self.latencies: list[float] = []
+        self.waits: list[float] = []
+        self.errors: list[str] = []
+
+
+async def _one_inline_request(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     agent_id: str,
     index: int,
-    latencies: list[float],
-    errors: list[str],
+    sample: _Sample,
 ) -> None:
     started = time.perf_counter()
     try:
@@ -108,58 +164,117 @@ async def _one_request(
         )
         elapsed_ms = (time.perf_counter() - started) * 1000
         if response.status_code == 200 and response.json().get("success"):
-            latencies.append(elapsed_ms)
+            sample.latencies.append(elapsed_ms)
         else:
-            errors.append(f"{index}: HTTP {response.status_code}")
+            sample.errors.append(f"{index}: HTTP {response.status_code}")
     except httpx.HTTPError as exc:
-        errors.append(f"{index}: {type(exc).__name__}: {exc}")
+        sample.errors.append(f"{index}: {type(exc).__name__}: {exc}")
+
+
+async def _one_worker_request(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    agent_id: str,
+    index: int,
+    sample: _Sample,
+) -> None:
+    # The thread is part of the real flow but not of the execution path
+    # being measured, so it is created before the clock starts.
+    try:
+        thread_id = await _create_thread(client, headers, agent_id)
+    except httpx.HTTPError as exc:
+        sample.errors.append(f"{index}: thread: {type(exc).__name__}: {exc}")
+        return
+    run_id = f"run_{uuid.uuid4().hex}"
+    payload = _agui_run_input(
+        thread_id=thread_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        content=f"load baseline request {index}",
+    )
+    started = time.perf_counter()
+    wait_ms: float | None = None
+    terminal: str | None = None
+    last_event: str | None = None
+    try:
+        async with client.stream("POST", "/responses", headers=headers, json=payload) as response:
+            if response.status_code not in (200, 201):
+                body = (await response.aread()).decode("utf-8", "replace")[:200]
+                sample.errors.append(f"{index}: HTTP {response.status_code} {body}")
+                return
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    event = json.loads(line[5:].strip())
+                except json.JSONDecodeError:
+                    continue
+                event_type = str(event.get("type") or "")
+                last_event = event_type
+                if event_type == "RUN_STARTED" and wait_ms is None:
+                    wait_ms = (time.perf_counter() - started) * 1000
+                elif event_type in {"RUN_FINISHED", "RUN_ERROR"}:
+                    terminal = event_type
+                    break
+    except httpx.HTTPError as exc:
+        sample.errors.append(f"{index}: {type(exc).__name__}: {exc} (run {run_id})")
+        return
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if terminal == "RUN_FINISHED":
+        sample.latencies.append(elapsed_ms)
+        sample.waits.append(wait_ms if wait_ms is not None else elapsed_ms)
+    else:
+        # The run id lets the failure be looked up in response_interactions.
+        sample.errors.append(
+            f"{index}: stream ended with {terminal or 'no terminal event'} "
+            f"after {last_event or 'nothing'} (run {run_id})"
+        )
 
 
 async def run_baseline(
-    *, base_url: str, concurrency: int, total_requests: int
+    *, base_url: str, concurrency: int, total_requests: int, mode: str
 ) -> dict[str, Any]:
     suffix = uuid.uuid4().hex[:12]
-    timeout = httpx.Timeout(120.0)
+    timeout = httpx.Timeout(300.0)
+    one_request = _one_worker_request if mode == "worker" else _one_inline_request
     async with httpx.AsyncClient(base_url=base_url, timeout=timeout) as client:
         headers = await _signup(client, suffix)
         agent_id = await _publish_agent(client, headers, suffix)
 
-        latencies: list[float] = []
-        errors: list[str] = []
+        sample = _Sample()
         semaphore = asyncio.Semaphore(concurrency)
 
         async def bounded(index: int) -> None:
             async with semaphore:
-                await _one_request(client, headers, agent_id, index, latencies, errors)
+                await one_request(client, headers, agent_id, index, sample)
 
         started = time.perf_counter()
         await asyncio.gather(*(bounded(index) for index in range(total_requests)))
         wall_seconds = time.perf_counter() - started
 
-    ordered = sorted(latencies)
-    return {
+    succeeded = len(sample.latencies)
+    report: dict[str, Any] = {
         "captured_at": datetime.now(UTC).isoformat(),
         "base_url": base_url,
+        "mode": mode,
         "concurrency": concurrency,
         "requests": total_requests,
-        "succeeded": len(latencies),
-        "failed": len(errors),
-        "errors": errors[:20],
+        "succeeded": succeeded,
+        "failed": len(sample.errors),
+        "errors": sample.errors[:20],
         "wall_seconds": round(wall_seconds, 3),
-        "throughput_rps": round(len(latencies) / wall_seconds, 2) if wall_seconds else 0,
-        "latency_ms": {
-            "p50": round(_percentile(ordered, 0.50), 1),
-            "p95": round(_percentile(ordered, 0.95), 1),
-            "p99": round(_percentile(ordered, 0.99), 1),
-            "mean": round(statistics.fmean(ordered), 1) if ordered else 0.0,
-            "max": round(ordered[-1], 1) if ordered else 0.0,
-        },
+        "throughput_rps": round(succeeded / wall_seconds, 2) if wall_seconds else 0,
+        "latency_ms": _summary(sample.latencies),
     }
+    if mode == "worker":
+        report["wait_ms"] = _summary(sample.waits)
+    return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:9200/api/v1")
+    parser.add_argument("--mode", choices=("inline", "worker"), default="inline")
     parser.add_argument("--concurrency", type=int, default=10)
     parser.add_argument("--requests", type=int, default=100)
     parser.add_argument("--out", default=None, help="Write the JSON report here")
@@ -170,6 +285,7 @@ def main() -> int:
             base_url=args.base_url,
             concurrency=args.concurrency,
             total_requests=args.requests,
+            mode=args.mode,
         )
     )
     rendered = json.dumps(report, indent=2)

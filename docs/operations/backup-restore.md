@@ -35,9 +35,9 @@ restored.
 
 1. Record the deployment, release version, current Alembic revision, backup ID,
    operator, start time, RPO, and RTO.
-2. Stop `web`, `api`, `knowledge-ingest-worker`, and `outbox-dispatcher`. Keep
-   PostgreSQL and MinIO reachable. Confirm no ingest or outbox work is still
-   running.
+2. Stop `web`, `api`, `response-worker`, `knowledge-ingest-worker`, and
+   `outbox-dispatcher`. Keep PostgreSQL and MinIO reachable. Confirm no
+   interaction, ingest or outbox work is still running.
 3. Create a custom-format PostgreSQL dump with `pg_dump --format=custom
    --no-owner --no-acl`.
 4. Mirror the configured application bucket to a new, empty backup directory.
@@ -95,8 +95,8 @@ target database and bucket before any destructive command.
 7. Start Milvus, then the API, and invoke the real Knowledge index rebuild action
    for every active index. A collection existing is insufficient: run a retrieval
    query and validate its citations.
-8. Start `knowledge-ingest-worker` and `outbox-dispatcher`, then `web`. Confirm API,
-   worker, and dispatcher readiness.
+8. Start `response-worker`, `knowledge-ingest-worker` and `outbox-dispatcher`,
+   then `web`. Confirm API, worker, and dispatcher readiness.
 9. Run the empty-workspace release journey and record evidence without editing the
    database directly.
 10. Fill `docs/deployment/restore-drill-evidence.example.json` with real paths,
