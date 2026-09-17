@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import update
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.ids import (
@@ -408,7 +409,12 @@ class TraceWriter:
                 f"Concurrent run transition rejected: {old_status} -> {target_status}"
             )
 
-        await self.db.refresh(run)
+        # The conditional UPDATE applied exactly the values below, so mirror
+        # them on the instance as committed state instead of paying a SELECT
+        # to read them back (a plain setattr would mark them dirty and make
+        # the next flush write the same UPDATE a second time).
+        for key, value in values.items():
+            set_committed_value(run, key, value)
         status_payload: dict[str, Any] = {
             "run_id": run.id,
             "old_status": old_status,
@@ -605,7 +611,8 @@ class TraceWriter:
                 f"Concurrent step transition rejected: {old_status} -> {target_status}"
             )
 
-        await self.db.refresh(step)
+        for key, value in values.items():
+            set_committed_value(step, key, value)
 
         if target_status == "failed":
             run = await self.db.get(Run, step.run_id)

@@ -36,7 +36,7 @@ class Run(SQLModel, table=True):
     id: str = Field(primary_key=True)
     """Run ID (e.g., "run_01H...")."""
 
-    tenant_id: str = Field(index=True)
+    tenant_id: str = Field()
     """Tenant ID."""
 
     workspace_id: str = Field(index=True)
@@ -208,13 +208,13 @@ class RunStepToolCall(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: f"rstc_{generate_ulid()}")
     tenant_id: str = Field(index=True)
     workspace_id: str = Field(index=True)
-    run_id: str = Field(index=True)
+    run_id: str = Field()
     run_step_id: str = Field(index=True)
     tool_call_id: str = Field(index=True)
     idempotency_key: str = Field(index=True)
     request_hash: str = Field(index=True)
     tool_ref: str = Field(index=True)
-    status: str = Field(default="claimed", index=True)
+    status: str = Field(default="claimed")
     attempt_count: int = Field(default=1)
     lease_owner: str | None = Field(default=None, index=True)
     lease_expires_at: datetime | None = Field(
@@ -311,7 +311,7 @@ class RunCostEntry(SQLModel, table=True):
     step_id: str | None = Field(default=None, index=True)
     """Optional step ID (foreign key)."""
 
-    tenant_id: str = Field(index=True)
+    tenant_id: str = Field()
     """Tenant ID."""
 
     workspace_id: str = Field(index=True)

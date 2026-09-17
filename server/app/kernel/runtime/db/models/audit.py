@@ -24,9 +24,9 @@ class AuditEvent(SQLModel, table=True):
     )
 
     id: str = Field(primary_key=True, default_factory=generate_ulid)
-    tenant_id: str = Field(index=True)
+    tenant_id: str = Field()
     workspace_id: str | None = Field(default=None, nullable=True, index=True)
-    event_type: str = Field(index=True)
+    event_type: str = Field()
     resource_type: str = Field(index=True)
     resource_id: str | None = Field(default=None, nullable=True, index=True)
     run_id: str | None = Field(default=None, nullable=True, index=True)

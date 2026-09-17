@@ -7,22 +7,24 @@ Create Date: 2026-09-17
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "20260917100000"
-down_revision: Union[str, Sequence[str], None] = "20260831110000"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "20260831110000"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # `uq_event_outbox_event_id` already indexes event_id; the single-column
     # status index is a prefix of (status, available_at).
-    op.drop_index(op.f("ix_event_outbox_event_id"), table_name="event_outbox")
-    op.drop_index(op.f("ix_event_outbox_status"), table_name="event_outbox")
+    # A database created before either index existed must still upgrade.
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_event_outbox_event_id"))
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_event_outbox_status"))
     # The dispatcher only ever looks for pending rows that are due.
     op.create_index(
         "ix_event_outbox_pending_available_at",

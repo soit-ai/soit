@@ -28,15 +28,14 @@ class ResponseRepository:
         return response
 
     async def get(self, response_id: str) -> Response | None:
-        query = select(Response).where(
-            and_(
-                Response.id == response_id,
-                Response.tenant_id == self.ctx.tenant_id,
-                Response.workspace_id == self.ctx.workspace_id,
-            )
-        )
-        result = (await self.db.exec(query)).first()
-        return result if isinstance(result, Response) else result[0] if result else None
+        # By primary key through the identity map: a response this session
+        # already holds costs no round trip, and the scope check is the same.
+        response = await self.db.get(Response, response_id)
+        if response is None:
+            return None
+        if response.tenant_id != self.ctx.tenant_id or response.workspace_id != self.ctx.workspace_id:
+            return None
+        return response
 
     async def require(self, response_id: str) -> Response:
         response = await self.get(response_id)

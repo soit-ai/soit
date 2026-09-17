@@ -28,16 +28,14 @@ class ThreadRepository:
         return thread
 
     async def get_thread(self, thread_id: str) -> Thread | None:
-        query = select(Thread).where(
-            and_(
-                Thread.id == thread_id,
-                Thread.tenant_id == self.ctx.tenant_id,
-                Thread.workspace_id == self.ctx.workspace_id,
-                Thread.deleted_at.is_(None),
-            )
-        )
-        result = (await self.db.exec(query)).first()
-        return result if isinstance(result, Thread) else result[0] if result else None
+        # By primary key through the identity map (no round trip for a thread
+        # this session already holds); scope and soft-delete checks unchanged.
+        thread = await self.db.get(Thread, thread_id)
+        if thread is None or thread.deleted_at is not None:
+            return None
+        if thread.tenant_id != self.ctx.tenant_id or thread.workspace_id != self.ctx.workspace_id:
+            return None
+        return thread
 
     async def list_threads(
         self,
