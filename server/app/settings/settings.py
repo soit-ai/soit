@@ -205,6 +205,14 @@ class Settings(BaseSettings):
     otel_traces_sample_ratio: float = 1.0
     """Parent-based trace sampling ratio from zero to one."""
 
+    log_async: bool = True
+    """Write log records from a listener thread instead of the event loop.
+
+    Under docker's json-file driver stdout is a pipe that stalls whenever the
+    daemon is busy; a blocking write there stalls every request in the
+    process. Off only for synchronous capture (tests force it off).
+    """
+
     log_level: str = "INFO"
     """Log level (DEBUG, INFO, WARNING, ERROR)."""
     log_format: str = "rich"

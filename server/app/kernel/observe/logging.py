@@ -3,10 +3,13 @@
 Structured logging setup.
 """
 
+import atexit
 import json
 import logging
+import queue
 import sys
 from collections.abc import Iterable
+from logging.handlers import QueueHandler, QueueListener
 from typing import Any
 
 from app.kernel.observe.context import get_log_context
@@ -202,15 +205,51 @@ def _configure_uvicorn_logging() -> None:
         logger.propagate = True
 
 
+class _RecordQueueHandler(QueueHandler):
+    """Queue the record as is.
+
+    The stock handler formats the message and drops ``exc_info`` before
+    queueing, which is what a cross-process queue needs; this one feeds an
+    in-process listener, so the sink still gets to render tracebacks and the
+    structured fields itself.
+    """
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return record
+
+
+_listener: QueueListener | None = None
+
+
+def _async_sink_wanted() -> bool:
+    # Tests read log output synchronously; everything else writes to stdout
+    # from a thread so a slow pipe never stalls the event loop.
+    return bool(settings.log_async) and "pytest" not in sys.modules
+
+
 def setup_logging() -> None:
     """Setup structured logging."""
+    global _listener
     handler = _build_handler()
 
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
     for existing in list(root_logger.handlers):
         root_logger.removeHandler(existing)
-    root_logger.addHandler(handler)
+    if _listener is not None:
+        _listener.stop()
+        _listener = None
+    if _async_sink_wanted():
+        # The event loop only ever enqueues; a listener thread does the
+        # blocking write to stdout, which under docker's json-file driver is
+        # a pipe that stalls whenever the daemon is busy.
+        log_queue: queue.SimpleQueue[logging.LogRecord] = queue.SimpleQueue()
+        _listener = QueueListener(log_queue, handler, respect_handler_level=True)
+        _listener.start()
+        atexit.register(_listener.stop)
+        root_logger.addHandler(_RecordQueueHandler(log_queue))
+    else:
+        root_logger.addHandler(handler)
     _configure_uvicorn_logging()
 
 
