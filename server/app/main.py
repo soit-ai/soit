@@ -10,7 +10,7 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -43,6 +43,7 @@ def _load_env_file(env_path: Path) -> None:
 
 _load_env_file(project_root / ".env")
 
+from app.infra.db.session import commit_unit_of_work  # noqa: E402
 from app.kernel.commons.errors import KernelError  # noqa: E402
 from app.kernel.observe.context import get_log_context  # noqa: E402
 from app.kernel.observe.logging import setup_logging  # noqa: E402
@@ -285,6 +286,9 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
     tags_metadata=tags_metadata,
+    # Function-scoped, so its exit runs before the response is sent: the
+    # request's unit of work is committed by the time a client sees the reply.
+    dependencies=[Depends(commit_unit_of_work, scope="function")],
 )
 
 from app.infra.telemetry import configure_telemetry  # noqa: E402

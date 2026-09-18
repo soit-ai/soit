@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.requests import HTTPConnection
 
 from app.settings.settings import settings
 
@@ -72,9 +73,23 @@ def get_async_session_local() -> async_sessionmaker[AsyncSession]:
     return _AsyncSessionLocal
 
 
-async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency yielding an async session inside a unit of work."""
+# Where `get_async_db` parks the request's session so `commit_unit_of_work`
+# can reach it without being part of the same dependency chain.
+UNIT_OF_WORK_STATE_KEY = "unit_of_work_session"
+
+
+async def get_async_db(connection: HTTPConnection) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency yielding the request's async session inside a unit of work.
+
+    This dependency is request-scoped on purpose: FastAPI runs its exit code
+    after the response has been sent, which is what a streaming route needs
+    because its body generator reads through this same session. The commit
+    that must land before the response is `commit_unit_of_work`'s job; the
+    exit here only commits what a streaming body wrote afterwards, rolls back
+    on error, and closes the session.
+    """
     session = get_async_session_local()()
+    setattr(connection.state, UNIT_OF_WORK_STATE_KEY, session)
     try:
         from app.infra.db.transaction import AsyncSQLAlchemyUnitOfWork
 
@@ -82,6 +97,26 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
     finally:
         await session.close()
+
+
+async def commit_unit_of_work(connection: HTTPConnection) -> AsyncGenerator[None, None]:
+    """Commit the request's unit of work when the handler returns, before the response is sent.
+
+    Installed app-wide as ``Depends(commit_unit_of_work, scope="function")``.
+    A function-scoped dependency's exit code runs before FastAPI sends the
+    response, so a client that reads its 201 and immediately uses the row on
+    another API worker finds it committed; handlers and repositories only
+    flush, and the request-scoped commit in `get_async_db` would land after
+    the response. A request that never resolved `get_async_db` has nothing to
+    commit, and a handler that raised skips the commit so `get_async_db`
+    rolls back instead.
+    """
+    yield
+    session: AsyncSession | None = getattr(connection.state, UNIT_OF_WORK_STATE_KEY, None)
+    if session is not None:
+        from app.infra.db.transaction import AsyncSQLAlchemyUnitOfWork
+
+        await AsyncSQLAlchemyUnitOfWork(session).commit()
 
 
 async def dispose_async_engine() -> None:
