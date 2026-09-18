@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import statistics
 import sys
 import time
@@ -117,14 +118,14 @@ async def _publish_agent(
     return agent["id"]
 
 
-async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], agent_id: str) -> str:
+async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], agent_id: str) -> tuple[str, str]:
     response = await client.post(
         "/threads",
         headers=headers,
         json={"agent_id": agent_id, "title": "Load baseline thread"},
     )
     response.raise_for_status()
-    return str(response.json()["data"]["id"])
+    return str(response.json()["data"]["id"]), str(response.headers.get("X-Request-Id") or "")
 
 
 def _agui_run_input(*, thread_id: str, agent_id: str, run_id: str, content: str) -> dict[str, Any]:
@@ -181,10 +182,28 @@ async def _one_worker_request(
     # The thread is part of the real flow but not of the execution path
     # being measured, so it is created before the clock starts.
     try:
-        thread_id = await _create_thread(client, headers, agent_id)
+        thread_id, create_request_id = await _create_thread(client, headers, agent_id)
     except httpx.HTTPError as exc:
         sample.errors.append(f"{index}: thread: {type(exc).__name__}: {exc}")
         return
+    if os.environ.get("LOAD_DEBUG_THREAD_CHECK"):
+        # Diagnostic: is the thread readable before the run is posted?
+        check = await client.get(f"/threads/{thread_id}", headers=headers)
+        if check.status_code != 200:
+            # How long until it becomes readable, if ever? Distinguishes a
+            # late commit from a row that is really absent.
+            seen_after = None
+            for delay in (0.05, 0.2, 1.0, 3.0):
+                await asyncio.sleep(delay)
+                again = await client.get(f"/threads/{thread_id}", headers=headers)
+                if again.status_code == 200:
+                    seen_after = delay
+                    break
+            sample.errors.append(
+                f"{index}: thread {thread_id} unreadable right after creation: HTTP {check.status_code}; "
+                f"readable after {seen_after}s; create request {create_request_id}"
+            )
+            return
     run_id = f"run_{uuid.uuid4().hex}"
     payload = _agui_run_input(
         thread_id=thread_id,
