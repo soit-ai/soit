@@ -14,7 +14,7 @@ SOIT is an enterprise-grade governed agent platform providing agent building,
 workflow orchestration, knowledge retrieval, plugin/MCP integration, and
 runtime observability on a multi-tenant, front/back separated architecture.
 
-The backend is Python 3.11 with FastAPI, SQLModel/SQLAlchemy, Alembic, and
+The backend is Python 3.12 with FastAPI, SQLModel/SQLAlchemy, Alembic, and
 Celery, backed by PostgreSQL, Redis, Milvus, MinIO, and Vault, with
 OpenTelemetry-compatible tracing. Quality tooling is `ruff`, `pyright`, and
 `pytest` via `uv`.

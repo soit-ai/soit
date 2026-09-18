@@ -44,6 +44,9 @@ def _markdown_files() -> list[Path]:
         path
         for path in ROOT.rglob("*.md")
         if not (set(path.relative_to(ROOT).parts) & ignored_parts)
+        # Any dot-directory too: a second interpreter's environment
+        # (.venv312) carries its packages' READMEs, which are not ours.
+        and not any(part.startswith(".") for part in path.relative_to(ROOT).parts)
     ]
 
 

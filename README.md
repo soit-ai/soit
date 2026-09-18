@@ -233,7 +233,7 @@ SOIT is designed for teams who need agents to do real work in production:
 
 | Layer        | Choices                                                                  |
 | ------------ | ------------------------------------------------------------------------ |
-| Backend      | Python 3.11 · FastAPI · SQLModel · Alembic · Celery · OpenTelemetry      |
+| Backend      | Python 3.12 · FastAPI · SQLModel · Alembic · Celery · OpenTelemetry      |
 | Frontend     | TypeScript · React Router 7 · TailwindCSS 4 · Zustand · React Query · React Flow |
 | Data         | PostgreSQL 15 · Redis 7 · Milvus 2.5 · MinIO                             |
 | Security     | HashiCorp Vault · JWT · bcrypt                                           |
