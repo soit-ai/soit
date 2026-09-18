@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, ORJSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Add project root to Python path
@@ -286,6 +286,7 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
     tags_metadata=tags_metadata,
+    default_response_class=ORJSONResponse,
     # Function-scoped, so its exit runs before the response is sent: the
     # request's unit of work is committed by the time a client sees the reply.
     dependencies=[Depends(commit_unit_of_work, scope="function")],

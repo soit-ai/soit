@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Jude", email = "jude@soit.ai" }
 ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "fastapi[standard]>=0.139.2,<1.0.0",
     "python-multipart>=0.0.7,<1.0.0",
@@ -70,6 +70,7 @@ dependencies = [
     "apprise==1.12.0",
     "ag-ui-protocol==0.1.19",
     "litellm==1.91.1",
+    "orjson>=3.11.9",
 ]
 
 [project.optional-dependencies]

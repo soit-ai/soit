@@ -5,12 +5,13 @@ Standard API response envelope middleware.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+import orjson
+from fastapi.responses import ORJSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from app.kernel.observe.context import get_log_context
 
@@ -122,7 +123,7 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
             payload = None
         else:
             try:
-                payload = json.loads(raw_body)
+                payload = orjson.loads(raw_body)
             except Exception:
                 passthrough = Response(
                     content=raw_body,
@@ -133,7 +134,7 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
                 return passthrough
 
         if is_enveloped(payload):
-            passthrough = JSONResponse(
+            passthrough = ORJSONResponse(
                 content=payload,
                 status_code=response.status_code,
                 media_type=response.media_type,
@@ -147,7 +148,7 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
             request_id=request_id,
             run_id=run_id,
         )
-        wrapped = JSONResponse(
+        wrapped = ORJSONResponse(
             content=envelope,
             status_code=response.status_code,
             media_type=response.media_type,

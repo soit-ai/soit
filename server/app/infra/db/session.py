@@ -4,7 +4,9 @@ DB engine/session management.
 """
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
+import orjson
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.requests import HTTPConnection
@@ -36,13 +38,29 @@ def _async_database_url(url: str) -> str:
     return url
 
 
+def json_column_serializer(value: Any) -> str:
+    """Encode a JSON column with orjson.
+
+    An agent execution writes a dozen JSON columns; orjson encodes them several
+    times faster than the stdlib and accepts a superset of its input.
+    OPT_NON_STR_KEYS keeps the stdlib's habit of writing int keys as strings,
+    which stored payloads rely on.
+    """
+    return orjson.dumps(value, option=orjson.OPT_NON_STR_KEYS).decode()
+
+
 def get_async_engine() -> AsyncEngine:
     """Get or create the async database engine."""
     global _async_engine
     if _async_engine is None:
         database_url = _async_database_url(settings.database_url or "")
         if database_url.startswith("sqlite"):
-            _async_engine = create_async_engine(database_url, echo=False)
+            _async_engine = create_async_engine(
+                database_url,
+                echo=False,
+                json_serializer=json_column_serializer,
+                json_deserializer=orjson.loads,
+            )
         else:
             _async_engine = create_async_engine(
                 database_url,
@@ -50,6 +68,8 @@ def get_async_engine() -> AsyncEngine:
                 pool_pre_ping=True,
                 pool_size=_POOL_SIZE,
                 max_overflow=_MAX_OVERFLOW,
+                json_serializer=json_column_serializer,
+                json_deserializer=orjson.loads,
             )
     return _async_engine
 

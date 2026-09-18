@@ -153,6 +153,7 @@ async def async_db():
     Mirrors the sync fixture (StaticPool, create_all/drop_all) so a test can
     move from `db` to `async_db` without changing what it sees.
     """
+    import orjson
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import StaticPool
     from sqlmodel import SQLModel
@@ -160,11 +161,15 @@ async def async_db():
 
     import app.kernel.runtime.db.models  # noqa: F401
     import app.modules  # noqa: F401
+    from app.infra.db.session import json_column_serializer
 
     engine = create_async_engine(
         "sqlite+aiosqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
+        # JSON columns go through the same encoder as production.
+        json_serializer=json_column_serializer,
+        json_deserializer=orjson.loads,
     )
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
