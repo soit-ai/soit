@@ -958,19 +958,21 @@ class ExecutionEngine:
                     else:
                         # Tool not found, treat as final response
                         final_response = response_text
-                        break
                 else:
                     # No tool call, this is the final response
                     final_response = response_text
-                    break
 
-                # Update planning step status
+                # Update planning step status. The final answer closes the
+                # iteration too: a step left "running" would misreport the
+                # run as still in flight.
                 self.state_machine.transition_step(step, "succeeded")
                 await self.trace_writer.update_step_status(
                     step.id,
                     "succeeded",
                     output_summary=f"Iteration {iteration} completed",
                 )
+                if final_response is not None:
+                    break
 
             except Exception as e:
                 # Planning iteration failed
