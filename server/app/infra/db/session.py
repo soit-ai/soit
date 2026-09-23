@@ -49,28 +49,37 @@ def json_column_serializer(value: Any) -> str:
     return orjson.dumps(value, option=orjson.OPT_NON_STR_KEYS).decode()
 
 
+def build_async_engine(database_url: str) -> AsyncEngine:
+    """Create an async engine for a configured (sync-style) database URL."""
+    database_url = _async_database_url(database_url)
+    if database_url.startswith("sqlite"):
+        return create_async_engine(
+            database_url,
+            echo=False,
+            json_serializer=json_column_serializer,
+            json_deserializer=orjson.loads,
+        )
+    return create_async_engine(
+        database_url,
+        echo=False,
+        # Timestamps are stored as naive UTC. psycopg renders an aware
+        # datetime in the session time zone before it reaches a
+        # `timestamp without time zone` column, so a server whose default
+        # zone is not UTC would shift every write by its offset.
+        connect_args={"options": "-c timezone=UTC"},
+        pool_pre_ping=True,
+        pool_size=_POOL_SIZE,
+        max_overflow=_MAX_OVERFLOW,
+        json_serializer=json_column_serializer,
+        json_deserializer=orjson.loads,
+    )
+
+
 def get_async_engine() -> AsyncEngine:
     """Get or create the async database engine."""
     global _async_engine
     if _async_engine is None:
-        database_url = _async_database_url(settings.database_url or "")
-        if database_url.startswith("sqlite"):
-            _async_engine = create_async_engine(
-                database_url,
-                echo=False,
-                json_serializer=json_column_serializer,
-                json_deserializer=orjson.loads,
-            )
-        else:
-            _async_engine = create_async_engine(
-                database_url,
-                echo=False,
-                pool_pre_ping=True,
-                pool_size=_POOL_SIZE,
-                max_overflow=_MAX_OVERFLOW,
-                json_serializer=json_column_serializer,
-                json_deserializer=orjson.loads,
-            )
+        _async_engine = build_async_engine(settings.database_url or "")
     return _async_engine
 
 
