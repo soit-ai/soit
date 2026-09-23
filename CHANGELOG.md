@@ -243,6 +243,11 @@ record for operators.
 
 ### Fixed
 
+- The production Compose file probed the API's readiness at
+  `/api/v1/health/ready`, a path that does not exist, so the `api` container
+  stayed `unhealthy` for its whole life. It now probes `/health/ready`, with a
+  5-second request timeout that fits inside the healthcheck's own 10 seconds.
+  The Quality Gate and database-connection docs quoted the same wrong path.
 - Image calls to any `gpt-image` model failed at the provider with
   `Unknown parameter: 'response_format'`. The models always answer with inline
   base64 and reject the parameter that asks for it, while LiteLLM still lists it

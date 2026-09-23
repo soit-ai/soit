@@ -1,9 +1,12 @@
 """Tests for production container and compose runtime assets."""
 
+import re
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
+from starlette.routing import Match
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -43,6 +46,31 @@ def test_compose_defaults_to_explicit_development_and_redis_events() -> None:
         assert environment["EVENT_BUS_REDIS_URL"] == (
             "${EVENT_BUS_REDIS_URL:-redis://redis:6379/0}"
         )
+
+
+@pytest.mark.parametrize(
+    "compose_file", ["docker-compose.yml", "docker-compose.production.yml"]
+)
+def test_compose_api_healthcheck_probes_a_mounted_route(compose_file: str) -> None:
+    from app.main import app
+
+    compose = yaml.safe_load(
+        (ROOT / "docker" / compose_file).read_text(encoding="utf-8")
+    )
+    healthcheck = compose["services"]["api"]["healthcheck"]
+    probe = " ".join(healthcheck["test"])
+
+    match = re.search(
+        r"urlopen\('http://localhost:9200(/[^']*)', timeout=(\d+)\)", probe
+    )
+    assert match, f"api healthcheck is not a timed urlopen probe: {probe}"
+    path, request_timeout = match.group(1), int(match.group(2))
+
+    scope = {"type": "http", "method": "GET", "path": path, "root_path": ""}
+    assert any(
+        route.matches(scope)[0] is Match.FULL for route in app.routes
+    ), f"{compose_file} api healthcheck probes unmounted path {path}"
+    assert request_timeout < int(healthcheck["timeout"].removesuffix("s"))
 
 
 def test_environment_examples_declare_runtime_profile_and_event_backend() -> None:

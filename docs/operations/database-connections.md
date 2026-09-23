@@ -71,5 +71,5 @@ shortfall against the bound as an immediate outage.
 - `FATAL: sorry, too many clients already` in the API or worker logs;
 - requests that hang for `pool_timeout` (30 s) and then fail with
   `QueuePool limit ... reached`;
-- the readiness probe (`/api/v1/health/ready`) flapping under load while the
+- the readiness probe (`/health/ready`) flapping under load while the
   database itself is idle.

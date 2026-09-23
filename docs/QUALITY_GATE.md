@@ -196,7 +196,7 @@ For the full local Compose acceptance path when the infrastructure stack is avai
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
-curl http://localhost:9200/api/v1/health/ready
+curl http://localhost:9200/health/ready
 curl http://localhost:5000/
 docker compose -f docker/docker-compose.yml ps knowledge-ingest-worker
 curl http://localhost:9201/metrics
