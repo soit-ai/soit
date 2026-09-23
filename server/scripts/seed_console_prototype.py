@@ -5,7 +5,8 @@ cannot be reviewed against the prototype without hand-building a workspace
 first. This seeds exactly the objects the prototype draws -- the same agents,
 workflows, knowledge bases, plugins, models, secrets, threads, runs, tasks and
 approvals, under their prototype names -- so the console fills out the way the
-design says it should.
+design says it should. ``seed_console_operations`` adds the history those
+objects accumulate (schedules, task timelines, releases, notifications, ...).
 
 It is deliberately separate from ``seed_enterprise_mvp_scenarios``: that script
 backs integration tests and the release verification scripts, and its rows carry
@@ -38,7 +39,12 @@ from app.infra.db.session import get_async_session_local
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
-from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
+from app.kernel.runtime.db.models.runs import (
+    Run,
+    RunCostEntry,
+    RunStep,
+    RunStepToolCall,
+)
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
 from app.modules.agent.domain.models import Agent, AgentBinding, AgentVersion
@@ -95,6 +101,7 @@ class PrototypeSeedSummary(BaseModel):
     run_ids: list[str] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
     approval_ids: list[str] = Field(default_factory=list)
+    operations: dict[str, int] = Field(default_factory=dict)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -170,6 +177,7 @@ async def _reset(db: AsyncSession, ctx: RequestContext) -> None:
         ThreadMessage,
         CreditLedgerEntry,
         RunCostEntry,
+        RunStepToolCall,
         RunStep,
         ApprovalRequest,
         Task,
@@ -289,6 +297,9 @@ async def _seed_modelhub(db: AsyncSession, ctx: RequestContext) -> list[str]:
                 "tenant_id": ctx.tenant_id,
                 "workspace_id": ctx.workspace_id,
                 "kind": spec["kind"],
+                # The service always derives a slug from the kind, and model
+                # refs (`model:<slug>:<id>`) resolve through it.
+                "slug": spec["kind"],
                 "name": spec["name"],
                 "base_url": spec["base_url"],
                 "credential_secret_id": _sid("sec", ctx, "anthropic-prod"),
@@ -526,6 +537,17 @@ WORKFLOWS: list[dict[str, Any]] = [
         "published": True,
         "nodes": 5,
     },
+    # Published before and now carrying an unpublished draft, which is what
+    # the workflows page lists under "Publish management".
+    {
+        "key": "vendor-onboarding",
+        "name": "vendor-onboarding",
+        "summary": "collect → verify → approve → provision",
+        "version": 3,
+        "status": "draft",
+        "published": True,
+        "nodes": 8,
+    },
     {
         "key": "churn-signal-scan",
         "name": "churn-signal-scan",
@@ -694,6 +716,70 @@ AGENTS: list[dict[str, Any]] = [
 ]
 
 
+def _binding_refs(
+    spec: dict[str, Any],
+    knowledge: dict[str, str],
+    workflows: dict[str, str],
+    plugin_refs: dict[str, str],
+) -> list[tuple[str, str]]:
+    """(binding kind, target ref) pairs for one agent spec, model first."""
+    bindings: list[tuple[str, str]] = [("model", spec["model"])]
+    bindings += [
+        ("knowledge", f"knowledge:{knowledge[key]}")
+        for key in spec["knowledge"]
+        if key in knowledge
+    ]
+    bindings += [
+        ("workflow", f"wf:{workflows[key]}")
+        for key in spec["workflows"]
+        if key in workflows
+    ]
+    # BACKEND-PENDING: the capability catalogue publishes skills, MCP servers
+    # and the tools nested inside them, but not a standalone
+    # artifact_kind == "tool". Until it does, a tool-pack chip renders its
+    # ref rather than the plugin's name. Declaring these packs as MCP
+    # servers would make the label resolve by misfiling what they are.
+    bindings += [
+        ("tool", plugin_refs[key]) for key in spec["tools"] if key in plugin_refs
+    ]
+    return bindings
+
+
+def _agent_spec(spec: dict[str, Any], bindings: list[tuple[str, str]]) -> dict[str, Any]:
+    """The version document in the shape the agent service writes.
+
+    The console reads the model and capabilities from ``bindings``, so a spec
+    without that block rendered the agent as having no model. The document is
+    validated against ``agent_spec.schema.json``, which admits no extra keys.
+    """
+
+    def refs(kind: str) -> list[str]:
+        return [ref for binding_kind, ref in bindings if binding_kind == kind]
+
+    return {
+        "runtime": "agent_runtime_v1",
+        "planner": None,
+        "system_prompt": spec["description"],
+        "temperature": 0.2,
+        "bindings": {
+            "model_ref": spec["model"],
+            "knowledge_refs": refs("knowledge"),
+            "tool_refs": [ref for ref in refs("tool") if not ref.startswith("plugin_skill:")],
+            "workflow_refs": refs("workflow"),
+            # The spec addresses skills as `skill:<name>`, which the skill
+            # runtime resolves against the installed artifact of that name.
+            "skill_refs": [
+                f"skill:{ref.split(':', 1)[1]}"
+                for ref in refs("tool")
+                if ref.startswith("plugin_skill:")
+            ],
+        },
+        "memory": {"enabled": None, "type": None, "policy": None},
+        "limits": {"max_tokens": 4096, "rag_top_k": 3},
+        "policies": {"verify": False},
+    }
+
+
 async def _seed_agents(
     db: AsyncSession,
     ctx: RequestContext,
@@ -747,10 +833,8 @@ async def _seed_agents(
                 "version": spec["version"],
                 "status": "published" if published else "draft",
                 "spec_schema": "agent.v1",
-                "spec_json": _meta(
-                    name=spec["name"],
-                    model_ref=spec["model"],
-                    system_prompt=spec["description"],
+                "spec_json": _agent_spec(
+                    spec, _binding_refs(spec, knowledge, workflows, plugin_refs)
                 ),
                 "created_by": ctx.user_id,
             },
@@ -760,25 +844,7 @@ async def _seed_agents(
         # the display name is looked up by and the only one the runtime writes;
         # putting the bare id in target_id instead rendered every chip as a raw
         # id, which is what the first version of this seed did.
-        bindings: list[tuple[str, str]] = [("model", spec["model"])]
-        bindings += [
-            ("knowledge", f"knowledge:{knowledge[key]}")
-            for key in spec["knowledge"]
-            if key in knowledge
-        ]
-        bindings += [
-            ("workflow", f"wf:{workflows[key]}")
-            for key in spec["workflows"]
-            if key in workflows
-        ]
-        # BACKEND-PENDING: the capability catalogue publishes skills, MCP servers
-        # and the tools nested inside them, but not a standalone
-        # artifact_kind == "tool". Until it does, a tool-pack chip renders its
-        # ref rather than the plugin's name. Declaring these packs as MCP
-        # servers would make the label resolve by misfiling what they are.
-        bindings += [
-            ("tool", plugin_refs[key]) for key in spec["tools"] if key in plugin_refs
-        ]
+        bindings = _binding_refs(spec, knowledge, workflows, plugin_refs)
         for order, (kind, ref) in enumerate(bindings):
             await _upsert(
                 db,
@@ -837,6 +903,19 @@ PLUGINS: list[dict[str, Any]] = [
 ]
 
 
+#: What each plugin's manifest declares it may reach. Risk is derived from
+#: this declaration (``classify_plugin_risk``), so it spans low to high here.
+PLUGIN_PERMISSIONS: dict[str, dict[str, Any]] = {
+    "k8s-toolkit": {"network": ["k8s.internal"], "secrets": ["k8s-staging"]},
+    "helpdesk-api": {"network": ["tickets.acme.io"]},
+    "vault-secrets": {"secrets": ["SLACK_BOT_TOKEN", "anthropic-prod"]},
+    "web-fetch": {"network": ["*"]},
+    "erp-connector": {"network": ["erp.acme.io"], "storage": {"write": ["ledger"]}},
+    "cdn-tools": {"network": ["api.cdn.example"]},
+    "runbook-triage": {"storage": {"read": ["runbooks"]}},
+}
+
+
 #: The capability ref an installed artifact is published under. Agents bind to
 #: these, and the catalogue resolves each back to a name for the chip label.
 ARTIFACT_PREFIX = {
@@ -856,7 +935,12 @@ async def _seed_plugins(db: AsyncSession, ctx: RequestContext) -> list[str]:
         plugin_id = _sid("plg", ctx, name)
         version_id = _sid("plgv", ctx, name)
         spec_json = {"plugin_type": plugin_type, "exports": {"scopes": scopes}}
-        manifest_json = {"name": name, "version": version, "enabled": installed}
+        manifest_json = {
+            "name": name,
+            "version": version,
+            "enabled": installed,
+            "permissions": PLUGIN_PERMISSIONS.get(name, {}),
+        }
         await _upsert(
             db,
             Plugin,
@@ -1013,6 +1097,94 @@ RUNS: list[dict[str, Any]] = [
 ]
 
 
+#: Tools the seeded runs call, cycled per tool step. Each is a plugin artifact
+#: the plugins seed installs, so the Plugins page can tie invocations back to it.
+RUN_TOOLS: list[tuple[str, dict[str, Any]]] = [
+    ("mcp_server:k8s-toolkit", {"namespace": "checkout", "action": "logs"}),
+    ("plugin_tool:helpdesk-api", {"queue": "tier-2", "action": "create"}),
+    ("plugin_tool:web-fetch", {"url": "https://status.acme.io"}),
+    ("mcp_server:vault-secrets", {"path": "kv/ops/slack"}),
+    ("mcp_server:erp-connector", {"ledger": "GL-4100"}),
+]
+
+
+async def _seed_tool_call(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    run_id: str,
+    step_row_id: str,
+    key: str,
+    index: int,
+    failed: bool,
+    started: Any,
+    ended: Any,
+    latency_ms: int,
+) -> None:
+    """Write the control record and ledger entry a real tool step leaves.
+
+    Run detail refuses a tool step without its ``run_step_tool_calls`` record,
+    and tool invocation counts are read from ``tools`` cost entries, so a tool
+    step without both is a contract violation rather than a thinner row.
+    """
+    tool_ref, arguments = RUN_TOOLS[index % len(RUN_TOOLS)]
+    call_id = _sid("rstc", ctx, key)
+    await _upsert(
+        db,
+        RunStepToolCall,
+        call_id,
+        {
+            "tenant_id": ctx.tenant_id,
+            "workspace_id": ctx.workspace_id,
+            "run_id": run_id,
+            "run_step_id": step_row_id,
+            "tool_call_id": f"call_{call_id[-16:]}",
+            "idempotency_key": f"{SEED_SOURCE}:{key}",
+            "request_hash": hashlib.sha1(key.encode()).hexdigest(),
+            "tool_ref": tool_ref,
+            "status": "failed" if failed else "succeeded",
+            "attempt_count": 2 if failed else 1,
+            "outbound_started_at": started,
+            "parameters_summary_json": arguments,
+            "result_json": {}
+            if failed
+            else {"output": {"ok": True}, "metadata": {"seed_source": SEED_SOURCE}},
+            "error_code": "egress_blocked" if failed else None,
+            "error_message": (
+                "Egress destination not in the workspace allowlist." if failed else None
+            ),
+            "created_by": ctx.user_id,
+            "created_at": started,
+            "completed_at": ended,
+        },
+    )
+    await _upsert(
+        db,
+        RunCostEntry,
+        _sid("tcost", ctx, key),
+        {
+            "run_id": run_id,
+            "step_id": step_row_id,
+            "tenant_id": ctx.tenant_id,
+            "workspace_id": ctx.workspace_id,
+            # As the tool policy gateway records it: unpriced, and a provider
+            # only for `tool:<adapter>:` refs, which plugin artifacts are not.
+            "currency": None,
+            "amount": None,
+            "pricing_snapshot_json": _meta(),
+            "billing_basis": "requests",
+            "billed_quantity": Decimal(1),
+            "provider": None,
+            "tool_ref": tool_ref,
+            "source_port": "tools",
+            "operation": "invoke",
+            "latency_ms": latency_ms,
+            "request_count": 1,
+            "created_at": started,
+        },
+    )
+
+
 async def _seed_runs(
     db: AsyncSession, ctx: RequestContext, agents: dict[str, str], total: int
 ) -> list[str]:
@@ -1049,6 +1221,9 @@ async def _seed_runs(
                 "started_at": started,
                 "ended_at": ended,
                 "duration_ms": None if ended is None else duration_ms,
+                # Run lists order by created_at; a row inserted now with an
+                # older start would otherwise sort ahead of newer runs.
+                "created_at": started,
                 "error_code": error,
                 "error_message": (
                     "Egress destination not in the workspace allowlist."
@@ -1064,10 +1239,11 @@ async def _seed_runs(
                 ("tool", "tool", "failed" if error else "succeeded"),
             )
         ):
+            step_row_id = _sid("step", ctx, f"{suffix}:{step_key}")
             await _upsert(
                 db,
                 RunStep,
-                _sid("step", ctx, f"{suffix}:{step_key}"),
+                step_row_id,
                 {
                     "tenant_id": ctx.tenant_id,
                     "workspace_id": ctx.workspace_id,
@@ -1080,6 +1256,19 @@ async def _seed_runs(
                     "metrics_json": _meta(latency_ms=duration_ms // 3),
                 },
             )
+            if step_type == "tool":
+                await _seed_tool_call(
+                    db,
+                    ctx,
+                    run_id=run_id,
+                    step_row_id=step_row_id,
+                    key=f"{suffix}:{step_key}",
+                    index=order + len(ids),
+                    failed=step_status == "failed",
+                    started=started,
+                    ended=ended,
+                    latency_ms=duration_ms // 3,
+                )
         ids.append(run_id)
 
     # Filler runs carrying the prototype's reported volume and failure mix:
@@ -1126,6 +1315,7 @@ async def _seed_runs(
                 "started_at": started,
                 "ended_at": started + timedelta(milliseconds=duration_ms),
                 "duration_ms": duration_ms,
+                "created_at": started,
                 "error_code": "egress_blocked" if failed else None,
                 "error_message": (
                     "Egress destination not in the workspace allowlist."
@@ -1139,24 +1329,38 @@ async def _seed_runs(
         # count reads as generated rather than observed.
         span_count = 3 + (index % 6)
         for order in range(span_count):
+            step_row_id = _sid("step", ctx, f"{suffix}:{order}")
+            step_type = ("agent_plan", "retrieval", "tool")[order % 3]
+            step_failed = bool(failed) and order == span_count - 1
             await _upsert(
                 db,
                 RunStep,
-                _sid("step", ctx, f"{suffix}:{order}"),
+                step_row_id,
                 {
                     "tenant_id": ctx.tenant_id,
                     "workspace_id": ctx.workspace_id,
                     "run_id": run_id,
                     "step_id": f"step-{order}",
-                    "step_type": ("agent_plan", "retrieval", "tool")[order % 3],
-                    "status": "failed"
-                    if failed and order == span_count - 1
-                    else "succeeded",
+                    "step_type": step_type,
+                    "status": "failed" if step_failed else "succeeded",
                     "started_at": started,
                     "ended_at": started + timedelta(milliseconds=duration_ms),
                     "metrics_json": _meta(latency_ms=duration_ms // span_count),
                 },
             )
+            if step_type == "tool":
+                await _seed_tool_call(
+                    db,
+                    ctx,
+                    run_id=run_id,
+                    step_row_id=step_row_id,
+                    key=f"{suffix}:{order}",
+                    index=index + order,
+                    failed=step_failed,
+                    started=started,
+                    ended=started + timedelta(milliseconds=duration_ms),
+                    latency_ms=duration_ms // span_count,
+                )
         ids.append(run_id)
     await db.commit()
     return ids
@@ -1502,8 +1706,12 @@ def _unusable_hash() -> str:
 async def _seed_team(db: AsyncSession, ctx: RequestContext) -> list[str]:
     ids: list[str] = []
     for email, name, role in TEAMMATES:
-        user_id = _sid("u", ctx, email)
-        existing = await db.get(User, user_id)
+        # Users are global and emails unique, so a teammate already seeded into
+        # another workspace keeps their id; only the memberships are scoped.
+        existing = (
+            (await db.exec(select(User).where(User.email == email))).scalars().first()
+        )
+        user_id = existing.id if existing else _sid("u", ctx, email)
         await _upsert(
             db,
             User,
@@ -1654,6 +1862,9 @@ async def seed_console_prototype(
 ) -> PrototypeSeedSummary:
     ctx = await _ensure_context(db, args)
     if args.reset:
+        from scripts.seed_console_operations import reset_operations
+
+        await reset_operations(db, ctx)
         await _reset(db, ctx)
 
     model_refs = await _seed_modelhub(db, ctx)
@@ -1688,6 +1899,11 @@ async def seed_console_prototype(
     await _seed_credits(db, ctx, cost_entry_ids)
     await _seed_egress(db, ctx)
 
+    # Imported here: the operations module reads this one's specs and helpers.
+    from scripts.seed_console_operations import seed_operations
+
+    operations = await seed_operations(db, ctx, run_ids)
+
     return PrototypeSeedSummary(
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
@@ -1702,6 +1918,7 @@ async def seed_console_prototype(
         run_ids=run_ids,
         task_ids=task_ids,
         approval_ids=approval_ids,
+        operations=operations,
     )
 
 

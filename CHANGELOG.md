@@ -243,6 +243,37 @@ record for operators.
 
 ### Fixed
 
+- On a PostgreSQL server whose default time zone is not UTC (a Windows
+  installer picks the machine's zone), every timestamp the API wrote landed
+  shifted by that offset, because psycopg renders aware datetimes in the
+  session zone before a `timestamp without time zone` column drops it. The
+  engine now pins each connection to UTC. Rows written before the fix on such a
+  server keep their shifted values.
+- The console read offset-less API timestamps as the browser's local time, so
+  every time and "ago" label was off by the viewer's UTC offset. Timestamps are
+  now marked as UTC where the response envelope is unwrapped.
+- Settings › Billing showed `undefined` after every figure and an empty credit
+  ledger: it expected a currency, a `consumed_total` and a paginated list, and
+  the API returns unitless credits, a signed `deducted_total` and a bare list.
+- The Overview's run count and pass rate were computed from one page of runs,
+  which the API caps at 100, so a busy workspace reported "100 in the last
+  24h". Both tiles now read the window summary. Governance audits in the feed
+  are labelled by their operation and time of record, and an `allow` outcome no
+  longer renders as a failure; the side panel and the audit log's block list
+  had the same labels.
+- The Knowledge "Web crawl" and "Git sync" filters never matched a library,
+  because documents record their source as `crawler` and `git`.
+- The Plugins table showed "—" for risk and scopes although the API returns
+  both; it now shows the derived risk level and the declarations behind it.
+- The Workflows tiles said "7d" while counting runs since midnight UTC; they
+  now say "today".
+- The console prototype seed failed on current schemas (provider slug, tool
+  call control records) and on a second workspace (teammate emails). It now
+  also seeds the operational history the console reads — schedules, task
+  timelines, decided approvals, notifications, grants, policy revisions,
+  ingest queues, draft reviews, releases, dead letters, workflow and knowledge
+  runs, regression reports and run artifacts — so every list, state and tile
+  has data (`scripts/seed_console_operations.py`).
 - The production Compose file probed the API's readiness at
   `/api/v1/health/ready`, a path that does not exist, so the `api` container
   stayed `unhealthy` for its whole life. It now probes `/health/ready`, with a
