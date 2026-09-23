@@ -103,6 +103,18 @@ const SECTIONS: SettingsSection[] = [
 /** A key unused for this long is flagged the way the prototype flagged it. */
 const STALE_KEY_MS = 60 * 86_400_000
 
+/**
+ * Credits arrive as fixed-point decimal strings ("612.400000"). `magnitude`
+ * drops the sign, for totals the label already says are consumption.
+ */
+function formatCredits(value: string, magnitude = false): string {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return value
+  return (magnitude ? Math.abs(parsed) : parsed).toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+  })
+}
+
 /** The server's workspace role vocabulary (kernel/identity/rbac.py). */
 const WORKSPACE_ROLES = ['Owner', 'Admin', 'Dev', 'Viewer'] as const
 const API_KEY_SCOPES: ApiKeyScope[] = ['read', 'write', 'admin']
@@ -234,7 +246,7 @@ export default function ConsoleSettings() {
   })
   const entriesQuery = useQuery({
     queryKey: ['console', 'settings', 'credit-entries'],
-    queryFn: () => listCreditEntries({ page_size: 20 }),
+    queryFn: () => listCreditEntries({ limit: 20 }),
     options: { enabled: on('billing'), retry: false, refetchOnWindowFocus: false },
   })
 
@@ -666,7 +678,7 @@ export default function ConsoleSettings() {
   const categoryOn = (key: string) => Boolean(preferences?.categories?.[key])
 
   const diagnostics = diagnosticsQuery.data
-  const creditEntries = entriesQuery.data?.items || []
+  const creditEntries = entriesQuery.data || []
 
   const commitDisplayName = () => {
     const next = displayName.trim()
@@ -1424,14 +1436,14 @@ export default function ConsoleSettings() {
                 label={t('console.settings.billingPane.spend')}
                 value={
                   balanceQuery.data
-                    ? `${balanceQuery.data.consumed_total ?? '—'} ${balanceQuery.data.currency}`
+                    ? `${formatCredits(balanceQuery.data.deducted_total, true)} cr`
                     : '—'
                 }
                 na={!balanceQuery.data}
                 sub={
                   <span className="mono dimmer">
                     {balanceQuery.data
-                      ? `balance ${balanceQuery.data.balance} ${balanceQuery.data.currency}`
+                      ? `balance ${formatCredits(balanceQuery.data.balance)} cr`
                       : t('console.common.loading')}
                   </span>
                 }
@@ -1469,10 +1481,8 @@ export default function ConsoleSettings() {
                     creditEntries.map((entry) => (
                       <tr key={entry.id}>
                         <td className="mono">{entry.id}</td>
-                        <td className="dim">{entry.note || entry.source_ref || entry.kind}</td>
-                        <td className="num dim">
-                          {entry.amount} {entry.currency}
-                        </td>
+                        <td className="dim">{entry.note || entry.cost_entry_id || entry.kind}</td>
+                        <td className="num dim">{formatCredits(entry.credits_delta)} cr</td>
                         <td>
                           <StatusChip
                             status={entry.kind === 'grant' ? 'pass' : 'info'}

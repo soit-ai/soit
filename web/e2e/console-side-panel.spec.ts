@@ -414,17 +414,15 @@ test('seats keeps a live numerator against the fixture cap', async ({ page }) =>
     { user_id: 'u2', email: 'b@x.io', role: 'Admin', status: 'active' },
   ])
   await json(page, '**/api/v1/billing/credits/balance', {
-    currency: 'USD',
-    balance: '3600.00',
-    granted_total: '4212.40',
-    consumed_total: '612.40',
-    updated_at: NOW,
+    balance: '3600.000000',
+    granted_total: '4212.400000',
+    deducted_total: '-612.400000',
+    entry_count: 2,
+    status: 'ok',
+    enforcement_enabled: false,
+    low_balance_threshold: '100.0',
   })
-  await json(page, '**/api/v1/billing/credits/entries**', {
-    items: [],
-    next_page_token: null,
-    page_size: 20,
-  })
+  await json(page, '**/api/v1/billing/credits/entries**', [])
 
   await page.goto('/settings/billing', { waitUntil: 'domcontentloaded' })
 

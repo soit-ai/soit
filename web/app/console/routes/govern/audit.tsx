@@ -294,9 +294,9 @@ export default function ConsoleAudit() {
               ) : (
                 blocks.map((row, index) => (
                   <TableRow key={row.audit_id || `${row.run_id}:${index}`}>
-                    <TableCell className="num dimmer">{clockTime(row.timestamp)}</TableCell>
-                    <TableCell className="mono dim">{row.gateway_type || row.step_type}</TableCell>
-                    <TableCell className="dim">{row.preview || row.step_type}</TableCell>
+                    <TableCell className="num dimmer">{clockTime(row.timestamp || row.created_at)}</TableCell>
+                    <TableCell className="mono dim">{row.operation || row.gateway_type || row.step_type}</TableCell>
+                    <TableCell className="dim">{row.preview || row.resource_id || row.step_type}</TableCell>
                     <TableCell>{runLink(row.run_id)}</TableCell>
                     <TableCell className="num">
                       <ConsoleButton

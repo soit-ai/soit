@@ -43,6 +43,17 @@ import { requestErrorMessage } from '@/utils/request'
 type KnTab = 'libraries' | 'ingest' | 'exceptions' | 'recycle'
 type KindFilter = 'all' | 'web crawl' | 'upload' | 'git sync'
 
+/**
+ * `content_source` is the documents' `source_kind` title-cased ("Crawler",
+ * "Git, Manual"). The ingest paths write `crawler` and `git`, so matching the
+ * chip labels themselves ("web crawl", "git sync") never found a library.
+ */
+const KIND_SOURCE_TOKENS: Record<Exclude<KindFilter, 'all'>, readonly string[]> = {
+  'web crawl': ['crawl'],
+  upload: ['upload'],
+  'git sync': ['git'],
+}
+
 const PAGE_SIZE = 50
 
 /** Workbench row states map onto the shared console status vocabulary. */
@@ -171,8 +182,10 @@ export default function ConsoleKnowledge() {
     onError: onWriteError('Failed to reprocess the failed ingest jobs'),
   })
 
-  const matchesKind = (row: KnowledgeWorkbenchRow, kind: Exclude<KindFilter, 'all'>) =>
-    (row.content_source || '').toLowerCase().includes(kind)
+  const matchesKind = (row: KnowledgeWorkbenchRow, kind: Exclude<KindFilter, 'all'>) => {
+    const source = (row.content_source || '').toLowerCase()
+    return KIND_SOURCE_TOKENS[kind].some((token) => source.includes(token))
+  }
 
   const matchesSearch = (row: KnowledgeWorkbenchRow) => {
     const query = search.trim().toLowerCase()

@@ -23,6 +23,7 @@ import { useTranslation } from '@/i18n'
 import { getAgentWorkbench } from '@/services/agent-service'
 import { getObserveDashboard, type ObserveRange } from '@/services/observe-service'
 import {
+  getRunWindowSummary,
   listRunAudits,
   listRuns,
   type RunAuditLogResponse,
@@ -47,7 +48,12 @@ const OBSERVE_RANGE: Record<Range, ObserveRange> = {
   '30d': '7d',
 }
 
-const RUN_SAMPLE = 200
+/**
+ * Rows sampled for the outcome chart, durations and the recent list. The run
+ * list caps `page_size` at 100, so asking for more silently returns 100; the
+ * run count and pass rate come from the window summary instead of this sample.
+ */
+const RUN_SAMPLE = 100
 const BUCKETS = 24
 
 function clockTime(iso?: string | null): string {
@@ -89,10 +95,13 @@ function bucketRuns(runs: RunResponse[], windowMs: number): Array<[number, numbe
   return buckets
 }
 
+/** Outcomes a gateway records when it let the call through. */
+const PASSING_OUTCOMES = new Set(['succeeded', 'success', 'ok', 'pass', 'allow', 'allowed', 'approved'])
+
 /** Gateway audits are the governance feed; tone them by recorded outcome. */
 function auditTone(entry: RunAuditLogResponse): { className: string; Icon: typeof IconShieldX } {
   const outcome = (entry.outcome || '').toLowerCase()
-  if (outcome && outcome !== 'succeeded' && outcome !== 'ok' && outcome !== 'pass') {
+  if (outcome && !PASSING_OUTCOMES.has(outcome)) {
     return { className: 't-bad', Icon: IconShieldX }
   }
   const gateway = (entry.gateway_type || '').toLowerCase()
@@ -131,6 +140,11 @@ export default function ConsoleOverview() {
       }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+  const summaryQuery = useQuery({
+    queryKey: ['console', 'overview', 'summary', startedAfter],
+    queryFn: () => getRunWindowSummary({ since: startedAfter }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
   const auditsQuery = useQuery({
     queryKey: ['console', 'overview', 'audits'],
     queryFn: () => listRunAudits({ page_size: 5 }),
@@ -149,7 +163,11 @@ export default function ConsoleOverview() {
   const passCount = runs.filter((run) => outcomeOf(run.status) === 'pass').length
   const degradedCount = runs.filter((run) => outcomeOf(run.status) === 'degraded').length
   const blockedCount = runs.filter((run) => outcomeOf(run.status) === 'blocked').length
-  const settled = passCount + blockedCount
+  const summary = summaryQuery.data
+  const windowTotal = summary?.total ?? null
+  const windowPassRate =
+    summary?.pass_rate ??
+    (passCount + blockedCount > 0 ? passCount / (passCount + blockedCount) : null)
   const durations = runs
     .map((run) => run.duration_ms)
     .filter((value): value is number => value != null)
@@ -191,6 +209,7 @@ export default function ConsoleOverview() {
         <ConsoleButton
           onClick={() => {
             void runsQuery.refetch()
+            void summaryQuery.refetch()
             void dashboardQuery.refetch()
             void auditsQuery.refetch()
             void agentsQuery.refetch()
@@ -205,21 +224,19 @@ export default function ConsoleOverview() {
         <StatTileGrid>
           <StatTile
             label={t('console.overview.tiles.runs')}
-            value={runsQuery.data ? compactNumber(runs.length) : '—'}
-            na={!runsQuery.data}
-            sub={
-              <span className="mono dimmer">
-                {runs.length >= RUN_SAMPLE ? `first ${RUN_SAMPLE} in window` : `in the last ${range}`}
-              </span>
-            }
+            value={windowTotal != null ? compactNumber(windowTotal) : '—'}
+            na={windowTotal == null}
+            sub={<span className="mono dimmer">{`in the last ${range}`}</span>}
           />
           <StatTile
             label={t('console.overview.tiles.passRate')}
-            value={settled > 0 ? percent(passCount / settled) : '—'}
-            na={settled === 0}
+            value={windowPassRate != null ? percent(windowPassRate) : '—'}
+            na={windowPassRate == null}
             sub={
               <span className="mono dimmer">
-                {passCount} pass · {degradedCount} in flight · {blockedCount} failed
+                {summary
+                  ? `${summary.succeeded} pass · ${summary.running} in flight · ${summary.failed} failed`
+                  : `${passCount} pass · ${degradedCount} in flight · ${blockedCount} failed`}
               </span>
             }
           />
@@ -227,7 +244,13 @@ export default function ConsoleOverview() {
             label={t('console.overview.tiles.spend')}
             value={spendCard?.value || '—'}
             na={!spendCard}
-            sub={<span className="mono dimmer">{spendCard?.delta || 'from run cost entries'}</span>}
+            sub={
+              <span className="mono dimmer">
+                {spendCard?.delta != null
+                  ? `${Number(spendCard.delta) >= 0 ? '+' : ''}${spendCard.delta} vs prior ${OBSERVE_RANGE[range]}`
+                  : 'from run cost entries'}
+              </span>
+            }
           />
           <StatTile
             label={t('console.overview.tiles.p95')}
@@ -403,11 +426,11 @@ export default function ConsoleOverview() {
                         </span>
                         <div>
                           <p>
-                            <span className="mono">{entry.gateway_type || entry.step_type}</span>{' '}
-                            {entry.preview || entry.step_type}
+                            <span className="mono">{entry.operation || entry.gateway_type || entry.step_type}</span>{' '}
+                            {entry.preview || entry.outcome || entry.step_type}
                           </p>
                           <time>
-                            {clockTime(entry.timestamp)} · {entry.run_id}
+                            {clockTime(entry.timestamp || entry.created_at)} · {entry.run_id}
                           </time>
                         </div>
                       </li>

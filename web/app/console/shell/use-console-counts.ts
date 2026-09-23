@@ -609,8 +609,10 @@ export function useConsolePanelData(
     groups.governRecent = (audits.data?.items || []).slice(0, 2).map((row) => ({
       kind: 'mini',
       id: row.audit_id || `${row.run_id}:${row.step_id}`,
-      label: row.gateway_type || row.step_type,
-      meta: relativeTime(row.timestamp),
+      // Governance audits carry the decision in `operation` and no gateway
+      // `timestamp`; gateway audits the reverse.
+      label: row.operation || row.gateway_type || row.step_type,
+      meta: relativeTime(row.timestamp || row.created_at),
       note: row.preview || row.outcome || row.step_type,
       to: `/observe/runs/${row.run_id}`,
     }))

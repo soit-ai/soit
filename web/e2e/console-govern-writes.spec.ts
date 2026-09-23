@@ -162,6 +162,38 @@ test('policies can be edited and saved from the console', async ({ page }) => {
   })
 })
 
+test('the policies window counts load once rather than refetching in a loop', async ({
+  page,
+}) => {
+  // Both queries key on a 24h `since`. Recomputing it each render gave every
+  // response a new key, and the page refetched both endpoints without end.
+  let blockCalls = 0
+  let auditCalls = 0
+  await page.route('**/api/v1/security/egress/blocks**', (route) => {
+    blockCalls += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ since: NOW, total: 4, subjects: 3, domains: 2, recent: [] }),
+    })
+  })
+  await page.route('**/api/v1/runs/audits**', (route) => {
+    auditCalls += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ items: [], next_page_token: null, page_size: 1, total: 7 }),
+    })
+  })
+
+  await page.goto('/govern/policies', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: 'Policies' })).toBeVisible()
+  await page.waitForTimeout(2000)
+
+  expect(blockCalls).toBeLessThanOrEqual(2)
+  expect(auditCalls).toBeLessThanOrEqual(3)
+})
+
 test('a policy revision can be compared and restored', async ({ page }) => {
   let rollback: string | null = null
 

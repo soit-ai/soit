@@ -16,6 +16,7 @@ import {
   Pager,
   StatTile,
   StatTileGrid,
+  StatusChip,
   Workbench,
   WorkbenchPanel,
 } from '../../components'
@@ -40,6 +41,9 @@ import {
   type Plugin,
 } from '@/services/plugin-service'
 import { requestErrorMessage } from '@/utils/request'
+
+/** Risk tiers onto the governance verdict hues. */
+const RISK_STATUS = { low: 'pass', medium: 'warn', high: 'block' } as const
 
 type PlTab = 'installed' | 'market' | 'incidents' | 'recycle'
 type PlFilter = 'all' | 'mcp' | 'tools' | 'skills' | 'disabled' | 'available'
@@ -363,14 +367,22 @@ export default function ConsolePlugins() {
                     <TableCell>
                       <span className="mono dim">{row.version || '—'}</span>
                     </TableCell>
-                    {/* `manifest_json` / `spec_json` are free-form dicts with no
-                        risk classification or declared tool scopes in the
-                        schema, so neither column has a source. */}
+                    {/* Risk is derived server-side from the permissions the
+                        manifest declares; the reasons are those declarations. */}
                     <TableCell>
-                      <span className="dim">—</span>
+                      {row.risk_level ? (
+                        <StatusChip
+                          status={RISK_STATUS[row.risk_level]}
+                          label={row.risk_level.toUpperCase()}
+                        />
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
-                      <span className="dim">—</span>
+                      <span className="mono dim">
+                        {row.risk_reasons?.length ? row.risk_reasons.join(' · ') : '—'}
+                      </span>
                     </TableCell>
                     {/* No agent-usage or invocation counters per plugin. */}
                     <TableCell className="num dim">—</TableCell>

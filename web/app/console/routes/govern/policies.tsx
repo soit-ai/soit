@@ -102,7 +102,10 @@ export default function ConsolePolicies() {
   // ran over in the window; each leaves an audit row. Blocks are counted from
   // the same ledger, so the tile's two figures are the same measurement seen
   // from both sides.
-  const since = new Date(Date.now() - 86_400_000).toISOString()
+  // Fixed at mount: `since` is part of both query keys, and a value recomputed
+  // on every render made each response re-render into a new key, refetching
+  // in a tight loop.
+  const [since] = useState(() => new Date(Date.now() - 86_400_000).toISOString())
   const evaluationsQuery = useQuery({
     queryKey: ['console', 'policies', 'evaluations', since],
     queryFn: () => listRunAudits({ since, page_size: 1, with_total: true }),

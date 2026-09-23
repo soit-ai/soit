@@ -1,30 +1,34 @@
 import { get, post } from '@/utils/request'
-import type { PaginatedResponse } from '@/types/api'
-
-export type { PaginatedResponse } from '@/types/api'
-
+/**
+ * Mirrors `CreditBalanceResponse`. Credits are the ledger's own unit, so the
+ * balance carries no currency; `deducted_total` is signed (zero or negative).
+ */
 export interface CreditBalance {
-  currency: string
   balance: string
-  granted_total?: string | null
-  consumed_total?: string | null
-  updated_at?: string | null
+  granted_total: string
+  deducted_total: string
+  entry_count: number
+  status: 'ok' | 'low' | 'exhausted' | string
+  enforcement_enabled: boolean
+  low_balance_threshold: string
 }
 
-export type CreditEntryKind = 'grant' | 'consumption' | 'adjustment' | string
+export type CreditEntryKind = 'grant' | 'deduction' | 'adjustment' | string
 
+/** Mirrors `CreditLedgerEntryResponse`: one signed credit movement. */
 export interface CreditEntry {
   id: string
   tenant_id: string
-  workspace_id?: string | null
+  workspace_id: string
   kind: CreditEntryKind
-  currency: string
-  amount: string
-  balance_after?: string | null
-  source_ref?: string | null
+  credits_delta: string
+  cost_entry_id?: string | null
   run_id?: string | null
+  /** The spend a deduction converted from, when it came from a cost entry. */
+  currency?: string | null
+  amount?: string | null
   note?: string | null
-  created_by?: string | null
+  created_by: string
   created_at: string
 }
 
@@ -34,16 +38,13 @@ export const getCreditBalance = (): Promise<CreditBalance> => {
 
 export const listCreditEntries = (params?: {
   kind?: CreditEntryKind
-  page_token?: string
-  page_size?: number
-}): Promise<PaginatedResponse<CreditEntry>> => {
-  return get<PaginatedResponse<CreditEntry>>('/billing/credits/entries', params)
+  run_id?: string
+  limit?: number
+  offset?: number
+}): Promise<CreditEntry[]> => {
+  return get<CreditEntry[]>('/billing/credits/entries', params)
 }
 
-export const grantCredits = (data: {
-  currency: string
-  amount: string
-  note?: string
-}): Promise<CreditEntry> => {
+export const grantCredits = (data: { credits: string; note?: string }): Promise<CreditEntry> => {
   return post<CreditEntry>('/billing/credits/grants', data)
 }

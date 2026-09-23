@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import { fetchEventSource, type FetchEventSourceInit } from '@microsoft/fetch-event-source'
 import axios, { type AxiosRequestConfig } from 'axios'
+import { markApiTimestampsUtc } from './api-timestamps'
 import { debugLog } from './debug'
 import { uuidv4 } from './uuid'
 import type { ApiEnvelope } from '@/types/api'
@@ -72,7 +73,7 @@ function unwrapApiEnvelope<T>(payload: ApiEnvelope<T> | null | undefined | ''): 
     typeof payload.message === 'string' &&
     'data' in payload
   ) {
-    return payload.data
+    return markApiTimestampsUtc(payload.data)
   }
   throw new Error('Malformed API response envelope')
 }

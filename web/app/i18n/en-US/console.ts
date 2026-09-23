@@ -841,7 +841,8 @@ const translation = {
     description: 'Orchestration graphs versioned and published like code — validate, stage, roll back.',
     import: 'Import',
     newWorkflow: 'New workflow',
-    tiles: { workflows: 'Workflows', runs: 'Runs · 7d', success: 'Success · 7d', attention: 'Needs attention' },
+    // The workbench summary counts runs since 00:00 UTC, not a 7-day window.
+    tiles: { workflows: 'Workflows', runs: 'Runs · today', success: 'Success · today', attention: 'Needs attention' },
     tabs: { all: 'Workflows', publish: 'Publish management', archived: 'Archived' },
     filters: { all: 'All', published: 'Published', draft: 'Draft', triggerAny: 'Trigger: any', searchPlaceholder: 'Filter workflows…' },
     columns: { workflow: 'Workflow', version: 'Version', nodes: 'Nodes', lastRun: 'Last run', outcomes: 'Outcomes · 7d', success: 'Success', updated: 'Updated', gate: 'Gate', requestedBy: 'Requested by', waiting: 'Waiting' },

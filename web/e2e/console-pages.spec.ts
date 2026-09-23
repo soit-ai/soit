@@ -47,7 +47,7 @@ const knowledgeWorkbench = {
   },
   tabs: { all: 3, high_volume: 1, low_hit: 1, slow: 0, unconfigured: 0 },
   items: [
-    { id: 'product-docs', name: 'product-docs', description: 'public docs site', status: 'ready', knowledge_type: 'vector', content_source: 'Web Crawl', document_count: 1204, chunk_count: 18392, today_calls: 2381, avg_latency_ms: 212, hit_rate: 0.91, recent_exception_count: 0, owner: 'Jude', last_sync_at: NOW, action_enabled: true, updated_at: NOW },
+    { id: 'product-docs', name: 'product-docs', description: 'public docs site', status: 'ready', knowledge_type: 'vector', content_source: 'Crawler', document_count: 1204, chunk_count: 18392, today_calls: 2381, avg_latency_ms: 212, hit_rate: 0.91, recent_exception_count: 0, owner: 'Jude', last_sync_at: NOW, action_enabled: true, updated_at: NOW },
     { id: 'support-macros', name: 'support-macros', description: 'canned replies', status: 'ready', knowledge_type: 'vector', content_source: 'Upload', document_count: 86, chunk_count: 1022, today_calls: 944, avg_latency_ms: 180, hit_rate: 0.88, recent_exception_count: 0, owner: 'Wei', last_sync_at: NOW, action_enabled: true, updated_at: NOW },
     { id: 'billing-policies', name: 'billing-policies', description: 'scanned PDFs', status: 'error', knowledge_type: 'vector', content_source: 'Upload', document_count: 24, chunk_count: 388, today_calls: 207, avg_latency_ms: 610, hit_rate: 0.61, recent_exception_count: 3, owner: 'Ming', last_sync_at: NOW, action_enabled: true, updated_at: NOW },
   ],
@@ -206,10 +206,52 @@ test('overview surfaces an empty governance feed rather than fixtures', async ({
   await expect(page.getByText('Quiet so far.', { exact: false })).toBeVisible()
 })
 
+test('overview counts the whole window from the run summary, not the sample', async ({ page }) => {
+  // The run list caps a page at 100 rows; the tiles must not report that cap
+  // as the window's volume.
+  await json(page, '**/api/v1/runs/summary/window**', {
+    since: NOW,
+    until: null,
+    total: 1284,
+    succeeded: 1268,
+    failed: 15,
+    running: 1,
+    pass_rate: 0.9883,
+    charges: { entry_count: 0, amounts: {} },
+  })
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('.tile', { hasText: 'in the last 24h' })).toContainText('1,284')
+  await expect(page.getByText('1268 pass · 1 in flight · 15 failed')).toBeVisible()
+  await expect(page.getByRole('main').getByText('98.8%')).toBeVisible()
+})
+
+test('overview labels governance audits by operation and time of record', async ({ page }) => {
+  // Governance audits carry no gateway timestamp and record `allow` rather
+  // than `succeeded`; they must read as the decision, not as a failure.
+  await json(page, '**/api/v1/runs/audits**', {
+    items: [
+      { audit_id: 'aud_rot', run_id: 'run_01J9KD84QF', step_id: '', step_type: 'security', outcome: 'allow', gateway_type: 'security', operation: 'secrets.rotate', timestamp: null, created_at: '2026-08-29T12:58:07', truncated: false },
+    ],
+    next_page_token: null,
+    page_size: 5,
+  })
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  const entry = page.locator('.feed li', { hasText: 'secrets.rotate' })
+  await expect(entry).toContainText('12:58:07Z')
+  await expect(entry.locator('.fico')).not.toHaveClass(/t-bad/)
+})
+
 test('knowledge list filters by source kind and opens the library detail', async ({ page }) => {
   await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('product-docs')).toBeVisible()
+  // The server title-cases the documents' source_kind: a crawler library
+  // arrives as "Crawler", which the Web crawl chip must still claim.
+  await page.locator('.fchip', { hasText: 'Web crawl' }).click()
+  await expect(page.getByText('product-docs')).toBeVisible()
+  await expect(page.getByText('support-macros')).toHaveCount(0)
   await page.locator('.fchip', { hasText: 'Upload' }).click()
   await expect(page.getByText('support-macros')).toBeVisible()
   await expect(page.getByText('product-docs')).toHaveCount(0)
@@ -345,19 +387,27 @@ test('settings redirects to account and navigates sections via the subnav', asyn
     { user_id: 'u_2', email: 'wei@acme.io', name: 'Wei', role: 'admin', status: 'active' },
   ])
   await json(page, '**/api/v1/billing/credits/balance', {
-    currency: 'USD',
-    balance: '3600.00',
-    granted_total: '4212.40',
-    consumed_total: '612.40',
-    updated_at: NOW,
+    balance: '3600.000000',
+    granted_total: '4212.400000',
+    deducted_total: '-612.400000',
+    entry_count: 2,
+    status: 'ok',
+    enforcement_enabled: false,
+    low_balance_threshold: '100.0',
   })
-  await json(page, '**/api/v1/billing/credits/entries**', {
-    items: [
-      { id: 'ce_001', tenant_id: 't1', kind: 'grant', currency: 'USD', amount: '4212.40', note: 'annual allocation', created_at: NOW },
-    ],
-    next_page_token: null,
-    page_size: 20,
-  })
+  // The ledger endpoint answers a bare list, not a paginated envelope.
+  await json(page, '**/api/v1/billing/credits/entries**', [
+    {
+      id: 'ce_001',
+      tenant_id: 't1',
+      workspace_id: 'workspace-1',
+      kind: 'grant',
+      credits_delta: '4212.400000',
+      note: 'annual allocation',
+      created_by: 'u_1',
+      created_at: NOW,
+    },
+  ])
 
   await page.goto('/settings', { waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(/\/settings\/account/)
@@ -370,6 +420,8 @@ test('settings redirects to account and navigates sections via the subnav', asyn
   // Billing reads the credit ledger, the only billing object that exists.
   await page.locator('.subnav .sl', { hasText: 'Billing' }).click()
   await expect(page.getByText('ce_001')).toBeVisible()
+  await expect(page.getByText('4,212.4 cr')).toBeVisible()
+  await expect(page.locator('.tile', { hasText: 'balance 3,600 cr' })).toContainText('612.4 cr')
   await expect(page.getByText('annual allocation')).toBeVisible()
 
   await page.locator('.subnav .sl', { hasText: 'About' }).click()
