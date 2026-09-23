@@ -73,7 +73,15 @@ async def postgres_engine() -> AsyncEngine:
         database_url = database_url.replace(
             "postgresql://", "postgresql+psycopg://", 1
         )
-    engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=8)
+    # Pinned to UTC like the application engine: these fixtures write
+    # through their own engine, and on a server whose default zone is not
+    # UTC every aware datetime would otherwise land shifted.
+    engine = create_async_engine(
+        database_url,
+        connect_args={"options": "-c timezone=UTC"},
+        pool_pre_ping=True,
+        pool_size=8,
+    )
     if engine.dialect.name != "postgresql":
         await engine.dispose()
         pytest.skip("PostgreSQL dialect is required")

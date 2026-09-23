@@ -57,7 +57,15 @@ async def postgres_async_engine():
         pytest.skip("DATABASE_URL does not point to PostgreSQL")
     if database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    engine = create_async_engine(database_url, pool_pre_ping=True, pool_size=8)
+    # Pinned to UTC like the application engine: these fixtures write
+    # through their own engine, and on a server whose default zone is not
+    # UTC every aware datetime would otherwise land shifted.
+    engine = create_async_engine(
+        database_url,
+        connect_args={"options": "-c timezone=UTC"},
+        pool_pre_ping=True,
+        pool_size=8,
+    )
     try:
         yield engine
     finally:
