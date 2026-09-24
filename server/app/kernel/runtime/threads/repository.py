@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import Integer, and_, desc, func, literal, select
+from sqlalchemy.orm import aliased
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common.sequence_cursor import allocate_sequence
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
+from app.settings.settings import settings
+
+LINEAGE_HARD_CAP = 2000
+"""Deepest branch a lineage walk will follow, whatever the window asked for."""
 
 
 class ThreadRepository:
@@ -176,6 +181,39 @@ class ThreadRepository:
         results = list((await self.db.exec(query)).all())
         return [item if isinstance(item, ThreadMessage) else item[0] for item in results]
 
+    def _message_scope(self, thread_id: str):
+        return (
+            ThreadMessage.thread_id == thread_id,
+            ThreadMessage.tenant_id == self.ctx.tenant_id,
+            ThreadMessage.workspace_id == self.ctx.workspace_id,
+            ThreadMessage.deleted_at.is_(None),
+        )
+
+    async def latest_message_id(self, thread_id: str) -> str | None:
+        """Id of the ledger's last message, without loading the ledger."""
+        query = (
+            select(ThreadMessage.id)
+            .where(and_(*self._message_scope(thread_id)))
+            .order_by(ThreadMessage.sequence_no.desc(), ThreadMessage.created_at.desc())
+            .limit(1)
+        )
+        return (await self.db.exec(query)).scalars().first()
+
+    async def find_by_agui_message_id(self, thread_id: str, agui_message_id: str) -> ThreadMessage | None:
+        """The message a client-supplied AG-UI message id was stored under."""
+        query = (
+            select(ThreadMessage)
+            .where(
+                and_(
+                    *self._message_scope(thread_id),
+                    ThreadMessage.metadata_json["agui_message_id"].as_string() == agui_message_id,
+                )
+            )
+            .order_by(ThreadMessage.sequence_no.asc())
+            .limit(1)
+        )
+        return (await self.db.exec(query)).scalars().first()
+
     async def get_message(self, thread_id: str, message_id: str) -> ThreadMessage | None:
         """Return one scoped message that belongs to the requested thread."""
 
@@ -191,25 +229,69 @@ class ThreadRepository:
         result = (await self.db.exec(query)).first()
         return result if isinstance(result, ThreadMessage) else result[0] if result else None
 
-    async def message_lineage(self, thread_id: str, head_message_id: str) -> list[ThreadMessage]:
-        """Resolve one root-to-head conversation branch from the message ledger."""
+    async def message_lineage(
+        self, thread_id: str, head_message_id: str, *, limit: int | None = None
+    ) -> list[ThreadMessage]:
+        """Resolve the conversation branch ending at ``head_message_id``, root-most first.
 
-        messages = await self.list_messages(thread_id)
-        by_id = {message.id: message for message in messages}
-        lineage: list[ThreadMessage] = []
-        seen: set[str] = set()
-        current_id: str | None = head_message_id
-        while current_id:
-            if current_id in seen:
-                raise ValueError("Thread message lineage contains a cycle")
-            seen.add(current_id)
-            current = by_id.get(current_id)
-            if current is None:
-                raise ValueError("Thread message lineage references an unknown message")
-            lineage.append(current)
-            current_id = current.parent_message_id
-        lineage.reverse()
-        return lineage
+        The walk follows ``parent_message_id`` from the head in one recursive
+        query and stops after ``limit`` messages (the configured history
+        window when not given), so a turn on a long conversation reads its
+        window, not the ledger. Branches are read from the head, which is
+        why the window keeps the newest messages.
+        """
+
+        window = limit if limit is not None else settings.thread_history_max_messages
+        window = max(1, min(int(window), LINEAGE_HARD_CAP))
+        scope = self._message_scope(thread_id)
+        head = (
+            select(
+                ThreadMessage.id.label("id"),
+                ThreadMessage.parent_message_id.label("parent_message_id"),
+                literal(0, Integer).label("depth"),
+            )
+            .where(and_(ThreadMessage.id == head_message_id, *scope))
+            .cte("lineage", recursive=True)
+        )
+        parent = aliased(ThreadMessage)
+        # The recursive term joins on the primary key only. Adding the thread
+        # scope here lets the planner pick the thread index for a freshly
+        # written thread it has no statistics for, and then walk all of that
+        # thread's rows on every step; the scope is checked on the rows below.
+        walk = (
+            select(
+                parent.id.label("id"),
+                parent.parent_message_id.label("parent_message_id"),
+                (head.c.depth + 1).label("depth"),
+            )
+            .join(head, parent.id == head.c.parent_message_id)
+            .where(and_(parent.deleted_at.is_(None), head.c.depth + 1 < window))
+        )
+        lineage = head.union_all(walk)
+        query = (
+            select(ThreadMessage, lineage.c.depth)
+            .join(lineage, ThreadMessage.id == lineage.c.id)
+            .order_by(lineage.c.depth.desc())
+        )
+        rows = (await self.db.exec(query)).all()
+        if not rows:
+            raise ValueError("Thread message lineage references an unknown message")
+        messages = [row[0] for row in rows]
+        if len({message.id for message in messages}) != len(messages):
+            raise ValueError("Thread message lineage contains a cycle")
+        if any(
+            message.thread_id != thread_id
+            or message.tenant_id != self.ctx.tenant_id
+            or message.workspace_id != self.ctx.workspace_id
+            for message in messages
+        ):
+            raise ValueError("Thread message lineage references an unknown message")
+        root_most = messages[0]
+        if root_most.parent_message_id is not None and len(messages) < window:
+            # The walk stopped before the window was full: the parent it
+            # points at is not in this thread's live ledger.
+            raise ValueError("Thread message lineage references an unknown message")
+        return messages
 
     async def touch_thread(self, thread: Thread, *, latest_run_id: str | None = None) -> Thread:
         thread.updated_at = utc_now()

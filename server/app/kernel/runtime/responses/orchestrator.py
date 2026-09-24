@@ -89,8 +89,7 @@ class ThreadProjectionWriter:
     ) -> str | None:
         if not self.thread_service or not response.thread_id:
             return None
-        thread_messages = await self.thread_service.thread_repo.list_messages(response.thread_id)
-        parent_message_id = thread_messages[-1].id if thread_messages else None
+        parent_message_id = await self.thread_service.thread_repo.latest_message_id(response.thread_id)
         last_appended_message_id = parent_message_id
         metadata_index = 0
         for message in messages:
@@ -112,16 +111,8 @@ class ThreadProjectionWriter:
                     agui_message_id,
                 )
                 if existing is None:
-                    existing = next(
-                        (
-                            item
-                            for item in await self.thread_service.thread_repo.list_messages(
-                                response.thread_id
-                            )
-                            if (item.metadata_json or {}).get("agui_message_id")
-                            == agui_message_id
-                        ),
-                        None,
+                    existing = await self.thread_service.thread_repo.find_by_agui_message_id(
+                        response.thread_id, agui_message_id
                     )
                 if existing is not None:
                     if existing.role != "user":

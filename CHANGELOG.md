@@ -215,6 +215,12 @@ record for operators.
 
 ### Changed
 
+- An agent turn loads its conversation branch from the head down to a
+  window (`THREAD_HISTORY_MAX_MESSAGES`, default 200; a request's
+  `context_window_messages` or a thread's `max_history_messages` narrows
+  it) instead of listing the whole ledger twice. On an 800-turn thread a
+  turn dropped from about 245 ms to about 105 ms; conversations longer
+  than the window keep their newest messages in context.
 - The backend runs on Python 3.12 (`requires-python` admits 3.11 and 3.12;
   the image, CI and `.python-version` use 3.12).
 - JSON columns and API responses are encoded with orjson; log records are

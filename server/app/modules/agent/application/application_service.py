@@ -554,21 +554,21 @@ class AgentApplicationService:
         *,
         include_current: bool = True,
         head_message_id: str | None = None,
-        ledger_messages: list[Any] | None = None,
     ) -> AgentRuntimeRequest:
         """Rebuild trusted runtime history from the scoped thread ledger.
 
-        ``ledger_messages`` lets a caller that already listed the ledger for
-        the parent id hand it over instead of listing it again.
+        Only the branch ending at the head is read, and only as much of it
+        as the history window allows; the ledger itself is never listed.
         """
 
         system_messages = [message for message in request.messages if message.role == "system"]
         history: list[ChatMessageInput] = []
-        if ledger_messages is None:
-            ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
-        resolved_head_id = head_message_id or (ledger_messages[-1].id if ledger_messages else None)
+        resolved_head_id = head_message_id or await self.thread_service.thread_repo.latest_message_id(thread.id)
+        window = request.context_window_messages or thread.max_history_messages
         branch_messages = (
-            await self.thread_service.thread_repo.message_lineage(thread.id, resolved_head_id)
+            await self.thread_service.thread_repo.message_lineage(
+                thread.id, resolved_head_id, limit=window
+            )
             if resolved_head_id
             else []
         )
@@ -1383,14 +1383,12 @@ class AgentApplicationService:
                 metadata={"source": "agent.execute", "agent_version_id": version.id},
             )
 
-        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
-        user_parent_message_id = ledger_messages[-1].id if ledger_messages else None
+        user_parent_message_id = await self.thread_service.thread_repo.latest_message_id(thread.id)
         request = await self._with_thread_history(
             request,
             thread,
             current_message,
             head_message_id=user_parent_message_id,
-            ledger_messages=ledger_messages,
         )
         stored_user_message = await self.thread_service.append_message(
             thread_id=thread.id,
@@ -1769,24 +1767,19 @@ class AgentApplicationService:
             else None
         )
         if existing_user_message is None and agui_message_id:
-            existing_user_message = next(
-                (
-                    message
-                    for message in await self.thread_service.thread_repo.list_messages(thread.id)
-                    if (message.metadata_json or {}).get("agui_message_id") == agui_message_id
-                ),
-                None,
+            existing_user_message = await self.thread_service.thread_repo.find_by_agui_message_id(
+                thread.id, agui_message_id
             )
         if existing_user_message is not None and existing_user_message.role != "user":
             raise ValidationError("AG-UI message reuse requires an existing user message")
-        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
+        latest_message_id = await self.thread_service.thread_repo.latest_message_id(thread.id)
         requested_parent_id = agui_context.get("parent_message_id")
         if requested_parent_id is not None and not isinstance(requested_parent_id, str):
             raise ValidationError("AG-UI parent message ID must be a string")
         user_parent_message_id = (
             existing_user_message.parent_message_id
             if existing_user_message is not None
-            else requested_parent_id or (ledger_messages[-1].id if ledger_messages else None)
+            else requested_parent_id or latest_message_id
         )
         current_user_message_id = (
             existing_user_message.id if existing_user_message is not None else None

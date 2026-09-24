@@ -205,6 +205,15 @@ class Settings(BaseSettings):
     otel_traces_sample_ratio: float = 1.0
     """Parent-based trace sampling ratio from zero to one."""
 
+    thread_history_max_messages: int = 200
+    """Messages of a conversation branch loaded for an agent turn when nothing narrower is set.
+
+    The branch is walked from its head towards the root and stops here; a
+    request's ``context_window_messages`` or a thread's ``max_history_messages``
+    narrows it further. Loading the whole ledger made every turn's cost grow
+    with the conversation's length.
+    """
+
     log_async: bool = True
     """Write log records from a listener thread instead of the event loop.
 
