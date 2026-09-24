@@ -496,6 +496,7 @@ class TraceWriter:
         step_id: str | None = None,
         node_id: str | None = None,
         input_summary: str | None = None,
+        status: str = "queued",
     ) -> RunStep:
         """Create a new step.
 
@@ -505,6 +506,9 @@ class TraceWriter:
             step_id: Optional step ID (e.g., "st_node1" for workflow nodes).
             node_id: Optional node ID.
             input_summary: Optional input summary (max 8KB).
+            status: ``queued`` or ``running``. A step that starts the moment
+                it is created is written as running, saving the UPDATE that
+                followed every such INSERT.
 
         Returns:
             Created RunStep instance.
@@ -518,7 +522,7 @@ class TraceWriter:
             step_id=step_id,
             step_type=step_type,
             node_id=node_id,
-            status="queued",
+            status=status if status in {"queued", "running"} else "queued",
             input_summary=input_summary[:8192] if input_summary else None,
             started_at=utc_now(),
         )

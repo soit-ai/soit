@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import and_, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, KernelError
@@ -209,7 +210,10 @@ class ResponseService:
             raise RuntimeTransitionError(
                 f"Concurrent response transition rejected: {old_status} -> {normalized}"
             )
-        await self.db.refresh(response)
+        # The UPDATE bypassed the instance; mirror what it wrote without a
+        # re-read, and without dirtying the instance for the next flush.
+        for key, value in values.items():
+            set_committed_value(response, key, value)
         return response
 
     async def mark_running(self, response: Response) -> Response:

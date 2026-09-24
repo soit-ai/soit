@@ -734,8 +734,8 @@ class LLMPolicyGateway(LLMPort):
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="llm",
                 input_summary=f"model={model}, messages={len(messages)}",
+                status="running",
             )
-            await self.trace_writer.update_step_status(step.id, "running")
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
@@ -885,8 +885,8 @@ class LLMPolicyGateway(LLMPort):
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="llm",
                 input_summary=f"model={model}, messages={len(messages)}",
+                status="running",
             )
-            await self.trace_writer.update_step_status(step.id, "running")
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
@@ -1101,8 +1101,8 @@ class LLMPolicyGateway(LLMPort):
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="retrieval",
                 input_summary=f"model={model}, texts={len(texts)}",
+                status="running",
             )
-            await self.trace_writer.update_step_status(step.id, "running")
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
@@ -1236,8 +1236,8 @@ class LLMPolicyGateway(LLMPort):
                 run_id=run_id,
                 step_type="llm",
                 input_summary=f"model={model}, images={n}, prompt={prompt[:200]}",
+                status="running",
             )
-            await self.trace_writer.update_step_status(step.id, "running")
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
@@ -1565,8 +1565,8 @@ class LLMPolicyGateway(LLMPort):
                 run_id=resolve_run_id(kwargs, self.ctx),
                 step_type="rerank",
                 input_summary=f"model={model}, documents={len(documents)}",
+                status="running",
             )
-            await self.trace_writer.update_step_status(step.id, "running")
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()

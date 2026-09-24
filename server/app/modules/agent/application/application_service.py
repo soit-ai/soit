@@ -554,12 +554,18 @@ class AgentApplicationService:
         *,
         include_current: bool = True,
         head_message_id: str | None = None,
+        ledger_messages: list[Any] | None = None,
     ) -> AgentRuntimeRequest:
-        """Rebuild trusted runtime history from the scoped thread ledger."""
+        """Rebuild trusted runtime history from the scoped thread ledger.
+
+        ``ledger_messages`` lets a caller that already listed the ledger for
+        the parent id hand it over instead of listing it again.
+        """
 
         system_messages = [message for message in request.messages if message.role == "system"]
         history: list[ChatMessageInput] = []
-        ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
+        if ledger_messages is None:
+            ledger_messages = await self.thread_service.thread_repo.list_messages(thread.id)
         resolved_head_id = head_message_id or (ledger_messages[-1].id if ledger_messages else None)
         branch_messages = (
             await self.thread_service.thread_repo.message_lineage(thread.id, resolved_head_id)
@@ -1384,6 +1390,7 @@ class AgentApplicationService:
             thread,
             current_message,
             head_message_id=user_parent_message_id,
+            ledger_messages=ledger_messages,
         )
         stored_user_message = await self.thread_service.append_message(
             thread_id=thread.id,
@@ -1568,7 +1575,6 @@ class AgentApplicationService:
             finish_reason=result.get("finish_reason"),
             tool_calls_json=result.get("tool_call_details") or [],
         )
-        await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
         await self.task_service.transition_task(
             task_id=task.id,
             status=TaskStatus.SUCCEEDED.value,
@@ -2005,7 +2011,6 @@ class AgentApplicationService:
             finish_reason=result.get("finish_reason"),
             tool_calls_json=result.get("tool_call_details") or [],
         )
-        await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
         await self.task_service.transition_task(
             task_id=task.id,
             status=TaskStatus.SUCCEEDED.value,

@@ -62,6 +62,8 @@ class AgentService:
     """Agent service for plan-execute-verify."""
 
     async def _ensure_run_active(self, run_id: str) -> None:
+        # Read at every loop boundary on purpose: a cancellation must be seen
+        # before the next model call, so this read is not cached.
         if not self.trace_writer:
             return
         run_status = (await self.trace_writer.db.execute(
@@ -677,9 +679,9 @@ class AgentService:
                             run_id=run_id,
                             step_type="agent_plan",
                             input_summary=f"iteration={iterations}",
+                            status="running",
                         )
                         plan_step_id = step.id
-                        await self.trace_writer.update_step_status(plan_step_id, "running")
 
                     await emit("agent.plan.started", {"iteration": iterations})
                     llm_cost_count_before = await self._count_llm_token_cost_entries(run_id)
