@@ -253,6 +253,7 @@ class SSEHandlers:
             event_bus = container.get_event_bus()
             subscription_id = await event_bus.subscribe(
                 _event_handler,
+                key=f"run:{run_id}",
                 predicate=lambda event: event.run_id == run_id
                 and event.type
                 in {
@@ -555,6 +556,7 @@ class SSEHandlers:
             event_bus = get_container().get_event_bus()
             subscription_id = await event_bus.subscribe(
                 _event_handler,
+                key=f"run:{run_id}",
                 predicate=lambda event: event.run_id == run_id
                 and event.type
                 in {

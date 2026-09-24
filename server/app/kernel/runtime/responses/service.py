@@ -23,6 +23,7 @@ from app.kernel.runtime.responses.protocols import (
     ResponseRepositoryProtocol,
 )
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
+from app.kernel.runtime.responses.streaming import response_event_key
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.status import (
@@ -522,6 +523,7 @@ class ResponseService:
                     "event_type": event.type,
                 },
                 run_id=event.run_id,
+                key=response_event_key(event.response_id),
             )
 
     async def claim_interaction(

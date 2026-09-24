@@ -179,11 +179,18 @@ class TraceWriter:
         payload: dict[str, Any],
         *,
         run_id: str | None = None,
+        key: str | None = None,
     ) -> None:
-        """Emit a trace event without affecting DB writes."""
+        """Emit a trace event without affecting DB writes.
+
+        Run-scoped events route under ``run:<id>`` unless the caller names a
+        key, so a tailer of one run is found by lookup on the bus.
+        """
         if not self.event_bus:
             return
 
+        if key is None and run_id:
+            key = f"run:{run_id}"
         event = Event(
             id=generate_ulid(),
             type=event_type,
@@ -193,6 +200,7 @@ class TraceWriter:
             workspace_id=self.ctx.workspace_id,
             run_id=run_id,
             trace_id=getattr(self.ctx, "trace_id", None),
+            key=key,
         )
 
         try:
@@ -216,10 +224,11 @@ class TraceWriter:
         payload: dict[str, Any],
         *,
         run_id: str | None = None,
+        key: str | None = None,
     ) -> None:
         """Emit a best-effort runtime notification after durable state is committed."""
 
-        self._emit_event(event_type, payload, run_id=run_id)
+        self._emit_event(event_type, payload, run_id=run_id, key=key)
 
     def _in_scope(self, row: Any) -> bool:
         return row.tenant_id == self.ctx.tenant_id and row.workspace_id == self.ctx.workspace_id

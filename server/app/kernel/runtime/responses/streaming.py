@@ -12,6 +12,11 @@ from app.kernel.events.bus import Event
 _TERMINAL_RESPONSE_STATUSES = frozenset({"succeeded", "failed", "canceled"})
 
 
+def response_event_key(response_id: str) -> str:
+    """Routing key under which one response's appended events travel."""
+    return f"response:{response_id}"
+
+
 async def release_read_transaction(db: Any) -> None:
     """End a tailer's read transaction before it waits.
 
@@ -48,6 +53,7 @@ async def tail_response_events(
         subscription_id = await event_bus.subscribe(
             wake,
             event_type="response.event.appended",
+            key=response_event_key(response_id),
             predicate=lambda event: (
                 event.tenant_id == service.ctx.tenant_id
                 and event.workspace_id == service.ctx.workspace_id
