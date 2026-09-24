@@ -22,6 +22,7 @@ from app.kernel.observe import metrics
 from app.kernel.runtime.common import lease
 from app.kernel.runtime.db.models.responses import ResponseInteraction
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
+from app.kernel.runtime.responses.service import INTERACTION_CLAIMED_EVENT
 from app.kernel.runtime.tasks.service import TaskService
 from app.settings.settings import settings
 from app.wiring.services import (
@@ -564,7 +565,30 @@ class GlobalResponseInteractionWorker:
                     )
             await db.close()
 
-    async def run_loop(self, poll_interval: float = 0.25, concurrency: int = 1) -> None:
+    async def wake_on_claims(self) -> asyncio.Event:
+        """Subscribe to claim announcements; the returned event is set on each one.
+
+        Pass it to ``run_loop`` so an idle loop claims as soon as the API
+        commits a claim instead of when its poll interval next elapses. With
+        the in-memory bus this only reaches a worker in the API process; the
+        Redis bus reaches the dedicated one.
+        """
+        from app.wiring.container import get_container
+
+        wake = asyncio.Event()
+
+        async def on_claim(_event: object) -> None:
+            wake.set()
+
+        await get_container().get_event_bus().subscribe(on_claim, event_type=INTERACTION_CLAIMED_EVENT)
+        return wake
+
+    async def run_loop(
+        self,
+        poll_interval: float = 0.25,
+        concurrency: int = 1,
+        wake: asyncio.Event | None = None,
+    ) -> None:
         """Claim from one loop and execute up to ``concurrency`` interactions at once.
 
         One poller per process keeps idle polling at one query per interval
@@ -606,7 +630,12 @@ class GlobalResponseInteractionWorker:
                     continue
                 if interaction is None:
                     slots.release()
-                    await asyncio.sleep(poll_interval)
+                    if wake is None:
+                        await asyncio.sleep(poll_interval)
+                    else:
+                        wake.clear()
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(wake.wait(), timeout=poll_interval)
                     continue
                 task = asyncio.create_task(execute(interaction))
                 in_flight.add(task)

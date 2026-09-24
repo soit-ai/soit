@@ -31,6 +31,10 @@ from app.kernel.runtime.status import (
     validate_response_transition,
 )
 
+INTERACTION_CLAIMED_EVENT = "interaction.claimed"
+"""Bus event announcing a durable claim, so an idle worker stops waiting out its poll interval."""
+
+
 
 class ResponseService:
     """Manage response resources and projections on top of run execution data."""
@@ -564,6 +568,12 @@ class ResponseService:
         try:
             if commit:
                 await self.db.commit()
+                # Best-effort wake-up for the worker's claim loop; a missed
+                # notification only costs one poll interval.
+                self.trace_writer.emit_event(
+                    INTERACTION_CLAIMED_EVENT,
+                    {"interaction_id": interaction_id, "thread_id": thread_id},
+                )
             else:
                 await self.db.flush()
         except IntegrityError:

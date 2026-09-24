@@ -134,3 +134,21 @@ def test_concurrency_is_capped_below_the_connection_pool(monkeypatch) -> None:
     assert module.bounded_concurrency(16) == 16
     assert module.bounded_concurrency(64) == 26
     assert module.bounded_concurrency(0) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_claim_announcement_cuts_the_idle_wait_short() -> None:
+    # Ten seconds between polls; the wake-up must make the loop claim now.
+    worker, stats = _stubbed_worker([], execute_seconds=0.0)
+    wake = asyncio.Event()
+    task = asyncio.create_task(worker.run_loop(poll_interval=10.0, concurrency=2, wake=wake))
+    await asyncio.sleep(0.05)
+    claims_before = stats.claims
+
+    wake.set()
+    await asyncio.sleep(0.05)
+
+    assert stats.claims == claims_before + 1
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

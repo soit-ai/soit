@@ -259,6 +259,7 @@ async def lifespan(app: FastAPI):
                         concurrency=bounded_concurrency(
                             app_settings.response_interaction_worker_concurrency
                         ),
+                        wake=await response_interaction_worker.wake_on_claims(),
                     )
                 )
             )

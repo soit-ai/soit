@@ -53,6 +53,7 @@ async def main() -> None:
     await worker.run_loop(
         poll_interval=max(0.05, float(settings.response_interaction_worker_poll_interval)),
         concurrency=concurrency,
+        wake=await worker.wake_on_claims(),
     )
 
 
