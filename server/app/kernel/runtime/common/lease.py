@@ -162,6 +162,66 @@ async def renew_lease(
     return LeaseRenewal.TERMINAL if still_ours else LeaseRenewal.LOST
 
 
+async def renew_leases(
+    db: AsyncSession,
+    model: type[ModelT],
+    claims: dict[Any, int],
+    *,
+    worker_id: str,
+    lease_seconds: int,
+    running_status: str = "running",
+) -> dict[Any, LeaseRenewal]:
+    """Extend every lease in ``claims`` (primary key -> attempt count) in one statement.
+
+    A worker with many executions in flight renews them all in one round
+    trip instead of one session per lease per interval; the connections
+    that costs are what starved the heartbeats under load.
+    """
+    if not claims:
+        return {}
+    moment = utc_now()
+    keys = list(claims)
+    renewed_rows = await db.exec(
+        update(model)
+        .where(
+            model.id.in_(keys),
+            model.lease_owner == worker_id,
+            model.status == running_status,
+        )
+        .values(
+            lease_expires_at=moment + timedelta(seconds=lease_seconds),
+            updated_at=moment,
+        )
+        .returning(model.id, model.attempt_count)
+        .execution_options(synchronize_session=False)
+    )
+    renewed = {row[0]: row[1] for row in renewed_rows.all()}
+    await db.commit()
+
+    outcomes: dict[Any, LeaseRenewal] = {}
+    unresolved: list[Any] = []
+    for key, attempt_count in claims.items():
+        if key in renewed:
+            outcomes[key] = (
+                LeaseRenewal.RENEWED if renewed[key] == attempt_count else LeaseRenewal.LOST
+            )
+        else:
+            unresolved.append(key)
+    if unresolved:
+        rows = (
+            await db.exec(
+                select(model.id, model.lease_owner, model.attempt_count).where(model.id.in_(unresolved))
+            )
+        ).all()
+        seen = {row[0]: (row[1], row[2]) for row in rows}
+        for key in unresolved:
+            owner, attempt_count = seen.get(key, (None, None))
+            still_ours = owner == worker_id and attempt_count == claims[key]
+            # Still ours but not renewable: the row reached a terminal status.
+            outcomes[key] = LeaseRenewal.TERMINAL if still_ours else LeaseRenewal.LOST
+    return outcomes
+
+
 async def holds_lease(
     db: AsyncSession,
     model: type[ModelT],

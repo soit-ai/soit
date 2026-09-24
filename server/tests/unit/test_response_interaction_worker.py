@@ -424,17 +424,8 @@ async def test_worker_heartbeat_signals_when_the_lease_is_lost(async_db, ctx):
     async_db.add(claimed)
     await async_db.commit()
 
-    stop = asyncio.Event()
-    lease_lost = asyncio.Event()
-    await asyncio.wait_for(
-        worker._heartbeat(
-            interaction.id,
-            interaction.interaction_id,
-            claimed.attempt_count,
-            stop,
-            lease_lost,
-        ),
-        timeout=1,
-    )
+    lease_lost = worker.heartbeats.track(interaction.id, claimed.attempt_count)
+    await asyncio.wait_for(lease_lost.wait(), timeout=1)
 
     assert lease_lost.is_set()
+    worker.heartbeats.untrack(interaction.id)

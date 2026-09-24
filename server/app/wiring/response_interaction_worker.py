@@ -68,6 +68,87 @@ def bounded_concurrency(requested: int) -> int:
     return requested
 
 
+class SharedLeaseHeartbeat:
+    """Renew every lease this worker holds with one statement per interval.
+
+    Each execution used to run its own heartbeat task opening its own session
+    every interval; with dozens in flight those sessions competed with the
+    executions for the pool and the heartbeats starved first. One task, one
+    session, one UPDATE covering all held leases.
+    """
+
+    def __init__(
+        self,
+        db_factory: Callable[[], AsyncSession],
+        *,
+        worker_id: str,
+        lease_seconds: int,
+        interval_seconds: float,
+    ) -> None:
+        self.db_factory = db_factory
+        self.worker_id = worker_id
+        self.lease_seconds = lease_seconds
+        self.interval_seconds = interval_seconds
+        self._claims: dict[str, tuple[int, asyncio.Event]] = {}
+        self._task: asyncio.Task | None = None
+
+    def track(self, primary_key: str, attempt_count: int) -> asyncio.Event:
+        """Start renewing a lease; the returned event is set if it is lost."""
+        lost = asyncio.Event()
+        self._claims[primary_key] = (attempt_count, lost)
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._run())
+        return lost
+
+    def untrack(self, primary_key: str) -> None:
+        self._claims.pop(primary_key, None)
+        if not self._claims and self._task is not None and not self._task.done():
+            self._task.cancel()
+            self._task = None
+
+    async def renew_once(self) -> None:
+        """One renewal round for every tracked lease."""
+        snapshot = {key: attempt for key, (attempt, _) in self._claims.items()}
+        if not snapshot:
+            return
+        db = self.db_factory()
+        try:
+            outcomes = await lease.renew_leases(
+                db,
+                ResponseInteraction,
+                snapshot,
+                worker_id=self.worker_id,
+                lease_seconds=self.lease_seconds,
+            )
+        finally:
+            await db.close()
+        for key, outcome in outcomes.items():
+            entry = self._claims.get(key)
+            if entry is None:
+                continue
+            if outcome is lease.LeaseRenewal.LOST:
+                logger.warning(
+                    "Durable response interaction lease was lost",
+                    extra={"record_id": key},
+                )
+                entry[1].set()
+                self._claims.pop(key, None)
+            elif outcome is lease.LeaseRenewal.TERMINAL:
+                self._claims.pop(key, None)
+
+    async def _run(self) -> None:
+        while self._claims:
+            await asyncio.sleep(self.interval_seconds)
+            try:
+                await self.renew_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A transient database error must not kill the loop; a lease
+                # that keeps failing to renew simply expires and is reclaimed.
+                logger.exception("Durable response interaction heartbeat failed")
+
+
 class GlobalResponseInteractionWorker:
     """Lease and execute persisted interaction jobs across API restarts."""
 
@@ -85,6 +166,14 @@ class GlobalResponseInteractionWorker:
             lease_seconds or settings.response_interaction_lease_seconds
         )
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
+        self.heartbeats = SharedLeaseHeartbeat(
+            self.db_factory,
+            worker_id=self.worker_id,
+            lease_seconds=self.lease_seconds,
+            interval_seconds=lease.heartbeat_interval_for(
+                self.lease_seconds, override=heartbeat_interval_seconds
+            ),
+        )
 
     async def _claim_next(self, db: AsyncSession) -> ResponseInteraction | None:
         return await lease.claim_next(
@@ -93,25 +182,6 @@ class GlobalResponseInteractionWorker:
             worker_id=self.worker_id,
             lease_seconds=self.lease_seconds,
         )
-
-    async def _heartbeat(
-        self,
-        interaction_pk: str,
-        interaction_id: str,
-        attempt_count: int,
-        stop: asyncio.Event,
-        lease_lost: asyncio.Event,
-    ) -> None:
-        await lease.LeaseHeartbeat(
-            self.db_factory,
-            ResponseInteraction,
-            interaction_pk,
-            worker_id=self.worker_id,
-            attempt_count=attempt_count,
-            lease_seconds=self.lease_seconds,
-            interval_seconds=self.heartbeat_interval_seconds,
-            log_label=f"Durable response interaction lease {interaction_id}",
-        ).run(stop, lease_lost)
 
     async def _assert_lease(self, db: AsyncSession, interaction_pk: str, attempt_count: int) -> None:
         """Fail the execution if another worker now owns the interaction.
@@ -469,21 +539,10 @@ class GlobalResponseInteractionWorker:
             kind="reclaimed" if int(interaction.attempt_count or 0) > 1 else "fresh"
         ).inc()
         metrics.interactions_in_flight.inc()
-        heartbeat_stop = asyncio.Event()
-        lease_lost = asyncio.Event()
-        heartbeat_task: asyncio.Task | None = None
+        lease_lost = self.heartbeats.track(interaction.id, interaction.attempt_count)
         execute_task: asyncio.Task | None = None
         lease_wait_task: asyncio.Task | None = None
         try:
-            heartbeat_task = asyncio.create_task(
-                self._heartbeat(
-                    interaction.id,
-                    interaction.interaction_id,
-                    interaction.attempt_count,
-                    heartbeat_stop,
-                    lease_lost,
-                )
-            )
             try:
                 execute_task = asyncio.create_task(self._execute(db, interaction))
                 lease_wait_task = asyncio.create_task(lease_lost.wait())
@@ -545,7 +604,7 @@ class GlobalResponseInteractionWorker:
             metrics.interaction_execution_duration.labels(outcome=outcome).observe(
                 time.monotonic() - started
             )
-            heartbeat_stop.set()
+            self.heartbeats.untrack(interaction.id)
             for task in (execute_task, lease_wait_task):
                 if task is not None and not task.done():
                     task.cancel()
@@ -553,16 +612,6 @@ class GlobalResponseInteractionWorker:
                         await task
                     except asyncio.CancelledError:
                         pass
-            if heartbeat_task is not None:
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.exception(
-                        "Durable response interaction heartbeat stopped unexpectedly",
-                        extra={"interaction_id": interaction.interaction_id},
-                    )
             await db.close()
 
     async def wake_on_claims(self) -> asyncio.Event:
