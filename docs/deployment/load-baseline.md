@@ -47,6 +47,9 @@ provider, otherwise the mock answers instantly and nothing waits.
 | Metric | Source | Why |
 |---|---|---|
 | Concurrent runs sustained | `soit_active_runs` | The number the runtime holds without the backlog growing |
+| Interaction queue wait P50/P95 | `soit_interaction_queue_wait_seconds` | How long an accepted chat waited for a worker slot; the capacity signal for `response-worker` replicas |
+| Interactions in flight | `soit_interactions_in_flight` | Slots busy per worker process against `RESPONSE_INTERACTION_WORKER_CONCURRENCY` |
+| Lease recoveries | `soit_interaction_claims_total{kind="reclaimed"}` | Claims that recovered an expired lease; rising means executions outlive their lease or a worker died |
 | Run duration P50/P95/P99 | `soit_run_duration_seconds` | Tail latency, not the average |
 | Run failure ratio | `soit_runs_total{status="failed"}` | Whether load degrades correctness or only speed |
 | Outbox oldest pending age | `soit_outbox_oldest_pending_age_seconds` | Whether the dispatcher keeps up |

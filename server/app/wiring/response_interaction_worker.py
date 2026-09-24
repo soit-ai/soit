@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,6 +18,7 @@ from app.infra.db.session import get_async_session_local
 from app.kernel.commons.errors import ConflictError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.observe import metrics
 from app.kernel.runtime.common import lease
 from app.kernel.runtime.db.models.responses import ResponseInteraction
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
@@ -31,6 +34,15 @@ logger = logging.getLogger(__name__)
 
 def _default_session_factory() -> AsyncSession:
     return get_async_session_local()()
+
+
+def _seconds_since(moment: datetime | None) -> float:
+    """Age of a stored timestamp; naive values are UTC, as the engine writes them."""
+    if moment is None:
+        return 0.0
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return max(0.0, (utc_now() - moment).total_seconds())
 
 
 def bounded_concurrency(requested: int) -> int:
@@ -447,6 +459,15 @@ class GlobalResponseInteractionWorker:
     async def execute_claimed(self, interaction: ResponseInteraction) -> ResponseInteraction:
         """Execute a claimed interaction, terminalizing it if execution fails."""
         db = self.db_factory()
+        started = time.monotonic()
+        outcome = "succeeded"
+        # The claim row was created when the API accepted the request, so
+        # its age at this point is the time the interaction waited for a slot.
+        metrics.interaction_queue_wait.observe(_seconds_since(interaction.created_at))
+        metrics.interaction_claims.labels(
+            kind="reclaimed" if int(interaction.attempt_count or 0) > 1 else "fresh"
+        ).inc()
+        metrics.interactions_in_flight.inc()
         heartbeat_stop = asyncio.Event()
         lease_lost = asyncio.Event()
         heartbeat_task: asyncio.Task | None = None
@@ -476,6 +497,7 @@ class GlobalResponseInteractionWorker:
                     except asyncio.CancelledError:
                         pass
                     await db.rollback()
+                    outcome = "lease_lost"
                     return interaction
                 lease_wait_task.cancel()
                 try:
@@ -484,6 +506,7 @@ class GlobalResponseInteractionWorker:
                     pass
                 await execute_task
             except Exception:
+                outcome = "failed"
                 logger.exception(
                     "Durable response interaction failed",
                     extra={"interaction_id": interaction.interaction_id},
@@ -517,6 +540,10 @@ class GlobalResponseInteractionWorker:
                     await db.commit()
             return interaction
         finally:
+            metrics.interactions_in_flight.dec()
+            metrics.interaction_execution_duration.labels(outcome=outcome).observe(
+                time.monotonic() - started
+            )
             heartbeat_stop.set()
             for task in (execute_task, lease_wait_task):
                 if task is not None and not task.done():

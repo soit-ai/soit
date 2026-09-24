@@ -85,3 +85,29 @@ outbox_delivery_latency = Histogram(
     "Time from event occurrence to successful outbox delivery",
     buckets=[0.1, 0.5, 1.0, 5.0, 15.0, 30.0, 60.0, 300.0, 1800.0],
 )
+
+# Durable interaction worker (exported by the response-worker process, or by
+# the API when it hosts the worker loop)
+interaction_queue_wait = Histogram(
+    "soit_interaction_queue_wait_seconds",
+    "Time an accepted interaction waited for a worker slot (claim row age at execution start)",
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)
+
+interaction_execution_duration = Histogram(
+    "soit_interaction_execution_seconds",
+    "Wall time one worker slot spent on an interaction",
+    ["outcome"],
+    buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)
+
+interactions_in_flight = Gauge(
+    "soit_interactions_in_flight",
+    "Interactions this worker process is executing right now",
+)
+
+interaction_claims = Counter(
+    "soit_interaction_claims_total",
+    "Interactions claimed, split by whether the claim recovered an expired lease",
+    ["kind"],
+)
