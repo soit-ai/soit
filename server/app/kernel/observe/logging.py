@@ -219,6 +219,15 @@ class _RecordQueueHandler(QueueHandler):
 
 
 _listener: QueueListener | None = None
+_exit_hook_registered = False
+
+
+def _stop_listener() -> None:
+    """Stop the current listener if it is running; safe to call more than once."""
+    global _listener
+    if _listener is not None and getattr(_listener, "_thread", None) is not None:
+        _listener.stop()
+    _listener = None
 
 
 def _async_sink_wanted() -> bool:
@@ -236,9 +245,8 @@ def setup_logging() -> None:
     root_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
     for existing in list(root_logger.handlers):
         root_logger.removeHandler(existing)
-    if _listener is not None:
-        _listener.stop()
-        _listener = None
+    global _exit_hook_registered
+    _stop_listener()
     if _async_sink_wanted():
         # The event loop only ever enqueues; a listener thread does the
         # blocking write to stdout, which under docker's json-file driver is
@@ -246,7 +254,11 @@ def setup_logging() -> None:
         log_queue: queue.SimpleQueue[logging.LogRecord] = queue.SimpleQueue()
         _listener = QueueListener(log_queue, handler, respect_handler_level=True)
         _listener.start()
-        atexit.register(_listener.stop)
+        if not _exit_hook_registered:
+            # setup_logging runs more than once per process (import, then
+            # main); one exit hook stops whichever listener is current.
+            atexit.register(_stop_listener)
+            _exit_hook_registered = True
         root_logger.addHandler(_RecordQueueHandler(log_queue))
     else:
         root_logger.addHandler(handler)
