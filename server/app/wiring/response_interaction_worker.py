@@ -637,6 +637,7 @@ class GlobalResponseInteractionWorker:
         poll_interval: float = 0.25,
         concurrency: int = 1,
         wake: asyncio.Event | None = None,
+        drain_seconds: float | None = None,
     ) -> None:
         """Claim from one loop and execute up to ``concurrency`` interactions at once.
 
@@ -648,8 +649,10 @@ class GlobalResponseInteractionWorker:
         connection pool.
         """
         poll_interval = max(0.05, poll_interval)
+        if drain_seconds is None:
+            drain_seconds = float(settings.response_interaction_worker_drain_seconds)
         slots = asyncio.Semaphore(max(1, int(concurrency or 1)))
-        in_flight: set[asyncio.Task] = set()
+        in_flight: dict[asyncio.Task, ResponseInteraction] = {}
 
         async def execute(interaction: ResponseInteraction) -> None:
             try:
@@ -687,11 +690,62 @@ class GlobalResponseInteractionWorker:
                             await asyncio.wait_for(wake.wait(), timeout=poll_interval)
                     continue
                 task = asyncio.create_task(execute(interaction))
-                in_flight.add(task)
-                task.add_done_callback(in_flight.discard)
+                in_flight[task] = interaction
+                task.add_done_callback(lambda done: in_flight.pop(done, None))
         finally:
-            for task in list(in_flight):
-                task.cancel()
-            for task in list(in_flight):
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            # Stopping: no more claims; give what is running a chance to
+            # finish, then hand back whatever did not.
+            await self._drain(in_flight, drain_seconds)
+
+    async def _drain(
+        self, in_flight: dict[asyncio.Task, ResponseInteraction], grace_seconds: float
+    ) -> None:
+        """Let in-flight executions finish for ``grace_seconds``, then release the rest.
+
+        A cancelled execution keeps its claim until the lease expires, which
+        on a deploy meant a minute and a half before another replica could
+        take the interaction over. Releasing the claim puts it back in the
+        queue immediately; the next worker terminalizes what was already
+        bound (see ``_terminalize_orphan``).
+        """
+        if not in_flight:
+            return
+        tasks = set(in_flight)
+        logger.info(
+            "Response worker stopping with %d interaction(s) in flight; draining for up to %.0fs",
+            len(tasks),
+            grace_seconds,
+        )
+        pending = tasks
+        if grace_seconds > 0:
+            _, pending = await asyncio.wait(tasks, timeout=grace_seconds)
+        # Captured before cancelling: the done callback drops the entry as
+        # soon as the task settles.
+        cut_short = [in_flight[task] for task in pending if task in in_flight]
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if cut_short:
+            await self._release_claims(cut_short)
+
+    async def _release_claims(self, interactions: list[ResponseInteraction]) -> None:
+        db = self.db_factory()
+        try:
+            for interaction in interactions:
+                if await lease.release_lease(
+                    db,
+                    ResponseInteraction,
+                    interaction.id,
+                    worker_id=self.worker_id,
+                    status="queued",
+                ):
+                    logger.warning(
+                        "Released the claim on an interaction cut short by shutdown",
+                        extra={"interaction_id": interaction.interaction_id},
+                    )
+        except Exception:
+            logger.exception("Releasing claims on shutdown failed; their leases will expire instead")
+        finally:
+            await db.close()

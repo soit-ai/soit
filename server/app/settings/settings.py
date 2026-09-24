@@ -327,6 +327,14 @@ class Settings(BaseSettings):
     flight per process only lengthens the queue. Scale by worker replicas.
     """
 
+    response_interaction_worker_drain_seconds: float = 30.0
+    """How long a stopping worker lets in-flight interactions finish.
+
+    Executions still running when the grace period ends are cancelled and
+    their claims released, so another replica picks them up at once instead
+    of after the lease expires.
+    """
+
     response_interaction_worker_metrics_port: int = 9202
     """Prometheus port for the dedicated response interaction worker process."""
 

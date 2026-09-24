@@ -52,6 +52,10 @@ def _stubbed_worker(backlog: list[_Claimed], *, execute_seconds: float) -> tuple
     return worker, stats
 
 
+async def _no_release(_interactions) -> None:
+    return None
+
+
 async def _run_for(worker: GlobalResponseInteractionWorker, seconds: float, **kwargs) -> None:
     task = asyncio.create_task(worker.run_loop(**kwargs))
     await asyncio.sleep(seconds)
@@ -111,7 +115,9 @@ async def test_an_idle_loop_polls_once_per_interval_regardless_of_slots() -> Non
 @pytest.mark.asyncio
 async def test_cancelling_the_loop_cancels_in_flight_executions() -> None:
     worker, stats = _stubbed_worker([_Claimed(i) for i in range(3)], execute_seconds=10.0)
-    task = asyncio.create_task(worker.run_loop(poll_interval=0.01, concurrency=3))
+    worker._release_claims = _no_release  # type: ignore[method-assign]
+    # No grace: this test is about cancellation reaching the executions.
+    task = asyncio.create_task(worker.run_loop(poll_interval=0.01, concurrency=3, drain_seconds=0))
     await asyncio.sleep(0.1)
     assert stats.active == 3
 

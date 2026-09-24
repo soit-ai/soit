@@ -260,6 +260,7 @@ async def lifespan(app: FastAPI):
                             app_settings.response_interaction_worker_concurrency
                         ),
                         wake=await response_interaction_worker.wake_on_claims(),
+                        drain_seconds=float(app_settings.response_interaction_worker_drain_seconds),
                     )
                 )
             )

@@ -8,7 +8,9 @@ model-bound executions stop sharing CPU with request handling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import signal
 import sys
 
 from prometheus_client import start_http_server
@@ -50,11 +52,34 @@ async def main() -> None:
             "metrics_port": metrics_port,
         },
     )
-    await worker.run_loop(
-        poll_interval=max(0.05, float(settings.response_interaction_worker_poll_interval)),
-        concurrency=concurrency,
-        wake=await worker.wake_on_claims(),
+    runner = asyncio.create_task(
+        worker.run_loop(
+            poll_interval=max(0.05, float(settings.response_interaction_worker_poll_interval)),
+            concurrency=concurrency,
+            wake=await worker.wake_on_claims(),
+            drain_seconds=float(settings.response_interaction_worker_drain_seconds),
+        )
     )
+    _stop_on_signal(runner)
+    with contextlib.suppress(asyncio.CancelledError):
+        await runner
+    logger.info("Response interaction worker stopped")
+
+
+def _stop_on_signal(runner: asyncio.Task) -> None:
+    """Turn SIGTERM/SIGINT into a cancellation, so the loop drains instead of dying."""
+    loop = asyncio.get_running_loop()
+
+    def request_stop(*_args: object) -> None:
+        loop.call_soon_threadsafe(runner.cancel)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, request_stop)
+        except (NotImplementedError, AttributeError):
+            # Windows has no loop signal handlers; the plain handler runs on
+            # the main thread and hands the cancel to the loop.
+            signal.signal(sig, request_stop)
 
 
 if __name__ == "__main__":
