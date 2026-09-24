@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Any
 
 import orjson
-from fastapi.responses import ORJSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -68,6 +67,22 @@ def is_enveloped(payload: Any) -> bool:
     return {"success", "code", "message"}.issubset(payload.keys())
 
 
+def _splice_envelope(data: bytes, *, request_id: str | None, run_id: str | None) -> bytes:
+    """Wrap an already-serialised JSON body without re-serialising it.
+
+    The route's own bytes become the ``data`` member as they are; only the
+    envelope's few fields are encoded here. Parsing the body once above is
+    what guarantees it is JSON to splice.
+    """
+    parts = [b'{"success":true,"code":"OK","message":"OK","data":', data]
+    if request_id:
+        parts.append(b',"request_id":' + orjson.dumps(request_id))
+    if run_id:
+        parts.append(b',"run_id":' + orjson.dumps(run_id))
+    parts.append(b"}")
+    return b"".join(parts)
+
+
 class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
     """Wrap JSON responses in the standard API envelope."""
 
@@ -119,8 +134,9 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
         if not self._should_wrap(response):
             return response
         raw_body = await self._read_body(response)
+        request_id, run_id = self._resolve_trace_ids(request)
         if raw_body in (None, b""):
-            payload = None
+            body = orjson.dumps(success_envelope(data=None, request_id=request_id, run_id=run_id))
         else:
             try:
                 payload = orjson.loads(raw_body)
@@ -132,26 +148,15 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
                 )
                 self._copy_headers(response, passthrough)
                 return passthrough
+            if is_enveloped(payload):
+                body = raw_body
+            else:
+                body = _splice_envelope(raw_body, request_id=request_id, run_id=run_id)
 
-        if is_enveloped(payload):
-            passthrough = ORJSONResponse(
-                content=payload,
-                status_code=response.status_code,
-                media_type=response.media_type,
-            )
-            self._copy_headers(response, passthrough)
-            return passthrough
-
-        request_id, run_id = self._resolve_trace_ids(request)
-        envelope = success_envelope(
-            data=payload,
-            request_id=request_id,
-            run_id=run_id,
-        )
-        wrapped = ORJSONResponse(
-            content=envelope,
+        wrapped = Response(
+            content=body,
             status_code=response.status_code,
-            media_type=response.media_type,
+            media_type="application/json",
         )
         self._copy_headers(response, wrapped)
         return wrapped
