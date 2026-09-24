@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- The durable chat interaction worker can run as its own process
+  (`scripts/response_interaction_worker.py`, the `response-worker` service in
+  the production compose file). One claim loop feeds up to
+  `RESPONSE_INTERACTION_WORKER_CONCURRENCY` executions; the API only enqueues
+  and tails when `RESPONSE_INTERACTION_WORKER_IN_API=false`.
+- Worker metrics for capacity decisions: `soit_interaction_queue_wait_seconds`,
+  `soit_interactions_in_flight`, `soit_interaction_execution_seconds` and
+  `soit_interaction_claims_total`.
+- `scripts/load_baseline.py --mode worker` measures the production shape
+  (claim, worker execution, SSE tail) and reports queue wait.
 - List endpoints can report how many rows match the filters, not just the page
   they returned. `with_total=true` on runs, run steps, run audits and tasks adds
   a `total` to the response. It is opt-in because the count costs a query, and
@@ -205,6 +215,17 @@ record for operators.
 
 ### Changed
 
+- The backend runs on Python 3.12 (`requires-python` admits 3.11 and 3.12;
+  the image, CI and `.python-version` use 3.12).
+- JSON columns and API responses are encoded with orjson; log records are
+  written from a listener thread (`LOG_ASYNC=false` restores synchronous
+  writes).
+- The Redis event bus publishes keyed events on `<channel>:<key>` in addition
+  to the base channel, so a process only receives the conversations it tails.
+  Anything subscribed to the base channel still sees every event.
+- A worker learns of new work from an `interaction.claimed` bus event instead
+  of waiting out `RESPONSE_INTERACTION_WORKER_POLL_INTERVAL`; polling stays as
+  the fallback.
 - Agent response verification is now opt-in. The verifier is a second model
   call on every turn, so a published version that wants it sets
   `policies.verify: true` (or a caller passes `verify: true`); versions
