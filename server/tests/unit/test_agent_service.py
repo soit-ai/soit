@@ -300,7 +300,8 @@ async def test_agent_run_with_tool_success(async_db, ctx):
         tool_resolver=resolver,
     )
 
-    request = _runtime_request(tool_refs=["tool:test:echo"])
+    # This flow counts the verifier's call, so it asks for verification.
+    request = _runtime_request(tool_refs=["tool:test:echo"], verify=True)
     result = await service.run(request)
 
     assert result["output"] == "ok"
@@ -843,7 +844,7 @@ async def test_agent_emits_only_the_verified_authoritative_response(async_db, ct
         tool_port=StubToolPort(ToolResponse(result="done")),
     )
 
-    result = await service.run(_runtime_request(), event_emitter=emitter)
+    result = await service.run(_runtime_request(verify=True), event_emitter=emitter)
 
     response_events = [payload for name, payload in emitter.events if name == "agent.response.succeeded"]
     assert result["output"] == "Agent verification failed: unsafe claim"

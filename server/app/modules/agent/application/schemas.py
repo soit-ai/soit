@@ -465,8 +465,8 @@ class _AgentRuntimeOptions(BaseModel):
     context_window_chars: int | None = Field(default=None, ge=1, le=200000)
     """Max total characters kept across messages."""
 
-    verify: bool = True
-    """Enable response verification."""
+    verify: bool = False
+    """Run the verifier on the final answer; a second model call per turn, so off unless asked for."""
 
     failure_strategy: str = Field(
         default="respond",

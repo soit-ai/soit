@@ -471,7 +471,9 @@ class AgentApplicationService:
             "memory_top_k": memory_top_k,
             "context_window_messages": limits.get("context_window_messages"),
             "context_window_chars": limits.get("context_window_chars"),
-            "verify": policies.get("verify") if policies.get("verify") is not None else True,
+            # Verification is a second model call per turn; a version opts in
+            # through policies.verify, a caller through the request.
+            "verify": policies.get("verify") if policies.get("verify") is not None else False,
             "failure_strategy": policies.get("failure_strategy") or "respond",
             "thread_id": public_request.thread_id,
             "thread_title": public_request.input[:512],

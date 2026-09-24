@@ -205,6 +205,11 @@ record for operators.
 
 ### Changed
 
+- Agent response verification is now opt-in. The verifier is a second model
+  call on every turn, so a published version that wants it sets
+  `policies.verify: true` (or a caller passes `verify: true`); versions
+  that do not say answer with one call. Previously every turn was verified
+  unless the version turned it off.
 - Image cost snapshots record the shape of the request — `size`, `quality`,
   `steps` — alongside the count. The rate is still per image; without the shape
   the images column could not explain itself, because four 4096px images and
