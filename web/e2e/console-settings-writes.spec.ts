@@ -26,7 +26,7 @@ const apiKeys = {
       workspace_id: 'workspace-1',
       user_id: 'user-1',
       name: 'ci-pipeline',
-      key_prefix: 'sk_live_ab',
+      key_prefix: 'sk_fixture_a',
       status: 'active',
       scopes: ['read'],
       expires_at: null,
@@ -184,7 +184,7 @@ test('the password change posts both passwords and nothing else', async ({ page 
 
 test('creating an API key sends the scope and lifetime, and reveals the secret once', async ({ page }) => {
   let posted: Record<string, unknown> | null = null
-  const SECRET = 'sk_live_abcdef0123456789'
+  const SECRET = 'sk_fixture_created_once'
 
   await page.route('**/api/v1/api-keys**', async (route) => {
     if (route.request().method() === 'POST') {
@@ -227,12 +227,12 @@ test('creating an API key sends the scope and lifetime, and reveals the secret o
   await expect(page.locator('.console-modal')).toHaveCount(0)
   expect(await page.content()).not.toContain(SECRET)
   // The table only ever knew the prefix.
-  await expect(page.getByText('sk_live_ab…')).toBeVisible()
+  await expect(page.getByText('sk_fixture_a…')).toBeVisible()
 })
 
 test('rotating a key posts to the rotate endpoint and reveals the new secret once', async ({ page }) => {
   let rotatedUrl = ''
-  const SECRET = 'sk_live_rotated9876543210'
+  const SECRET = 'sk_fixture_rotated_once'
 
   // The rotate route is registered last so it wins over the list route.
   await json(page, '**/api/v1/api-keys**', apiKeys)

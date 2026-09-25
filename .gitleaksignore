@@ -1,0 +1,10 @@
+# Findings in history that are test fixtures, not credentials. Each entry is
+# a gitleaks fingerprint (commit:path:rule:line); new findings still fail.
+#
+# A truncated PEM block that the content safety rules must recognise.
+fd976f4c5633c99dd7d5a3efe343f97368c2d08a:server/tests/unit/test_content_safety_rules.py:private-key:32
+# A model catalog entry, "key": "claude-haiku-45".
+08473d9c24d5affedb9ce5d7fa9bd93e82933280:server/scripts/seed_console_prototype.py:generic-api-key:226
+# Mocked API key responses, since renamed to sk_fixture_* values.
+58ab39a09300364fd48f0b9d7918f3aecd039715:web/e2e/console-settings-writes.spec.ts:stripe-access-token:187
+58ab39a09300364fd48f0b9d7918f3aecd039715:web/e2e/console-settings-writes.spec.ts:stripe-access-token:235
