@@ -145,3 +145,74 @@ async def test_every_node_gets_its_own_context_which_is_committed_and_closed(
     assert len(spies) == 3
     assert all(spy.commits == 1 and spy.closed for spy in spies)
     assert all(spy.rollbacks == 0 for spy in spies)
+
+
+class _RecordingSession:
+    """Delegates to the shared session and remembers what was staged through it."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.staged: list[object] = []
+
+    def add(self, instance, *args, **kwargs):
+        self.staged.append(instance)
+        return self._inner.add(instance, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_node_completion_is_staged_on_the_node_session(async_db, ctx: RequestContext) -> None:
+    """The node's outbox row and checkpoint go through its own session.
+
+    Staging them on the shared context let two branches finishing together
+    drive one session from two tasks, which PostgreSQL showed as an
+    intermittent IllegalStateChangeError and serialized branches.
+    """
+    from app.kernel.runtime.db.models.events import EventOutbox
+    from app.modules.workflow.domain.models import Workflow, WorkflowRun
+
+    trace_writer = TraceWriter(async_db, ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
+    workflow = Workflow(tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, name="node-session-outbox")
+    async_db.add(workflow)
+    await async_db.flush()
+    workflow_run = WorkflowRun(
+        tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, run_id=run.id,
+        workflow_id=workflow.id, status="running", total_nodes=3,
+    )
+    async_db.add(workflow_run)
+    await async_db.commit()
+
+    node_sessions: list[_RecordingSession] = []
+
+    async def build_node_context() -> ExecutionContext:
+        recording = _RecordingSession(async_db)
+        node_sessions.append(recording)
+        return ExecutionContext(
+            run_id=run.id, step_id=None, ctx=ctx,
+            trace_writer=TraceWriter(recording, ctx),  # type: ignore[arg-type]
+            tool_port=OverlapRecordingToolPort(), workflow_policy={},
+            workflow_run_id=workflow_run.id,
+            owned_session=_SessionSpy(),  # type: ignore[arg-type]
+        )
+
+    shared = _RecordingSession(async_db)
+    context = ExecutionContext(
+        run_id=run.id, step_id=None, ctx=ctx,
+        trace_writer=TraceWriter(shared, ctx),  # type: ignore[arg-type]
+        tool_port=OverlapRecordingToolPort(), workflow_policy={},
+        workflow_run_id=workflow_run.id, node_context_factory=build_node_context,
+    )
+    plan = fan_out_plan(run.id)
+    plan.plan_data["edges"] = [{"from": "left", "to": "right"}, {"from": "right", "to": "join"}]
+
+    await WorkflowExecutor(ExecutionEngine(async_db, ctx, trace_writer)).execute(plan, context)
+
+    def outbox_rows(session: _RecordingSession) -> list[EventOutbox]:
+        return [item for item in session.staged if isinstance(item, EventOutbox) and item.event_type == "workflow.node.completed"]
+
+    assert len(node_sessions) == 3
+    assert all(len(outbox_rows(session)) == 1 for session in node_sessions)
+    assert outbox_rows(shared) == []

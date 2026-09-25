@@ -509,8 +509,11 @@ class WorkflowExecutor:
                     output_summary=str(output)[:8192] if output else None,
                     metrics=metrics,
                 )
+                # On the node's own session: the outbox row and the checkpoint
+                # commit with this node's step, and two branches finishing
+                # together never drive the shared session at once.
                 await _emit_workflow_node_completed_outbox(
-                    context,
+                    node_ctx,
                     node_id=node_id,
                     run_step=run_step,
                     checkpoint=lambda: _snapshot_with(node_id, "succeeded", output),
@@ -535,6 +538,12 @@ class WorkflowExecutor:
                 )
                 raise
             except asyncio.CancelledError:
+                if run_step.status == "succeeded":
+                    # Cancelled after the node's work was recorded (while its
+                    # outbox row was being staged): the step stays succeeded,
+                    # and a succeeded -> canceled transition would raise over
+                    # the cancellation.
+                    raise
                 node_states[node_id] = "canceled"
                 elapsed_ms = int((time.monotonic() - exec_started) * 1000)
                 await node_ctx.trace_writer.update_step_status(
@@ -586,7 +595,7 @@ class WorkflowExecutor:
                     )
 
                 await _emit_workflow_node_failed_outbox(
-                    context,
+                    node_ctx,
                     node_id=node_id,
                     run_step=run_step,
                     error_code="NODE_EXECUTION_ERROR",
