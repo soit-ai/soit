@@ -198,3 +198,30 @@ def test_alerts_cover_the_failure_modes_this_runtime_actually_has() -> None:
         "SoitOutboxBacklogStalled",
         "SoitActiveRunsStuck",
     } <= names
+
+
+def test_chats_execute_in_the_dedicated_response_worker() -> None:
+    api_env = _service_env("api")
+    worker_env = _service_env("response-worker")
+    compose = _load_compose()
+
+    # The API accepts and tails; it neither runs the loop nor executes inline.
+    assert api_env["RESPONSE_INTERACTION_WORKER_IN_API"] == "false"
+    assert api_env["RESPONSE_INTERACTION_INLINE_EXECUTION"] == "false"
+    assert worker_env["RESPONSE_INTERACTION_WORKER_ENABLED"] == "true"
+    assert compose["services"]["response-worker"]["command"] == [
+        "python",
+        "scripts/response_interaction_worker.py",
+    ]
+    # The worker starts with the same production validation as the API.
+    _settings_from(worker_env).validate_runtime_requirements()
+
+
+def test_the_response_worker_drains_before_docker_kills_it() -> None:
+    service = _load_compose()["services"]["response-worker"]
+    grace = str(service.get("stop_grace_period", "10s"))
+    assert grace.endswith("s"), grace
+    drain = float(_service_env("response-worker")["RESPONSE_INTERACTION_WORKER_DRAIN_SECONDS"])
+    # Docker sends SIGKILL when the grace period ends; a drain longer than it
+    # would be cut short and leave claims to expire instead of released.
+    assert float(grace.removesuffix("s")) > drain

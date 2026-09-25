@@ -10,9 +10,10 @@
 # (settings refuse an in-process dispatcher in production), the durable
 # interaction worker as its own process, and the knowledge ingest worker separate.
 #
-# Copy .env.production.example, fill in every value, then:
-#   docker compose -f docker/docker-compose.production.yml config --quiet
-#   docker compose -f docker/docker-compose.production.yml up -d
+# Copy docker/.env.production.example to docker/.env.production, fill in every
+# required value, then:
+#   docker compose --env-file docker/.env.production -f docker/docker-compose.production.yml config --quiet
+#   docker compose --env-file docker/.env.production -f docker/docker-compose.production.yml up -d
 
 x-server-environment: &server_environment
   ENVIRONMENT: production
@@ -176,7 +177,13 @@ services:
       # overflow - 4 (30 - 4 with the defaults above); 24 is the measured knee
       # for one process. For more capacity run more replicas of this service.
       RESPONSE_INTERACTION_WORKER_CONCURRENCY: ${RESPONSE_INTERACTION_WORKER_CONCURRENCY:-24}
+      # On SIGTERM the worker stops claiming, lets running chats finish for
+      # this long, then releases the rest to another replica.
+      RESPONSE_INTERACTION_WORKER_DRAIN_SECONDS: "30"
     command: ["python", "scripts/response_interaction_worker.py"]
+    # Longer than the drain: Docker's default of 10s would SIGKILL the worker
+    # mid-drain and leave its claims to expire instead of being released.
+    stop_grace_period: 45s
     depends_on:
       migrate:
         condition: service_completed_successfully
