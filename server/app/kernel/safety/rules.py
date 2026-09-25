@@ -26,7 +26,9 @@ Because a pattern can be wrong, the defaults are asymmetric:
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -178,8 +180,26 @@ def _redact(text: str, matches: list[tuple[_Rule, str]]) -> str:
 _ORDER = {SafetyAction.OBSERVE: 0, SafetyAction.REDACT: 1, SafetyAction.BLOCK: 2}
 
 
+_VERDICT_CACHE_SIZE = 8192
+_VERDICT_CACHE_MAX_TEXT = 64 * 1024
+_verdict_cache: OrderedDict[tuple[bytes, str, str, str], SafetyVerdict] = OrderedDict()
+
+
+def _cache_key(text: str, direction: SafetyDirection, secret_action: SafetyAction, pii_action: SafetyAction):
+    # A digest, not the text: the cache must not become a second copy of
+    # whatever secrets the prompts carried.
+    digest = hashlib.blake2b(text.encode("utf-8"), digest_size=16).digest()
+    return (digest, direction.value, secret_action.value, pii_action.value)
+
+
 class RuleContentSafetyPort(ContentSafetyPort):
-    """Match credentials and personal identifiers without leaving the process."""
+    """Match credentials and personal identifiers without leaving the process.
+
+    The rules are a pure function of the text and the configured actions, so
+    verdicts are remembered per process. Every model call re-inspects the
+    whole prompt, which on a long conversation means re-scanning the same
+    history turn after turn; with the cache each message is scanned once.
+    """
 
     def __init__(
         self,
@@ -203,7 +223,20 @@ class RuleContentSafetyPort(ContentSafetyPort):
         """Inspect one piece of content and return the verdict to apply."""
         if not text:
             return SafetyVerdict(decision=SafetyDecision.ALLOW, provider=PROVIDER)
+        if len(text) > _VERDICT_CACHE_MAX_TEXT:
+            return self._inspect_uncached(text, direction)
+        key = _cache_key(text, direction, self.secret_action, self.pii_action)
+        cached = _verdict_cache.get(key)
+        if cached is not None:
+            _verdict_cache.move_to_end(key)
+            return cached
+        verdict = self._inspect_uncached(text, direction)
+        _verdict_cache[key] = verdict
+        if len(_verdict_cache) > _VERDICT_CACHE_SIZE:
+            _verdict_cache.popitem(last=False)
+        return verdict
 
+    def _inspect_uncached(self, text: str, direction: SafetyDirection) -> SafetyVerdict:
         matches = scan_text(text)
         if not matches:
             return SafetyVerdict(decision=SafetyDecision.ALLOW, provider=PROVIDER)
