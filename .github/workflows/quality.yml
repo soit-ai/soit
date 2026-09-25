@@ -368,6 +368,10 @@ jobs:
       EVENT_BUS_BACKEND: memory
       OUTBOX_DISPATCHER_ENABLED: "false"
       KNOWLEDGE_INGEST_WORKER_ENABLED: "false"
+      # The API and the ingest worker are separate processes, so uploads must
+      # land in a store both can read; SOIT_TESTING alone keeps each in memory.
+      STORAGE_URL: file:///tmp/soit-fullstack-storage
+      STORAGE_AUTO_MKDIR: "true"
       RESPONSE_INTERACTION_INLINE_EXECUTION: "true"
       PLUGIN_SIGNATURE_REQUIRED: "true"
       PLUGIN_INTEGRITY_REQUIRED: "true"

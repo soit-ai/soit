@@ -704,7 +704,15 @@ class Container:
         """
         import os
 
-        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("SOIT_TESTING") == "1":
+        # Under pytest, and in a deterministic test runtime that names no
+        # store of its own, storage stays in memory. A test runtime that sets
+        # STORAGE_URL in its environment (not merely in .env) gets that store:
+        # an in-memory one is private to its process, so a stack whose API and
+        # ingest worker run as separate processes could never hand a file
+        # from one to the other.
+        if os.getenv("PYTEST_CURRENT_TEST") or (
+            os.getenv("SOIT_TESTING") == "1" and not os.getenv("STORAGE_URL")
+        ):
             from app.adapters.storage.memory import InMemoryStoragePort
 
             return InMemoryStoragePort()
