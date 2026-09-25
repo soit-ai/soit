@@ -197,6 +197,8 @@ def test_alerts_cover_the_failure_modes_this_runtime_actually_has() -> None:
         "SoitOutboxDeadLetters",
         "SoitOutboxBacklogStalled",
         "SoitActiveRunsStuck",
+        "SoitInteractionQueueWaitHigh",
+        "SoitInteractionLeaseRecoveries",
     } <= names
 
 

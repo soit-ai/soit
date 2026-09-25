@@ -59,6 +59,33 @@ groups:
         annotations:
           summary: "P95 run duration is above two minutes"
 
+      - alert: SoitInteractionQueueWaitHigh
+        expr: >-
+          histogram_quantile(0.95, sum(rate(soit_interaction_queue_wait_seconds_bucket[10m])) by (le))
+          > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chats wait over a minute for a response-worker slot"
+          description: >-
+            Accepted chats are queueing behind busy workers. Add
+            response-worker replicas; raising
+            RESPONSE_INTERACTION_WORKER_CONCURRENCY past pool + overflow - 4
+            has no effect, the worker caps it.
+
+      - alert: SoitInteractionLeaseRecoveries
+        expr: sum(rate(soit_interaction_claims_total{kind="reclaimed"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chat claims are being recovered from expired leases"
+          description: >-
+            Either a response-worker died without draining, or executions
+            outlive RESPONSE_INTERACTION_LEASE_SECONDS because heartbeats are
+            not getting through. Check worker restarts and pool pressure.
+
       - alert: SoitActiveRunsStuck
         expr: soit_active_runs > 0 and rate(soit_runs_total[15m]) == 0
         for: 15m
