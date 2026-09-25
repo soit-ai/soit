@@ -68,10 +68,12 @@ async def test_seed_creates_the_objects_the_prototype_draws(async_db):
 
     summary = await seed_console_prototype(async_db, _args())
 
-    # The prototype's own inventory: six agents, five workflows, four knowledge
-    # bases, eight plugins, four secrets, five threads, two pending approvals.
+    # The prototype's own inventory: six agents, six workflows (five
+    # published, plus the vendor-onboarding draft awaiting review), four
+    # knowledge bases, eight plugins, four secrets, five threads, two pending
+    # approvals.
     assert len(summary.agent_ids) == 6
-    assert len(summary.workflow_ids) == 5
+    assert len(summary.workflow_ids) == 6
     assert len(summary.knowledge_ids) == 4
     assert len(summary.plugin_ids) == 8
     assert len(summary.secret_ids) == 4
@@ -101,12 +103,18 @@ async def test_seed_honours_the_requested_volumes(async_db):
     assert len(summary.run_ids) == 12
     assert len(summary.task_ids) == 9
 
-    assert len(await _scoped(async_db, Run, summary)) == 12
-    assert len(await _scoped(async_db, Task, summary)) == 9
+    # The operational history seeded alongside (workflow and knowledge-query
+    # runs, task events, ...) adds rows of its own, so the requested volume
+    # is checked on the rows this parameter produced.
+    run_ids = set(summary.run_ids)
+    assert {run.id for run in await _scoped(async_db, Run, summary)} >= run_ids
+    assert {task.id for task in await _scoped(async_db, Task, summary)} >= set(summary.task_ids)
     # Every run carries spans and a cost entry, so traces and the cost overview
     # have something to aggregate.
-    assert len(await _scoped(async_db, RunStep, summary)) >= 12
-    assert len(await _scoped(async_db, RunCostEntry, summary)) == 12
+    steps = [step for step in await _scoped(async_db, RunStep, summary) if step.run_id in run_ids]
+    assert len({step.run_id for step in steps}) == 12
+    costs = [cost for cost in await _scoped(async_db, RunCostEntry, summary) if cost.run_id in run_ids]
+    assert {cost.run_id for cost in costs} == run_ids
 
 
 @pytest.mark.asyncio
