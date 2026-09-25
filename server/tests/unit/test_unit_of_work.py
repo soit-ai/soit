@@ -41,6 +41,7 @@ class _Session:
         self.commits = 0
         self.rollbacks = 0
         self.closes = 0
+        self.is_active = True
 
     async def commit(self) -> None:
         self.commits += 1
@@ -129,3 +130,26 @@ async def test_handler_return_without_a_request_session_commits_nothing() -> Non
     await commit_dependency.__anext__()
     with pytest.raises(StopAsyncIteration):
         await commit_dependency.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_unit_of_work_rolls_back_a_transaction_broken_inside_the_block(async_db) -> None:
+    """A failure swallowed inside the block leaves nothing to commit.
+
+    This is what a disconnected SSE client produces: the query in flight is
+    cancelled, the session needs a rollback, and the request-scoped exit runs
+    with no exception. Committing there raised PendingRollbackError.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    async_db.add(Tenant(id="tenant_uow_dup", name="first"))
+    await async_db.commit()
+
+    async with transaction_module.AsyncSQLAlchemyUnitOfWork(async_db):
+        async_db.add(Tenant(id="tenant_uow_dup", name="duplicate"))
+        with pytest.raises(IntegrityError):
+            await async_db.flush()
+        assert async_db.is_active is False
+
+    assert async_db.is_active is True
+    assert (await async_db.get(Tenant, "tenant_uow_dup")).name == "first"

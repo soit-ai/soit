@@ -47,9 +47,14 @@ class AsyncSQLAlchemyUnitOfWork:
         traceback: TracebackType | None,
     ) -> Literal[False]:
         _ = exc_value, traceback
-        if exc_type is None:
+        if exc_type is None and self.db.is_active:
             await self.commit()
         else:
+            # An exception, or a transaction already broken inside the block:
+            # a streaming response whose client disconnected cancels the query
+            # in flight, which leaves the session needing a rollback, and a
+            # commit there would raise PendingRollbackError over a request
+            # that has already been answered.
             await self.rollback()
         return False
 
