@@ -196,20 +196,26 @@ jobs:
       - name: Build backend image
         run: docker build --tag soit-api:ci ./server
 
+      # MinIO's images are no longer published on Docker Hub; RustFS is an
+      # Apache-2.0 S3-compatible server that SOIT's s3fs storage works with.
       - name: Start object storage
         run: >-
-          docker run --detach --name soit-minio-ci --network host
-          -e MINIO_ROOT_USER=cistorage
-          -e MINIO_ROOT_PASSWORD=cistorage-secret-1
-          minio/minio:RELEASE.2024-05-28T17-19-04Z server /data
+          docker run --detach --name soit-s3-ci --network host
+          -e RUSTFS_ACCESS_KEY=cistorage
+          -e RUSTFS_SECRET_KEY=cistorage-secret-1
+          rustfs/rustfs:1.0.0 /data
 
       - name: Create storage bucket
         run: >-
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c
+          docker run --rm --network host --entrypoint /bin/sh
+          -e AWS_ACCESS_KEY_ID=cistorage
+          -e AWS_SECRET_ACCESS_KEY=cistorage-secret-1
+          -e AWS_DEFAULT_REGION=us-east-1
+          amazon/aws-cli:2.37.3 -c
           'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-          mc alias set ci http://127.0.0.1:9000 cistorage cistorage-secret-1 && break || sleep 2;
-          done &&
-          mc mb --ignore-existing ci/soit-artifacts'
+          aws --endpoint-url http://127.0.0.1:9000 s3api head-bucket --bucket soit-artifacts 2>/dev/null && exit 0;
+          aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://soit-artifacts && exit 0 || sleep 2;
+          done; exit 1'
 
       - name: Apply migrations from image
         run: >-
@@ -294,7 +300,7 @@ jobs:
           docker rm --force soit-knowledge-ci || true
           docker rm --force soit-outbox-ci || true
           docker rm --force soit-api-ci || true
-          docker rm --force soit-minio-ci || true
+          docker rm --force soit-s3-ci || true
 
   frontend-p0:
     name: frontend-p0
