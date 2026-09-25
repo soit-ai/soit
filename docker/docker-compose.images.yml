@@ -7,6 +7,9 @@
 #     -f docker/docker-compose.yml -f docker/docker-compose.images.yml \
 #     up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 #
+# The overlay names application services only, so it also layers over
+# docker/docker-compose.app.yml when the infrastructure is your own.
+#
 # Pin a release with SOIT_IMAGE_TAG (defaults to v1.0.0). The released web
 # image is built with the default API base URL http://localhost:9200/api/v1;
 # to serve the web UI against non-default host ports, build the web image

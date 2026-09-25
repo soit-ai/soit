@@ -56,7 +56,7 @@ def test_community_environment_examples_use_current_entitlement_keys() -> None:
 
 
 def test_compose_passes_the_public_runtime_manifest_to_every_backend_process() -> None:
-    compose = yaml.safe_load((ROOT / "docker" / "docker-compose.yml").read_text(encoding="utf-8"))
+    compose = yaml.safe_load((ROOT / "docker" / "docker-compose.app.yml").read_text(encoding="utf-8"))
     environment = compose["services"]["migrate"]["environment"]
 
     assert environment["PLATFORM_VERSION"] == "${PLATFORM_VERSION:-1.0.0}"

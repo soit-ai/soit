@@ -191,7 +191,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Validate compose configuration
-        run: docker compose -f docker/docker-compose.yml config --quiet
+        run: |
+          docker compose -f docker/docker-compose.yml config --quiet
+          docker compose -f docker/docker-compose.app.yml config --quiet
+          docker compose -f docker/docker-compose.infra.yml config --quiet
 
       - name: Build backend image
         run: docker build --tag soit-api:ci ./server

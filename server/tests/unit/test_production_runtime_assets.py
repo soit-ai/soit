@@ -36,7 +36,7 @@ def test_base_api_dependencies_exclude_test_and_local_training_stacks() -> None:
 
 def test_compose_defaults_to_explicit_development_and_redis_events() -> None:
     compose = yaml.safe_load(
-        (ROOT / "docker" / "docker-compose.yml").read_text(encoding="utf-8")
+        (ROOT / "docker" / "docker-compose.app.yml").read_text(encoding="utf-8")
     )
 
     for service_name in ("api", "knowledge-ingest-worker"):
@@ -49,7 +49,7 @@ def test_compose_defaults_to_explicit_development_and_redis_events() -> None:
 
 
 @pytest.mark.parametrize(
-    "compose_file", ["docker-compose.yml", "docker-compose.production.yml"]
+    "compose_file", ["docker-compose.app.yml", "docker-compose.production.yml"]
 )
 def test_compose_api_healthcheck_probes_a_mounted_route(compose_file: str) -> None:
     from app.main import app
@@ -88,6 +88,8 @@ def test_quality_workflow_builds_and_smoke_tests_backend_image() -> None:
 
     assert "container-smoke:" in workflow
     assert "docker compose -f docker/docker-compose.yml config --quiet" in workflow
+    assert "docker compose -f docker/docker-compose.app.yml config --quiet" in workflow
+    assert "docker compose -f docker/docker-compose.infra.yml config --quiet" in workflow
     assert "docker build --tag soit-api:ci ./server" in workflow
     assert "/health/ready" in workflow
     assert "ENVIRONMENT: test" in workflow

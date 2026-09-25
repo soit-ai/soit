@@ -20,6 +20,11 @@ Open:
 
 Sign in with `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`.
 
+Already running PostgreSQL, Redis or another piece of the infrastructure? The
+application and the bundled infrastructure are separate Compose files, so you
+can start only what you are missing. See
+[Use Infrastructure You Already Run](../docker/README.md#use-infrastructure-you-already-run).
+
 ## Seed the Demo Workspace
 
 After migrations are available, seed the deterministic Phase 1 demo data:

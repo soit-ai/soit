@@ -57,6 +57,11 @@ python docker/operations/compose_backup.py `
   --output F:\soit-backups\backup-20260723
 ```
 
+The tools work through the bundled `postgres` and `minio` containers. When the
+application runs against PostgreSQL or object storage you operate yourself
+(`docker/docker-compose.app.yml` on its own), produce the same dump and bucket
+mirror with your own tooling and describe them in the same manifest.
+
 The default `--minio-endpoint http://minio:9000` assumes the current Compose
 network. For an externally managed endpoint, pass an address reachable from the
 temporary `mc` container and provide credentials through environment variables,

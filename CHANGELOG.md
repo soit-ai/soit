@@ -14,6 +14,17 @@ record for operators.
 
 ### Added
 
+- The quickstart Compose stack is split into `docker/docker-compose.infra.yml`
+  (PostgreSQL, Redis, MinIO, Milvus, Vault) and `docker/docker-compose.app.yml`
+  (migrations, API, web and workers), so an operator who already runs some of
+  that infrastructure starts only what is missing. `docker/docker-compose.yml`
+  includes both and keeps the `soit` project name, volumes and commands, so an
+  existing quickstart is unaffected. Docker Compose v2.24 or later is required,
+  as the optional `env_file` entries already did.
+- `migrate` waits up to `DATABASE_WAIT_SECONDS` (default 60) for the database
+  to accept connections before running Alembic, and reports a database that
+  never answers in one line.
+
 - The durable chat interaction worker can run as its own process
   (`scripts/response_interaction_worker.py`, the `response-worker` service in
   the production compose file). One claim loop feeds up to

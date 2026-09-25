@@ -18,6 +18,8 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis
 - Web UI：`http://localhost:5000`
 - API base / API docs：`http://localhost:9200`
 
+已经有 PostgreSQL、Redis 或其他基础设施？应用和内置基础设施拆成了独立的 Compose 文件，可以只启动缺少的部分，见 [Use Infrastructure You Already Run](../docker/README.md#use-infrastructure-you-already-run)。
+
 使用 `.env` 中的 `BOOTSTRAP_ADMIN_EMAIL` 和 `BOOTSTRAP_ADMIN_PASSWORD` 登录。
 
 ## 初始化 Demo 工作区

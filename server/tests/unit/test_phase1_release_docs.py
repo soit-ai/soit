@@ -119,13 +119,44 @@ def test_bilingual_quickstart_documents_cover_demo_path() -> None:
             assert term in content
 
 
+def _load_compose(name: str) -> dict:
+    return yaml.safe_load((ROOT / "docker" / name).read_text(encoding="utf-8"))
+
+
+def test_quickstart_compose_assembles_infrastructure_and_application() -> None:
+    compose = _load_compose("docker-compose.yml")
+
+    assert compose["name"] == "soit"
+    assert compose["include"] == [
+        "docker-compose.infra.yml",
+        {"path": ["docker-compose.app.yml", "docker-compose.deps.yml"]},
+    ]
+    assert "services" not in compose
+
+
+def test_application_compose_runs_without_the_bundled_infrastructure() -> None:
+    infra = _load_compose("docker-compose.infra.yml")
+    app = _load_compose("docker-compose.app.yml")
+    deps = _load_compose("docker-compose.deps.yml")
+    infra_services = set(infra["services"])
+
+    # One project name keeps volumes, network and hostnames identical however
+    # the stack is started, so existing quickstart data is found again.
+    assert infra["name"] == app["name"] == "soit"
+    assert infra_services.isdisjoint(app["services"])
+    for name, service in app["services"].items():
+        assert infra_services.isdisjoint(service.get("depends_on", {})), name
+
+    for name, service in deps["services"].items():
+        assert name in app["services"]
+        assert set(service["depends_on"]) <= infra_services
+
+
 def test_quickstart_compose_file_matches_documented_service_set() -> None:
-    compose_file = ROOT / "docker" / "docker-compose.yml"
-
-    assert compose_file.is_file()
-
-    compose = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
-    services = compose["services"]
+    services = {
+        **_load_compose("docker-compose.infra.yml")["services"],
+        **_load_compose("docker-compose.app.yml")["services"],
+    }
 
     assert QUICKSTART_SERVICES.issubset(services)
     assert services["api"]["build"]["context"] == "../server"

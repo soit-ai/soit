@@ -1,0 +1,61 @@
+# Startup ordering between the application and the bundled infrastructure.
+#
+# docker-compose.app.yml must stay valid on its own, and Compose rejects a
+# depends_on entry naming a service the project does not define, even with
+# `required: false`. So the waits on infrastructure health live here, and
+# docker-compose.yml layers this file over the application only when the
+# bundled infrastructure is part of the project.
+
+services:
+  migrate:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  knowledge-ingest-worker:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  outbox-dispatcher:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  scheduler:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy

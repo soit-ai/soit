@@ -1,0 +1,174 @@
+# Bundled infrastructure for the quickstart topology: PostgreSQL, Redis,
+# MinIO, Milvus (with its etcd) and a dev-mode Vault.
+#
+# docker-compose.yml includes this file together with docker-compose.app.yml,
+# so the default quickstart command starts everything. Run this file on its own
+# to start only the pieces you do not already operate, for example:
+#
+#   docker compose --env-file .env -f docker/docker-compose.infra.yml \
+#     up -d --wait minio minio-init etcd milvus vault
+#
+# then start docker-compose.app.yml pointed at your own PostgreSQL and Redis.
+# All three files share the project name, so volumes, the network and service
+# hostnames stay the same whichever way the stack is started.
+name: soit
+
+# Container stdout rotation. The json-file driver has no size cap unless one
+# is given: on 2026-09-01 a single stopped milvus container's log reached
+# 90.8 GB, filled the host disk, and took MinIO down with XMinioStorageFull.
+# Anchored once here so no service can quietly miss it.
+x-logging: &default-logging
+  driver: 'json-file'
+  options:
+    max-size: '100m'
+    max-file: '3'
+
+services:
+  postgres:
+    image: postgres:15
+    # The API workers and the three worker processes each keep their own
+    # connection pool; the default of 100 is exhausted by four API workers
+    # alone. See docs/operations/database-connections.md for the budget.
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"]
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-soit}
+      POSTGRES_USER: ${DATABASE_USER:-soit}
+      POSTGRES_PASSWORD: ${DATABASE_PASS:-soit}
+    ports:
+      - "${DATABASE_PUBLISHED_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-soit} -d ${DATABASE_NAME:-soit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+
+  redis:
+    # Pinned to the 7.2 line: it is the last BSD-3-Clause release series;
+    # 7.4+ moved to the RSALv2/SSPL dual license.
+    image: redis:7.2
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PUBLISHED_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-soitminio}
+    ports:
+      - "${MINIO_API_PUBLISHED_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PUBLISHED_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-soitminio} ${MINIO_SECRET_KEY:-soitminio}; do
+          sleep 1
+        done
+        mc mb -p local/${MINIO_BUCKET:-soit-artifacts}
+        mc anonymous set none local/${MINIO_BUCKET:-soit-artifacts}
+    restart: "no"
+    logging: *default-logging
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    ports:
+      - "${ETCD_PUBLISHED_PORT:-2379}:2379"
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+
+  milvus:
+    image: milvusdb/milvus:v2.5.12
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-soitminio}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-soitminio}
+    ports:
+      - "${MILVUS_PUBLISHED_PORT:-19530}:19530"
+      - "${MILVUS_METRICS_PUBLISHED_PORT:-9091}:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *default-logging
+
+  vault:
+    image: hashicorp/vault:1.16
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:-soit-vault-root}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "${VAULT_PUBLISHED_PORT:-8200}:8200"
+    cap_add:
+      - IPC_LOCK
+    command: ["server", "-dev"]
+    healthcheck:
+      test: ["CMD-SHELL", "VAULT_ADDR=http://localhost:8200 vault status -format=json > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  etcd_data:
+  milvus_data:
