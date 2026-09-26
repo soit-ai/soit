@@ -78,6 +78,14 @@ class RequestContext:
     allowed_models: frozenset[str] | None = None
     """Model refs the credential may call; None allows every model."""
 
+    content_capture: str | None = None
+    """What runs record of content: ``full`` or ``metadata_only``.
+
+    Resolved at authentication from the workspace setting and the API key,
+    whichever keeps less. None means it was not resolved, and the trace
+    writer looks the workspace setting up itself.
+    """
+
     _SET_FIELDS: ClassVar[tuple[str, ...]] = ("scopes", "allowed_models")
 
     def to_json(self) -> dict[str, Any]:

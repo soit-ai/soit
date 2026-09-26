@@ -1568,6 +1568,19 @@ class IdentityService:
                     "Tenant admin role required to change the workspace MFA requirement"
                 )
             workspace.require_mfa = bool(data.require_mfa)
+        if "content_capture" in data.model_fields_set and data.content_capture is not None:
+            # Keeping content again is a privacy decision for the tenant;
+            # keeping less is one a workspace admin may make alone.
+            loosening = data.content_capture == "full" and workspace.content_capture != "full"
+            if loosening and not ctx.is_tenant_admin():
+                raise ValidationError(
+                    "Tenant admin role required to keep run content in this workspace again"
+                )
+            if not loosening and not (ctx.can_govern() or ctx.is_tenant_admin()):
+                raise ValidationError(
+                    "Workspace admin role required to change what runs keep of content"
+                )
+            workspace.content_capture = data.content_capture
         workspace.updated_at = utc_now()
         return await repo.update(workspace)
 
@@ -1679,6 +1692,7 @@ class IdentityService:
             daily_token_quota=data.daily_token_quota,
             ip_allowlist_json=data.ip_allowlist,
             allowed_models_json=data.allowed_models,
+            content_capture=data.content_capture,
         )
         api_key = await self.api_key_repo.create(api_key)
         return api_key, raw_key
@@ -1710,7 +1724,12 @@ class IdentityService:
             if changes["name"] is None:
                 raise ValidationError("An API key needs a name")
             api_key.name = changes["name"]
-        for field in ("rate_limit_per_minute", "daily_request_quota", "daily_token_quota"):
+        for field in (
+            "rate_limit_per_minute",
+            "daily_request_quota",
+            "daily_token_quota",
+            "content_capture",
+        ):
             if field in changes:
                 setattr(api_key, field, changes[field])
         if "ip_allowlist" in changes:
@@ -1784,6 +1803,7 @@ class IdentityService:
             daily_token_quota=old_key.daily_token_quota,
             ip_allowlist=old_key.ip_allowlist_json,
             allowed_models=old_key.allowed_models_json,
+            content_capture=old_key.content_capture,
         )
         return await self.create_api_key(new_key_data, ctx)
 

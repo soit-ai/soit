@@ -113,6 +113,19 @@ async def test_rotation_keeps_the_limits(async_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_key_can_keep_its_calls_out_of_run_text(async_client) -> None:
+    created = await _create(async_client, content_capture="metadata_only")
+    assert created.json()["data"]["item"]["content_capture"] == "metadata_only"
+
+    # A key can only keep less than its workspace; "full" is the workspace's call.
+    assert (await _create(async_client, content_capture="full")).status_code == 400
+
+    key_id = created.json()["data"]["item"]["id"]
+    cleared = await async_client.patch(f"/api/v1/api-keys/{key_id}", json={"content_capture": None})
+    assert cleared.json()["data"]["content_capture"] is None
+
+
+@pytest.mark.asyncio
 async def test_a_revoked_key_cannot_be_changed(async_client) -> None:
     key_id = (await _create(async_client)).json()["data"]["item"]["id"]
     await async_client.post(f"/api/v1/api-keys/{key_id}/revoke")

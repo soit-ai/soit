@@ -5,7 +5,7 @@ Identity domain Pydantic schemas for API.
 
 import ipaddress
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -91,6 +91,10 @@ class WorkspaceUpdate(BaseModel):
     require_mfa: bool | None = Field(
         None, description="Require a confirmed second factor to reach this workspace"
     )
+    content_capture: Literal["full", "metadata_only"] | None = Field(
+        None,
+        description="What runs record of content; metadata_only keeps only lengths and hashes",
+    )
 
 
 # Response schemas
@@ -135,6 +139,7 @@ class WorkspaceResponse(BaseModel):
     llm_daily_quota: int | None = None
     tool_daily_quota: int | None = None
     require_mfa: bool = False
+    content_capture: str = "full"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -444,6 +449,10 @@ class ApiKeyLimits(BaseModel):
         max_length=MAX_API_KEY_ALLOWED_MODELS,
         description="Model refs the key may call",
     )
+    content_capture: Literal["metadata_only"] | None = Field(
+        default=None,
+        description="metadata_only keeps this key's calls out of run text; null follows the workspace",
+    )
 
     @field_validator("ip_allowlist")
     @classmethod
@@ -508,6 +517,7 @@ class ApiKeyResponse(BaseModel):
     daily_token_quota: int | None = None
     ip_allowlist: list[str] | None = Field(default=None, validation_alias="ip_allowlist_json")
     allowed_models: list[str] | None = Field(default=None, validation_alias="allowed_models_json")
+    content_capture: str | None = None
     last_used_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime

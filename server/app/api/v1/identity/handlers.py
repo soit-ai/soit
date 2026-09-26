@@ -325,6 +325,7 @@ def _workspace_response(workspace: Any) -> WorkspaceResponse:
         llm_daily_quota=workspace.llm_daily_quota,
         tool_daily_quota=workspace.tool_daily_quota,
         require_mfa=bool(getattr(workspace, "require_mfa", False)),
+        content_capture=getattr(workspace, "content_capture", None) or "full",
         created_at=workspace.created_at,
     )
 

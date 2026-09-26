@@ -46,6 +46,7 @@ class _WorkspaceAccessResolver:
             tool_rate_limit_per_minute=None,
             llm_daily_quota=None,
             tool_daily_quota=None,
+            content_capture="full",
         )
 
 
@@ -699,3 +700,22 @@ async def test_the_allowlist_sees_the_client_behind_a_trusted_proxy(async_db, mo
     # The client wrote the left entry itself; only the proxy's hop counts.
     with pytest.raises(ForbiddenError):
         await resolver.resolve_from_request(proxied("203.0.113.9, 198.51.100.1"))
+
+@pytest.mark.asyncio
+async def test_a_key_can_tighten_but_not_loosen_content_capture(async_db, monkeypatch) -> None:
+    await _issue_key(async_db, "sk_private-key", content_capture="metadata_only")
+    await _issue_key(async_db, "sk_ordinary-key")
+    _bind_sessions(async_db, monkeypatch)
+
+    class _PrivateWorkspace(_WorkspaceAccessResolver):
+        async def resolve(self, tenant_id, workspace_id, user_id, session_id=None):
+            access = await super().resolve(tenant_id, workspace_id, user_id, session_id)
+            access.content_capture = "metadata_only"
+            return access
+
+    open_workspace = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+    private_workspace = ContextResolver(_JWTManager(), workspace_access_resolver=_PrivateWorkspace())
+
+    assert (await open_workspace.resolve_from_api_key("sk_private-key")).content_capture == "metadata_only"
+    assert (await open_workspace.resolve_from_api_key("sk_ordinary-key")).content_capture == "full"
+    assert (await private_workspace.resolve_from_api_key("sk_ordinary-key")).content_capture == "metadata_only"

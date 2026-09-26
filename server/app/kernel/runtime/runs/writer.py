@@ -7,6 +7,7 @@ Prometheus) and announced on the optional best-effort ``event_bus``.
 """
 
 import asyncio
+import logging
 import re
 from datetime import UTC
 from decimal import Decimal
@@ -40,12 +41,28 @@ from app.kernel.observe.execution_metrics import (
 )
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
+from app.kernel.runtime.runs.content_capture import (
+    CAPTURE_FULL,
+    CAPTURE_METADATA_ONLY,
+    CAPTURE_MODES,
+    ContentCapture,
+    get_workspace_capture_lookup,
+)
 from app.kernel.runtime.runs.events import RunEventType
 from app.kernel.runtime.status import (
     RuntimeTransitionError,
     validate_run_transition,
     validate_step_transition,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _capture_mode(value: str | None) -> str:
+    """A known mode, or the one that keeps least for anything else."""
+    if value is None:
+        return CAPTURE_FULL
+    return value if value in CAPTURE_MODES else CAPTURE_METADATA_ONLY
 
 
 def _json_safe(value: Any) -> Any:
@@ -159,6 +176,34 @@ class TraceWriter:
         self.ctx = ctx
         self.event_bus = event_bus
         self.sandbox = sandbox
+        self._capture: ContentCapture | None = (
+            ContentCapture(_capture_mode(ctx.content_capture))
+            if getattr(ctx, "content_capture", None) is not None
+            else None
+        )
+
+    async def content_capture(self) -> ContentCapture:
+        """What this writer keeps of content, resolved once per writer.
+
+        A request context carries the mode from authentication. A context a
+        worker built itself does not, and the workspace setting is read on
+        this writer's own session; if that read fails, content is withheld
+        rather than kept against the workspace's wishes.
+        """
+        if self._capture is None:
+            self._capture = ContentCapture(await self._lookup_capture_mode())
+        return self._capture
+
+    async def _lookup_capture_mode(self) -> str:
+        lookup = get_workspace_capture_lookup()
+        if lookup is None or not isinstance(self.db, AsyncSession):
+            return CAPTURE_FULL
+        try:
+            mode = await lookup(self.db, self.ctx.tenant_id, self.ctx.workspace_id)
+        except Exception:
+            logger.warning("Content capture lookup failed; withholding content", exc_info=True)
+            return CAPTURE_METADATA_ONLY
+        return _capture_mode(mode)
 
     async def release_before_wait(self) -> None:
         """Commit what is staged before a long wait on an external provider.
@@ -263,6 +308,7 @@ class TraceWriter:
         """
         resolved_subject_kind = subject_kind or mode
         resolved_subject_id = subject_id
+        input_summary = (await self.content_capture()).text(input_summary)
 
         if attempt_no < 1:
             raise ValueError("attempt_no must be at least 1")
@@ -362,6 +408,9 @@ class TraceWriter:
         Returns:
             Updated Run instance.
         """
+        capture = await self.content_capture()
+        output_summary = capture.text(output_summary)
+        error_message = capture.text(error_message)
         run = await self.db.get(Run, run_id)
         if not run:
             raise ValueError(f"Run not found: {run_id}")
@@ -513,6 +562,7 @@ class TraceWriter:
         Returns:
             Created RunStep instance.
         """
+        input_summary = (await self.content_capture()).text(input_summary)
         step = RunStep(
             id=generate_step_id(),
             tenant_id=self.ctx.tenant_id,
@@ -572,6 +622,10 @@ class TraceWriter:
         Returns:
             Updated RunStep instance.
         """
+        capture = await self.content_capture()
+        output_summary = capture.text(output_summary)
+        error_message = capture.text(error_message)
+        error_details = capture.details(error_details)
         step = await self.db.get(RunStep, step_id)
         if not step:
             raise ValueError(f"Step not found: {step_id}")

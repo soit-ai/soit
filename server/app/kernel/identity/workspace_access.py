@@ -14,6 +14,8 @@ class WorkspaceAccess:
     tool_rate_limit_per_minute: int | None = None
     llm_daily_quota: int | None = None
     tool_daily_quota: int | None = None
+    content_capture: str = "full"
+    """What runs in the workspace record of content: full or metadata_only."""
 
 
 class WorkspaceAccessResolver(Protocol):

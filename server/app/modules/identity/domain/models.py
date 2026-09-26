@@ -188,6 +188,13 @@ class Workspace(SQLModel, table=True):
     intent -- they enrol and come back.
     """
 
+    content_capture: str = Field(default="full")
+    """What runs record of content: ``full`` or ``metadata_only``.
+
+    ``metadata_only`` replaces run and step summaries, previews and error
+    text with a length and hash; statuses, codes, tokens and costs remain.
+    """
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 
@@ -301,6 +308,11 @@ class ApiKey(SQLModel, table=True):
         default=None, sa_column=Column(JSON, nullable=True)
     )
     """Model refs the key may call; None allows every model of the workspace."""
+
+    content_capture: str | None = Field(default=None, nullable=True)
+    """``metadata_only`` keeps this key's calls out of run text even where the
+    workspace keeps content; None follows the workspace. It cannot loosen a
+    workspace that is already metadata_only."""
 
     last_used_at: datetime | None = Field(default=None)
     """Last used timestamp."""

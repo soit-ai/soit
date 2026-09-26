@@ -16,6 +16,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.workspace_access import WorkspaceAccessResolver
+from app.kernel.runtime.runs.content_capture import stricter_capture
 from app.settings.settings import settings
 
 security = HTTPBearer()
@@ -140,6 +141,7 @@ class ContextResolver:
             tool_rate_limit_per_minute=access.tool_rate_limit_per_minute,
             llm_daily_quota=access.llm_daily_quota,
             tool_daily_quota=access.tool_daily_quota,
+            content_capture=access.content_capture,
         )
 
     async def resolve_from_api_key(
@@ -233,6 +235,7 @@ class ContextResolver:
                 llm_daily_quota=access.llm_daily_quota,
                 tool_daily_quota=access.tool_daily_quota,
                 api_key_id=key.id,
+                content_capture=stricter_capture(access.content_capture, key.content_capture),
                 api_key_rate_limit_per_minute=key.rate_limit_per_minute,
                 api_key_daily_request_quota=key.daily_request_quota,
                 api_key_daily_token_quota=key.daily_token_quota,
@@ -319,4 +322,5 @@ class ContextResolver:
             tool_rate_limit_per_minute=access.tool_rate_limit_per_minute,
             llm_daily_quota=access.llm_daily_quota,
             tool_daily_quota=access.tool_daily_quota,
+            content_capture=access.content_capture,
         )

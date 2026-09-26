@@ -31,7 +31,13 @@ WORKSPACE = "workspace-access"
 USER = "user-access"
 
 
-async def _seed(async_db, *, require_mfa: bool = False, workspace_llm_rate: int | None = None) -> None:
+async def _seed(
+    async_db,
+    *,
+    require_mfa: bool = False,
+    workspace_llm_rate: int | None = None,
+    content_capture: str = "full",
+) -> None:
     async_db.add(Tenant(id=TENANT, name="Access tenant", llm_rate_limit_per_minute=30, tool_daily_quota=500))
     async_db.add(
         Workspace(
@@ -40,6 +46,7 @@ async def _seed(async_db, *, require_mfa: bool = False, workspace_llm_rate: int 
             name="Access workspace",
             require_mfa=require_mfa,
             llm_rate_limit_per_minute=workspace_llm_rate,
+            content_capture=content_capture,
         )
     )
     async_db.add(TenantMembership(tenant_id=TENANT, user_id=USER, role="Admin"))
@@ -161,3 +168,14 @@ async def test_mfa_requirement_needs_an_active_enrolment(async_db, resolver) -> 
     async_db.add(enrolment)
     await async_db.commit()
     assert await resolver.resolve(TENANT, WORKSPACE, USER) is not None
+
+@pytest.mark.asyncio
+async def test_the_workspace_content_capture_rides_along(async_db, resolver, statements) -> None:
+    await _seed(async_db, content_capture="metadata_only")
+    statements.clear()
+
+    access = await resolver.resolve(TENANT, WORKSPACE, USER)
+
+    assert access is not None
+    assert access.content_capture == "metadata_only"
+    assert len(statements) == 1

@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- Content-free runs. A workspace's `content_capture` can be `metadata_only`
+  (`PATCH /api/v1/workspaces/{id}`), and an API key can ask for it on its own
+  calls. Run and step summaries, output previews and error text are then
+  stored as a length and a SHA-256 prefix instead of the text; statuses,
+  error codes, tokens, costs and timings are recorded as before, and callers
+  still get their answers. A key can tighten its workspace's mode but not
+  loosen it, a workspace admin may switch a workspace to `metadata_only`, and
+  only a tenant admin may switch it back. Work a worker starts on its own
+  reads the workspace setting, and withholds content if it cannot. Migration
+  `20260927120000` adds the columns; existing workspaces keep content.
 - Virtual models: a workspace name, called as `vmodel:{slug}`, for an
   ordered list of up to eight `model:` refs
   (`/api/v1/modelhub/virtual-models`, migration `20260927110000`). A call

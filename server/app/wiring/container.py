@@ -334,6 +334,13 @@ class Container:
         register_egress_scope_policy_provider(IdentityEgressScopePolicyProvider())
         register_egress_block_recorder(AuditEgressBlockRecorder())
 
+        from app.kernel.runtime.runs.content_capture import (
+            register_workspace_capture_lookup,
+        )
+        from app.modules.identity.infra.content_capture import workspace_content_capture
+
+        register_workspace_capture_lookup(workspace_content_capture)
+
     def register_singleton(self, name: str, instance: Any) -> None:
         """Register a singleton instance.
 
@@ -821,6 +828,7 @@ def reset_container() -> None:
     """
     global _container
     from app.kernel.identity.permissions import reset_resource_grant_provider
+    from app.kernel.runtime.runs.content_capture import reset_workspace_capture_lookup
     from app.kernel.security.egress import (
         reset_egress_block_recorder,
         reset_egress_scope_policy_provider,
@@ -829,4 +837,5 @@ def reset_container() -> None:
     reset_resource_grant_provider()
     reset_egress_scope_policy_provider()
     reset_egress_block_recorder()
+    reset_workspace_capture_lookup()
     _container = None

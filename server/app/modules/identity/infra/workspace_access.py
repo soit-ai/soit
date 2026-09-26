@@ -67,6 +67,7 @@ class DatabaseWorkspaceAccessResolver:
                 workspace_llm_quota,
                 workspace_tool_quota,
                 require_mfa,
+                content_capture,
                 mfa_active,
             ) = row
             if session_id:
@@ -98,6 +99,7 @@ class DatabaseWorkspaceAccessResolver:
                 tool_daily_quota=(
                     workspace_tool_quota if workspace_tool_quota is not None else tenant_tool_quota
                 ),
+                content_capture=content_capture or "full",
             )
         finally:
             await db.close()
@@ -132,6 +134,7 @@ class DatabaseWorkspaceAccessResolver:
                 Workspace.llm_daily_quota,
                 Workspace.tool_daily_quota,
                 Workspace.require_mfa,
+                Workspace.content_capture,
                 mfa_active,
             )
             .select_from(Tenant)
