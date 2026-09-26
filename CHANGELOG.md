@@ -305,6 +305,10 @@ record for operators.
 
 ### Fixed
 
+- The `local-embedding` extra moves to torch 2.13.0 and torchvision 0.28.0,
+  past the torch advisories that affect every release up to 2.12.1, and
+  drops the torchaudio pin nothing imports. The pin was also what held torch
+  at 2.6.0: it stopped Dependabot's security update from resolving.
 - The quickstart API runs the durable interaction worker
   (`RESPONSE_INTERACTION_WORKER_ENABLED=true`). Without it, queued
   interactions such as task retries and approval resumes were accepted and
