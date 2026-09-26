@@ -14,6 +14,12 @@ record for operators.
 
 ### Added
 
+- A ledger contract, `kernel/specs/v1/ledger_spec.schema.json` (version
+  1.0): the one shape in which runs, run steps, cost entries, audit entries
+  and outbox events leave SOIT, each record wrapped with the contract version
+  it was written in. Timestamps are UTC with a `Z`, amounts are decimal
+  strings, and outbox delivery state stays inside. A contract test fails when
+  a ledger table gains a column the contract does not account for.
 - Tenant-wide knowledge sharing. A knowledge base with `tenant` visibility,
   which only a workspace owner or admin may set, is readable from every other
   workspace of the tenant: `GET /api/v1/knowledge/shared` lists what other
