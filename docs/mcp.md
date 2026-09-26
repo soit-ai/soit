@@ -22,21 +22,41 @@ workspace in `X-Workspace-Id`. Listing and calling tools take a credential
 that may write in the workspace (a Dev, Admin or Owner, and a key with the
 `write` scope); a read-only credential is offered no tools.
 
-## Stateless
+## Protocol revisions
 
-The endpoint implements the stateless form of the transport, as the current
-MCP revisions (up to `2025-11-25`) allow:
+The endpoint is stateless whichever revision a client speaks:
 
 - Every `POST /mcp` carries one JSON-RPC message and is answered on its own,
-  with `application/json`. No `Mcp-Session-Id` is issued and none is needed,
-  so any API instance can answer any request.
+  with `application/json`. No session is kept, no `Mcp-Session-Id` is issued
+  and one a client sends is ignored, so any API instance can answer any
+  request.
 - `GET /mcp` (a server-to-client stream) and `DELETE /mcp` (ending a session)
   answer `405`: the server sends no notifications and makes no requests of the
   client.
-- `initialize` negotiates the protocol version: the client's, when supported,
-  otherwise the newest SOIT supports. A request whose `MCP-Protocol-Version`
-  header names an unsupported version is refused with `400`.
 - Notifications are accepted with `202`; batches are refused.
+- A request naming a version SOIT does not support, in its
+  `MCP-Protocol-Version` header or its `_meta`, is refused with `400` and
+  `UnsupportedProtocolVersion` (`-32022`), whose `data` lists the supported
+  versions.
+
+**`2026-07-28`, the stateless revision.** There is no handshake. Each request
+declares `io.modelcontextprotocol/protocolVersion` and
+`io.modelcontextprotocol/clientCapabilities` in `params._meta` (without them it
+is malformed: `400`, `-32602`), and repeats itself in headers:
+`MCP-Protocol-Version`, `Mcp-Method`, and for `tools/call` `Mcp-Name` with the
+tool's name (plain, or `=?base64?…?=` encoded). A header that is missing or
+disagrees with the body is refused with `400` and `HeaderMismatch`
+(`-32020`). `server/discover` returns the supported versions, capabilities and
+instructions. Every result carries `resultType: "complete"` and the server's
+identity in `_meta` (`io.modelcontextprotocol/serverInfo`); `server/discover`
+and `tools/list` say how long they may be reused (`ttlMs`) and that only the
+caller may cache them (`cacheScope: "private"`), because the tool list is the
+credential's own.
+
+**Earlier revisions (`2024-11-05` to `2025-11-25`).** Clients open with
+`initialize`, which answers with the client's version when supported and
+otherwise the latest of these; `ping` is answered. Results keep those
+revisions' shapes.
 
 ## Tools
 

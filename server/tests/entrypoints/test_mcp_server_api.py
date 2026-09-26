@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import re
 from typing import Any
@@ -267,3 +268,118 @@ async def test_a_browser_on_another_origin_is_refused(async_client, monkeypatch)
     assert foreign.status_code == 403
     assert same.status_code == 200
     assert listed.status_code == 200
+
+
+# ------------------------------------------------ the 2026-07-28 revision ---
+
+MODERN = "2026-07-28"
+
+
+async def _modern(async_client, method: str, params: dict[str, Any] | None = None, **headers: str):
+    """A request as a client of the stateless revision sends it: no handshake."""
+    body = {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": method,
+        "params": {
+            **(params or {}),
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MODERN,
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "io.modelcontextprotocol/clientInfo": {"name": "test-client", "version": "1"},
+            },
+        },
+    }
+    sent = {"MCP-Protocol-Version": MODERN, "Mcp-Method": method}
+    if method == "tools/call":
+        sent["Mcp-Name"] = str((params or {}).get("name"))
+    sent.update(headers)
+    return await async_client.post("/mcp", json=body, headers=sent)
+
+
+async def test_a_stateless_client_discovers_the_server_without_a_handshake(async_client) -> None:
+    response = await _modern(async_client, "server/discover")
+
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert MODERN in result["supportedVersions"] and "2025-11-25" in result["supportedVersions"]
+    assert result["capabilities"]["tools"] == {"listChanged": False}
+    assert (result["resultType"], result["cacheScope"]) == ("complete", "private")
+    assert result["ttlMs"] > 0
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "soit"
+
+
+async def test_a_stateless_client_lists_and_calls_tools_straight_away(async_client, async_db) -> None:
+    listed = (await _modern(async_client, "tools/list")).json()["result"]
+    called = await _modern(async_client, "tools/call", {"name": "function_random_int", "arguments": {"min": 2, "max": 2}})
+
+    assert (listed["resultType"], listed["cacheScope"], listed["ttlMs"]) == ("complete", "private", 60000)
+    assert "function_time_now" in {tool["name"] for tool in listed["tools"]}
+    assert listed["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "soit"
+    result = called.json()["result"]
+    assert (result["resultType"], result["isError"], result["structuredContent"]) == ("complete", False, {"value": 2})
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "soit"
+    run = await async_db.get(Run, result["_meta"]["ai.soit/run_id"])
+    assert run.mode == "tool"
+
+
+async def test_the_headers_must_repeat_the_request(async_client) -> None:
+    call = {"name": "function_random_int", "arguments": {"min": 1, "max": 1}}
+    encoded = "=?base64?" + base64.b64encode(b"function_random_int").decode() + "?="
+
+    no_method = await _modern(async_client, "tools/list", **{"Mcp-Method": ""})
+    wrong_name = await _modern(async_client, "tools/call", call, **{"Mcp-Name": "function_time_now"})
+    wrong_version = await _modern(async_client, "tools/list", **{"MCP-Protocol-Version": "2025-11-25"})
+    encoded_name = await _modern(async_client, "tools/call", call, **{"Mcp-Name": encoded})
+
+    for response in (no_method, wrong_name, wrong_version):
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == -32020
+    assert encoded_name.status_code == 200
+    assert encoded_name.json()["result"]["structuredContent"] == {"value": 1}
+
+
+async def test_a_request_without_its_version_and_capabilities_is_malformed(async_client) -> None:
+    response = await async_client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}},
+        headers={"MCP-Protocol-Version": MODERN, "Mcp-Method": "tools/list"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == -32602
+
+
+async def test_an_unknown_version_is_answered_with_the_ones_supported(async_client) -> None:
+    response = await async_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2031-01-01",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        },
+        headers={"MCP-Protocol-Version": "2031-01-01", "Mcp-Method": "tools/list"},
+    )
+
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == -32022
+    assert error["data"]["requested"] == "2031-01-01"
+    assert MODERN in error["data"]["supported"]
+
+
+async def test_the_stateless_revision_has_no_handshake_ping_or_session(async_client) -> None:
+    ping = await _modern(async_client, "ping")
+    initialize = await _modern(async_client, "initialize", {"protocolVersion": MODERN, "capabilities": {}})
+    with_session = await _modern(async_client, "tools/list", **{"Mcp-Session-Id": "left-over-session"})
+
+    assert ping.json()["error"]["code"] == -32601
+    assert initialize.json()["error"]["code"] == -32601
+    assert with_session.status_code == 200
+    assert "mcp-session-id" not in with_session.headers

@@ -26,8 +26,12 @@ record for operators.
   starts one and shows past replays by agent. Migration `20260927190000`
   adds the table. See `docs/model-replays.md`.
 - SOIT is an MCP server. `POST /mcp` serves a workspace's tools over the
-  streamable HTTP transport in its stateless form (JSON answers, no session,
-  no server stream), negotiating protocol versions up to `2025-11-25`.
+  streamable HTTP transport, statelessly (JSON answers, no session, no server
+  stream), in the `2026-07-28` revision (no handshake: version and
+  capabilities in each request's `_meta`, `Mcp-Method` and `Mcp-Name`
+  headers checked against the body, `server/discover`, `resultType` and
+  cache hints on results, the revision's error codes) and in the earlier ones
+  that open with `initialize`.
   Clients connect with a SOIT API key as a bearer token; `tools/list` offers
   the tools the credential may invoke (none to a read-only one, only its
   allowed tools to a limited key), under names MCP clients and model APIs
