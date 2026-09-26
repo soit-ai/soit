@@ -471,7 +471,7 @@ async def _image_response(
             ctx=ctx,
             llm_port=llm_port,
             trace_writer=trace_writer,
-            content_safety=container.get_content_safety_port(ctx),
+            content_safety=container.get_content_safety_port(ctx, trace_writer),
         )
         await trace_writer.update_run_status(
             run_id, "succeeded", output_summary=f"images={len(outcome.results)}"

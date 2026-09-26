@@ -95,6 +95,20 @@ class WorkspaceUpdate(BaseModel):
         None,
         description="What runs record of content; metadata_only keeps only lengths and hashes",
     )
+    pii_action_inbound: Literal["observe", "redact", "block"] | None = Field(
+        None,
+        description=(
+            "What content safety does with personal data entering the runtime here; "
+            "null follows the deployment"
+        ),
+    )
+    pii_action_outbound: Literal["observe", "redact", "block"] | None = Field(
+        None,
+        description=(
+            "What content safety does with personal data in model answers and tool "
+            "arguments here; null follows the deployment"
+        ),
+    )
 
 
 # Response schemas
@@ -140,6 +154,10 @@ class WorkspaceResponse(BaseModel):
     tool_daily_quota: int | None = None
     require_mfa: bool = False
     content_capture: str = "full"
+    pii_action_inbound: str | None = None
+    pii_action_outbound: str | None = None
+    pii_action_default: str | None = None
+    """The deployment's PII action, which a null override follows."""
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

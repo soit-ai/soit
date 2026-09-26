@@ -241,7 +241,7 @@ async def _submit(
             llm_port=container.get_llm_port(ctx=ctx, trace_writer=trace_writer),
             trace_writer=trace_writer,
             storage_port=container.get_storage_port(ctx=ctx),
-            content_safety=container.get_content_safety_port(ctx),
+            content_safety=container.get_content_safety_port(ctx, trace_writer),
         )
         await trace_writer.update_run_status(
             run.id,

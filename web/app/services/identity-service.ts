@@ -58,10 +58,18 @@ export interface WorkspaceInfo {
   require_mfa?: boolean
   /** `metadata_only` stores run text as a length and a hash instead of the text. */
   content_capture?: WorkspaceContentCapture
+  /** What content safety does with personal data entering the runtime; null follows the deployment. */
+  pii_action_inbound?: PiiAction | null
+  /** The same for model answers and tool arguments. */
+  pii_action_outbound?: PiiAction | null
+  /** The deployment's action, which a null override follows. */
+  pii_action_default?: PiiAction | null
   created_at: string
 }
 
 export type WorkspaceContentCapture = 'full' | 'metadata_only'
+
+export type PiiAction = 'observe' | 'redact' | 'block'
 
 export interface WorkspaceMember {
   user_id: string
@@ -217,6 +225,9 @@ export const updateWorkspace = (
     require_mfa?: boolean
     /** Admins may switch to metadata_only; only a tenant admin switches back. */
     content_capture?: WorkspaceContentCapture
+    /** Looser than the deployment takes a tenant admin; null follows the deployment. */
+    pii_action_inbound?: PiiAction | null
+    pii_action_outbound?: PiiAction | null
   },
   config?: RequestConfigWithToast,
 ): Promise<WorkspaceInfo> => {

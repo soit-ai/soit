@@ -379,6 +379,11 @@ class Container:
 
         register_workspace_capture_lookup(workspace_content_capture)
 
+        from app.kernel.safety.workspace_overrides import register_workspace_pii_lookup
+        from app.modules.identity.infra.safety_overrides import workspace_pii_actions
+
+        register_workspace_pii_lookup(workspace_pii_actions)
+
     def register_singleton(self, name: str, instance: Any) -> None:
         """Register a singleton instance.
 
@@ -450,7 +455,7 @@ class Container:
             timeout_seconds=settings.llm_timeout_seconds,
             image_timeout_seconds=settings.llm_image_timeout_seconds,
             image_max_retries=settings.llm_image_max_retries,
-            content_safety=self.get_content_safety_port(ctx),
+            content_safety=self.get_content_safety_port(ctx, trace_writer),
             inspect_inbound=settings.content_safety_inspect_inbound,
             inspect_outbound=settings.content_safety_inspect_outbound,
             virtual_models=self.get("virtual_model_resolver"),
@@ -492,11 +497,17 @@ class Container:
             ),
         )
 
-    def get_content_safety_port(self, ctx: RequestContext):
+    def get_content_safety_port(
+        self,
+        ctx: RequestContext,
+        trace_writer: TraceWriter | None = None,
+    ):
         """Return the content safety provider, or None when inspection is off.
 
         None means nothing inspects content. Callers must treat that as "no
-        such capability" rather than "everything is safe".
+        such capability" rather than "everything is safe". The built-in rules
+        apply the workspace's PII overrides, read through the trace writer's
+        session when there is one.
         """
         if not settings.content_safety_enabled:
             return None
@@ -526,9 +537,20 @@ class Container:
                 logger.warning("Unknown content safety action %r; using %s", value, fallback.value)
                 return fallback
 
+        from app.kernel.safety.workspace_overrides import get_workspace_pii_lookup
+
+        lookup = get_workspace_pii_lookup()
+        session = trace_writer.db if trace_writer is not None else None
+
+        async def _workspace_pii_actions() -> dict[str, str | None]:
+            if lookup is None:
+                return {}
+            return await lookup(session, ctx.tenant_id, ctx.workspace_id)
+
         return RuleContentSafetyPort(
             secret_action=_action(settings.content_safety_secret_action, SafetyAction.REDACT),
             pii_action=_action(settings.content_safety_pii_action, SafetyAction.OBSERVE),
+            pii_overrides=_workspace_pii_actions,
         )
 
     def get_mail_port(self):
@@ -892,6 +914,7 @@ def reset_container() -> None:
     global _container
     from app.kernel.identity.permissions import reset_resource_grant_provider
     from app.kernel.runtime.runs.content_capture import reset_workspace_capture_lookup
+    from app.kernel.safety.workspace_overrides import reset_workspace_pii_lookup
     from app.kernel.security.egress import (
         reset_egress_block_recorder,
         reset_egress_scope_policy_provider,
@@ -901,4 +924,5 @@ def reset_container() -> None:
     reset_egress_scope_policy_provider()
     reset_egress_block_recorder()
     reset_workspace_capture_lookup()
+    reset_workspace_pii_lookup()
     _container = None

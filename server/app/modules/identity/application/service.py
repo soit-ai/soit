@@ -100,6 +100,9 @@ PASSWORD_RESET_MINUTES = 30
 EMAIL_VERIFICATION_MINUTES = 60 * 24
 """Confirming an address is not urgent, so the link lasts a day."""
 
+_PII_ACTION_RANK = {"observe": 0, "redact": 1, "block": 2}
+"""How strictly each content safety action treats personal data."""
+
 INVITATION_DAYS = 14
 """How long an offer of membership stays open."""
 
@@ -1586,8 +1589,40 @@ class IdentityService:
                     "Workspace admin role required to change what runs keep of content"
                 )
             workspace.content_capture = data.content_capture
+        self._apply_pii_actions(workspace, data, ctx)
         workspace.updated_at = utc_now()
         return await repo.update(workspace)
+
+    @staticmethod
+    def _apply_pii_actions(workspace: Workspace, data: WorkspaceUpdate, ctx: RequestContext) -> None:
+        """Set the workspace's PII overrides; null returns one to the deployment.
+
+        Handling personal data more strictly than the deployment is a workspace
+        admin's call. Handling it more loosely is a privacy decision for the
+        tenant, the same bar as keeping run content again.
+        """
+        fields = [
+            field
+            for field in ("pii_action_inbound", "pii_action_outbound")
+            if field in data.model_fields_set
+        ]
+        if not fields:
+            return
+        if not (ctx.can_govern() or ctx.is_tenant_admin()):
+            raise ValidationError(
+                "Workspace admin role required to change how personal data is handled"
+            )
+        from app.settings.settings import settings
+
+        floor = _PII_ACTION_RANK.get(settings.content_safety_pii_action, 0)
+        for field in fields:
+            action = getattr(data, field)
+            if action is not None and _PII_ACTION_RANK[action] < floor and not ctx.is_tenant_admin():
+                raise ValidationError(
+                    "Tenant admin role required to handle personal data more loosely "
+                    "than the deployment"
+                )
+            setattr(workspace, field, action)
 
     async def get_user_workspace_role(
         self,

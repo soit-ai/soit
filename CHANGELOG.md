@@ -12,6 +12,22 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- A workspace can set what the built-in content safety rules do with
+  personal data entering the runtime (prompts, retrieved text) and leaving it
+  (model answers, tool arguments), apart from the deployment's
+  `CONTENT_SAFETY_PII_ACTION`: `observe`, `redact` or `block`, per direction
+  (`pii_action_inbound`, `pii_action_outbound` on
+  `PATCH /api/v1/workspaces/{id}`, and Settings › Security in the console).
+  Null follows the deployment, which the workspace reports as
+  `pii_action_default`. Workspace owners and admins may handle personal data
+  more strictly than the deployment; handling it more loosely takes a tenant
+  admin. Credentials keep the deployment's action, and the override applies
+  to the built-in provider, not to an external classifier. Migration
+  `20260927170000` adds the columns; existing workspaces follow the
+  deployment.
+
 ## [1.2.0] - 2026-09-27
 
 ### Added

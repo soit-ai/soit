@@ -27,8 +27,10 @@ Because a pattern can be wrong, the defaults are asymmetric:
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -42,6 +44,12 @@ from app.kernel.ports.safety.interface import (
 )
 
 PROVIDER = "builtin.rules"
+
+logger = logging.getLogger(__name__)
+
+PiiOverrides = Callable[[], Awaitable[Mapping[str, str | None]]]
+"""Returns a workspace's PII action per direction (``inbound``, ``outbound``);
+a missing or null entry follows the deployment action."""
 
 
 class SafetyAction(str, Enum):
@@ -199,6 +207,10 @@ class RuleContentSafetyPort(ContentSafetyPort):
     verdicts are remembered per process. Every model call re-inspects the
     whole prompt, which on a long conversation means re-scanning the same
     history turn after turn; with the cache each message is scanned once.
+
+    A workspace may override the PII action for content entering or leaving
+    the runtime. The overrides are read once per port, on the first
+    inspection, and a lookup that fails leaves the deployment action in force.
     """
 
     def __init__(
@@ -206,12 +218,43 @@ class RuleContentSafetyPort(ContentSafetyPort):
         *,
         secret_action: SafetyAction = SafetyAction.REDACT,
         pii_action: SafetyAction = SafetyAction.OBSERVE,
+        pii_overrides: PiiOverrides | None = None,
     ) -> None:
         self.secret_action = secret_action
         self.pii_action = pii_action
+        self._pii_overrides = pii_overrides
+        self._pii_by_direction: dict[SafetyDirection, SafetyAction] | None = None
 
-    def _action_for(self, category: str) -> SafetyAction:
-        return self.secret_action if category.startswith("secret.") else self.pii_action
+    async def pii_action_for(self, direction: SafetyDirection) -> SafetyAction:
+        """The PII action in force for one direction in this workspace."""
+        if self._pii_by_direction is None:
+            self._pii_by_direction = await self._resolve_pii_overrides()
+        return self._pii_by_direction.get(direction, self.pii_action)
+
+    async def _resolve_pii_overrides(self) -> dict[SafetyDirection, SafetyAction]:
+        if self._pii_overrides is None:
+            return {}
+        try:
+            configured = await self._pii_overrides()
+        except Exception:
+            logger.warning(
+                "Workspace PII actions could not be read; the deployment action applies",
+                exc_info=True,
+            )
+            return {}
+        resolved: dict[SafetyDirection, SafetyAction] = {}
+        for direction in SafetyDirection:
+            value = configured.get(direction.value)
+            if not value:
+                continue
+            try:
+                resolved[direction] = SafetyAction(value)
+            except ValueError:
+                logger.warning("Unknown workspace PII action %r ignored", value)
+        return resolved
+
+    def _action_for(self, category: str, pii_action: SafetyAction) -> SafetyAction:
+        return self.secret_action if category.startswith("secret.") else pii_action
 
     async def inspect(
         self,
@@ -223,20 +266,28 @@ class RuleContentSafetyPort(ContentSafetyPort):
         """Inspect one piece of content and return the verdict to apply."""
         if not text:
             return SafetyVerdict(decision=SafetyDecision.ALLOW, provider=PROVIDER)
+        pii_action = await self.pii_action_for(direction)
         if len(text) > _VERDICT_CACHE_MAX_TEXT:
-            return self._inspect_uncached(text, direction)
-        key = _cache_key(text, direction, self.secret_action, self.pii_action)
+            return self._inspect_uncached(text, direction, pii_action)
+        # Keyed by the actions in force, so a workspace override never reuses
+        # a verdict reached under the deployment's action, or the reverse.
+        key = _cache_key(text, direction, self.secret_action, pii_action)
         cached = _verdict_cache.get(key)
         if cached is not None:
             _verdict_cache.move_to_end(key)
             return cached
-        verdict = self._inspect_uncached(text, direction)
+        verdict = self._inspect_uncached(text, direction, pii_action)
         _verdict_cache[key] = verdict
         if len(_verdict_cache) > _VERDICT_CACHE_SIZE:
             _verdict_cache.popitem(last=False)
         return verdict
 
-    def _inspect_uncached(self, text: str, direction: SafetyDirection) -> SafetyVerdict:
+    def _inspect_uncached(
+        self,
+        text: str,
+        direction: SafetyDirection,
+        pii_action: SafetyAction,
+    ) -> SafetyVerdict:
         matches = scan_text(text)
         if not matches:
             return SafetyVerdict(decision=SafetyDecision.ALLOW, provider=PROVIDER)
@@ -246,7 +297,7 @@ class RuleContentSafetyPort(ContentSafetyPort):
         decision_action = SafetyAction.OBSERVE
         redactable: list[tuple[_Rule, str]] = []
         for rule, value in matches:
-            action = self._action_for(rule.category)
+            action = self._action_for(rule.category, pii_action)
             if _ORDER[action] > _ORDER[decision_action]:
                 decision_action = action
             if action is SafetyAction.REDACT:

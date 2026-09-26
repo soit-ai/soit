@@ -59,7 +59,7 @@ async def run_image_job_detached(
                 llm_port=container.get_llm_port(ctx=ctx, trace_writer=trace_writer),
                 trace_writer=trace_writer,
                 storage_port=container.get_storage_port(ctx=ctx),
-                content_safety=container.get_content_safety_port(ctx),
+                content_safety=container.get_content_safety_port(ctx, trace_writer),
             )
             summary = f"images={len(outcome.results)}"
             if outcome.safety:

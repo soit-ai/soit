@@ -321,6 +321,8 @@ async def change_password(
 
 def _workspace_response(workspace: Any) -> WorkspaceResponse:
     """Map a workspace domain object without importing the domain layer."""
+    from app.settings.settings import settings
+
     return WorkspaceResponse(
         id=workspace.id,
         tenant_id=workspace.tenant_id,
@@ -333,6 +335,9 @@ def _workspace_response(workspace: Any) -> WorkspaceResponse:
         tool_daily_quota=workspace.tool_daily_quota,
         require_mfa=bool(getattr(workspace, "require_mfa", False)),
         content_capture=getattr(workspace, "content_capture", None) or "full",
+        pii_action_inbound=getattr(workspace, "pii_action_inbound", None),
+        pii_action_outbound=getattr(workspace, "pii_action_outbound", None),
+        pii_action_default=settings.content_safety_pii_action,
         created_at=workspace.created_at,
     )
 

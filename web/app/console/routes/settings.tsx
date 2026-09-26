@@ -74,6 +74,7 @@ import {
   updateServicePrincipal,
   updateWorkspace,
   updateWorkspaceMemberRole,
+  type PiiAction,
   type ServicePrincipal,
   type ServicePrincipalRole,
   type WorkspaceContentCapture,
@@ -489,6 +490,27 @@ export default function ConsoleSettings() {
       )
     },
     onError: onWriteError('Failed to change what runs record'),
+  })
+
+  const piiMutation = useMutation<
+    unknown,
+    unknown,
+    { field: 'pii_action_inbound' | 'pii_action_outbound'; action: PiiAction | null }
+  >({
+    mutationKey: ['console', 'settings', 'pii-actions'],
+    mutationFn: ({ field, action }) =>
+      updateWorkspace(
+        workspaceId,
+        field === 'pii_action_inbound'
+          ? { pii_action_inbound: action }
+          : { pii_action_outbound: action },
+        { suppressErrorToast: true },
+      ),
+    onSuccess: () => {
+      void workspaceQuery.refetch()
+      toast.success(t('console.settings.securityPane.piiSaved'))
+    },
+    onError: onWriteError('Failed to change how personal data is handled'),
   })
 
   // Closing an account is a request with a pause, not a button that deletes.
@@ -1472,6 +1494,49 @@ export default function ConsoleSettings() {
                 </option>
               </select>
             </div>
+            {(
+              [
+                [
+                  'pii_action_inbound',
+                  t('console.settings.securityPane.piiInbound'),
+                  t('console.settings.securityPane.piiInboundHint'),
+                ],
+                [
+                  'pii_action_outbound',
+                  t('console.settings.securityPane.piiOutbound'),
+                  t('console.settings.securityPane.piiOutboundHint'),
+                ],
+              ] as const
+            ).map(([field, label, hint]) => (
+              <div className="frow" key={field}>
+                <label>
+                  {label}
+                  <small>{hint}</small>
+                </label>
+                <select
+                  className="input"
+                  style={{ maxWidth: 280 }}
+                  aria-label={label}
+                  value={workspaceQuery.data?.[field] ?? ''}
+                  disabled={!workspaceQuery.data || piiMutation.isPending}
+                  onChange={(event) =>
+                    piiMutation.mutate({
+                      field,
+                      action: (event.target.value || null) as PiiAction | null,
+                    })
+                  }
+                >
+                  <option value="">
+                    {t('console.settings.securityPane.piiDeployment', {
+                      action: workspaceQuery.data?.pii_action_default ?? 'observe',
+                    })}
+                  </option>
+                  <option value="observe">{t('console.settings.securityPane.piiObserve')}</option>
+                  <option value="redact">{t('console.settings.securityPane.piiRedact')}</option>
+                  <option value="block">{t('console.settings.securityPane.piiBlock')}</option>
+                </select>
+              </div>
+            ))}
             <div className="frow">
               <label>
                 {t('console.settings.securityPane.sso')}

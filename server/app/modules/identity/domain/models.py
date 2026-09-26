@@ -195,6 +195,15 @@ class Workspace(SQLModel, table=True):
     text with a length and hash; statuses, codes, tokens and costs remain.
     """
 
+    pii_action_inbound: str | None = Field(default=None, nullable=True)
+    """What the built-in content safety rules do with personal data entering
+    the runtime here: ``observe``, ``redact`` or ``block``. None follows the
+    deployment's ``CONTENT_SAFETY_PII_ACTION``."""
+
+    pii_action_outbound: str | None = Field(default=None, nullable=True)
+    """The same for personal data leaving the runtime, in model answers and
+    tool arguments."""
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 
