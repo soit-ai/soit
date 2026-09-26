@@ -14,6 +14,20 @@ record for operators.
 
 ### Added
 
+- Budgets: spending limits for a workspace, an API key, a user or service
+  principal, or an agent, per UTC day or month, in one currency
+  (`/api/v1/billing/budgets`, migration `20260927150000`). Spend is read from
+  the daily aggregates for completed days and from the cost ledger for today,
+  and `GET /api/v1/billing/budgets/{id}/status` reports spent, remaining,
+  percent and a forecast to the end of the period. A hard-stop budget refuses
+  model and tool calls once spent, with a 402 `BUDGET_EXHAUSTED` that names
+  the budget, what it spent and when it resets, and writes the refusal to the
+  audit ledger; admitted calls hold a short reservation of the average call
+  cost, so concurrent callers overshoot a limit by about one call at most.
+  Crossing a threshold (50, 80 and 100 percent by default) publishes one
+  `billing.budget.threshold_reached` event per budget, period and threshold.
+  Workspace owners and admins manage budgets. Tool calls now pass the same
+  credit and budget checks as model calls.
 - Daily usage aggregates. Runs record the entry they came through
   (`source`: `platform` or `gateway`) and the API key that started them, and
   a new `usage_daily_aggregates` table sums metered calls, tokens and priced

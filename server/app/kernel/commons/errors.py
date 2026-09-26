@@ -85,11 +85,18 @@ class CreditExhaustedError(KernelError):
         super().__init__("CREDIT_EXHAUSTED", message, details)
 
 
+class BudgetExhaustedError(KernelError):
+    """A hard-stop budget is spent or held by calls in flight; the call is refused."""
+
+    def __init__(self, message: str = "Budget exhausted", details: dict[str, Any] | None = None):
+        super().__init__("BUDGET_EXHAUSTED", message, details)
+
+
 # Codes whose messages describe workspace configuration the caller can fix
 # (model routing, credit) rather than runtime internals. Only these messages
 # may be shown to end users verbatim; everything else stays masked.
 _PUBLIC_SAFE_ERROR_CODE_PREFIXES = ("MODEL_",)
-_PUBLIC_SAFE_ERROR_CODES = frozenset({"CREDIT_EXHAUSTED"})
+_PUBLIC_SAFE_ERROR_CODES = frozenset({"CREDIT_EXHAUSTED", "BUDGET_EXHAUSTED"})
 
 
 def public_error_message(error: BaseException, default: str) -> str:

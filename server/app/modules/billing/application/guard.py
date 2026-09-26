@@ -40,7 +40,7 @@ class CreditBalanceGuard:
         value = row if isinstance(row, int | float | Decimal) else row[0]
         return Decimal(str(value))
 
-    async def check(self, *, operation: str) -> None:
+    async def check(self, *, operation: str, run_id: str | None = None) -> None:
         """Raise CreditExhaustedError when the workspace balance is spent."""
         if not settings.credit_enforcement_enabled:
             return

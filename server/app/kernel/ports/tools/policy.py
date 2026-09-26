@@ -19,6 +19,7 @@ from app.kernel.contracts.tool_call import (
     ToolCallResult,
 )
 from app.kernel.ports.common.audit import log_gateway_request
+from app.kernel.ports.common.credit import CreditGuard, check_spend
 from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
@@ -65,6 +66,7 @@ class ToolPolicyGateway(ToolPort):
         daily_quota: int | None = None,
         rate_limiter: RateLimiter | None = None,
         otel_tracer: Tracer | None = None,
+        credit_guard: CreditGuard | None = None,
     ):
         """Initialize policy gateway.
 
@@ -91,6 +93,7 @@ class ToolPolicyGateway(ToolPort):
         self.daily_quota = daily_quota
         self.rate_limiter = rate_limiter or RateLimiter()
         self.otel_tracer = otel_tracer or trace.get_tracer("soit.tools")
+        self.credit_guard = credit_guard
 
     def register_builtin(self, tool_ref: str, ctx: RequestContext) -> bool:
         """Register a built-in tool through the wrapped gateway when supported."""
@@ -322,6 +325,14 @@ class ToolPolicyGateway(ToolPort):
                     key=quota_key,
                     limit=self.daily_quota,
                     window_seconds=86400,
+                )
+            if self.credit_guard:
+                # Tools that bill (search, scraping, paid APIs) spend the same
+                # credit and budgets as model calls.
+                await check_spend(
+                    self.credit_guard,
+                    operation="tool",
+                    run_id=resolve_run_id(kwargs, self.ctx),
                 )
 
             async def _invoke():

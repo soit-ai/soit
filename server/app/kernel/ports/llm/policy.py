@@ -22,7 +22,7 @@ from app.kernel.commons.errors import (
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.common.credit import CreditGuard
+from app.kernel.ports.common.credit import CreditGuard, check_spend
 from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
@@ -959,7 +959,14 @@ class LLMPolicyGateway(LLMPort):
             window_seconds=86400,
         )
 
-    async def _admit(self, *, model: str, family: str, credit_operation: str) -> None:
+    async def _admit(
+        self,
+        *,
+        model: str,
+        family: str,
+        credit_operation: str,
+        run_id: str | None = None,
+    ) -> None:
         """Every check a call passes before it reaches a provider.
 
         A model the credential may not use is refused first, before the call
@@ -976,7 +983,7 @@ class LLMPolicyGateway(LLMPort):
         await self._check_daily_quota(key_suffix=family)
         await self._check_api_key_limits()
         if self.credit_guard:
-            await self.credit_guard.check(operation=credit_operation)
+            await check_spend(self.credit_guard, operation=credit_operation, run_id=run_id)
 
     def _check_model_allowed(self, model: str) -> None:
         allowed = self.ctx.allowed_models
@@ -1049,7 +1056,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ChatResponse instance.
         """
-        await self._admit(model=model, family="chat", credit_operation="chat")
+        await self._admit(model=model, family="chat", credit_operation="chat", run_id=resolve_run_id(kwargs, self.ctx))
 
         # Audit log
         step = None
@@ -1186,7 +1193,7 @@ class LLMPolicyGateway(LLMPort):
         **kwargs: Any,
     ):
         """Stream chat completion with policy enforcement."""
-        await self._admit(model=model, family="chat", credit_operation="chat")
+        await self._admit(model=model, family="chat", credit_operation="chat", run_id=resolve_run_id(kwargs, self.ctx))
 
         if not hasattr(self.gateway, "stream_chat"):
             raise ValueError("Streaming not supported by LLM gateway")
@@ -1434,7 +1441,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             EmbeddingResponse instance.
         """
-        await self._admit(model=model, family="embed", credit_operation="embed")
+        await self._admit(model=model, family="embed", credit_operation="embed", run_id=resolve_run_id(kwargs, self.ctx))
 
         step = None
         if self.trace_writer:
@@ -1559,7 +1566,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ImageGenerationResponse instance.
         """
-        await self._admit(model=model, family="image", credit_operation="generate_image")
+        await self._admit(model=model, family="image", credit_operation="generate_image", run_id=resolve_run_id(kwargs, self.ctx))
 
         step = None
         if self.trace_writer:
@@ -1715,7 +1722,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ImageGenerationResponse instance.
         """
-        await self._admit(model=model, family="image", credit_operation="edit_image")
+        await self._admit(model=model, family="image", credit_operation="edit_image", run_id=resolve_run_id(kwargs, self.ctx))
 
         step = None
         if self.trace_writer:
@@ -1871,7 +1878,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             RerankResponse instance.
         """
-        await self._admit(model=model, family="rerank", credit_operation="rerank")
+        await self._admit(model=model, family="rerank", credit_operation="rerank", run_id=resolve_run_id(kwargs, self.ctx))
 
         step = None
         if self.trace_writer:

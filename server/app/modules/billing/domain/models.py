@@ -10,7 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Index, Numeric
+from sqlalchemy import CheckConstraint, DateTime, Index, Numeric
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -89,3 +89,56 @@ class CreditLedgerEntry(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utc_now, index=True)
     """Creation timestamp."""
+
+BUDGET_SCOPES = ("workspace", "api_key", "user", "agent")
+"""What a budget limits: the whole workspace, one API key, one user or
+service principal (by user id), or one agent."""
+
+BUDGET_PERIODS = ("day", "month")
+"""UTC calendar periods; a budget's spend resets at the start of each."""
+
+
+class Budget(SQLModel, table=True):
+    """A spending limit for part of a workspace over a calendar period."""
+
+    __tablename__ = "budgets"
+    __table_args__ = (Index("ix_budgets_scope_status", "tenant_id", "workspace_id", "status"),)
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"bud_{generate_ulid()}")
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    name: str
+
+    scope_kind: str = Field(default="workspace")
+    """workspace, api_key, user or agent."""
+
+    scope_id: str | None = Field(default=None, nullable=True)
+    """The key, user or agent id; None for the workspace."""
+
+    period: str = Field(default="month")
+    """day or month, in UTC."""
+
+    amount: Decimal = Field(sa_column=Column(Numeric(18, 6), nullable=False))
+    """Limit in ``currency`` per period."""
+
+    currency: str
+    """Only usage priced in this currency counts against the budget."""
+
+    thresholds_json: list[int] = Field(
+        default_factory=lambda: [50, 80, 100], sa_column=Column(JSON, nullable=False)
+    )
+    """Percentages of the limit that raise a notification when crossed."""
+
+    hard_stop: bool = Field(default=True)
+    """Refuse calls once the limit is reached; otherwise only notify."""
+
+    status: str = Field(default="active")
+    """active or disabled."""
+
+    created_by: str
+    created_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )

@@ -119,6 +119,19 @@ def register_outbox_handlers() -> None:
         "billing.credit.deduction",
         handle_cost_recorded_credit,
     )
+
+    from app.modules.billing.handlers.on_budget_thresholds import (
+        CONSUMER_NAME as BUDGET_THRESHOLD_CONSUMER,
+    )
+    from app.modules.billing.handlers.on_budget_thresholds import (
+        handle_cost_recorded_budget,
+    )
+
+    reg.register(
+        ObserveEventType.COST_RECORDED,
+        BUDGET_THRESHOLD_CONSUMER,
+        handle_cost_recorded_budget,
+    )
     reg.register(
         CREDIT_BALANCE_LOW,
         "notification.credit.balance_low",

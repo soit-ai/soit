@@ -225,6 +225,39 @@ class AuditEgressBlockRecorder:
             await db.close()
 
 
+class AuditBudgetBlockRecorder:
+    """Write calls refused by a hard-stop budget into the audit ledger.
+
+    The refusal happens before the call's step exists and may be rolled back
+    with the call, so it is written on a session of its own.
+    """
+
+    async def record_block(self, ctx: RequestContext, *, details: dict[str, Any]) -> None:
+        from app.infra.db.session import get_async_session_local
+        from app.kernel.runtime.db.models.audit import AuditEvent
+
+        db = get_async_session_local()()
+        try:
+            db.add(
+                AuditEvent(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    event_type="billing.budget.blocked",
+                    resource_type="budget",
+                    resource_id=str(details.get("budget_id") or ""),
+                    operation=str(details.get("operation") or ""),
+                    actor_user_id=ctx.user_id,
+                    trace_id=ctx.trace_id,
+                    outcome="denied",
+                    scope="workspace",
+                    payload_json={**details, "api_key_id": ctx.api_key_id},
+                )
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+
 class Container:
     """Dependency injection container."""
 
@@ -252,6 +285,11 @@ class Container:
         self.register_factory(
             "virtual_model_resolver",
             lambda: self._create_virtual_model_resolver(),
+        )
+
+        self.register_factory(
+            "budget_reservations",
+            lambda: self._create_budget_reservations(),
         )
 
         # Tool Gateway factory
@@ -400,21 +438,15 @@ class Container:
             LLMPort instance wrapped with policy gateway.
         """
         from app.kernel.ports.llm.policy import LLMPolicyGateway
-        from app.modules.billing.application.guard import CreditBalanceGuard
 
         base_gateway = self.get("llm_port")
-        credit_guard = (
-            CreditBalanceGuard(db=trace_writer.db, ctx=ctx)
-            if trace_writer is not None
-            else None
-        )
         return LLMPolicyGateway(
             gateway=base_gateway,
             ctx=ctx,
             trace_writer=trace_writer,
             rate_limit_per_minute=ctx.llm_rate_limit_per_minute,
             daily_quota=ctx.llm_daily_quota,
-            credit_guard=credit_guard,
+            credit_guard=self.get_spend_guard(ctx, trace_writer),
             timeout_seconds=settings.llm_timeout_seconds,
             image_timeout_seconds=settings.llm_image_timeout_seconds,
             image_max_retries=settings.llm_image_max_retries,
@@ -429,6 +461,36 @@ class Container:
         from app.adapters.llm.virtual_model_resolver import DatabaseVirtualModelResolver
 
         return DatabaseVirtualModelResolver()
+
+    @staticmethod
+    def _create_budget_reservations():
+        from app.modules.billing.infra.reservations import RedisBudgetReservations
+
+        return RedisBudgetReservations()
+
+    def get_spend_guard(self, ctx: RequestContext, trace_writer: TraceWriter | None):
+        """Credit balance and budgets, checked before every metered call.
+
+        None without a trace writer: the guards read the ledger on the call's
+        own session, and a call with no session has nothing to read it on.
+        """
+        if trace_writer is None:
+            return None
+        from app.modules.billing.application.budgets import (
+            BudgetGuard,
+            CompositeCreditGuard,
+        )
+        from app.modules.billing.application.guard import CreditBalanceGuard
+
+        return CompositeCreditGuard(
+            CreditBalanceGuard(db=trace_writer.db, ctx=ctx),
+            BudgetGuard(
+                trace_writer.db,
+                ctx,
+                reservations=self.get("budget_reservations"),
+                recorder=AuditBudgetBlockRecorder(),
+            ),
+        )
 
     def get_content_safety_port(self, ctx: RequestContext):
         """Return the content safety provider, or None when inspection is off.
@@ -514,6 +576,7 @@ class Container:
             ),
             rate_limit_per_minute=ctx.tool_rate_limit_per_minute,
             daily_quota=ctx.tool_daily_quota,
+            credit_guard=self.get_spend_guard(ctx, trace_writer),
         )
 
     def get_vector_port(
