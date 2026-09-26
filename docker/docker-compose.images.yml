@@ -10,26 +10,26 @@
 # The overlay names application services only, so it also layers over
 # docker/docker-compose.app.yml when the infrastructure is your own.
 #
-# Pin a release with SOIT_IMAGE_TAG (defaults to v1.1.0). The released web
+# Pin a release with SOIT_IMAGE_TAG (defaults to v1.2.0). The released web
 # image is built with the default API base URL http://localhost:9200/api/v1;
 # to serve the web UI against non-default host ports, build the web image
 # from source with VITE_BASE_URL instead.
 
 services:
   migrate:
-    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.2.0}
 
   bootstrap:
-    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.2.0}
 
   api:
-    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.2.0}
 
   outbox-dispatcher:
-    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.2.0}
 
   knowledge-ingest-worker:
-    image: ghcr.io/soit-ai/soit/knowledge-worker:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/knowledge-worker:${SOIT_IMAGE_TAG:-v1.2.0}
 
   web:
-    image: ghcr.io/soit-ai/soit/web:${SOIT_IMAGE_TAG:-v1.1.0}
+    image: ghcr.io/soit-ai/soit/web:${SOIT_IMAGE_TAG:-v1.2.0}

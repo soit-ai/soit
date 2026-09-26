@@ -164,7 +164,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.1.0`). Images can be
+Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.2.0`). Images can be
 verified with `gh attestation verify`. The released `web` image serves the
 API at the default `http://localhost:9200/api/v1`; if you override the API
 host port, build the web image from source with `VITE_BASE_URL` instead.

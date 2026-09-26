@@ -12,7 +12,7 @@ import yaml
 from app.modules.workflow.application.capabilities import BUILDER_NODE_TYPES
 
 ROOT = Path(__file__).resolve().parents[3]
-RELEASE_VERSION = "1.1.0"
+RELEASE_VERSION = "1.2.0"
 
 
 def _env_values(path: Path) -> dict[str, str]:
@@ -59,7 +59,7 @@ def test_compose_passes_the_public_runtime_manifest_to_every_backend_process() -
     compose = yaml.safe_load((ROOT / "docker" / "docker-compose.app.yml").read_text(encoding="utf-8"))
     environment = compose["services"]["migrate"]["environment"]
 
-    assert environment["PLATFORM_VERSION"] == "${PLATFORM_VERSION:-1.1.0}"
+    assert environment["PLATFORM_VERSION"] == "${PLATFORM_VERSION:-1.2.0}"
     assert environment["PLATFORM_EDITION"] == "${PLATFORM_EDITION:-community}"
     assert environment["PLATFORM_ENTITLEMENTS"] == "${PLATFORM_ENTITLEMENTS:-[]}"
     assert environment["ENABLE_EGRESS_POLICY"] == "${ENABLE_EGRESS_POLICY:-true}"
