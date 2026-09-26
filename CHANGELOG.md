@@ -27,6 +27,12 @@ record for operators.
   LiteLLM adapters send them as image parts and the Anthropic adapter as image
   blocks; content safety still inspects the text and keeps the images when it
   rewrites it, and context-window trimming keeps them too.
+- The OpenAI adapter sends `response_format`, `stop` and `seed` to Chat
+  Completions, and a forced tool choice names the tool by the alias it was
+  offered under. On the Responses API (official GPT-5.5 models) structured
+  output travels as `text.format` and a forced tool choice in Responses form;
+  `stop` is refused there because Responses cannot honour it, and a seed,
+  best effort in Chat Completions, is not sent.
 
 ### Fixed
 

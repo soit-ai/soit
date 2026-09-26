@@ -63,6 +63,64 @@ class OpenAILLMPort(LLMPort):
         )
 
     @classmethod
+    def _chat_tool_choice(cls, tool_choice: Any, tool_name_map: dict[str, str]) -> Any:
+        # A named tool choice must use the alias the tool was offered under.
+        if isinstance(tool_choice, dict):
+            function = tool_choice.get("function")
+            if isinstance(function, dict) and function.get("name"):
+                name = str(function["name"])
+                return {
+                    **tool_choice,
+                    "function": {**function, "name": tool_name_map.get(name, cls._tool_name_alias(name))},
+                }
+        return tool_choice
+
+    @staticmethod
+    def _apply_output_controls(params: dict[str, Any], kwargs: dict[str, Any]) -> None:
+        # Structured output, stop sequences and sampling seed pass through to
+        # Chat Completions as the caller sent them.
+        for key in ("response_format", "stop", "seed"):
+            value = kwargs.get(key)
+            if value is not None:
+                params[key] = value
+
+    @classmethod
+    def _responses_tool_choice(cls, tool_choice: Any, tool_name_map: dict[str, str]) -> Any:
+        # Responses names a forced function at the top level of the choice.
+        if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+            function = tool_choice.get("function")
+            name = function.get("name") if isinstance(function, dict) else tool_choice.get("name")
+            if name:
+                name = str(name)
+                return {"type": "function", "name": tool_name_map.get(name, cls._tool_name_alias(name))}
+        return tool_choice
+
+    @staticmethod
+    def _apply_responses_output_controls(
+        params: dict[str, Any], kwargs: dict[str, Any], model_name: str
+    ) -> None:
+        """Chat Completions output controls in their Responses form.
+
+        Structured output moves to ``text.format``. Responses has no stop
+        sequences, so a caller relying on one is refused rather than handed an
+        unbounded reply. It has no seed either; a seed is best effort in Chat
+        Completions and is not sent.
+        """
+        response_format = kwargs.get("response_format")
+        if isinstance(response_format, dict):
+            if response_format.get("type") == "json_schema":
+                schema = response_format.get("json_schema")
+                text_format = {"type": "json_schema", **(schema if isinstance(schema, dict) else {})}
+            else:
+                text_format = dict(response_format)
+            params["text"] = {"format": text_format}
+        if kwargs.get("stop"):
+            raise ValidationError(
+                f"Model {model_name} does not support stop sequences",
+                {"param": "stop"},
+            )
+
+    @classmethod
     def _tool_name_alias(cls, name: str) -> str:
         return tool_name_alias(name)
 
@@ -390,7 +448,7 @@ class OpenAILLMPort(LLMPort):
         if any(tool.get("type") == "web_search" for tool in hosted_tools):
             params["include"] = ["web_search_call.action.sources"]
         if tool_choice is not None:
-            params["tool_choice"] = tool_choice
+            params["tool_choice"] = self._responses_tool_choice(tool_choice, tool_name_map)
         reasoning_effort = kwargs.get("reasoning_effort")
         if reasoning_effort:
             params["reasoning"] = {
@@ -405,6 +463,7 @@ class OpenAILLMPort(LLMPort):
         top_p = kwargs.get("top_p")
         if top_p is not None:
             params["top_p"] = top_p
+        self._apply_responses_output_controls(params, kwargs, model_name)
 
         response = await self.client.responses.create(**params)
         parsed_tool_calls = self._parse_responses_tool_calls(
@@ -485,7 +544,7 @@ class OpenAILLMPort(LLMPort):
                 for td in tools
             ]
         if tool_choice is not None:
-            params["tool_choice"] = tool_choice
+            params["tool_choice"] = self._chat_tool_choice(tool_choice, tool_name_map)
 
         reasoning_effort = kwargs.get("reasoning_effort")
         if reasoning_effort and self._supports_reasoning_effort(model_name):
@@ -493,6 +552,7 @@ class OpenAILLMPort(LLMPort):
         top_p = kwargs.get("top_p")
         if top_p is not None:
             params["top_p"] = top_p
+        self._apply_output_controls(params, kwargs)
 
         response = await self.client.chat.completions.create(**params)
 
@@ -582,13 +642,14 @@ class OpenAILLMPort(LLMPort):
                 for tool in tools
             ]
         if tool_choice is not None:
-            params["tool_choice"] = tool_choice
+            params["tool_choice"] = self._chat_tool_choice(tool_choice, tool_name_map)
         reasoning_effort = kwargs.get("reasoning_effort")
         if reasoning_effort and self._supports_reasoning_effort(model_name):
             params["reasoning_effort"] = reasoning_effort
         top_p = kwargs.get("top_p")
         if top_p is not None:
             params["top_p"] = top_p
+        self._apply_output_controls(params, kwargs)
 
         stream = await self.client.chat.completions.create(**params)
         assembled_calls: dict[int, dict[str, str]] = {}
@@ -708,7 +769,7 @@ class OpenAILLMPort(LLMPort):
         if any(tool.get("type") == "web_search" for tool in hosted_tools):
             params["include"] = ["web_search_call.action.sources"]
         if tool_choice is not None:
-            params["tool_choice"] = tool_choice
+            params["tool_choice"] = self._responses_tool_choice(tool_choice, tool_name_map)
         reasoning_effort = kwargs.get("reasoning_effort")
         if reasoning_effort:
             params["reasoning"] = {
@@ -723,6 +784,7 @@ class OpenAILLMPort(LLMPort):
         top_p = kwargs.get("top_p")
         if top_p is not None:
             params["top_p"] = top_p
+        self._apply_responses_output_controls(params, kwargs, model_name)
 
         stream = await self.client.responses.create(**params)
         stream_calls: dict[int, tuple[str | None, str | None]] = {}
