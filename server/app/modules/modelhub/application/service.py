@@ -148,7 +148,7 @@ class ModelHubService:
             "provider_kind": "ollama",
             "display_name": "Ollama",
             "default_adapter_backend": "litellm",
-            "supported_adapter_backends": ["litellm"],
+            "supported_adapter_backends": ["litellm", "native"],
             "litellm_provider": "ollama_chat",
             "requires_base_url": True,
             "credential_optional": True,
@@ -243,8 +243,14 @@ class ModelHubService:
             "support_status": "supported",
             "chat_supported": True,
             "embeddings_supported": True,
-            "catalog_supported": False,
-            "notes": "Local runtime can be configured without a credential.",
+            "catalog_supported": True,
+            "notes": (
+                "Needs no credential. The catalog lists the server's models with their "
+                "context length and capabilities, including tools and vision, from "
+                "/api/tags and /api/show. The native backend calls the server's "
+                "OpenAI-compatible /v1. Add the server address to the workspace egress "
+                "allowlist."
+            ),
         },
         {
             "provider_kind": "dashscope",

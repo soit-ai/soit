@@ -1313,6 +1313,8 @@ const translation = {
       adapter: 'Adapter backend',
       baseUrl: 'Base URL',
       baseUrlHint: 'Leave empty to use the adapter default.',
+      ollamaHint:
+        'The Ollama server, e.g. http://ollama:11434. No credential needed; add the address to the egress allowlist in Settings › Security.',
       credential: 'Credential',
       credentialHint: 'A secret id from Secrets. Leave empty when the adapter needs no key.',
     },

@@ -695,7 +695,11 @@ export default function ConsoleModels() {
         <div className="mrow">
           <label>
             {t('console.models.providerFields.baseUrl')}
-            <small>{t('console.models.providerFields.baseUrlHint')}</small>
+            <small>
+              {providerForm.kind.trim() === 'ollama'
+                ? t('console.models.providerFields.ollamaHint')
+                : t('console.models.providerFields.baseUrlHint')}
+            </small>
           </label>
           <input
             className="input"

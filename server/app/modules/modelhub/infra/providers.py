@@ -5,6 +5,7 @@ External provider catalog adapters.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -13,12 +14,21 @@ import httpx
 from openai import AsyncOpenAI
 
 from app.adapters.http.governed_client import governed_httpx_client
+from app.adapters.llm.ollama import (
+    OLLAMA_PLACEHOLDER_KEY,
+    ollama_openai_base_url,
+    ollama_root_url,
+)
 from app.kernel.contracts.context import RequestContext
 from app.kernel.security.egress import GovernedEgressGuard
 
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+OLLAMA_SHOW_CONCURRENCY = 4
+"""How many ``/api/show`` lookups a catalog refresh runs at once."""
+OLLAMA_EMBEDDING_FAMILIES = frozenset({"bert", "nomic-bert"})
+"""Families that only embed, for servers too old to report capabilities."""
 
 ANTHROPIC_LATEST_MODEL_METADATA: dict[str, dict[str, Any]] = {
     "claude-opus-4-8": {
@@ -198,6 +208,136 @@ class ProviderCatalogAdapter:
         }
 
     @staticmethod
+    def _ollama_headers(api_key: str | None) -> dict[str, str]:
+        # A bare Ollama needs no key; one behind an authenticating proxy does.
+        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    @staticmethod
+    def _ollama_context_length(model_info: dict[str, Any]) -> int | None:
+        # Keyed by architecture: "llama.context_length", "qwen3.context_length".
+        for key, value in model_info.items():
+            if key.endswith(".context_length") and isinstance(value, int) and value > 0:
+                return value
+        return None
+
+    @classmethod
+    def _ollama_model(cls, tag: dict[str, Any], show: dict[str, Any] | None) -> dict[str, Any]:
+        """One catalog entry from ``/api/tags`` and, when it answered, ``/api/show``."""
+        model_id = str(tag.get("model") or tag.get("name"))
+        details = {**(tag.get("details") or {}), **((show or {}).get("details") or {})}
+        reported = [str(item) for item in (show or {}).get("capabilities") or []]
+        if reported:
+            capabilities = reported
+        else:
+            families = {str(item).lower() for item in details.get("families") or []}
+            families.add(str(details.get("family") or "").lower())
+            capabilities = (
+                ["embedding"] if families & OLLAMA_EMBEDDING_FAMILIES else ["completion"]
+            )
+        chat = "completion" in capabilities
+        embeddings = "embedding" in capabilities
+        tools = "tools" in capabilities
+        vision = "vision" in capabilities
+        context_window = cls._ollama_context_length((show or {}).get("model_info") or {})
+
+        def entry(supported: bool) -> dict[str, Any]:
+            return {
+                "catalog": supported,
+                "diagnostics": None,
+                "runtime": None,
+                "merged": supported,
+                "user_override": "auto",
+            }
+
+        modelhub_meta = {
+            "architecture_json": {
+                "provider": "ollama",
+                "family": details.get("family"),
+                "parameter_size": details.get("parameter_size"),
+                "quantization_level": details.get("quantization_level"),
+            },
+            "capability_matrix_json": {
+                "chat": entry(chat),
+                "embeddings": entry(embeddings),
+                "tools": entry(tools),
+                "vision": entry(vision),
+            },
+            "parameter_config_json": {"limits": {"context_window": context_window}},
+            # Local models carry no price; their calls record usage, not spend.
+            "pricing_json": None,
+            "diagnostics_json": {
+                "test_chat_supported": chat,
+                "test_embeddings_supported": embeddings,
+            },
+        }
+        return {
+            "model_id": model_id,
+            "display_name": model_id,
+            "capabilities_json": {
+                "model_type": (
+                    "embedding" if embeddings and not chat else "multimodal" if vision else "llm"
+                ),
+                "capabilities": [
+                    name
+                    for name, supported in (
+                        ("chat", chat),
+                        ("embedding", embeddings),
+                        ("tools", tools),
+                        ("vision", vision),
+                    )
+                    if supported
+                ],
+                "chat_supported": chat,
+                "embeddings_supported": embeddings,
+                "vision_supported": vision,
+                "tools_supported": tools,
+            },
+            "context_window": context_window,
+            "max_output_tokens": None,
+            "lifecycle_status": "stable",
+            # The tag without the show payload: that carries the modelfile and
+            # licence text, which the catalog has no use for.
+            "raw_meta": {**tag, "capabilities": reported or None, "modelhub": modelhub_meta},
+        }
+
+    async def _list_ollama_models(
+        self,
+        *,
+        ctx: RequestContext,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> list[dict[str, Any]]:
+        root = ollama_root_url(base_url)
+        headers = self._ollama_headers(api_key)
+        async with self._http_client(ctx, "model-provider:ollama:catalog") as client:
+            response = await client.get(f"{root}/api/tags", headers=headers)
+            response.raise_for_status()
+            tags = [
+                item
+                for item in (response.json().get("models") or [])
+                if isinstance(item, dict) and (item.get("model") or item.get("name"))
+            ]
+            gate = asyncio.Semaphore(OLLAMA_SHOW_CONCURRENCY)
+
+            async def show(tag: dict[str, Any]) -> dict[str, Any] | None:
+                async with gate:
+                    try:
+                        detail = await client.post(
+                            f"{root}/api/show",
+                            headers=headers,
+                            json={"model": tag.get("model") or tag.get("name")},
+                        )
+                        detail.raise_for_status()
+                        payload = detail.json()
+                    except (httpx.HTTPError, ValueError):
+                        # A model that cannot be described still lists.
+                        return None
+                return payload if isinstance(payload, dict) else None
+
+            shows = await asyncio.gather(*(show(tag) for tag in tags))
+        return [self._ollama_model(tag, detail) for tag, detail in zip(tags, shows, strict=True)]
+
+    @staticmethod
     def _extract_anthropic_text(payload: dict[str, Any]) -> str:
         contents = payload.get("content", []) or []
         parts: list[str] = []
@@ -227,10 +367,12 @@ class ProviderCatalogAdapter:
         *,
         ctx: RequestContext,
         provider_kind: str,
-        api_key: str,
+        api_key: str | None,
         base_url: str | None = None,
     ) -> list[dict[str, Any]]:
         """List models for a provider kind."""
+        if provider_kind == "ollama":
+            return await self._list_ollama_models(ctx=ctx, api_key=api_key, base_url=base_url)
         if provider_kind in {"openai", "openai_compatible"}:
             async with self._openai_client(
                 ctx=ctx,
@@ -302,10 +444,19 @@ class ProviderCatalogAdapter:
         *,
         ctx: RequestContext,
         provider_kind: str,
-        api_key: str,
+        api_key: str | None,
         base_url: str | None = None,
     ) -> None:
         """Perform a lightweight healthcheck."""
+        if provider_kind == "ollama":
+            # The version probe answers without loading or listing any model.
+            async with self._http_client(ctx, "model-provider:ollama:health") as client:
+                response = await client.get(
+                    f"{ollama_root_url(base_url)}/api/version",
+                    headers=self._ollama_headers(api_key),
+                )
+                response.raise_for_status()
+            return
         await self.list_models(
             ctx=ctx,
             provider_kind=provider_kind,
@@ -318,13 +469,16 @@ class ProviderCatalogAdapter:
         *,
         ctx: RequestContext,
         provider_kind: str,
-        api_key: str,
+        api_key: str | None,
         base_url: str | None,
         model_id: str,
         input_text: str,
     ) -> dict[str, Any]:
         """Run a lightweight chat completion test."""
-        if provider_kind in {"openai", "openai_compatible"}:
+        if provider_kind == "ollama":
+            api_key = api_key or OLLAMA_PLACEHOLDER_KEY
+            base_url = ollama_openai_base_url(base_url)
+        if provider_kind in {"openai", "openai_compatible", "ollama"}:
             token_limit_param = (
                 "max_completion_tokens"
                 if model_id.lower().startswith(("gpt-5", "o1", "o3", "o4"))
@@ -419,14 +573,17 @@ class ProviderCatalogAdapter:
         *,
         ctx: RequestContext,
         provider_kind: str,
-        api_key: str,
+        api_key: str | None,
         base_url: str | None,
         model_id: str,
         input_text: str,
     ) -> dict[str, Any]:
         """Run a lightweight embeddings test."""
-        if provider_kind not in {"openai", "openai_compatible"}:
+        if provider_kind not in {"openai", "openai_compatible", "ollama"}:
             raise ValueError(f"Embedding test not supported for provider: {provider_kind}")
+        if provider_kind == "ollama":
+            api_key = api_key or OLLAMA_PLACEHOLDER_KEY
+            base_url = ollama_openai_base_url(base_url)
         async with self._openai_client(
             ctx=ctx,
             api_key=api_key,

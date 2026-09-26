@@ -113,6 +113,19 @@ def _default_native_factory(
                 f"Provider credential is required: {config.slug}",
             )
         return AnthropicLLMPort(api_key=api_key, base_url=config.base_url)
+    if config.kind == "ollama":
+        # Ollama's OpenAI-compatible /v1 carries tools and embeddings natively.
+        from app.adapters.llm.ollama import (
+            OLLAMA_PLACEHOLDER_KEY,
+            ollama_openai_base_url,
+        )
+        from app.adapters.llm.openai import OpenAILLMPort
+
+        return OpenAILLMPort(
+            api_key=api_key or OLLAMA_PLACEHOLDER_KEY,
+            base_url=ollama_openai_base_url(config.base_url),
+            use_responses_api=False,
+        )
     raise KernelError(
         "MODEL_ADAPTER_UNSUPPORTED",
         f"Native LLM adapter is unsupported: {config.kind}",

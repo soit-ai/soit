@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- Ollama is a first-class provider. Syncing its catalog lists the server's
+  models from `/api/tags` with context length and capabilities (chat,
+  embeddings, tools, vision) from `/api/show`, so a model that supports tools
+  is offered for tool calls and an embedding model is typed as one. The
+  healthcheck probes `/api/version`, chat and embedding tests go through the
+  server's OpenAI-compatible `/v1`, and the native adapter backend can call
+  that `/v1` too. The base URL may be the server root or its `/v1` address;
+  no credential is needed, and one is sent as a bearer token for a server
+  behind an authenticating proxy. The provider dialog reminds operators to
+  allow the address for egress.
 - Gateway examples for curl, the OpenAI Python and Node SDKs, LangChain and
   the OpenAI Agents SDK (`examples/gateway/`), and a compatibility suite that
   drives the OpenAI Python SDK against `/v1` in CI (`server/tests/compat`):

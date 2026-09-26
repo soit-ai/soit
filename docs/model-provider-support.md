@@ -11,6 +11,7 @@ Status: Phase 1 acceptance support matrix. This document records implementation 
 | DeepSeek | Yes, `app/adapters/llm/deepseek.py` | Provider configuration is supported; runtime uses OpenAI-compatible chat adapter | Accepted implementation path for chat runtime | Model IDs containing `:` are preserved by DeepSeek-specific parsing. |
 | Anthropic | Yes, `app/adapters/llm/anthropic.py` | Catalog and chat diagnostics | Accepted implementation path | Supports chat, streaming, and native tool calling (`tool_use` / `tool_result`, streamed `input_json_delta`). Embeddings and rerank are not offered by Anthropic. |
 | Gemini | No dedicated runtime adapter in `app/adapters/llm` | Chat diagnostics and catalog paths in ModelHub provider adapter | Diagnostic foundation only | Do not count as Phase 1 runtime acceptance until a runtime adapter is added. |
+| Ollama | LiteLLM (`ollama_chat`) by default; the native backend calls the server's OpenAI-compatible `/v1` through `OpenAILLMPort` | Catalog from `/api/tags` with context length and capabilities (chat, embeddings, tools, vision) from `/api/show`; health from `/api/version`; chat and embedding tests through `/v1` | Accepted implementation path | Needs no credential; a key is sent as a bearer token for servers behind an authenticating proxy. The base URL may be the server root or its `/v1` address. Add the server to the workspace egress allowlist. Local models carry no price. |
 
 ## Phase 1 acceptance
 
@@ -26,7 +27,7 @@ Anthropic supports chat, streaming and tool calling; it offers no embeddings or 
 Run these from `server/`:
 
 ```bash
-uv run pytest tests/unit/test_modelhub_provider_catalog.py -q
+uv run pytest tests/unit/test_modelhub_provider_catalog.py tests/unit/test_modelhub_ollama_catalog.py -q
 uv run pytest tests/unit/test_openai_tool_calling.py tests/unit/test_deepseek_llm_port.py tests/unit/test_anthropic_llm_port.py -q
 uv run pytest tests/entrypoints/test_modelhub_api.py tests/entrypoints/test_modelhub_workbench_api.py -q
 ```
