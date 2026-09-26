@@ -9,11 +9,12 @@ from sqlalchemy import and_, case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.common.advisory_lock import acquire_xact_lock
 from app.modules.billing.application.schemas import (
     CreditBalanceResponse,
     CreditLedgerEntryResponse,
 )
-from app.modules.billing.domain.models import CreditLedgerEntry
+from app.modules.billing.domain.models import LEDGER_LOCK_NAMESPACE, CreditLedgerEntry
 from app.settings.settings import settings
 
 
@@ -100,6 +101,11 @@ class CreditService:
     async def grant(self, *, credits: Decimal, note: str | None = None) -> CreditLedgerEntryResponse:
         if credits <= 0:
             raise ValueError("Grant credits must be positive")
+        # Grants share the deduction lock so a threshold alert never judges a
+        # balance that a concurrent grant is about to change.
+        await acquire_xact_lock(
+            self.db, LEDGER_LOCK_NAMESPACE, self.ctx.tenant_id, self.ctx.workspace_id
+        )
         entry = CreditLedgerEntry(
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,

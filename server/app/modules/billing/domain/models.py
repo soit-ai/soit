@@ -16,6 +16,9 @@ from sqlmodel import JSON, Column, Field, SQLModel
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 
+LEDGER_LOCK_NAMESPACE = "credit_ledger"
+"""Advisory lock namespace: every writer of a workspace ledger holds it."""
+
 
 class CreditLedgerEntry(SQLModel, table=True):
     """One signed credit movement for a workspace."""

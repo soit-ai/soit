@@ -237,6 +237,16 @@ low-balance warning, and at zero or below it raises `CREDIT_EXHAUSTED`
 (HTTP 402) before the upstream call. The balance API reports the same state as
 `status`: `ok`, `low`, or `exhausted`.
 
+Every writer of one workspace ledger holds the transaction-scoped advisory lock
+`credit_ledger:{tenant_id}:{workspace_id}` (`kernel/runtime/common/advisory_lock.py`,
+a no-op outside PostgreSQL). Deductions read the balance, insert the row and
+decide the low/exhausted alert under that lock, and grants take it too, so
+concurrent dispatchers book serially and each threshold crossing publishes one
+`CREDIT_BALANCE_LOW` event. Enforcement is a soft limit: the guard reads the
+booked balance, and deductions arrive through the outbox after the call, so a
+workspace can overspend by the calls in flight plus the dispatcher lag before
+the guard starts refusing.
+
 ---
 
 ## 5. Knowledge

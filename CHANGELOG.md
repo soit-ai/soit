@@ -288,6 +288,12 @@ record for operators.
 
 ### Fixed
 
+- Concurrent credit deductions for one workspace book serially under a
+  PostgreSQL advisory lock that grants share, so a threshold crossed by two
+  overlapping deductions publishes exactly one low or exhausted alert instead
+  of two or none. PostgreSQL contracts cover redelivery, repeated pricing of
+  one cost entry, parallel sums and threshold races, and the credit API now
+  has entrypoint tests for owner-only grants.
 - On a PostgreSQL server whose default time zone is not UTC (a Windows
   installer picks the machine's zone), every timestamp the API wrote landed
   shifted by that offset, because psycopg renders aware datetimes in the

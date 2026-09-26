@@ -22,8 +22,9 @@ from app.kernel.events.checkpoint import try_claim_consumer_slot
 from app.kernel.events.envelope import DomainEventEnvelope
 from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.publisher import OutboxPublisher
+from app.kernel.runtime.common.advisory_lock import acquire_xact_lock
 from app.kernel.runtime.db.models.events import EventOutbox
-from app.modules.billing.domain.models import CreditLedgerEntry
+from app.modules.billing.domain.models import LEDGER_LOCK_NAMESPACE, CreditLedgerEntry
 from app.modules.billing.events import CREDIT_BALANCE_LOW
 from app.settings.settings import settings
 
@@ -177,6 +178,10 @@ async def handle_cost_recorded_credit(db: AsyncSession, row: EventOutbox) -> Non
             },
             created_by=CREATED_BY,
         )
+    # Deductions for one workspace book serially: the balance read and the
+    # ledger insert must be one step, or two concurrent consumers compute the
+    # same balance_before and both (or neither) publish a threshold alert.
+    await acquire_xact_lock(db, LEDGER_LOCK_NAMESPACE, str(tenant_id), str(workspace_id))
     balance_before = await _workspace_balance(db, str(tenant_id), str(workspace_id))
     try:
         async with db.begin_nested():
