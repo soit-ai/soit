@@ -65,7 +65,7 @@ TAB_LABELS = {
     "knowledge_quality": "Knowledge Quality",
 }
 
-MAINLINE_RUN_MODES = {"agent", "workflow", "knowledge", "chat", "response"}
+MAINLINE_RUN_MODES = {"agent", "workflow", "knowledge", "chat", "response", "gateway"}
 
 
 class ObserveDashboardService:

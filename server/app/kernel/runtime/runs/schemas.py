@@ -32,6 +32,8 @@ class RunResponse(BaseModel):
     subject_id: str | None
     subject_version_id: str | None
     status: str
+    source: str = "platform"
+    api_key_id: str | None = None
     input_summary: str | None
     output_summary: str | None
     started_at: datetime

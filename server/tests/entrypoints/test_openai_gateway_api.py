@@ -139,6 +139,15 @@ async def test_a_call_made_with_an_api_key_is_attributed_to_the_key(
     assert (run.subject_kind, run.subject_id) == ("api_key", "key_gateway")
     assert (run.source, run.api_key_id) == ("gateway", "key_gateway")
 
+    listed = await async_client.get(
+        "/api/v1/runs", params={"source": "gateway", "api_key_id": "key_gateway"}
+    )
+    assert listed.status_code == 200
+    items = listed.json()["data"]["items"]
+    assert [(item["id"], item["source"], item["api_key_id"]) for item in items] == [
+        (run.id, "gateway", "key_gateway")
+    ]
+
 
 @pytest.mark.asyncio
 async def test_tool_calls_come_back_as_openai_tool_calls(async_client) -> None:

@@ -47,6 +47,8 @@ class RunHandlers:
         status: str | None = None,
         trace_id: str | None = None,
         user_id: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         include_observe_summary: bool = False,
@@ -72,6 +74,8 @@ class RunHandlers:
             status=status,
             trace_id=trace_id,
             user_id=user_id,
+            source=source,
+            api_key_id=api_key_id,
             started_after=started_after,
             started_before=started_before,
             include_observe_summary=include_observe_summary,
@@ -96,6 +100,8 @@ class RunHandlers:
                 status=status,
                 trace_id=trace_id,
                 user_id=user_id,
+                source=source,
+                api_key_id=api_key_id,
                 started_after=started_after,
                 started_before=started_before,
                 has_tool_call=has_tool_call,
@@ -465,6 +471,8 @@ class RunHandlers:
         status: str | None = None,
         trace_id: str | None = None,
         user_id: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         limit: int = 1000,
@@ -480,6 +488,8 @@ class RunHandlers:
             status=status,
             trace_id=trace_id,
             user_id=user_id,
+            source=source,
+            api_key_id=api_key_id,
             started_after=started_after,
             started_before=started_before,
             limit=limit,
@@ -500,6 +510,8 @@ class RunHandlers:
                 "duration_ms",
                 "error_code",
                 "error_message",
+                "source",
+                "api_key_id",
             ]
         )
         for run in runs:
@@ -516,6 +528,8 @@ class RunHandlers:
                     run.duration_ms or "",
                     run.error_code or "",
                     run.error_message or "",
+                    run.source,
+                    run.api_key_id or "",
                 ]
             )
         return output.getvalue()

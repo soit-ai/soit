@@ -257,6 +257,52 @@ async def test_list_runs_filters_by_observe_summary_flags(async_db, ctx):
 
 
 @pytest.mark.asyncio
+async def test_list_runs_filters_by_entry_and_api_key(async_db, ctx):
+    """Gateway traffic can be listed, counted and exported on its own, per key."""
+
+    def _run(source: str, api_key_id: str | None) -> Run:
+        return Run(
+            id=generate_run_id(),
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            user_id=ctx.user_id,
+            mode="gateway" if source == "gateway" else "agent",
+            kind="chat",
+            status="succeeded",
+            source=source,
+            api_key_id=api_key_id,
+            started_at=utc_now(),
+        )
+
+    platform_run = _run("platform", None)
+    key_a_run = _run("gateway", "key_a")
+    key_b_run = _run("gateway", "key_b")
+    async_db.add_all([platform_run, key_a_run, key_b_run])
+    await async_db.commit()
+    handlers = RunHandlers(RunService(async_db, ctx))
+
+    gateway = await handlers.list_runs(ctx, source="gateway", page_size=10, with_total=True)
+    platform = await handlers.list_runs(ctx, source="platform", page_size=10)
+    key_a = await handlers.list_runs(ctx, api_key_id="key_a", page_size=10, with_total=True)
+    csv_text = await handlers.export_runs_csv(ctx, source="gateway", api_key_id="key_b")
+
+    assert {item.id for item in gateway.items} == {key_a_run.id, key_b_run.id}
+    assert gateway.total == 2
+    assert [item.id for item in platform.items] == [platform_run.id]
+    assert platform.items[0].source == "platform"
+    assert platform.items[0].api_key_id is None
+    assert [(item.id, item.source, item.api_key_id) for item in key_a.items] == [
+        (key_a_run.id, "gateway", "key_a")
+    ]
+    assert key_a.total == 1
+    lines = [line for line in csv_text.splitlines() if line.strip()]
+    assert lines[0].endswith(",source,api_key_id")
+    assert len(lines) == 2
+    assert lines[1].startswith(key_b_run.id)
+    assert lines[1].endswith(",gateway,key_b")
+
+
+@pytest.mark.asyncio
 async def test_list_audits_returns_entries(async_db, ctx):
     """Audit entries can be queried by run_id."""
     trace_writer = TraceWriter(async_db, ctx)

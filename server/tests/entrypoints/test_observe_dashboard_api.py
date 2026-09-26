@@ -254,6 +254,33 @@ async def test_observe_dashboard_default_range_includes_last_24h(async_client, a
 
 
 @pytest.mark.asyncio
+async def test_observe_dashboard_recent_runs_include_gateway_calls(async_client, async_db):
+    """Embedding and image calls through /v1 are real traffic, not background noise."""
+    run = Run(
+        id="run_dashboard_gateway_embedding",
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        user_id="test-user",
+        mode="gateway",
+        kind="embedding",
+        status="succeeded",
+        source="gateway",
+        api_key_id="key_dashboard",
+        duration_ms=40,
+    )
+    async_db.add(run)
+    await async_db.commit()
+
+    resp = await async_client.get("/api/v1/observe/dashboard", headers=_headers())
+
+    assert resp.status_code == status.HTTP_200_OK
+    rows = resp.json()["data"]["recent_runs"]
+    assert [(row["run_id"], row["mode"], row["kind"]) for row in rows] == [
+        (run.id, "gateway", "embedding")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_observe_dashboard_recent_runs_include_observe_summary(async_client, async_db):
     now = utc_now()
     trace_writer = TraceWriter(async_db, _test_ctx())

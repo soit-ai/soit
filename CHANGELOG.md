@@ -14,6 +14,11 @@ record for operators.
 
 ### Added
 
+- Runs report the entry they came through and the key that started them
+  (`source`, `api_key_id`), and the run list (`GET /api/v1/runs`) and its CSV
+  export filter by both, so gateway traffic can be read on its own or per
+  key. The Observe dashboard's recent runs include gateway embedding and
+  image calls alongside chat.
 - Workspace notification endpoints: team channels and webhooks that receive
   a workspace's alerts in the categories they subscribe to (`alert` for
   budgets and credit, `task` for failed runs), whoever is on the team

@@ -846,6 +846,8 @@ class RunService:
         status: str | None = None,
         trace_id: str | None = None,
         user_id: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         has_tool_call: bool | None = None,
@@ -879,6 +881,10 @@ class RunService:
             clauses.append(Run.trace_id == trace_id)
         if user_id:
             clauses.append(Run.user_id == user_id)
+        if source:
+            clauses.append(Run.source == source)
+        if api_key_id:
+            clauses.append(Run.api_key_id == api_key_id)
         if started_after:
             clauses.append(Run.started_at >= started_after)
         if started_before:
@@ -906,6 +912,8 @@ class RunService:
         status: str | None = None,
         trace_id: str | None = None,
         user_id: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         has_tool_call: bool | None = None,
@@ -923,6 +931,8 @@ class RunService:
             status=status,
             trace_id=trace_id,
             user_id=user_id,
+            source=source,
+            api_key_id=api_key_id,
             started_after=started_after,
             started_before=started_before,
             has_tool_call=has_tool_call,
@@ -946,6 +956,8 @@ class RunService:
         status: str | None = None,
         trace_id: str | None = None,
         user_id: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         include_observe_summary: bool = False,
@@ -966,6 +978,8 @@ class RunService:
             status=status,
             trace_id=trace_id,
             user_id=user_id,
+            source=source,
+            api_key_id=api_key_id,
             started_after=started_after,
             started_before=started_before,
             has_tool_call=has_tool_call,
