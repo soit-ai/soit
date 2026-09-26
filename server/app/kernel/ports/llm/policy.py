@@ -5,6 +5,7 @@ LLM port policies: timeout/retry/rate-limit/audit.
 
 import asyncio
 import inspect
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -467,6 +468,83 @@ def _with_runtime_identity(
     )
 
 
+# Where streamed text may be cut for inspection: after a line break, after
+# sentence punctuation that is followed by whitespace (a bare "." sits inside
+# URLs, versions and JWTs), or after CJK sentence punctuation.
+_STREAM_SENTENCE_END = re.compile(r"\n|[.!?](?=\s)|[\u3002\uff01\uff1f]")
+# Upper bound on how much streamed text is held back before inspection. Past
+# it the text is cut at the last whitespace, so a credential is not split.
+_STREAM_MAX_HOLD = 400
+
+
+def _stream_cut_point(pending: str) -> int | None:
+    last_end = None
+    for match in _STREAM_SENTENCE_END.finditer(pending):
+        last_end = match.end()
+    if last_end is not None:
+        return last_end
+    if len(pending) < _STREAM_MAX_HOLD:
+        return None
+    whitespace = max(pending.rfind(" "), pending.rfind("\t"))
+    return whitespace + 1 if whitespace > 0 else len(pending)
+
+
+def _chunk_carries_signal(chunk: ChatStreamChunk) -> bool:
+    """Whether a chunk means something to the consumer besides its text."""
+
+    return bool(
+        chunk.done
+        or chunk.finish_reason
+        or chunk.tool_call_deltas
+        or chunk.tool_calls
+        or chunk.reasoning_delta
+        or chunk.tokens_prompt
+        or chunk.tokens_completion
+        or chunk.hosted_tool_calls
+        or chunk.citations
+        or chunk.hosted_artifacts
+    )
+
+
+class _OutboundStreamInspector:
+    """Inspect streamed model output a sentence at a time.
+
+    Content safety judges whole spans of text, and a redaction has to replace
+    text before the client sees it, so streamed deltas are held back until a
+    sentence ends (or the held text grows past ``_STREAM_MAX_HOLD``), then the
+    span is inspected and released, redacted if the policy says so. A refusal
+    raises and ends the stream. What reaches the client is exactly what was
+    inspected.
+    """
+
+    def __init__(self, gateway: "LLMPolicyGateway", evidence: list[dict[str, Any]]) -> None:
+        self._gateway = gateway
+        self._evidence = evidence
+        self._pending = ""
+
+    async def feed(self, delta: str) -> str:
+        self._pending += delta
+        cut = _stream_cut_point(self._pending)
+        if cut is None:
+            return ""
+        segment, self._pending = self._pending[:cut], self._pending[cut:]
+        return await self._release(segment)
+
+    async def flush(self) -> str:
+        segment, self._pending = self._pending, ""
+        return await self._release(segment)
+
+    async def _release(self, segment: str) -> str:
+        if not segment:
+            return ""
+        released = await self._gateway._inspect(
+            segment,
+            direction=SafetyDirection.OUTBOUND,
+            evidence=self._evidence,
+        )
+        return released or ""
+
+
 class LLMPolicyGateway(LLMPort):
     """LLM port with policy enforcement."""
 
@@ -895,6 +973,25 @@ class LLMPolicyGateway(LLMPort):
         model_used = None
         runtime_target: LLMRuntimeTarget | None = None
         output_preview = ""
+        safety_evidence: list[dict[str, Any]] = []
+        outbound = (
+            _OutboundStreamInspector(self, safety_evidence)
+            if self.content_safety is not None and self.inspect_outbound
+            else None
+        )
+
+        async def release(chunk: ChatStreamChunk) -> ChatStreamChunk | None:
+            # Text reaches the consumer only once it has been inspected; the
+            # chunk's other signals (tool calls, usage, completion) pass as-is.
+            if outbound is None:
+                return chunk
+            if chunk.delta:
+                chunk.delta = await outbound.feed(chunk.delta)
+            if chunk.done or chunk.finish_reason:
+                chunk.delta = (chunk.delta or "") + await outbound.flush()
+            if chunk.delta or _chunk_carries_signal(chunk):
+                return chunk
+            return None
 
         # A stream yields to its consumer between chunks, so this span is kept
         # off the context stack: a span attached across a yield can be resumed
@@ -913,6 +1010,7 @@ class LLMPolicyGateway(LLMPort):
             },
         )
         try:
+            messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
             route = await self._resolve_call_route(model, required_capabilities)
             runtime_target = route.target
@@ -958,12 +1056,14 @@ class LLMPolicyGateway(LLMPort):
                     )
 
             if first_chunk is not None:
-                if first_chunk.delta and len(output_preview) < 200:
-                    output_preview += first_chunk.delta
                 tokens_prompt = first_chunk.tokens_prompt or tokens_prompt
                 tokens_completion = first_chunk.tokens_completion or tokens_completion
                 model_used = first_chunk.model or model_used
-                yield first_chunk
+                released = await release(first_chunk)
+                if released is not None:
+                    if released.delta and len(output_preview) < 200:
+                        output_preview += released.delta
+                    yield released
 
             while True:
                 if aiter is None or first_chunk is None:
@@ -983,9 +1083,6 @@ class LLMPolicyGateway(LLMPort):
 
                 chunk.runtime_target = chunk.runtime_target or route.target
 
-                if chunk.delta and len(output_preview) < 200:
-                    output_preview += chunk.delta
-
                 if chunk.tokens_prompt:
                     tokens_prompt = chunk.tokens_prompt
                 if chunk.tokens_completion:
@@ -995,7 +1092,25 @@ class LLMPolicyGateway(LLMPort):
                 if chunk.runtime_target is not None:
                     runtime_target = chunk.runtime_target
 
-                yield chunk
+                released = await release(chunk)
+                if released is None:
+                    continue
+                if released.delta and len(output_preview) < 200:
+                    output_preview += released.delta
+                yield released
+
+            if outbound is not None:
+                # A stream that ends without a closing chunk still releases
+                # whatever it held back, inspected like the rest.
+                tail = await outbound.flush()
+                if tail:
+                    if len(output_preview) < 200:
+                        output_preview += tail
+                    yield ChatStreamChunk(
+                        delta=tail,
+                        model=model_used,
+                        runtime_target=runtime_target,
+                    )
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -1019,6 +1134,7 @@ class LLMPolicyGateway(LLMPort):
                         "provider_slug": identity["provider_slug"],
                         "provider_kind": identity["provider_kind"],
                         "upstream_model": identity["upstream_model"],
+                        **({"content_safety": safety_evidence} if safety_evidence else {}),
                     },
                 )
                 pricing = _with_runtime_identity(

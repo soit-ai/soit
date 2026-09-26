@@ -12,6 +12,16 @@ record for operators.
 
 ## [Unreleased]
 
+### Fixed
+
+- Streamed chat is inspected by content safety like a whole reply. The
+  prompt was sent to the model uninspected and the streamed text reached the
+  client unchecked, so a credential in either direction passed through. The
+  prompt is now inspected before the stream opens, and the output is released
+  a sentence at a time after inspection: a redaction replaces the text before
+  the client sees it, and a refusal ends the stream. Findings are recorded on
+  the run step as they are for a whole reply.
+
 ### Changed
 
 - A call refused by a rate limit or a daily quota answers 429 with a
