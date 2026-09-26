@@ -204,6 +204,26 @@ def build_knowledge_service(*, db: AsyncSession, ctx: RequestContext) -> Knowled
     return KnowledgeService(runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx))
 
 
+async def build_knowledge_reader_service(
+    *, db: AsyncSession, ctx: RequestContext, knowledge_id: str
+) -> KnowledgeService:
+    """The knowledge service a read of one knowledge base goes through.
+
+    A knowledge base another workspace of the tenant shares is read in its
+    own workspace, under a context that can only read there; every other
+    knowledge base goes through the caller's workspace as usual.
+    """
+    from app.modules.knowledge.domain.visibility import (
+        shared_knowledge_home,
+        shared_reader_context,
+    )
+
+    home = await shared_knowledge_home(db, ctx, knowledge_id)
+    if home is None:
+        return build_knowledge_service(db=db, ctx=ctx)
+    return build_knowledge_service(db=db, ctx=shared_reader_context(ctx, home))
+
+
 def build_knowledge_runtime_service(*, db: AsyncSession, ctx: RequestContext) -> KnowledgeRuntimeService:
     """Internal knowledge storage/runtime factory."""
 

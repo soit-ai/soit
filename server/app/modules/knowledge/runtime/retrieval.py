@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import LLMPort
 from app.kernel.ports.storage.interface import StoragePort
@@ -161,11 +162,20 @@ class RetrievalService:
         else:
             index = await self.index_repo.get_primary(knowledge_id)
 
+        # Nothing to search yet is a state the caller can act on, not a fault.
         if not index:
-            raise ValueError(f"No index found for knowledge {knowledge_id}")
+            raise KernelError(
+                "CONFLICT",
+                f"Knowledge {knowledge_id} has no index to query yet",
+                {"knowledge_id": knowledge_id},
+            )
 
         if index.status != "ready":
-            raise ValueError(f"Index {index.id} is not ready (status: {index.status})")
+            raise KernelError(
+                "CONFLICT",
+                f"Index {index.id} is not ready (status: {index.status})",
+                {"index_id": index.id, "status": index.status},
+            )
 
         # Generate query embedding
         query_embedding = await self.embedding_service.embed_text(

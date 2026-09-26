@@ -61,7 +61,10 @@ from app.modules.knowledge.domain.models import (
     KnowledgeIngestTask,
 )
 from app.modules.knowledge.domain.versioning import DocumentVersioning
-from app.modules.knowledge.domain.visibility import knowledge_visibility
+from app.modules.knowledge.domain.visibility import (
+    VISIBILITY_TENANT,
+    knowledge_visibility,
+)
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
 from app.modules.knowledge.runtime.pipeline import DocumentPipeline
 from app.modules.knowledge.runtime.retrieval import RetrievalService
@@ -310,6 +313,14 @@ class KnowledgeRuntimeService:
             )
         return results
 
+    def _require_tenant_share_right(self, visibility: str | None) -> None:
+        # Sharing with the tenant lets every other workspace read the content,
+        # a decision for whoever answers for this workspace, not any creator.
+        if visibility == VISIBILITY_TENANT and not sees_private_resources(self.ctx):
+            raise ForbiddenError(
+                "Only a workspace owner or admin can share a knowledge base with the tenant"
+            )
+
     @rbac_guard(RESOURCE_KNOWLEDGE, "create", resource_id_resolver=_resolve_knowledge_create_id)
     async def create_knowledge(self, knowledge_in: KnowledgeCreate) -> Knowledge:
         """Create a new knowledge base.
@@ -324,6 +335,7 @@ class KnowledgeRuntimeService:
         existing = await self.knowledge_repo.get_by_name(knowledge_in.name)
         if existing:
             raise KernelError("DUPLICATE_NAME", f"Knowledge '{knowledge_in.name}' already exists")
+        self._require_tenant_share_right(knowledge_in.visibility)
 
         # Create knowledge
         knowledge = Knowledge(
@@ -427,6 +439,7 @@ class KnowledgeRuntimeService:
                     "can change its visibility",
                     {"knowledge_id": knowledge_id},
                 )
+            self._require_tenant_share_right(knowledge_in.visibility)
             knowledge.visibility = knowledge_in.visibility
 
         if knowledge_in.settings_json is not None:

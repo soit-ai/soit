@@ -567,6 +567,17 @@ export const getKnowledgeRetrievalSummary = (
   return get<KnowledgeRetrievalSummary>(`/knowledge/${knowledgeId}/retrieval/summary`, params)
 }
 
+/**
+ * Knowledge bases other workspaces of the tenant share with this one. They
+ * can be opened and queried from here, never changed.
+ */
+export const listSharedKnowledge = (params?: {
+  page_token?: string
+  page_size?: number
+}): Promise<PaginatedResponse<KnowledgeBase>> => {
+  return get<PaginatedResponse<KnowledgeBase>>('/knowledge/shared', params)
+}
+
 export const queryKnowledge = (
   knowledgeId: string,
   data: KnowledgeQueryRequest

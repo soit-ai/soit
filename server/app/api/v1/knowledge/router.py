@@ -14,7 +14,10 @@ from fastapi import (
     status,
 )
 
-from app.api.v1.knowledge.dependencies import get_knowledge_service
+from app.api.v1.knowledge.dependencies import (
+    get_knowledge_reader_service,
+    get_knowledge_service,
+)
 from app.api.v1.knowledge.handlers import KnowledgeHandlers
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
@@ -110,11 +113,24 @@ async def list_knowledge_workbench_items(
     )
 
 
+@router.get("/shared", response_model=PaginatedResponse[KnowledgeResponse])
+async def list_shared_knowledge(
+    page_token: str | None = None,
+    page_size: int = 20,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """Knowledge bases other workspaces of the tenant share with this one, to read."""
+
+    handlers = KnowledgeHandlers(service)
+    return await handlers.list_shared_knowledge(ctx, page_token, page_size)
+
+
 @router.get("/{knowledge_id}", response_model=KnowledgeResponse)
 async def get_knowledge(
     knowledge_id: str,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: KnowledgeService = Depends(get_knowledge_service),
+    service: KnowledgeService = Depends(get_knowledge_reader_service),
 ):
     """Get knowledge base detail."""
 
@@ -153,7 +169,7 @@ async def list_knowledge_documents(
     limit: int = 100,
     offset: int = 0,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: KnowledgeService = Depends(get_knowledge_service),
+    service: KnowledgeService = Depends(get_knowledge_reader_service),
 ):
     """List knowledge base documents."""
 
@@ -511,7 +527,7 @@ async def query_knowledge(
     knowledge_id: str,
     payload: KnowledgeQueryRequest,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
-    service: KnowledgeService = Depends(get_knowledge_service),
+    service: KnowledgeService = Depends(get_knowledge_reader_service),
 ):
     handlers = KnowledgeHandlers(service)
     return await handlers.query(ctx, knowledge_id, payload)

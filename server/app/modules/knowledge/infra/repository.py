@@ -19,7 +19,10 @@ from app.modules.knowledge.domain.models import (
     KnowledgeIndex,
     KnowledgeIngestTask,
 )
-from app.modules.knowledge.domain.visibility import visible_knowledge_clause
+from app.modules.knowledge.domain.visibility import (
+    shared_knowledge_clause,
+    visible_knowledge_clause,
+)
 
 
 class KnowledgeRepository(AsyncRepository[Knowledge]):
@@ -106,6 +109,18 @@ class KnowledgeRepository(AsyncRepository[Knowledge]):
         )
         results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
+
+    # Quoted: inside this class, ``list`` names the method above.
+    async def list_shared(self, limit: int = 20, offset: int = 0) -> "list[Knowledge]":
+        """Knowledge bases other workspaces of the tenant share with this one."""
+        query = (
+            select(Knowledge)
+            .where(shared_knowledge_clause(self.ctx))
+            .order_by(Knowledge.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
     async def update_stats(
         self,

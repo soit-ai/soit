@@ -340,5 +340,20 @@ class KnowledgeHandlers:
             await self.service.retry_document_ingest(knowledge_id, document_id, max_retries=max_retries)
         )
 
+    async def list_shared_knowledge(
+        self, ctx: RequestContext, page_token: str | None, page_size: int
+    ) -> PaginatedResponse[KnowledgeResponse]:
+        limit, token_obj = parse_page_params(page_token, page_size)
+        offset = token_obj.offset if token_obj else 0
+        rows = await self.service.list_shared_knowledge(limit=limit + 1, offset=offset)
+        items = [self._to_response(row) for row in rows[:limit]]
+        has_next = len(rows) > limit
+        return PaginatedResponse.create(
+            items=items,
+            page_size=len(items),
+            has_next=has_next,
+            next_offset=offset + len(items) if has_next else None,
+        )
+
     async def query(self, ctx: RequestContext, knowledge_id: str, payload: KnowledgeQueryRequest) -> KnowledgeQueryResponse:
         return await self.service.query(knowledge_id, payload)

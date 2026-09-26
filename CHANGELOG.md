@@ -14,6 +14,14 @@ record for operators.
 
 ### Added
 
+- Tenant-wide knowledge sharing. A knowledge base with `tenant` visibility,
+  which only a workspace owner or admin may set, is readable from every other
+  workspace of the tenant: `GET /api/v1/knowledge/shared` lists what other
+  workspaces share, and it can be opened, its documents listed and queried
+  there, never changed. A read runs in the owning workspace as a Viewer, or
+  as a Dev for members who may run retrieval at home, so the run it records
+  and its audit land with the data's owners. Build › Knowledge has a Shared
+  with us tab that queries them. Until now `tenant` behaved as `workspace`.
 - A workspace can set what the built-in content safety rules do with
   personal data entering the runtime (prompts, retrieved text) and leaving it
   (model answers, tool arguments), apart from the deployment's
@@ -27,6 +35,11 @@ record for operators.
   to the built-in provider, not to an external classifier. Migration
   `20260927170000` adds the columns; existing workspaces follow the
   deployment.
+
+### Fixed
+
+- Querying a knowledge base whose index is missing or not ready answers 409
+  with what is missing instead of a 500.
 
 ## [1.2.0] - 2026-09-27
 

@@ -129,6 +129,10 @@ class KnowledgeService:
     async def list_knowledge(self, *, limit: int, offset: int):
         return await self.runtime_service.list_knowledge(limit=limit, offset=offset)
 
+    async def list_shared_knowledge(self, *, limit: int, offset: int):
+        """Knowledge bases other workspaces of the tenant share with this one."""
+        return await self.runtime_service.knowledge_repo.list_shared(limit=limit, offset=offset)
+
     @workspace_guard("read")
     async def get_workbench(self, *, limit: int, offset: int) -> KnowledgeWorkbenchResponse:
         rows, runs_by_knowledge = await self._build_workbench_rows()

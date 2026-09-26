@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
+import { SharedKnowledgePanel } from '../../components/shared-knowledge-panel'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
@@ -40,7 +41,7 @@ import {
 } from '@/services/knowledge-service'
 import { requestErrorMessage } from '@/utils/request'
 
-type KnTab = 'libraries' | 'ingest' | 'exceptions' | 'recycle'
+type KnTab = 'libraries' | 'shared' | 'ingest' | 'exceptions' | 'recycle'
 type KindFilter = 'all' | 'web crawl' | 'upload' | 'git sync'
 
 /**
@@ -260,6 +261,7 @@ export default function ConsoleKnowledge() {
               label: t('console.knowledge.tabs.libraries'),
               count: libraries.length,
             },
+            { id: 'shared', label: t('console.knowledge.tabs.shared') },
             { id: 'ingest', label: t('console.knowledge.tabs.ingest'), count: ingestTasks.length },
             {
               id: 'exceptions',
@@ -359,6 +361,8 @@ export default function ConsoleKnowledge() {
           </Table>
         </WorkbenchPanel>
       )}
+
+      {tab === 'shared' && <SharedKnowledgePanel />}
 
       {tab === 'ingest' && (
         <WorkbenchPanel className="mt-3.5">

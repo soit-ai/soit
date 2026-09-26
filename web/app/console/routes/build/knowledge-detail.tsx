@@ -1166,9 +1166,7 @@ export default function ConsoleKnowledgeDetail() {
             >
               <option value="workspace">{t('console.knowledgeVisibility.workspace')}</option>
               <option value="private">{t('console.knowledgeVisibility.private')}</option>
-              {settingsForm.visibility === 'tenant' && (
-                <option value="tenant">{t('console.knowledgeVisibility.tenant')}</option>
-              )}
+              <option value="tenant">{t('console.knowledgeVisibility.tenant')}</option>
             </select>
           </div>
           <div className="frow">

@@ -542,3 +542,61 @@ test('knowledge indexes can be created, edited and deleted', async ({ page }) =>
   await page.locator('.console-modal .btn.primary').click()
   await expect.poll(() => deleted).toBe('idx_2')
 })
+
+test('a knowledge base shared by another workspace is queried, not edited, from here', async ({
+  page,
+}) => {
+  await mockList(page)
+  const handbook = {
+    ...base,
+    id: 'kb_handbook',
+    workspace_id: 'workspace-people',
+    name: 'employee-handbook',
+    description: 'policies every team reads',
+    visibility: 'tenant',
+    doc_count: 40,
+    chunk_count: 900,
+  }
+  await json(page, '**/api/v1/knowledge/shared**', {
+    items: [handbook],
+    next_page_token: null,
+    page_size: 1,
+  })
+  let asked: unknown = null
+  await page.route('**/api/v1/knowledge/kb_handbook/query', (route) => {
+    asked = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        results: [
+          {
+            chunk_id: 'ch_1',
+            document_id: 'doc_leave',
+            score: 0.912,
+            text: 'Annual leave is 25 days, plus public holidays.',
+            snippets: [],
+            metadata: {},
+          },
+        ],
+        total: 1,
+        citations: [],
+      }),
+    })
+  })
+
+  await page.goto('/build/knowledge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: 'Shared with us' }).click()
+  const row = page.locator('tr', { hasText: 'employee-handbook' })
+  await expect(row).toContainText('workspace-people')
+  // Shared is read-only here: the row queries, it does not open an editor.
+  await expect(row.getByRole('button')).toHaveText(['Query'])
+
+  await row.getByRole('button', { name: 'Query' }).click()
+  const modal = page.locator('.console-modal')
+  await modal.locator('.mrow', { hasText: 'Question' }).locator('input').fill('how much leave')
+  await modal.getByRole('button', { name: 'Run query', exact: true }).click()
+
+  await expect.poll(() => asked).toEqual({ query: 'how much leave', top_k: 5 })
+  await expect(modal.getByTestId('shared-knowledge-result')).toContainText('Annual leave is 25 days')
+})
