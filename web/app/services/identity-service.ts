@@ -56,8 +56,12 @@ export interface WorkspaceInfo {
   metadata?: Record<string, any> | null
   /** Members without a confirmed second factor cannot reach this workspace. */
   require_mfa?: boolean
+  /** `metadata_only` stores run text as a length and a hash instead of the text. */
+  content_capture?: WorkspaceContentCapture
   created_at: string
 }
+
+export type WorkspaceContentCapture = 'full' | 'metadata_only'
 
 export interface WorkspaceMember {
   user_id: string
@@ -211,6 +215,8 @@ export const updateWorkspace = (
     metadata?: Record<string, any>
     /** Members without a confirmed second factor cannot reach this workspace. */
     require_mfa?: boolean
+    /** Admins may switch to metadata_only; only a tenant admin switches back. */
+    content_capture?: WorkspaceContentCapture
   },
   config?: RequestConfigWithToast,
 ): Promise<WorkspaceInfo> => {
@@ -286,4 +292,65 @@ export const revokeResourceGrant = (
   config?: RequestConfigWithToast,
 ): Promise<void> => {
   return del(`/resource-grants/${resourceType}/${resourceId}/${userId}`, undefined, config)
+}
+
+export type ServicePrincipalRole = 'Viewer' | 'Dev' | 'Admin'
+
+/**
+ * A non-human caller of the workspace, such as a pipeline. A member owns it,
+ * and keys issued to it act with the lower of its role and its owner's.
+ */
+export interface ServicePrincipal {
+  id: string
+  tenant_id: string
+  workspace_id: string
+  name: string
+  description?: string | null
+  owner_user_id: string
+  workspace_role: ServicePrincipalRole
+  status: 'active' | 'disabled'
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export const listServicePrincipals = (
+  config?: RequestConfigWithToast,
+): Promise<ServicePrincipal[]> => {
+  return get<ServicePrincipal[]>('/service-principals', undefined, config)
+}
+
+export const createServicePrincipal = (
+  data: {
+    name: string
+    description?: string
+    workspace_role: ServicePrincipalRole
+    /** Defaults to the member creating it. */
+    owner_user_id?: string
+  },
+  config?: RequestConfigWithToast,
+): Promise<ServicePrincipal> => {
+  return post<ServicePrincipal>('/service-principals', data, config)
+}
+
+export const updateServicePrincipal = (
+  principalId: string,
+  data: {
+    name?: string
+    description?: string | null
+    workspace_role?: ServicePrincipalRole
+    owner_user_id?: string
+    status?: 'active' | 'disabled'
+  },
+  config?: RequestConfigWithToast,
+): Promise<ServicePrincipal> => {
+  return patch<ServicePrincipal>(`/service-principals/${principalId}`, data, config)
+}
+
+/** Keys issued to the principal stop working with it. */
+export const deleteServicePrincipal = (
+  principalId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/service-principals/${principalId}`, undefined, config)
 }

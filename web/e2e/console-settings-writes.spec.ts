@@ -606,3 +606,207 @@ test('a deployment with no mail outlet still adds an existing account by id', as
   await expect(page.locator('#invite-email')).toHaveCount(0)
   await expect(page.locator('.console-modal')).toContainText('must already belong')
 })
+
+/** A dialog row by its label; the input, list box or select beside it. */
+const field = (page: Page, label: string) =>
+  modal(page).locator('.mrow', { hasText: label }).locator('input, textarea, select')
+
+test('a new key carries the limits the dialog collected and nothing it left empty', async ({
+  page,
+}) => {
+  let posted: Record<string, unknown> | null = null
+  await page.route('**/api/v1/api-keys**', async (route) => {
+    if (route.request().method() === 'POST') {
+      posted = route.request().postDataJSON()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: ok({
+          api_key: 'sk_fixture_limited',
+          item: { ...apiKeys.items[0], id: 'key_3', name: 'partner' },
+        }),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(apiKeys) })
+  })
+
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Create key' }).click()
+  const create = modal(page).getByRole('button', { name: 'Create', exact: true })
+
+  await modal(page).locator('input.input').first().fill('partner')
+  await field(page, 'Calls per minute').fill('60')
+  // A count that is not a whole number holds the dialog instead of a 422.
+  await field(page, 'Tokens per day').fill('ten')
+  await expect(create).toBeDisabled()
+  await field(page, 'Tokens per day').fill('200,000')
+  await field(page, 'Allowed addresses').fill('203.0.113.7\n198.51.100.0/24')
+  await field(page, 'Allowed models').fill('model:openai:gpt-5.5, vmodel:support')
+  await field(page, 'Run content').selectOption('metadata_only')
+  await create.click()
+
+  await expect.poll(() => posted).not.toBeNull()
+  expect(posted).toEqual({
+    name: 'partner',
+    scopes: ['read'],
+    expires_in_days: 90,
+    rate_limit_per_minute: 60,
+    daily_token_quota: 200000,
+    ip_allowlist: ['203.0.113.7', '198.51.100.0/24'],
+    allowed_models: ['model:openai:gpt-5.5', 'vmodel:support'],
+    content_capture: 'metadata_only',
+  })
+})
+
+test('editing the limits of a key sends every limit, clearing the ones emptied', async ({
+  page,
+}) => {
+  let patched: Record<string, unknown> | null = null
+  let patchedUrl = ''
+  const limited = {
+    ...apiKeys.items[0],
+    rate_limit_per_minute: 30,
+    daily_request_quota: null,
+    daily_token_quota: null,
+    ip_allowlist: ['203.0.113.7/32'],
+    allowed_models: null,
+    content_capture: null,
+  }
+  await page.route('**/api/v1/api-keys**', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      patched = route.request().postDataJSON()
+      patchedUrl = route.request().url()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: ok({ ...limited, ...patched }),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ ...apiKeys, items: [limited] }),
+    })
+  })
+
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
+  // The table says what bounds each key.
+  await expect(page.getByText('30/min · addresses: 1')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Limits', exact: true }).click()
+  await expect(field(page, 'Calls per minute')).toHaveValue('30')
+  await expect(field(page, 'Allowed addresses')).toHaveValue('203.0.113.7/32')
+  await field(page, 'Calls per minute').fill('')
+  await field(page, 'Calls per 24 hours').fill('5000')
+  await modal(page).getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect.poll(() => patched).not.toBeNull()
+  expect(patchedUrl).toContain('/api-keys/key_1')
+  expect(patched).toEqual({
+    rate_limit_per_minute: null,
+    daily_request_quota: 5000,
+    daily_token_quota: null,
+    ip_allowlist: ['203.0.113.7/32'],
+    allowed_models: null,
+    content_capture: null,
+  })
+})
+
+test('a service principal is created with a role and issued a key of its own', async ({
+  page,
+}) => {
+  let createdPrincipal: Record<string, unknown> | null = null
+  let postedKey: Record<string, unknown> | null = null
+  const principal = {
+    id: 'sp_1',
+    tenant_id: 't1',
+    workspace_id: 'workspace-1',
+    name: 'etl-pipeline',
+    description: null,
+    owner_user_id: 'user-1',
+    workspace_role: 'Viewer',
+    status: 'active',
+    created_by: 'user-1',
+    created_at: NOW,
+    updated_at: NOW,
+  }
+  const principals: unknown[] = []
+
+  await json(page, '**/api/v1/workspaces/*/members', members)
+  await page.route('**/api/v1/service-principals**', async (route) => {
+    if (route.request().method() === 'POST') {
+      createdPrincipal = route.request().postDataJSON()
+      principals.push(principal)
+      return route.fulfill({ status: 201, contentType: 'application/json', body: ok(principal) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(principals) })
+  })
+  await page.route('**/api/v1/api-keys**', async (route) => {
+    if (route.request().method() === 'POST') {
+      postedKey = route.request().postDataJSON()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: ok({
+          api_key: 'sk_fixture_principal',
+          item: { ...apiKeys.items[0], id: 'key_4', name: 'etl-pipeline', principal_id: 'sp_1' },
+        }),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(apiKeys) })
+  })
+
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('No service principals.', { exact: false })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New principal' }).click()
+  await modal(page).locator('input.input').first().fill('etl-pipeline')
+  await field(page, 'Role').selectOption('Viewer')
+  await modal(page).getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect.poll(() => createdPrincipal).toEqual({
+    name: 'etl-pipeline',
+    workspace_role: 'Viewer',
+  })
+  const row = page.locator('tr', { hasText: 'etl-pipeline' })
+  await expect(row).toContainText('Jude')
+
+  // Issuing from the row of the principal selects it as the holder of the key.
+  await row.getByRole('button', { name: 'Issue key' }).click()
+  await expect(field(page, 'Issued to')).toHaveValue('sp_1')
+  await modal(page).getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect.poll(() => postedKey).not.toBeNull()
+  expect(postedKey).toMatchObject({ name: 'etl-pipeline', principal_id: 'sp_1' })
+})
+
+test('a workspace can stop recording run content', async ({ page }) => {
+  let patched: unknown = null
+  let capture = 'full'
+  await page.route('**/api/v1/workspaces/workspace-1', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      patched = JSON.parse(route.request().postData() || '{}')
+      capture = (patched as { content_capture: string }).content_capture
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        id: 'workspace-1',
+        tenant_id: 'tenant-1',
+        name: 'acme-robotics',
+        require_mfa: false,
+        content_capture: capture,
+        created_at: NOW,
+      }),
+    })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+  const select = page.locator('.frow', { hasText: 'Run content' }).locator('select')
+  await expect(select).toHaveValue('full')
+
+  await select.selectOption('metadata_only')
+  await expect.poll(() => patched).toEqual({ content_capture: 'metadata_only' })
+  await expect(select).toHaveValue('metadata_only')
+})

@@ -14,6 +14,13 @@ record for operators.
 
 ### Added
 
+- Console: Settings › API shows what bounds each key and edits its limits
+  (calls per minute and per 24 hours, tokens per day, allowed addresses and
+  models, and whether its runs record content), sets them when a key is
+  created, and issues keys to service principals. The same page lists the
+  workspace's service principals with their role, owner and active keys, and
+  creates, disables and deletes them. Settings › Security switches the
+  workspace between recording run content and metadata only.
 - Runs report the entry they came through and the key that started them
   (`source`, `api_key_id`), and the run list (`GET /api/v1/runs`) and its CSV
   export filter by both, so gateway traffic can be read on its own or per
