@@ -14,10 +14,10 @@ from decimal import Decimal
 import pytest
 
 from app.kernel.commons.errors import ValidationError
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.runs import ledger
-from app.kernel.runtime.runs.schemas import RunAuditLogResponse
 from app.kernel.specs import load_schema, validate_spec
 
 NOW = datetime(2026, 9, 27, 10, 30, 15, 123456)
@@ -28,6 +28,7 @@ RENAMED = {
     "run_steps": {"id": "step_record_id", "metrics_json": "metrics"},
     "run_cost_entries": {"id": "cost_entry_id", "pricing_snapshot_json": "pricing_snapshot"},
     "event_outbox": {"id": "outbox_id", "payload_json": "payload", "headers_json": "headers"},
+    "audit_events": {"id": "audit_id", "payload_json": "payload"},
 }
 # Columns that stay inside: delivery state of the outbox, not facts of the ledger.
 INTERNAL = {
@@ -41,7 +42,13 @@ INTERNAL = {
         "failed_consumer_name",
     },
 }
-MODELS = {"run": Run, "step": RunStep, "cost": RunCostEntry, "event": EventOutbox}
+MODELS = {
+    "run": Run,
+    "step": RunStep,
+    "cost": RunCostEntry,
+    "audit": AuditEvent,
+    "event": EventOutbox,
+}
 
 
 def _contract_fields(record_type: str) -> set[str]:
@@ -122,17 +129,20 @@ def _event() -> EventOutbox:
     )
 
 
-def _audit() -> RunAuditLogResponse:
-    return RunAuditLogResponse(
+def _audit() -> AuditEvent:
+    return AuditEvent(
+        id="aud_ledger",
+        tenant_id="t1",
+        workspace_id="w1",
+        event_type="gateway.request",
+        resource_type="tool",
+        resource_id="step_ledger",
         run_id="run_ledger",
         step_id="step_ledger",
-        step_type="tool",
-        audit_id="aud_1",
         outcome="allowed",
-        gateway_type="tool",
-        request={"tool_ref": "builtin.http"},
-        response={"success": True},
+        operation="invoke",
         actor_user_id="u1",
+        payload_json={"request": {"tool_ref": "builtin.http"}, "response": {"success": True}},
         created_at=NOW,
     )
 

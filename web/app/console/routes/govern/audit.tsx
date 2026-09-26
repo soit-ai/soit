@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 
+import { toast } from 'sonner'
+
 import {
   ConsoleButton,
   ConsoleTabs,
@@ -24,10 +26,11 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { relativeTime } from '../../adapters/palette'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { listApprovals } from '@/services/observe-service'
 import { listRunAudits, type RunAuditLogResponse } from '@/services/run-service'
+import { downloadLedgerExport, type LedgerExportKind } from '@/services/ledger-service'
 import { listEgressPolicyAudits } from '@/services/security-service'
 
 const RANGES = ['1h', '24h', '7d', '30d'] as const
@@ -41,6 +44,24 @@ const RANGE_MS: Record<(typeof RANGES)[number], number> = {
   '24h': 86_400_000,
   '7d': 7 * 86_400_000,
   '30d': 30 * 86_400_000,
+}
+
+/** Download the ledger for a window, saying plainly why a non-admin cannot. */
+function useLedgerExport(kind: LedgerExportKind, since: string) {
+  const { t } = useTranslation()
+  return useMutation({
+    mutationKey: ['console', 'ledger-export', kind],
+    mutationFn: () => downloadLedgerExport(kind, { since, format: 'csv' }),
+    onSuccess: (filename) => {
+      toast.success(t('console.common.exported', { filename }))
+    },
+    onError: (error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      toast.error(
+        status === 403 ? t('console.common.exportForbidden') : t('console.common.exportFailed'),
+      )
+    },
+  })
 }
 
 function clockTime(iso?: string | null): string {
@@ -76,6 +97,8 @@ export default function ConsoleAudit() {
     () => new Date(Date.now() - RANGE_MS[range]).toISOString(),
     [range],
   )
+  const exportMutation = useLedgerExport('audit', since)
+
   const filters = useMemo(
     () => ({
       since,
@@ -157,7 +180,10 @@ export default function ConsoleAudit() {
       title={t('console.audit.title')}
       description={t('console.audit.description')}
       actions={
-        <ConsoleButton>
+        <ConsoleButton
+          disabled={exportMutation.isPending}
+          onClick={() => exportMutation.mutate(undefined)}
+        >
           <IconExport />
           {t('console.audit.export')}
         </ConsoleButton>

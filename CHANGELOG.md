@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- Ledger exports: `GET /api/v1/exports/{runs|steps|costs|audit|events}`
+  streams one kind of record created in a window of up to 92 days, oldest
+  first, as JSON Lines (each line a contract envelope) or CSV (the contract's
+  fields as columns), with the contract version in
+  `X-SOIT-Ledger-Schema`. Records are read in keyset batches, so a large
+  window streams without being held in memory. Exports take a workspace
+  owner or admin and are themselves written to the audit ledger
+  (`ledger.exported`). The audit export covers every audit event of the
+  workspace, in runs or not. In the console, Export on Observe › Runs and
+  Govern › Audit downloads the current window as CSV.
 - A ledger contract, `kernel/specs/v1/ledger_spec.schema.json` (version
   1.0): the one shape in which runs, run steps, cost entries, audit entries
   and outbox events leave SOIT, each record wrapped with the contract version
@@ -44,6 +54,9 @@ record for operators.
 
 ### Fixed
 
+- The API names `Content-Disposition`, `X-SOIT-Ledger-Schema` and
+  `X-SOIT-Run-Id` in `Access-Control-Expose-Headers`, so a browser on
+  another origin can read a download's file name and a gateway call's run.
 - Querying a knowledge base whose index is missing or not ready answers 409
   with what is missing instead of a 500.
 

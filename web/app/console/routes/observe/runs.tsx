@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { useSearchParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   ConsoleButton,
@@ -31,7 +32,7 @@ import {
   TableRow,
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -44,6 +45,7 @@ import {
   type RunResponse,
   type RunSource,
 } from '@/services/run-service'
+import { downloadLedgerExport, type LedgerExportKind } from '@/services/ledger-service'
 
 const RANGES = ['1h', '24h', '7d', '30d'] as const
 type RunRange = (typeof RANGES)[number]
@@ -80,6 +82,24 @@ function formatStarted(iso: string): string {
 function subjectKind(run: RunResponse): ConsoleKind {
   const kind = run.subject_kind || ''
   return (kind in CONSOLE_KIND_COLOR ? kind : 'agent') as ConsoleKind
+}
+
+/** Download the ledger for a window, saying plainly why a non-admin cannot. */
+function useLedgerExport(kind: LedgerExportKind, since: string) {
+  const { t } = useTranslation()
+  return useMutation({
+    mutationKey: ['console', 'ledger-export', kind],
+    mutationFn: () => downloadLedgerExport(kind, { since, format: 'csv' }),
+    onSuccess: (filename) => {
+      toast.success(t('console.common.exported', { filename }))
+    },
+    onError: (error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      toast.error(
+        status === 403 ? t('console.common.exportForbidden') : t('console.common.exportFailed'),
+      )
+    },
+  })
 }
 
 export default function ConsoleRuns() {
@@ -172,6 +192,8 @@ export default function ConsoleRuns() {
     ],
   )
 
+  const exportMutation = useLedgerExport('runs', startedAfter)
+
   const runsQuery = useQuery({
     queryKey: ['console', 'runs', listParams],
     queryFn: () => listRuns(listParams),
@@ -255,7 +277,12 @@ export default function ConsoleRuns() {
             value={range}
             onChange={(value) => patchParams({ range: value })}
           />
-          <ConsoleButton>{t('console.runs.export')}</ConsoleButton>
+          <ConsoleButton
+            disabled={exportMutation.isPending}
+            onClick={() => exportMutation.mutate(undefined)}
+          >
+            {t('console.runs.export')}
+          </ConsoleButton>
         </>
       }
       filters={

@@ -34,6 +34,9 @@ const translation = {
     done: 'Done',
     search: 'Search',
     all: 'All',
+    exported: 'Exported {{filename}}',
+    exportForbidden: 'Exports take a workspace owner or admin: they take the ledger out of SOIT.',
+    exportFailed: 'The export failed. Try a shorter window.',
   },
   nav: {
     overview: 'Overview',

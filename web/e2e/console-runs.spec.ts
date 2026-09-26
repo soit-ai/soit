@@ -202,3 +202,44 @@ test('console runs narrow to the gateway and to one key, costs included', async 
   await expect(page).not.toHaveURL(/api_key_id=/)
   await expect(page).toHaveURL(/source=gateway/)
 })
+
+test('console runs export downloads the ledger for the window', async ({ page }) => {
+  let asked = ''
+  await page.route('**/api/v1/exports/runs**', (route) => {
+    asked = route.request().url()
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/csv; charset=utf-8',
+      headers: {
+        'content-disposition': 'attachment; filename="soit-runs-20260926T000000Z-20260927T000000Z.csv"',
+        'x-soit-ledger-schema': '1.0',
+        // The API is another origin; it names the headers a browser may read.
+        'access-control-expose-headers': 'Content-Disposition, X-SOIT-Ledger-Schema, X-SOIT-Run-Id',
+      },
+      body: 'run_id,tenant_id\nrun_1,t1\n',
+    })
+  })
+
+  await page.goto('/observe/runs?range=24h', { waitUntil: 'domcontentloaded' })
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export' }).click()
+
+  expect((await download).suggestedFilename()).toBe('soit-runs-20260926T000000Z-20260927T000000Z.csv')
+  expect(asked).toContain('format=csv')
+  expect(asked).toContain('since=')
+})
+
+test('console runs export tells a member why it is refused', async ({ page }) => {
+  await page.route('**/api/v1/exports/runs**', (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'FORBIDDEN', message: 'Forbidden' }),
+    }),
+  )
+
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Export' }).click()
+
+  await expect(page.getByText('Exports take a workspace owner or admin', { exact: false })).toBeVisible()
+})

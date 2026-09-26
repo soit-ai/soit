@@ -20,9 +20,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
-from app.kernel.runtime.runs.schemas import RunAuditLogResponse
 
 LEDGER_SPEC = "ledger_spec"
 LEDGER_SCHEMA_VERSION = "1.0"
@@ -146,27 +146,26 @@ def cost_record(entry: RunCostEntry) -> dict[str, Any]:
     }
 
 
-def audit_record(entry: RunAuditLogResponse) -> dict[str, Any]:
+def audit_record(event: AuditEvent) -> dict[str, Any]:
+    """An entry of the append-only audit table, in or outside a run."""
     return {
-        "audit_id": entry.audit_id,
-        "run_id": entry.run_id,
-        "step_id": entry.step_id,
-        "step_type": entry.step_type,
-        "trace_id": entry.trace_id,
-        "outcome": entry.outcome,
-        "gateway_type": entry.gateway_type,
-        "actor_user_id": entry.actor_user_id,
-        "operation": entry.operation,
-        "resource_type": entry.resource_type,
-        "resource_id": entry.resource_id,
-        "request": _object(entry.request),
-        "response": _object(entry.response),
-        "evidence_artifact_id": entry.evidence_artifact_id,
-        "artifact_key": entry.artifact_key,
-        "truncated": bool(entry.truncated),
-        "preview": entry.preview,
-        "timestamp": entry.timestamp,
-        "created_at": iso_utc(entry.created_at),
+        "audit_id": event.id,
+        "tenant_id": event.tenant_id,
+        "workspace_id": event.workspace_id,
+        "event_type": event.event_type,
+        "resource_type": event.resource_type,
+        "resource_id": event.resource_id,
+        "run_id": event.run_id,
+        "step_id": event.step_id,
+        "trace_id": event.trace_id,
+        "outcome": event.outcome,
+        "evidence_artifact_id": event.evidence_artifact_id,
+        "operation": event.operation,
+        "actor_user_id": event.actor_user_id,
+        "subject_user_id": event.subject_user_id,
+        "scope": event.scope,
+        "payload": _object(event.payload_json) or {},
+        "created_at": iso_utc(event.created_at),
     }
 
 

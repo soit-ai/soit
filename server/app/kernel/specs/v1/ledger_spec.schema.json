@@ -4,216 +4,587 @@
   "description": "One record of the runtime ledger as SOIT exports it: a run, a run step, a cost entry, an audit entry or an outbox event. schema_version names this contract; ledger exports and run evidence bundles carry the version they were written in. Adding an optional field is a minor version; removing or retyping one is a new major version.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "record_type", "record"],
+  "required": [
+    "schema_version",
+    "record_type",
+    "record"
+  ],
   "properties": {
-    "schema_version": {"const": "1.0"},
-    "record_type": {"enum": ["run", "step", "cost", "audit", "event"]},
-    "record": {"type": "object"}
+    "schema_version": {
+      "const": "1.0"
+    },
+    "record_type": {
+      "enum": [
+        "run",
+        "step",
+        "cost",
+        "audit",
+        "event"
+      ]
+    },
+    "record": {
+      "type": "object"
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"record_type": {"const": "run"}}},
-      "then": {"properties": {"record": {"$ref": "#/$defs/run"}}}
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "run"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "$ref": "#/$defs/run"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"record_type": {"const": "step"}}},
-      "then": {"properties": {"record": {"$ref": "#/$defs/step"}}}
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "step"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"record_type": {"const": "cost"}}},
-      "then": {"properties": {"record": {"$ref": "#/$defs/cost"}}}
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "cost"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "$ref": "#/$defs/cost"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"record_type": {"const": "audit"}}},
-      "then": {"properties": {"record": {"$ref": "#/$defs/audit"}}}
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "audit"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "$ref": "#/$defs/audit"
+          }
+        }
+      }
     },
     {
-      "if": {"properties": {"record_type": {"const": "event"}}},
-      "then": {"properties": {"record": {"$ref": "#/$defs/event"}}}
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "event"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "$ref": "#/$defs/event"
+          }
+        }
+      }
     }
   ],
   "$defs": {
-    "id": {"type": "string", "minLength": 1},
-    "optional_string": {"type": ["string", "null"]},
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "optional_string": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "timestamp": {
       "type": "string",
       "description": "UTC, ISO 8601 with a Z suffix.",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
     },
     "optional_timestamp": {
-      "oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]
+      "oneOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
-    "optional_count": {"type": ["integer", "null"], "minimum": 0},
+    "optional_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
     "optional_decimal": {
       "description": "A decimal amount as a string, so no reader rounds it.",
       "oneOf": [
-        {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"},
-        {"type": "null"}
+        {
+          "type": "string",
+          "pattern": "^-?\\d+(\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
-    "optional_object": {"type": ["object", "null"]},
+    "optional_object": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "run": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "run_id", "tenant_id", "workspace_id", "mode", "status", "source",
-        "sandbox", "attempt_no", "started_at", "created_at", "updated_at"
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "mode",
+        "status",
+        "source",
+        "sandbox",
+        "attempt_no",
+        "started_at",
+        "created_at",
+        "updated_at"
       ],
       "properties": {
-        "run_id": {"$ref": "#/$defs/id"},
-        "tenant_id": {"$ref": "#/$defs/id"},
-        "workspace_id": {"$ref": "#/$defs/id"},
-        "user_id": {"$ref": "#/$defs/optional_string"},
-        "trace_id": {"$ref": "#/$defs/optional_string"},
-        "request_id": {"$ref": "#/$defs/optional_string"},
-        "parent_run_id": {"$ref": "#/$defs/optional_string"},
-        "source_run_id": {"$ref": "#/$defs/optional_string"},
-        "attempt_no": {"type": "integer", "minimum": 1},
-        "mode": {"type": "string"},
-        "kind": {"$ref": "#/$defs/optional_string"},
-        "subject_kind": {"$ref": "#/$defs/optional_string"},
-        "subject_id": {"$ref": "#/$defs/optional_string"},
-        "subject_version_id": {"$ref": "#/$defs/optional_string"},
-        "status": {"type": "string"},
-        "sandbox": {"type": "boolean"},
-        "source": {"type": "string", "description": "platform, gateway or rehearsal entry."},
-        "api_key_id": {"$ref": "#/$defs/optional_string"},
-        "input_summary": {"$ref": "#/$defs/optional_string"},
-        "output_summary": {"$ref": "#/$defs/optional_string"},
-        "started_at": {"$ref": "#/$defs/timestamp"},
-        "ended_at": {"$ref": "#/$defs/optional_timestamp"},
-        "duration_ms": {"$ref": "#/$defs/optional_count"},
-        "error_code": {"$ref": "#/$defs/optional_string"},
-        "error_message": {"$ref": "#/$defs/optional_string"},
-        "error_step_id": {"$ref": "#/$defs/optional_string"},
-        "created_at": {"$ref": "#/$defs/timestamp"},
-        "updated_at": {"$ref": "#/$defs/timestamp"}
+        "run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/id"
+        },
+        "user_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "trace_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "request_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "parent_run_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "source_run_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "attempt_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "subject_kind": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "subject_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "subject_version_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "sandbox": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string",
+          "description": "platform, gateway or rehearsal entry."
+        },
+        "api_key_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "input_summary": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "output_summary": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/optional_timestamp"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "error_code": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "error_message": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "error_step_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
       }
     },
     "step": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "step_record_id", "run_id", "tenant_id", "workspace_id", "step_type",
-        "status", "started_at", "created_at"
+        "step_record_id",
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "step_type",
+        "status",
+        "started_at",
+        "created_at"
       ],
       "properties": {
-        "step_record_id": {"$ref": "#/$defs/id"},
-        "run_id": {"$ref": "#/$defs/id"},
-        "tenant_id": {"$ref": "#/$defs/id"},
-        "workspace_id": {"$ref": "#/$defs/id"},
-        "trace_id": {"$ref": "#/$defs/optional_string"},
-        "step_id": {"$ref": "#/$defs/optional_string"},
-        "step_type": {"type": "string"},
-        "node_id": {"$ref": "#/$defs/optional_string"},
-        "status": {"type": "string"},
-        "input_summary": {"$ref": "#/$defs/optional_string"},
-        "output_summary": {"$ref": "#/$defs/optional_string"},
-        "metrics": {"$ref": "#/$defs/optional_object"},
-        "error_code": {"$ref": "#/$defs/optional_string"},
-        "error_message": {"$ref": "#/$defs/optional_string"},
-        "error_details": {"$ref": "#/$defs/optional_object"},
-        "started_at": {"$ref": "#/$defs/timestamp"},
-        "ended_at": {"$ref": "#/$defs/optional_timestamp"},
-        "created_at": {"$ref": "#/$defs/timestamp"}
+        "step_record_id": {
+          "$ref": "#/$defs/id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/id"
+        },
+        "trace_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "step_type": {
+          "type": "string"
+        },
+        "node_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "input_summary": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "output_summary": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "metrics": {
+          "$ref": "#/$defs/optional_object"
+        },
+        "error_code": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "error_message": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "error_details": {
+          "$ref": "#/$defs/optional_object"
+        },
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/optional_timestamp"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
       }
     },
     "cost": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "cost_entry_id", "run_id", "tenant_id", "workspace_id", "billing_basis",
-        "pricing_snapshot", "created_at"
+        "cost_entry_id",
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "billing_basis",
+        "pricing_snapshot",
+        "created_at"
       ],
       "properties": {
-        "cost_entry_id": {"$ref": "#/$defs/id"},
-        "run_id": {"$ref": "#/$defs/id"},
-        "step_id": {"$ref": "#/$defs/optional_string"},
-        "tenant_id": {"$ref": "#/$defs/id"},
-        "workspace_id": {"$ref": "#/$defs/id"},
-        "currency": {"$ref": "#/$defs/optional_string"},
-        "amount": {"$ref": "#/$defs/optional_decimal"},
-        "pricing_snapshot": {"type": "object"},
-        "billing_basis": {"type": "string"},
-        "billed_quantity": {"$ref": "#/$defs/optional_decimal"},
-        "source_ref": {"$ref": "#/$defs/optional_string"},
-        "provider": {"$ref": "#/$defs/optional_string"},
-        "provider_id": {"$ref": "#/$defs/optional_string"},
-        "provider_slug": {"$ref": "#/$defs/optional_string"},
-        "provider_kind": {"$ref": "#/$defs/optional_string"},
-        "model_ref": {"$ref": "#/$defs/optional_string"},
-        "upstream_model": {"$ref": "#/$defs/optional_string"},
-        "tool_ref": {"$ref": "#/$defs/optional_string"},
-        "source_port": {"$ref": "#/$defs/optional_string"},
-        "operation": {"$ref": "#/$defs/optional_string"},
-        "prompt_tokens": {"$ref": "#/$defs/optional_count"},
-        "completion_tokens": {"$ref": "#/$defs/optional_count"},
-        "total_tokens": {"$ref": "#/$defs/optional_count"},
-        "latency_ms": {"$ref": "#/$defs/optional_count"},
-        "request_count": {"$ref": "#/$defs/optional_count"},
-        "embedding_count": {"$ref": "#/$defs/optional_count"},
-        "rerank_count": {"$ref": "#/$defs/optional_count"},
-        "vector_count": {"$ref": "#/$defs/optional_count"},
-        "storage_bytes": {"$ref": "#/$defs/optional_count"},
-        "created_at": {"$ref": "#/$defs/timestamp"}
+        "cost_entry_id": {
+          "$ref": "#/$defs/id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "step_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/id"
+        },
+        "currency": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "amount": {
+          "$ref": "#/$defs/optional_decimal"
+        },
+        "pricing_snapshot": {
+          "type": "object"
+        },
+        "billing_basis": {
+          "type": "string"
+        },
+        "billed_quantity": {
+          "$ref": "#/$defs/optional_decimal"
+        },
+        "source_ref": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "provider": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "provider_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "provider_slug": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "provider_kind": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "model_ref": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "upstream_model": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "tool_ref": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "source_port": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "operation": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "prompt_tokens": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "completion_tokens": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "total_tokens": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "latency_ms": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "request_count": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "embedding_count": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "rerank_count": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "vector_count": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "storage_bytes": {
+          "$ref": "#/$defs/optional_count"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
       }
     },
     "audit": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["run_id", "step_id", "step_type"],
+      "required": [
+        "audit_id",
+        "tenant_id",
+        "event_type",
+        "resource_type",
+        "operation",
+        "payload",
+        "created_at"
+      ],
       "properties": {
-        "audit_id": {"$ref": "#/$defs/optional_string"},
-        "run_id": {"$ref": "#/$defs/id"},
-        "step_id": {"$ref": "#/$defs/id"},
-        "step_type": {"type": "string"},
-        "trace_id": {"$ref": "#/$defs/optional_string"},
-        "outcome": {"$ref": "#/$defs/optional_string"},
-        "gateway_type": {"$ref": "#/$defs/optional_string"},
-        "actor_user_id": {"$ref": "#/$defs/optional_string"},
-        "operation": {"$ref": "#/$defs/optional_string"},
-        "resource_type": {"$ref": "#/$defs/optional_string"},
-        "resource_id": {"$ref": "#/$defs/optional_string"},
-        "request": {"$ref": "#/$defs/optional_object"},
-        "response": {"$ref": "#/$defs/optional_object"},
-        "evidence_artifact_id": {"$ref": "#/$defs/optional_string"},
-        "artifact_key": {"$ref": "#/$defs/optional_string"},
-        "truncated": {"type": "boolean"},
-        "preview": {"$ref": "#/$defs/optional_string"},
-        "timestamp": {"$ref": "#/$defs/optional_string"},
-        "created_at": {"$ref": "#/$defs/optional_timestamp"}
+        "audit_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "trace_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "evidence_artifact_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "actor_user_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "subject_user_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "scope": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
       }
     },
     "event": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "outbox_id", "event_id", "event_type", "event_version", "idempotency_key",
-        "status", "occurred_at", "created_at"
+        "outbox_id",
+        "event_id",
+        "event_type",
+        "event_version",
+        "idempotency_key",
+        "status",
+        "occurred_at",
+        "created_at"
       ],
       "properties": {
-        "outbox_id": {"$ref": "#/$defs/id"},
-        "event_id": {"$ref": "#/$defs/id"},
-        "event_type": {"type": "string"},
-        "event_version": {"type": "string"},
-        "tenant_id": {"$ref": "#/$defs/optional_string"},
-        "workspace_id": {"$ref": "#/$defs/optional_string"},
-        "idempotency_key": {"type": "string"},
-        "subject_type": {"$ref": "#/$defs/optional_string"},
-        "subject_id": {"$ref": "#/$defs/optional_string"},
-        "run_id": {"$ref": "#/$defs/optional_string"},
-        "task_id": {"$ref": "#/$defs/optional_string"},
-        "thread_id": {"$ref": "#/$defs/optional_string"},
-        "workflow_run_id": {"$ref": "#/$defs/optional_string"},
-        "correlation_id": {"$ref": "#/$defs/optional_string"},
-        "causation_id": {"$ref": "#/$defs/optional_string"},
-        "producer": {"$ref": "#/$defs/optional_string"},
-        "payload": {"$ref": "#/$defs/optional_object"},
-        "headers": {"$ref": "#/$defs/optional_object"},
-        "status": {"type": "string"},
-        "occurred_at": {"$ref": "#/$defs/timestamp"},
-        "created_at": {"$ref": "#/$defs/timestamp"},
-        "processed_at": {"$ref": "#/$defs/optional_timestamp"}
+        "outbox_id": {
+          "$ref": "#/$defs/id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "event_version": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "subject_type": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "subject_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "task_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "thread_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "workflow_run_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "causation_id": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "producer": {
+          "$ref": "#/$defs/optional_string"
+        },
+        "payload": {
+          "$ref": "#/$defs/optional_object"
+        },
+        "headers": {
+          "$ref": "#/$defs/optional_object"
+        },
+        "status": {
+          "type": "string"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "processed_at": {
+          "$ref": "#/$defs/optional_timestamp"
+        }
       }
     }
   }

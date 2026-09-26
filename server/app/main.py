@@ -337,6 +337,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # A browser only reads the headers named here from a cross-origin
+    # response: the file name of a download, the ledger contract of an export,
+    # and the run a gateway call became.
+    expose_headers=["Content-Disposition", "X-SOIT-Ledger-Schema", "X-SOIT-Run-Id"],
 )
 
 
@@ -420,6 +424,7 @@ from app.api.v1.billing.router import router as billing_router  # noqa: E402
 from app.api.v1.diagnostics.router import router as diagnostics_router  # noqa: E402
 from app.api.v1.embeddings.router import router as embeddings_router  # noqa: E402
 from app.api.v1.evaluation.router import router as evaluation_router  # noqa: E402
+from app.api.v1.exports.router import router as exports_router  # noqa: E402
 from app.api.v1.feedback.router import router as feedback_router  # noqa: E402
 from app.api.v1.health.router import router as health_router  # noqa: E402
 from app.api.v1.identity.router import router as identity_router  # noqa: E402
@@ -464,6 +469,7 @@ app.include_router(images_router, prefix="/api/v1/images", tags=["images"])
 app.include_router(embeddings_router, prefix="/api/v1/embeddings", tags=["embeddings"])
 app.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
 app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+app.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
 app.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
 
 install_enveloped_openapi(app)
