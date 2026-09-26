@@ -234,6 +234,8 @@ record for operators.
   than the window keep their newest messages in context.
 - The backend runs on Python 3.12 (`requires-python` admits 3.11 and 3.12;
   the image, CI and `.python-version` use 3.12).
+- The web console requires Node.js 22.22 or later, the floor React Router
+  8 declares; CI, `web/.nvmrc` and the web image all run Node 24.
 - JSON columns and API responses are encoded with orjson; log records are
   written from a listener thread (`LOG_ASYNC=false` restores synchronous
   writes).

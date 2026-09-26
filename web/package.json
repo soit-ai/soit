@@ -16,7 +16,7 @@
     "test:e2e:real": "playwright test --config=playwright.real.config.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.22.0"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.57",
