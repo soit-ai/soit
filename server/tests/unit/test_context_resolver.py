@@ -644,6 +644,7 @@ async def test_a_keys_limits_reach_the_request_context(async_db, monkeypatch) ->
         daily_request_quota=100,
         daily_token_quota=50_000,
         allowed_models_json=["model:openai-main:gpt-live"],
+        allowed_tools_json=["tool:function:time_now"],
     )
     _bind_sessions(async_db, monkeypatch)
     resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
@@ -654,6 +655,9 @@ async def test_a_keys_limits_reach_the_request_context(async_db, monkeypatch) ->
     assert context.api_key_daily_request_quota == 100
     assert context.api_key_daily_token_quota == 50_000
     assert context.allowed_models == frozenset({"model:openai-main:gpt-live"})
+    assert context.allowed_tools == frozenset({"tool:function:time_now"})
+    assert context.may_invoke_tool("tool:function:time_now")
+    assert not context.may_invoke_tool("tool:http:request")
 
 
 @pytest.mark.asyncio

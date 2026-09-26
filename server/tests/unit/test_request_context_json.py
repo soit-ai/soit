@@ -18,11 +18,13 @@ def test_a_credential_context_survives_a_json_column() -> None:
         workspace_role="Dev",
         scopes=frozenset({"write", "read"}),
         api_key_id="key_1",
+        allowed_tools=frozenset({"tool:http:request", "tool:function:time_now"}),
     )
 
     stored = orjson.loads(json_column_serializer(ctx.to_json()))
 
     assert stored["scopes"] == ["read", "write"]
+    assert stored["allowed_tools"] == ["tool:function:time_now", "tool:http:request"]
     assert RequestContext.from_json(stored) == ctx
 
 

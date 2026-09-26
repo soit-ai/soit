@@ -9,6 +9,7 @@ export interface ApiKeyLimitsDraft {
   dailyTokens: string
   ipAllowlist: string
   allowedModels: string
+  allowedTools: string
   metadataOnly: boolean
 }
 
@@ -18,6 +19,7 @@ export const EMPTY_LIMITS_DRAFT: ApiKeyLimitsDraft = {
   dailyTokens: '',
   ipAllowlist: '',
   allowedModels: '',
+  allowedTools: '',
   metadataOnly: false,
 }
 
@@ -28,6 +30,7 @@ export function limitsDraftOf(key: ApiKeyLimits): ApiKeyLimitsDraft {
     dailyTokens: key.daily_token_quota ? String(key.daily_token_quota) : '',
     ipAllowlist: (key.ip_allowlist || []).join('\n'),
     allowedModels: (key.allowed_models || []).join('\n'),
+    allowedTools: (key.allowed_tools || []).join('\n'),
     metadataOnly: key.content_capture === 'metadata_only',
   }
 }
@@ -65,6 +68,7 @@ export function limitsPayload(draft: ApiKeyLimitsDraft): Required<ApiKeyLimits> 
     daily_token_quota: tokens,
     ip_allowlist: listOf(draft.ipAllowlist),
     allowed_models: listOf(draft.allowedModels),
+    allowed_tools: listOf(draft.allowedTools),
     content_capture: draft.metadataOnly ? 'metadata_only' : null,
   }
 }
@@ -151,6 +155,18 @@ export function ApiKeyLimitFields({
       </div>
       <div className="mrow">
         <label>
+          {t('console.settings.apiPane.limits.allowedTools')}
+          <small>{t('console.settings.apiPane.limits.allowedToolsHint')}</small>
+        </label>
+        <textarea
+          className="input"
+          value={draft.allowedTools}
+          placeholder={'tool:function:time_now\nmcp_tool:github:create_issue'}
+          onChange={(event) => set({ allowedTools: event.target.value })}
+        />
+      </div>
+      <div className="mrow">
+        <label>
           {t('console.settings.apiPane.limits.content')}
           <small>{t('console.settings.apiPane.limits.contentHint')}</small>
         </label>
@@ -199,6 +215,9 @@ export function ApiKeyLimitsSummary({ limits }: { limits: ApiKeyLimits }) {
   }
   if (limits.allowed_models?.length) {
     parts.push(t('console.settings.apiPane.limits.models', { count: limits.allowed_models.length }))
+  }
+  if (limits.allowed_tools?.length) {
+    parts.push(t('console.settings.apiPane.limits.tools', { count: limits.allowed_tools.length }))
   }
   if (limits.content_capture === 'metadata_only') {
     parts.push(t('console.settings.apiPane.limits.noContent'))

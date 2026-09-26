@@ -252,6 +252,9 @@ const translation = {
         ipAllowlistHint: 'One address or CIDR range per line. Empty accepts any address.',
         allowedModels: 'Allowed models',
         allowedModelsHint: 'One model: or vmodel: ref per line. Empty allows every model.',
+        allowedTools: 'Allowed tools',
+        allowedToolsHint:
+          'One tool ref per line. Empty allows every tool of the workspace, from the tools API, MCP and runs the key starts.',
         content: 'Run content',
         contentHint: 'What the runs this key starts record.',
         contentWorkspace: 'follow the workspace',
@@ -261,6 +264,7 @@ const translation = {
         tokensPerDay: '{{value}} tokens/day',
         addresses: 'addresses: {{count}}',
         models: 'models: {{count}}',
+        tools: 'tools: {{count}}',
         noContent: 'no content',
       },
       expiresDays: '{{days}} days',

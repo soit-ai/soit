@@ -1734,6 +1734,7 @@ class IdentityService:
             daily_token_quota=data.daily_token_quota,
             ip_allowlist_json=data.ip_allowlist,
             allowed_models_json=data.allowed_models,
+            allowed_tools_json=data.allowed_tools,
             content_capture=data.content_capture,
             principal_id=data.principal_id,
         )
@@ -1794,6 +1795,8 @@ class IdentityService:
             api_key.ip_allowlist_json = changes["ip_allowlist"]
         if "allowed_models" in changes:
             api_key.allowed_models_json = changes["allowed_models"]
+        if "allowed_tools" in changes:
+            api_key.allowed_tools_json = changes["allowed_tools"]
         api_key.updated_at = utc_now()
         return await self.api_key_repo.update(api_key)
 
@@ -1861,6 +1864,7 @@ class IdentityService:
             daily_token_quota=old_key.daily_token_quota,
             ip_allowlist=old_key.ip_allowlist_json,
             allowed_models=old_key.allowed_models_json,
+            allowed_tools=old_key.allowed_tools_json,
             content_capture=old_key.content_capture,
             principal_id=old_key.principal_id,
         )

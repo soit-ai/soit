@@ -14,6 +14,24 @@ record for operators.
 
 ### Added
 
+- Direct tool calls: `POST /api/v1/tools/{ref}/invoke` calls one tool of
+  the workspace by reference, with the same API keys and sessions as `/v1`,
+  and `GET /api/v1/tools` lists the tools a caller may invoke (built-ins,
+  plugin tools, tools of enabled MCP servers) with their argument schemas and
+  whether they need approval. A call goes through the tool gateway agents
+  use (secret injection, egress policy, rate limits, budgets, audit, cost)
+  and is a run with `mode=tool`, `source=gateway`, named in `x-soit-run-id`.
+  An `Idempotency-Key` makes a call safe to retry: the same key returns the
+  recorded outcome without calling again, and a key reused with another tool
+  or other arguments is `409`. A tool that requires approval answers `202`
+  with an approval id; once decided, the same call with the same key runs it
+  or reports the rejection, and only the approved arguments can run.
+  Observe › Runs filters by the `tool` mode. See `docs/gateway.md`.
+- API keys can be limited to some tools: `allowed_tools` on
+  `POST`/`PATCH /api/v1/api-keys`, and Allowed tools in Settings › API. A
+  limited key sees only those tools, and neither direct calls nor runs it
+  starts can invoke others (`403`, reason `tool_not_allowed`). Migration
+  `20260927180000` adds the column; existing keys allow every tool.
 - Run evidence bundles: `GET /api/v1/runs/{run_id}/evidence` returns one
   run's evidence as a zip: the run, its steps, costs and audit events in the
   ledger contract, its tool calls, approvals, citations, content safety
@@ -64,6 +82,11 @@ record for operators.
 
 ### Fixed
 
+- Agents and workflows can call the tools of MCP servers again: the tool
+  gateway now hands MCP tools the session they resolve their server with,
+  where they failed with "MCP tool invocation requires db and ctx".
+- A tool step that fails records what the tool raised instead of the retry
+  wrapper around it (`RetryError[...]`).
 - The API builds its service container at startup, so workspace content
   capture and PII actions are registered before the first request instead of
   falling back to defaults until something else touched the container.

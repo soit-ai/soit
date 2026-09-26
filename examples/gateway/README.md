@@ -26,6 +26,7 @@ export SOIT_MODEL=model:openai-main:gpt-5.5
 | [`node_openai.mjs`](node_openai.mjs) | OpenAI Node SDK | `npm install openai` |
 | [`langchain_chat.py`](langchain_chat.py) | LangChain `ChatOpenAI` | `pip install langchain-openai` |
 | [`openai_agents.py`](openai_agents.py) | OpenAI Agents SDK | `pip install openai-agents` |
+| [`tools.sh`](tools.sh) | curl, SOIT tools API | curl, jq |
 
 ## Served endpoints
 

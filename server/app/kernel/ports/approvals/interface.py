@@ -58,3 +58,36 @@ class ApprovalLedgerPort(Protocol):
         Must not raise, for the same reason: a decision that was acted on is
         not undone by failing to write it down.
         """
+
+
+@dataclass(frozen=True)
+class ApprovalDecision:
+    """Where one approval request stands."""
+
+    approval_id: str
+    status: str
+    """``pending``, ``approved``, ``rejected``, ``expired`` or ``canceled``."""
+    resolved_by: str | None = None
+    resolution_note: str | None = None
+
+
+class ToolApprovalPort(Protocol):
+    """Open approval requests for direct tool calls and read their decisions.
+
+    A direct call has no stream or task to resume: the caller comes back with
+    the same call once someone has decided. Unlike the ledger, opening a
+    request here must succeed or raise, because a call waiting on a request
+    nobody can see would wait forever.
+    """
+
+    async def open(self, ctx: RequestContext, record: ApprovalRecord) -> str:
+        """Persist a request for a decision and return its id."""
+
+    async def decision_for(
+        self,
+        ctx: RequestContext,
+        *,
+        run_id: str,
+        tool_call_id: str,
+    ) -> ApprovalDecision | None:
+        """The request opened for this tool call, or None if there is none."""

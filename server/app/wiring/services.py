@@ -31,6 +31,8 @@ from app.kernel.runtime.runs.service import RunService
 # Kernel tracing
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.threads.service import ThreadService
+from app.kernel.runtime.tools.invocation import ToolInvocationService
+from app.kernel.runtime.tools.resolver import BuiltinToolRegistrationPort
 
 # Agent
 from app.modules.agent.application.application_service import AgentApplicationService
@@ -222,6 +224,26 @@ async def build_knowledge_reader_service(
     if home is None:
         return build_knowledge_service(db=db, ctx=ctx)
     return build_knowledge_service(db=db, ctx=shared_reader_context(ctx, home))
+
+
+def build_tool_invocation_service(*, db: AsyncSession, ctx: RequestContext) -> ToolInvocationService:
+    """Direct tool calls by reference, through the governed tool gateway."""
+
+    from app.adapters.tools.catalog import WorkspaceToolCatalog
+    from app.modules.observe.infra.tool_approvals import SessionToolApprovals
+
+    container = get_container()
+    trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
+    tool_port = container.get_tool_port(ctx, trace_writer=trace_writer)
+    return ToolInvocationService(
+        db,
+        ctx,
+        catalog=WorkspaceToolCatalog(db, tool_port if isinstance(tool_port, BuiltinToolRegistrationPort) else None),
+        tool_port=tool_port,
+        trace_writer=trace_writer,
+        approvals=SessionToolApprovals(db),
+        approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
+    )
 
 
 def build_knowledge_runtime_service(*, db: AsyncSession, ctx: RequestContext) -> KnowledgeRuntimeService:

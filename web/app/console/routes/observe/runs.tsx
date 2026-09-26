@@ -336,6 +336,7 @@ export default function ConsoleRuns() {
               <SelectItem value="workflow">workflow</SelectItem>
               <SelectItem value="api">api</SelectItem>
               <SelectItem value="gateway">gateway</SelectItem>
+              <SelectItem value="tool">tool</SelectItem>
             </SelectContent>
           </Select>
           <Select

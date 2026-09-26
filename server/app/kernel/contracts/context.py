@@ -78,6 +78,9 @@ class RequestContext:
     allowed_models: frozenset[str] | None = None
     """Model refs the credential may call; None allows every model."""
 
+    allowed_tools: frozenset[str] | None = None
+    """Tool refs the credential may invoke; None allows every tool."""
+
     principal_kind: str | None = None
     """`service_principal` when a key issued to one authenticated the call."""
 
@@ -89,7 +92,7 @@ class RequestContext:
     writer looks the workspace setting up itself.
     """
 
-    _SET_FIELDS: ClassVar[tuple[str, ...]] = ("scopes", "allowed_models")
+    _SET_FIELDS: ClassVar[tuple[str, ...]] = ("scopes", "allowed_models", "allowed_tools")
 
     def to_json(self) -> dict[str, Any]:
         """The context as JSON, for records that resume work later.
@@ -118,6 +121,10 @@ class RequestContext:
             if items is not None:
                 values[name] = frozenset(str(item) for item in items)
         return cls(**values)
+
+    def may_invoke_tool(self, tool_ref: str) -> bool:
+        """Return whether the credential permits invoking this tool."""
+        return self.allowed_tools is None or tool_ref in self.allowed_tools
 
     def has_scope(self, scope: str) -> bool:
         """Return whether the credential permits this scope."""

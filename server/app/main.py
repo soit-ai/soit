@@ -349,12 +349,14 @@ app.add_middleware(
     allow_headers=["*"],
     # A browser only reads the headers named here from a cross-origin
     # response: the file name of a download, the ledger contract of an export,
-    # the digest of an evidence bundle, and the run a gateway call became.
+    # the digest of an evidence bundle, the run a gateway call became, and
+    # the idempotency key a tool call can be continued with.
     expose_headers=[
         "Content-Disposition",
         "X-SOIT-Ledger-Schema",
         "X-SOIT-Evidence-SHA256",
         "X-SOIT-Run-Id",
+        "Idempotency-Key",
     ],
 )
 
@@ -456,6 +458,7 @@ from app.api.v1.search.router import router as search_router  # noqa: E402
 from app.api.v1.secrets.router import router as secrets_router  # noqa: E402
 from app.api.v1.security.router import router as security_router  # noqa: E402
 from app.api.v1.task.router import router as task_router  # noqa: E402
+from app.api.v1.tools.router import router as tools_router  # noqa: E402
 from app.api.v1.workflow.router import router as workflow_router  # noqa: E402
 from app.docs.openapi import install_enveloped_openapi  # noqa: E402
 
@@ -485,6 +488,7 @@ app.include_router(embeddings_router, prefix="/api/v1/embeddings", tags=["embedd
 app.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
 app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
 app.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
+app.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
 
 install_enveloped_openapi(app)

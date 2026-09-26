@@ -9,7 +9,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.trace import Tracer
 
-from app.kernel.commons.errors import TimeoutError, ValidationError
+from app.kernel.commons.errors import ForbiddenError, TimeoutError, ValidationError
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -24,6 +24,7 @@ from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
     run_with_timeout_retry,
+    unwrap_retry_error,
 )
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.secrets.interface import SecretsPort
@@ -247,6 +248,13 @@ class ToolPolicyGateway(ToolPort):
         Returns:
             ToolResponse instance.
         """
+        if not self.ctx.may_invoke_tool(tool_ref):
+            # Checked before anything is claimed or recorded: a key limited to
+            # other tools reaches none of this one, from any entry.
+            raise ForbiddenError(
+                "This API key may not invoke this tool",
+                {"param": "tool_ref", "tool_ref": tool_ref, "reason": "tool_not_allowed"},
+            )
         step = None
         tool_execution_service = None
         tool_execution_claim = None
@@ -340,6 +348,10 @@ class ToolPolicyGateway(ToolPort):
                     await tool_execution_service.renew_lease(tool_execution_claim.record.id)
                 invoke_kwargs = dict(kwargs)
                 invoke_kwargs.setdefault("ctx", self.ctx)
+                if self.trace_writer is not None:
+                    # MCP tools resolve their server from the workspace's
+                    # installed plugins, which takes the run's session.
+                    invoke_kwargs.setdefault("db", self.trace_writer.db)
                 return await self.gateway.invoke(
                     tool_ref=tool_ref,
                     parameters=resolved_parameters,
@@ -445,6 +457,8 @@ class ToolPolicyGateway(ToolPort):
 
             return response
         except Exception as e:
+            # Recorded as what the tool raised, not the retry wrapper around it.
+            cause = unwrap_retry_error(e)
             if step and self.trace_writer:
                 try:
                     await log_gateway_request(
@@ -459,8 +473,8 @@ class ToolPolicyGateway(ToolPort):
                         },
                         response_data={
                             "success": False,
-                            "error": str(e),
-                            "error_type": type(e).__name__,
+                            "error": str(cause),
+                            "error_type": type(cause).__name__,
                             "details": error_details(e),
                         },
                         storage_port=self.storage_port,
@@ -475,10 +489,10 @@ class ToolPolicyGateway(ToolPort):
                         parameters=redacted_parameters,
                         status="failed",
                         error_code="TOOL_ERROR",
-                        error_message=str(e),
+                        error_message=str(cause),
                     ),
                     error_code="TOOL_ERROR",
-                    error_message=str(e),
+                    error_message=str(cause),
                     error_details=error_details(e),
                 )
             if tool_execution_service and tool_execution_claim:

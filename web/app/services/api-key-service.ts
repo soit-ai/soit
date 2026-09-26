@@ -19,6 +19,8 @@ export interface ApiKeyLimits {
   ip_allowlist?: string[] | null
   /** Model refs (`model:…` or `vmodel:…`) the key may call. */
   allowed_models?: string[] | null
+  /** Tool refs the key may invoke, through the tools API, MCP or a run it starts. */
+  allowed_tools?: string[] | null
   /** `metadata_only` keeps the key's calls out of run text; null follows the workspace. */
   content_capture?: 'metadata_only' | null
 }

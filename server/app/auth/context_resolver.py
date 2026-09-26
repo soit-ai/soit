@@ -282,6 +282,11 @@ class ContextResolver:
                     if key.allowed_models_json is not None
                     else None
                 ),
+                allowed_tools=(
+                    frozenset(key.allowed_tools_json)
+                    if key.allowed_tools_json is not None
+                    else None
+                ),
             )
         finally:
             await db.close()

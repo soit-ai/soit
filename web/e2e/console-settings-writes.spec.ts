@@ -642,6 +642,7 @@ test('a new key carries the limits the dialog collected and nothing it left empt
   await field(page, 'Tokens per day').fill('200,000')
   await field(page, 'Allowed addresses').fill('203.0.113.7\n198.51.100.0/24')
   await field(page, 'Allowed models').fill('model:openai:gpt-5.5, vmodel:support')
+  await field(page, 'Allowed tools').fill('tool:function:time_now\nmcp_tool:github:create_issue')
   await field(page, 'Run content').selectOption('metadata_only')
   await create.click()
 
@@ -654,6 +655,7 @@ test('a new key carries the limits the dialog collected and nothing it left empt
     daily_token_quota: 200000,
     ip_allowlist: ['203.0.113.7', '198.51.100.0/24'],
     allowed_models: ['model:openai:gpt-5.5', 'vmodel:support'],
+    allowed_tools: ['tool:function:time_now', 'mcp_tool:github:create_issue'],
     content_capture: 'metadata_only',
   })
 })
@@ -670,6 +672,7 @@ test('editing the limits of a key sends every limit, clearing the ones emptied',
     daily_token_quota: null,
     ip_allowlist: ['203.0.113.7/32'],
     allowed_models: null,
+    allowed_tools: ['tool:function:time_now'],
     content_capture: null,
   }
   await page.route('**/api/v1/api-keys**', async (route) => {
@@ -691,11 +694,13 @@ test('editing the limits of a key sends every limit, clearing the ones emptied',
 
   await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
   // The table says what bounds each key.
-  await expect(page.getByText('30/min · addresses: 1')).toBeVisible()
+  await expect(page.getByText('30/min · addresses: 1 · tools: 1')).toBeVisible()
 
   await page.getByRole('button', { name: 'Limits', exact: true }).click()
   await expect(field(page, 'Calls per minute')).toHaveValue('30')
   await expect(field(page, 'Allowed addresses')).toHaveValue('203.0.113.7/32')
+  await expect(field(page, 'Allowed tools')).toHaveValue('tool:function:time_now')
+  await field(page, 'Allowed tools').fill('')
   await field(page, 'Calls per minute').fill('')
   await field(page, 'Calls per 24 hours').fill('5000')
   await modal(page).getByRole('button', { name: 'Save', exact: true }).click()
@@ -708,6 +713,7 @@ test('editing the limits of a key sends every limit, clearing the ones emptied',
     daily_token_quota: null,
     ip_allowlist: ['203.0.113.7/32'],
     allowed_models: null,
+    allowed_tools: null,
     content_capture: null,
   })
 })

@@ -422,6 +422,7 @@ class SessionRevokeAllResponse(BaseModel):
 
 MAX_API_KEY_ALLOWLIST_ENTRIES = 64
 MAX_API_KEY_ALLOWED_MODELS = 256
+MAX_API_KEY_ALLOWED_TOOLS = 256
 
 
 def _normalized_networks(value: list[str] | None) -> list[str] | None:
@@ -451,6 +452,18 @@ def _normalized_models(value: list[str] | None) -> list[str] | None:
     return models
 
 
+def _normalized_tools(value: list[str] | None) -> list[str] | None:
+    """Distinct tool refs, or None for "every tool"."""
+    if value is None:
+        return None
+    tools = sorted({entry.strip() for entry in value if entry.strip()})
+    if not tools:
+        raise ValueError("An empty tool list allows no tool; use null to allow every tool")
+    if any(len(tool) > 512 for tool in tools):
+        raise ValueError("Tool refs are at most 512 characters")
+    return tools
+
+
 class ApiKeyLimits(BaseModel):
     """What a key may do beyond its scopes; every null means "no limit"."""
 
@@ -467,6 +480,11 @@ class ApiKeyLimits(BaseModel):
         max_length=MAX_API_KEY_ALLOWED_MODELS,
         description="Model refs the key may call",
     )
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        max_length=MAX_API_KEY_ALLOWED_TOOLS,
+        description="Tool refs the key may invoke",
+    )
     content_capture: Literal["metadata_only"] | None = Field(
         default=None,
         description="metadata_only keeps this key's calls out of run text; null follows the workspace",
@@ -481,6 +499,11 @@ class ApiKeyLimits(BaseModel):
     @classmethod
     def _valid_models(cls, value: list[str] | None) -> list[str] | None:
         return _normalized_models(value)
+
+    @field_validator("allowed_tools")
+    @classmethod
+    def _valid_tools(cls, value: list[str] | None) -> list[str] | None:
+        return _normalized_tools(value)
 
 
 class ApiKeyCreate(ApiKeyLimits):
@@ -539,6 +562,7 @@ class ApiKeyResponse(BaseModel):
     daily_token_quota: int | None = None
     ip_allowlist: list[str] | None = Field(default=None, validation_alias="ip_allowlist_json")
     allowed_models: list[str] | None = Field(default=None, validation_alias="allowed_models_json")
+    allowed_tools: list[str] | None = Field(default=None, validation_alias="allowed_tools_json")
     content_capture: str | None = None
     principal_id: str | None = None
     last_used_at: datetime | None

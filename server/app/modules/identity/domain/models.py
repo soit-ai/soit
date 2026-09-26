@@ -318,6 +318,11 @@ class ApiKey(SQLModel, table=True):
     )
     """Model refs the key may call; None allows every model of the workspace."""
 
+    allowed_tools_json: list[str] | None = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+    """Tool refs the key may invoke; None allows every tool of the workspace."""
+
     principal_id: str | None = Field(default=None, nullable=True, index=True)
     """Service principal the key authenticates as; None means the issuing user."""
 

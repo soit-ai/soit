@@ -7,6 +7,9 @@ workspace has configured, and every call is governed the way SOIT's own
 agents are: rate limits, quotas, budgets, content safety, cost recording and
 audit.
 
+The same keys also call the workspace's tools by reference, under
+`/api/v1/tools` (see [Calling tools](#calling-tools)).
+
 Examples for curl, Python, Node, LangChain and the Agents SDK are in
 [`examples/gateway/`](../examples/gateway/).
 
@@ -58,6 +61,52 @@ and **Settings › API** links each key to its runs. Daily usage aggregates sum
 calls, tokens and priced amount per day, entry, user or service principal,
 key, provider, model and operation.
 
+## Calling tools
+
+The same keys call the workspace's tools directly, with no agent in between:
+
+| Endpoint | Notes |
+| -------- | ----- |
+| `GET /api/v1/tools` | The tools the key may invoke: built-ins, installed plugin tools and the tools of enabled MCP servers, each with the schema of its arguments and whether it needs approval. |
+| `GET /api/v1/tools/{ref}` | One tool. |
+| `POST /api/v1/tools/{ref}/invoke` | `{"arguments": {...}}`, and optionally an `Idempotency-Key` header. |
+
+A call goes through the tool gateway SOIT's agents use: secrets referenced as
+`{"secret_id": "..."}` are injected there and never returned; egress policy,
+rate limits and budgets apply; the call is audited and costed. It is a run
+with `mode=tool` and `source=gateway`, named in `x-soit-run-id`, which
+**Observe › Runs** shows, replays and exports like any other run, evidence
+bundle included.
+
+These endpoints answer in SOIT's envelope, `{"success": true, "data": {...}}`,
+not OpenAI's. `data` carries `run_id`, `status` (`succeeded`, `failed`,
+`waiting_approval` or `rejected`), `result` or `error`, `idempotency_key` and
+`replayed`. A tool that ran and failed is `200` with `status: failed`; a call
+SOIT refused is an error: `400` for arguments that do not match the tool's
+schema, `403` for a tool or address the key may not use, `404` for an unknown
+tool, `409` for a reused key.
+
+**Idempotency.** With an `Idempotency-Key`, a call is safe to retry: the same
+key returns the recorded outcome (`replayed: true`) without calling the tool
+again, and the same key with another tool or other arguments is `409`. Keys
+belong to the caller, so two API keys never share one. Without a key, SOIT
+assigns one and returns it in the `Idempotency-Key` response header.
+
+**Approval.** A tool whose policy requires approval answers `202` with
+`status: waiting_approval` and an `approval_id`, and the request appears in
+**Govern › Approvals**. Once someone decides, send the same call with the same
+key: an approved call runs and returns its result, a rejected one returns
+`status: rejected` and never runs. Only the arguments that were put up for
+approval can run.
+
+```bash
+curl -s "http://localhost:9200/api/v1/tools/tool:function:time_now/invoke" \
+  -H "Authorization: Bearer $SOIT_API_KEY" \
+  -H "Idempotency-Key: nightly-2026-09-27" \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {}}'
+```
+
 ## What a key may do
 
 Limits set on a key apply on top of its owner's own limits; an empty limit
@@ -71,6 +120,7 @@ means none of that kind. Set them in **Settings › API** or with
 | Tokens per UTC day | `429`, `Retry-After` |
 | Allowed addresses (addresses or CIDR ranges) | `403` |
 | Allowed models (`model:` and `vmodel:` refs) | `403`; `/v1/models` lists only these |
+| Allowed tools (tool refs) | `403`; `/api/v1/tools` lists only these, and runs the key starts cannot call others either |
 | Run content (`metadata_only`) | not a refusal: see below |
 
 Behind a load balancer or reverse proxy, set `TRUSTED_PROXIES` (a JSON list
@@ -179,3 +229,8 @@ same client.
   (`USAGE_RECONCILE_INTERVAL_SECONDS`, hourly by default).
 - Content capture is decided when a run starts; if the workspace setting
   cannot be read, content is withheld.
+- A key's calls-per-minute and daily limits count model calls; tool calls
+  are held by the member's own tool limits, the key's allowed tools and
+  budgets.
+- A direct tool call that waits for approval runs only when the caller sends
+  it again; nothing runs it on the caller's behalf.

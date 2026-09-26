@@ -16,6 +16,7 @@ LIMITS = {
     "daily_token_quota": 200_000,
     "ip_allowlist": ["203.0.113.7", "198.51.100.0/24", "198.51.100.0/24"],
     "allowed_models": ["model:openai-main:gpt-live", " model:openai-main:gpt-live "],
+    "allowed_tools": ["tool:function:time_now", "tool:http:request", "tool:function:time_now"],
 }
 
 
@@ -40,6 +41,7 @@ async def test_a_key_is_created_with_normalized_limits(async_client) -> None:
     assert item["daily_token_quota"] == 200_000
     assert item["ip_allowlist"] == ["198.51.100.0/24", "203.0.113.7/32"]
     assert item["allowed_models"] == ["model:openai-main:gpt-live"]
+    assert item["allowed_tools"] == ["tool:function:time_now", "tool:http:request"]
 
 
 @pytest.mark.asyncio
@@ -49,6 +51,7 @@ async def test_a_key_is_created_with_normalized_limits(async_client) -> None:
         {"ip_allowlist": ["not-a-range"]},
         {"ip_allowlist": []},
         {"allowed_models": ["  "]},
+        {"allowed_tools": []},
         {"rate_limit_per_minute": 0},
     ],
 )
@@ -64,7 +67,7 @@ async def test_the_owner_changes_and_clears_limits(async_client) -> None:
 
     response = await async_client.patch(
         f"/api/v1/api-keys/{key_id}",
-        json={"rate_limit_per_minute": 60, "allowed_models": None, "name": "renamed"},
+        json={"rate_limit_per_minute": 60, "allowed_models": None, "allowed_tools": None, "name": "renamed"},
     )
 
     assert response.status_code == 200
@@ -72,6 +75,7 @@ async def test_the_owner_changes_and_clears_limits(async_client) -> None:
     assert item["name"] == "renamed"
     assert item["rate_limit_per_minute"] == 60
     assert item["allowed_models"] is None
+    assert item["allowed_tools"] is None
     # Fields not sent are left as they were.
     assert item["daily_token_quota"] == 200_000
     assert item["ip_allowlist"] == ["198.51.100.0/24", "203.0.113.7/32"]
@@ -110,6 +114,7 @@ async def test_rotation_keeps_the_limits(async_client) -> None:
     assert item["rate_limit_per_minute"] == 30
     assert item["ip_allowlist"] == ["198.51.100.0/24", "203.0.113.7/32"]
     assert item["allowed_models"] == ["model:openai-main:gpt-live"]
+    assert item["allowed_tools"] == ["tool:function:time_now", "tool:http:request"]
 
 
 @pytest.mark.asyncio
