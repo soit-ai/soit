@@ -28,7 +28,7 @@ jobs:
           docker run --rm
           --volume "$PWD:/repo"
           ghcr.io/gitleaks/gitleaks:v8.30.1
-          detect --source=/repo --redact --no-banner
+          detect --source=/repo --redact --verbose --no-banner
 
   dependencies-and-licenses:
     name: dependencies-and-licenses
