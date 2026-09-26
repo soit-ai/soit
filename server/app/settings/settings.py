@@ -522,6 +522,25 @@ class Settings(BaseSettings):
     peer is the client.
     """
 
+    mcp_resource_url: str = ""
+    """Public URL of the MCP endpoint, e.g. ``https://soit.example.com/mcp``.
+
+    Named in the OAuth protected resource metadata and in the challenge an
+    unauthenticated MCP client gets. Empty derives it from the request, which
+    is right unless a proxy in front rewrites the scheme or host.
+    """
+
+    mcp_authorization_servers: list[str] = []
+    """OAuth authorization servers whose access tokens this deployment accepts
+    at the MCP endpoint, listed in its protected resource metadata. Empty
+    lists none, and MCP clients authenticate with SOIT API keys.
+    """
+
+    mcp_allowed_origins: list[str] = []
+    """Browser origins, besides the endpoint's own, that may call the MCP
+    endpoint. Clients that are not browsers send no Origin and are unaffected.
+    """
+
     # Event bus
     event_bus_backend: str = "memory"
     """Event bus backend: memory or redis."""

@@ -165,6 +165,17 @@ def test_the_gateway_routes_the_openai_compatible_api_unbuffered() -> None:
     assert caddyfile.index("reverse_proxy /v1/*") < caddyfile.index("reverse_proxy /* web:5000")
 
 
+def test_the_gateway_routes_mcp_and_names_its_public_address() -> None:
+    caddyfile = CADDYFILE_PATH.read_text(encoding="utf-8")
+    web = caddyfile.index("reverse_proxy /* web:5000")
+
+    # Without these routes /mcp and its metadata fall through to the web app.
+    assert caddyfile.index("reverse_proxy /mcp api:9200") < web
+    assert caddyfile.index("reverse_proxy /.well-known/oauth-protected-resource* api:9200") < web
+    # Behind the gateway the request's host is internal; clients get this one.
+    assert _service_env("api")["MCP_RESOURCE_URL"] == "https://soit.example.com/mcp"
+
+
 def test_the_collector_drops_attributes_that_carry_customer_data() -> None:
     collector = yaml.safe_load(COLLECTOR_PATH.read_text(encoding="utf-8"))
 

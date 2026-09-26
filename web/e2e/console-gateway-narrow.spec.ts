@@ -83,6 +83,7 @@ test('the API keys pane fits a phone', async ({ page }) => {
         daily_token_quota: 50000000,
         ip_allowlist: ['203.0.113.0/24', '198.51.100.7/32'],
         allowed_models: ['model:openai:gpt-5.5', 'vmodel:support-chat'],
+        allowed_tools: ['tool:function:knowledge_query', 'mcp_tool:github:create_issue'],
         content_capture: 'metadata_only',
         principal_id: 'sp_1',
         last_used_at: NOW,
@@ -111,6 +112,8 @@ test('the API keys pane fits a phone', async ({ page }) => {
 
   await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('partner-integration-production')).toBeVisible()
+  // The client commands are long; they clip in their row, not the page.
+  await expect(page.getByText('Connect a client')).toBeVisible()
   await expectNoSidewaysScroll(page)
 })
 

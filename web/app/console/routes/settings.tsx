@@ -28,6 +28,7 @@ import {
   presentLimits,
   type ApiKeyLimitsDraft,
 } from '../components/api-key-limits'
+import { ClientEndpoints } from '../components/client-endpoints'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
 import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
@@ -1330,6 +1331,8 @@ export default function ConsoleSettings() {
             </div>
           </div>
         )}
+
+        {active === 'api' && <ClientEndpoints />}
 
         {active === 'api' && (
           <div className="panel" style={{ marginTop: 14 }}>

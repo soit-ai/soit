@@ -14,6 +14,26 @@ record for operators.
 
 ### Added
 
+- SOIT is an MCP server. `POST /mcp` serves a workspace's tools over the
+  streamable HTTP transport in its stateless form (JSON answers, no session,
+  no server stream), negotiating protocol versions up to `2025-11-25`.
+  Clients connect with a SOIT API key as a bearer token; `tools/list` offers
+  the tools the credential may invoke (none to a read-only one, only its
+  allowed tools to a limited key), under names MCP clients and model APIs
+  accept, and `tools/call` goes through the same governed path as the tools
+  API, so each call is a run. A call that needs approval returns an error
+  saying so, and the same call once approved runs. A request without a
+  working credential gets a `401` challenge naming the endpoint's OAuth 2.1
+  protected resource metadata, served at
+  `/.well-known/oauth-protected-resource/mcp` (RFC 9728). Browser origins
+  other than the endpoint's own are refused unless listed in
+  `MCP_ALLOWED_ORIGINS`; `MCP_RESOURCE_URL` and `MCP_AUTHORIZATION_SERVERS`
+  set what the metadata says. The production gateway routes `/mcp` and the
+  metadata, and sets `MCP_RESOURCE_URL` from `SOIT_PUBLIC_HOSTNAME`.
+  Settings › API lists where clients connect, with the Claude Code command.
+  Examples for Claude Code, Cursor and the MCP Python SDK are in
+  `examples/mcp/`, and the SDK's own client runs against `/mcp` in CI. See
+  `docs/mcp.md`.
 - Direct tool calls: `POST /api/v1/tools/{ref}/invoke` calls one tool of
   the workspace by reference, with the same API keys and sessions as `/v1`,
   and `GET /api/v1/tools` lists the tools a caller may invoke (built-ins,

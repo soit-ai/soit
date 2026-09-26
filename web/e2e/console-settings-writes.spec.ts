@@ -718,6 +718,20 @@ test('editing the limits of a key sends every limit, clearing the ones emptied',
   })
 })
 
+test('the API tab says where clients connect, Claude Code included', async ({ page }) => {
+  await json(page, '**/api/v1/api-keys**', apiKeys)
+
+  await page.goto('/settings/api', { waitUntil: 'domcontentloaded' })
+  const panel = page.locator('.panel', { hasText: 'Connect a client' })
+
+  await expect(panel.getByText(/^https?:\/\/[^ ]+\/v1$/)).toBeVisible()
+  await expect(panel.getByText(/^https?:\/\/[^ ]+\/mcp$/)).toBeVisible()
+  await expect(panel.getByText(/^https?:\/\/[^ ]+\/api\/v1\/tools$/)).toBeVisible()
+  await expect(
+    panel.getByText(/^claude mcp add --transport http soit https?:\/\/[^ ]+\/mcp --header/),
+  ).toBeVisible()
+})
+
 test('a service principal is created with a role and issued a key of its own', async ({
   page,
 }) => {

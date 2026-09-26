@@ -43,7 +43,7 @@ from app.kernel.ports.approvals.interface import ApprovalRecord, ToolApprovalPor
 from app.kernel.ports.common.policy import unwrap_retry_error
 from app.kernel.ports.tools.catalog import CatalogTool, ToolCatalogPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.runtime.db.models.runs import RunStepToolCall
+from app.kernel.runtime.db.models.runs import Run, RunStepToolCall
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
     ToolExecutionCommand,
@@ -159,6 +159,22 @@ class ToolInvocationService:
                 return await self._continue(record, tool, arguments, caller_key)
         return await self._start(tool, arguments, caller_key, stored_key)
 
+    async def invoke_or_continue(self, tool_ref: str, arguments: dict[str, Any]) -> ToolInvocation:
+        """Call ``tool_ref``, or continue this caller's call of it that waits for approval.
+
+        For clients that cannot carry an idempotency key, such as MCP clients
+        driven by a model: the same call, sent again once its approval is
+        decided, runs it or reports the rejection. A call with other arguments
+        is a new call.
+        """
+
+        tool = await self.get_tool(tool_ref)
+        waiting = await self._find_waiting(tool.ref, arguments)
+        if waiting is not None:
+            return await self._continue(waiting, tool, arguments, caller_key="")
+        caller_key = f"key_{generate_ulid()}"
+        return await self._start(tool, arguments, caller_key, self._stored_key(caller_key))
+
     def _subject(self) -> tuple[str, str]:
         if self.ctx.api_key_id:
             return "api_key", self.ctx.api_key_id
@@ -178,6 +194,30 @@ class ToolInvocationService:
                 RunStepToolCall.workspace_id == self.ctx.workspace_id,
                 RunStepToolCall.idempotency_key == stored_key,
             )
+        )
+        return (await self.db.exec(statement)).scalars().first()
+
+    async def _find_waiting(self, tool_ref: str, arguments: dict[str, Any]) -> RunStepToolCall | None:
+        subject_kind, subject_id = self._subject()
+        statement = (
+            select(RunStepToolCall)
+            .join(Run, Run.id == RunStepToolCall.run_id)
+            .where(
+                and_(
+                    RunStepToolCall.tenant_id == self.ctx.tenant_id,
+                    RunStepToolCall.workspace_id == self.ctx.workspace_id,
+                    RunStepToolCall.tool_ref == tool_ref,
+                    RunStepToolCall.request_hash == canonical_request_hash(arguments),
+                    RunStepToolCall.status == "waiting_approval",
+                    Run.tenant_id == self.ctx.tenant_id,
+                    Run.workspace_id == self.ctx.workspace_id,
+                    Run.mode == TOOL_RUN_MODE,
+                    Run.subject_kind == subject_kind,
+                    Run.subject_id == subject_id,
+                )
+            )
+            .order_by(RunStepToolCall.created_at.desc())
+            .limit(1)
         )
         return (await self.db.exec(statement)).scalars().first()
 

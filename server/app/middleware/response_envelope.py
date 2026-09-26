@@ -15,6 +15,14 @@ from starlette.responses import Response
 from app.kernel.observe.context import get_log_context
 from app.middleware.openai_errors import is_openai_compatible_path
 
+_BARE_PREFIXES = ("/mcp/", "/.well-known/")
+"""Protocol surfaces whose clients parse bare bodies: MCP's JSON-RPC and the
+OAuth metadata documents."""
+
+
+def _is_bare_protocol_path(path: str) -> bool:
+    return path == "/mcp" or path.startswith(_BARE_PREFIXES)
+
 
 def success_envelope(
     *,
@@ -132,8 +140,8 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         if request.app.openapi_url and request.url.path == request.app.openapi_url:
             return response
-        if is_openai_compatible_path(request.url.path):
-            # OpenAI SDK clients parse the bare OpenAI shapes.
+        if is_openai_compatible_path(request.url.path) or _is_bare_protocol_path(request.url.path):
+            # OpenAI SDK and MCP clients parse their protocols' bare shapes.
             return response
         if not self._should_wrap(response):
             return response

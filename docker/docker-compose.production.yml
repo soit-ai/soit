@@ -73,6 +73,12 @@ x-server-environment: &server_environment
   # here so API key address allowlists see the client, not the gateway.
   TRUSTED_PROXIES: ${TRUSTED_PROXIES:-[]}
 
+  # Behind the gateway the API sees an internal address; MCP clients are told
+  # the public one.
+  MCP_RESOURCE_URL: https://${SOIT_PUBLIC_HOSTNAME}/mcp
+  MCP_AUTHORIZATION_SERVERS: ${MCP_AUTHORIZATION_SERVERS:-[]}
+  MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-[]}
+
   OTEL_ENABLED: "true"
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-soit-api}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}

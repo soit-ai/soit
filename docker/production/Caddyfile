@@ -21,6 +21,10 @@
 		flush_interval -1
 	}
 
+	# The MCP endpoint, and the OAuth metadata MCP clients look it up by.
+	reverse_proxy /mcp api:9200
+	reverse_proxy /.well-known/oauth-protected-resource* api:9200
+
 	reverse_proxy /api/* api:9200
 	reverse_proxy /* web:5000
 

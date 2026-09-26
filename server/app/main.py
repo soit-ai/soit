@@ -433,6 +433,8 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
 
 
 # Register routers
+from app.api.mcp.router import router as mcp_router  # noqa: E402
+from app.api.mcp.router import well_known_router as mcp_well_known_router  # noqa: E402
 from app.api.openai.router import router as openai_router  # noqa: E402
 from app.api.v1.agent.router import router as agent_router  # noqa: E402
 from app.api.v1.agent.thread_router import router as thread_router  # noqa: E402
@@ -490,6 +492,8 @@ app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
 app.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
 app.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
+app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
+app.include_router(mcp_well_known_router, tags=["mcp"])
 
 install_enveloped_openapi(app)
 

@@ -209,6 +209,14 @@ const translation = {
       resendInvite: 'Resend invite',
       note: 'role changes and invites are recorded in the audit log · approvals require admin or owner',
     },
+    connectPane: {
+      title: 'Connect a client',
+      hint: 'send a key from above as the bearer token',
+      openai: 'OpenAI-compatible',
+      mcp: 'MCP server',
+      tools: 'Tools API',
+      claudeCode: 'Claude Code',
+    },
     apiPane: {
       hint: 'hashed at rest · shown once on creation',
       create: 'Create key',

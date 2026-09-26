@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "soit": {
+      "type": "http",
+      "url": "http://localhost:9200/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SOIT_API_KEY}"
+      }
+    }
+  }
+}
