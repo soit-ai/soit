@@ -293,6 +293,7 @@ class TraceWriter:
         source_run_id: str | None = None,
         attempt_no: int = 1,
         sandbox: bool | None = None,
+        source: str | None = None,
     ) -> Run:
         """Create a new run.
 
@@ -334,6 +335,8 @@ class TraceWriter:
             subject_version_id=subject_version_id,
             status="queued",
             sandbox=self.sandbox if sandbox is None else sandbox,
+            source=source or "platform",
+            api_key_id=getattr(self.ctx, "api_key_id", None),
             input_summary=input_summary[:8192] if input_summary else None,
             started_at=utc_now(),
         )
@@ -350,6 +353,8 @@ class TraceWriter:
             "parent_run_id": run.parent_run_id,
             "source_run_id": run.source_run_id,
             "attempt_no": run.attempt_no,
+            "source": run.source,
+            "api_key_id": run.api_key_id,
         }
         envelope = DomainEventEnvelope(
             event_id=f"evt_run_created_{run.id}",

@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- Daily usage aggregates. Runs record the entry they came through
+  (`source`: `platform` or `gateway`) and the API key that started them, and
+  a new `usage_daily_aggregates` table sums metered calls, tokens and priced
+  amount per UTC day, source, user or service principal, key, provider, model
+  and operation (migration `20260927140000`). A `cost.recorded` consumer adds
+  each usage fact as it arrives, exactly once; a reconciler in the outbox
+  dispatcher processes rebuilds each finished day from the cost ledger
+  (`USAGE_RECONCILE_INTERVAL_SECONDS`), and the two never count a fact twice.
+  Rehearsal runs are kept apart as source `rehearsal`. The run trace export
+  carries `source` and `api_key_id`.
 - Service principals: non-human callers of a workspace, such as a pipeline
   or a partner system, each with a human owner and a workspace role
   (`/api/v1/service-principals`, migration `20260927130000`). A workspace

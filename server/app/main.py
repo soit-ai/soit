@@ -195,6 +195,16 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("outbox retention", exc)
 
+    usage_reconciler = None
+    if outbox_service is not None:
+        try:
+            from app.infra.db.session import get_async_session_local
+            from app.kernel.observe.usage_aggregates import UsageAggregateReconciler
+
+            usage_reconciler = UsageAggregateReconciler(get_async_session_local())
+        except Exception as exc:
+            _handle_startup_failure("usage aggregate reconciler", exc)
+
     response_interaction_worker = None
     if getattr(app_settings, "response_interaction_worker_enabled", False) and getattr(
         app_settings, "response_interaction_worker_in_api", True
@@ -249,6 +259,14 @@ async def lifespan(app: FastAPI):
                 asyncio.create_task(
                     outbox_retention.run_loop(
                         interval_seconds=float(app_settings.outbox_retention_interval_seconds),
+                    )
+                )
+            )
+        if usage_reconciler is not None:
+            background_tasks.append(
+                asyncio.create_task(
+                    usage_reconciler.run_loop(
+                        interval_seconds=float(app_settings.usage_reconcile_interval_seconds),
                     )
                 )
             )

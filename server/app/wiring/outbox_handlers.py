@@ -93,6 +93,19 @@ def register_outbox_handlers() -> None:
         handle_cost_recorded_observe,
     )
 
+    from app.kernel.observe.usage_aggregates import (
+        CONSUMER_NAME as USAGE_DAILY_CONSUMER,
+    )
+    from app.kernel.observe.usage_aggregates import (
+        handle_cost_recorded_usage,
+    )
+
+    reg.register(
+        ObserveEventType.COST_RECORDED,
+        USAGE_DAILY_CONSUMER,
+        handle_cost_recorded_usage,
+    )
+
     from app.modules.billing.events import CREDIT_BALANCE_LOW
     from app.modules.billing.handlers.on_cost_recorded import (
         handle_cost_recorded_credit,

@@ -20,6 +20,7 @@ from app.kernel.runtime.db.models.schedules import Schedule
 from app.kernel.runtime.db.models.secrets import SealedSecretValue
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
+from app.kernel.runtime.db.models.usage import UsageDailyAggregate
 
 __all__ = [
     "AuditEvent",
@@ -42,4 +43,5 @@ __all__ = [
     "Thread",
     "ThreadMessage",
     "RunStepToolCall",
+    "UsageDailyAggregate",
 ]

@@ -13,6 +13,7 @@ from app.infra.telemetry import configure_telemetry
 from app.kernel.events.dispatcher import OutboxDispatcherService
 from app.kernel.events.retention import OutboxRetentionService
 from app.kernel.observe.logging import setup_logging
+from app.kernel.observe.usage_aggregates import UsageAggregateReconciler
 from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 from app.settings.settings import settings
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
@@ -56,6 +57,9 @@ async def main() -> None:
         ),
         retention.run_loop(
             interval_seconds=float(settings.outbox_retention_interval_seconds)
+        ),
+        UsageAggregateReconciler(get_async_session_local()).run_loop(
+            interval_seconds=float(settings.usage_reconcile_interval_seconds)
         ),
     )
 

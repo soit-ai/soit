@@ -86,6 +86,13 @@ class Run(SQLModel, table=True):
     inflating it.
     """
 
+    source: str = Field(default="platform", index=True)
+    """Entry the run came through: ``platform`` for the console, agents and
+    workflows, ``gateway`` for the OpenAI-compatible ``/v1`` surface."""
+
+    api_key_id: str | None = Field(default=None, index=True)
+    """The API key that started the run, when one did."""
+
     input_summary: str | None = Field(default=None, max_length=8192, sa_column=Column(Text))
     """Input summary (bounded to 8KB)."""
 

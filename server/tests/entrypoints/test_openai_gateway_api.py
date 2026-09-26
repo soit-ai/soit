@@ -137,6 +137,7 @@ async def test_a_call_made_with_an_api_key_is_attributed_to_the_key(
     assert response.status_code == 200
     run, _ = await _run(async_db, response.headers["x-soit-run-id"])
     assert (run.subject_kind, run.subject_id) == ("api_key", "key_gateway")
+    assert (run.source, run.api_key_id) == ("gateway", "key_gateway")
 
 
 @pytest.mark.asyncio

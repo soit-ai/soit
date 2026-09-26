@@ -24,6 +24,7 @@ from app.infra.telemetry import configure_telemetry
 from app.kernel.events.dispatcher import OutboxDispatcherService
 from app.kernel.events.retention import OutboxRetentionService
 from app.kernel.observe.logging import setup_logging
+from app.kernel.observe.usage_aggregates import UsageAggregateReconciler
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
 from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 from app.settings.settings import settings
@@ -70,6 +71,9 @@ async def main() -> None:
             poll_interval_seconds=max(0.05, float(settings.outbox_dispatcher_poll_interval))
         ),
         retention.run_loop(interval_seconds=float(settings.outbox_retention_interval_seconds)),
+        UsageAggregateReconciler(session_local).run_loop(
+            interval_seconds=float(settings.usage_reconcile_interval_seconds)
+        ),
         ingest.run_loop(
             poll_interval=max(0.1, settings.knowledge_ingest_worker_poll_interval),
             max_tasks=settings.knowledge_ingest_worker_max_tasks or None,

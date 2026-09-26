@@ -92,6 +92,7 @@ async def _open_run(
         subject_kind=subject_kind,
         subject_id=subject_id,
         input_summary=summary,
+        source=GATEWAY_MODE,
     )
     await trace_writer.update_run_status(run.id, "running")
     return run.id

@@ -404,6 +404,10 @@ class Settings(BaseSettings):
     outbox_retention_interval_seconds: float = 3600.0
     """Seconds between outbox retention passes."""
 
+    usage_reconcile_interval_seconds: float = 3600.0
+    """Seconds between checks for a finished UTC day whose usage aggregates
+    have not been rebuilt from the cost ledger yet."""
+
     outbox_retention_batch_size: int = 1000
     """Rows deleted per statement during a retention pass."""
 

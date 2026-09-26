@@ -48,6 +48,13 @@
           "type": "integer",
           "minimum": 1
         },
+        "source": {
+          "type": "string",
+          "description": "Entry the run came through: platform or gateway."
+        },
+        "api_key_id": {
+          "type": ["string", "null"]
+        },
         "mode": {
           "type": "string",
           "description": "Domain-specific execution mode (e.g., chat, knowledge_ingest)."

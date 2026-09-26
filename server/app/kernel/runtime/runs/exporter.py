@@ -107,6 +107,8 @@ def to_runtrace_spec(
             "subject_kind": run.subject_kind,
             "subject_id": run.subject_id,
             "subject_version_id": run.subject_version_id,
+            "source": getattr(run, "source", None) or "platform",
+            "api_key_id": getattr(run, "api_key_id", None),
             "status": run.status,
             "input_summary": run.input_summary,
             "output_summary": run.output_summary,
