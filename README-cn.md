@@ -32,7 +32,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 ### 后端技术栈 (app/)
 
 **核心框架与运行时：**
-- **Web 框架**: FastAPI 0.114+ (Python 3.11+)
+- **Web 框架**: FastAPI 0.114+ (Python 3.12)
 - **ORM**: SQLModel 0.0.24 (基于 SQLAlchemy 2.0.31)
 - **异步支持**: asyncio, httpx
 - **包管理**: uv (现代 Python 包管理器)
@@ -40,9 +40,9 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 **数据库与存储：**
 - **主数据库**: PostgreSQL 15 (使用 psycopg[binary] 3.1+)
 - **缓存/消息队列**: Redis 7 (使用 aioredis 2.0+, redis 5.2+)
-- **任务队列**: Celery 5.4+ (异步任务处理)
-- **向量数据库**: Milvus 2.5.11 (使用 pymilvus 2.5.11)
-- **对象存储**: MinIO (支持 S3/OSS/COS/GCS，使用 boto3/oss2/cos-python-sdk-v5/google-cloud-storage)
+- **后台任务**: 基于 PostgreSQL 租约的持久 worker（outbox 分发、知识入库、定时调度、对话交互）
+- **向量数据库**: Milvus 2.5.11 (使用 pymilvus 2.5.11)，或 PostgreSQL 内的 pgvector
+- **对象存储**: MinIO (支持 S3/OSS/COS/GCS，使用 boto3/oss2/cos-python-sdk-v5/google-cloud-storage)，或本地文件
 
 **数据库迁移与版本控制：**
 - **迁移工具**: Alembic 1.12+ (数据库版本管理)
@@ -50,7 +50,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 **认证与安全：**
 - **JWT**: PyJWT 2.8+ (身份认证)
 - **密码加密**: passlib[bcrypt] 1.7+ (bcrypt 4.0.1)
-- **密钥管理**: HashiCorp Vault (通过适配器)
+- **密钥管理**: HashiCorp Vault (通过适配器)；评估安装可用数据库密封存储（`SECRETS_BACKEND=sealed`）
 
 **可观测性与监控：**
 - **日志**: 结构化 JSON 日志
@@ -60,7 +60,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 
 **LLM 与 AI 框架：**
 - **模型适配**: OpenAI、Anthropic、DeepSeek 和 OpenAI-compatible endpoint
-- **向量模型**: sentence-transformers 4.1+, langchain-huggingface 0.0.6 (嵌入模型)
+- **向量模型**: sentence-transformers 4.1+ (本地嵌入模型)
 - **Token 计算**: tiktoken 0.9+ (Token 计数)
 
 **文档处理：**
@@ -74,7 +74,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 ### 前端技术栈 (web/)
 
 **核心框架：**
-- **框架**: React Router 7 (SSR 支持)
+- **框架**: React 19 + React Router 8 (SSR 支持)
 - **语言**: TypeScript 6
 - **构建工具**: Vite 8
 
@@ -106,6 +106,9 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - Web 服务 (React Router SSR 应用)
 - Knowledge ingest worker
 - Outbox dispatcher (`outbox-dispatcher`)
+- Scheduler (`scheduler`)
+
+lite 配置（`docker/docker-compose.lite.yml`）只需 5 个常驻容器：带 pgvector 的 PostgreSQL、Redis、API、Web 与一个合并 worker。
 
 ## 项目结构
 

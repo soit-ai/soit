@@ -81,6 +81,38 @@ def test_compose_passes_the_public_runtime_manifest_to_every_backend_process() -
         }
 
 
+def test_the_lite_profile_carries_the_same_runtime_manifest() -> None:
+    lite = yaml.safe_load((ROOT / "docker" / "docker-compose.lite.yml").read_text(encoding="utf-8"))
+    app = yaml.safe_load((ROOT / "docker" / "docker-compose.app.yml").read_text(encoding="utf-8"))
+    reference = app["services"]["migrate"]["environment"]
+
+    for service_name in ("migrate", "bootstrap", "api", "worker"):
+        environment = lite["services"][service_name]["environment"]
+        for key in ("PLATFORM_VERSION", "PLATFORM_EDITION", "ENABLE_EGRESS_POLICY"):
+            assert environment[key] == reference[key], (service_name, key)
+        assert environment["VECTOR_BACKEND"] == "pgvector"
+        assert environment["SECRETS_BACKEND"] == "sealed"
+    # The lite profile is five long-running containers plus one-shot jobs.
+    long_running = {
+        name for name, service in lite["services"].items() if service.get("restart") != "no"
+    }
+    assert long_running == {"postgres", "redis", "api", "web", "worker"}
+    assert lite["services"]["api"]["environment"]["RESPONSE_INTERACTION_WORKER_ENABLED"] == "true"
+
+
+def test_readmes_do_not_claim_unused_components_or_stale_versions() -> None:
+    english = (ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (ROOT / "README-cn.md").read_text(encoding="utf-8")
+
+    # Celery and LangChain are declared dependencies nothing in the runtime
+    # imports; the web console runs React Router 8.
+    for stale_claim in ("Celery", "LangChain (adapter layer)", "React Router 7"):
+        assert stale_claim not in english
+        assert stale_claim not in chinese
+    assert "docker/docker-compose.lite.yml" in english
+    assert "docker/docker-compose.lite.yml" in chinese
+
+
 def test_public_readmes_describe_the_community_runtime_without_stale_services() -> None:
     english = (ROOT / "README.md").read_text(encoding="utf-8")
     chinese = (ROOT / "README-cn.md").read_text(encoding="utf-8")

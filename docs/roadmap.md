@@ -5,17 +5,27 @@ model-neutral execution with observable and auditable agent behavior.
 
 ## Current Focus
 
-- Stabilize the Community runtime main path: agent creation, versioning, publish, execute, stream, response, thread, task, run trace, and tool call detail.
-- Keep Knowledge ingestion and retrieval reliable across upload, ingest, chunk, index, query, and citation flows.
-- Connect Observe surfaces to real run, task, response, tool, cost, and approval data.
-- Maintain documented quality gates for backend, frontend, release, and local deployment checks.
+- Make SOIT quick to try and hard to break: the five-container lite profile, a
+  green main branch, and release evidence that anyone can verify.
+- Close the gaps between what the platform declares and what it enforces:
+  knowledge visibility, workflow run limits, approvals that resume runs on
+  their own, and a credit ledger that stays exact under concurrency.
 
 ## Next Milestones
 
-- Harden Plugin and MCP execution with capability allowlists, audit records, approval policy hooks, and secret boundaries.
-- Add evaluation and regression checks for Agent, Knowledge, and Workflow behavior.
-- Improve production deployment profiles, health checks, backup/restore guidance, and model provider diagnostics.
-- Expand governance reports for workspace cost, privileged operations, external tool access, approval outcomes, and policy failures.
+- **SOIT Gateway**: an OpenAI-compatible entry point (/v1/chat/completions,
+  /v1/models, embeddings and images) so any OpenAI SDK client runs through
+  SOIT's per-key limits, budgets, content safety and cost ledger, with
+  cross-provider failover, native Anthropic tool calling and a metadata-only
+  capture mode.
+- **Budgets**: workspace, agent and principal budgets with threshold alerts
+  and hard stops, and daily usage aggregates.
+- **Governed tools for agents that run elsewhere**: a tool invocation API and
+  SOIT as an MCP server, both on the same policy chain as SOIT's own agents.
+- **Evidence you can take away**: a per-run evidence package with a hash
+  manifest, audit and cost exports, and a versioned ledger schema.
+- **Model upgrades without regressions**: replay every regression set against
+  a new model and compare pass rate, cost and latency.
 
 ## Contributing
 

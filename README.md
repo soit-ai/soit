@@ -209,17 +209,17 @@ SOIT follows a strict hexagonal architecture: a stable kernel at the center, rep
 ├─────────────────────────────────────────────────────────────┤
 │  Kernel  (stable core)                                      │
 │    Runtime · Identity · Trace · Specs · Security            │
-│    Events · Responses · Observe · Registry            │
+│    Events · Responses · Observe · Registry                  │
 │    Ports:  LLM · Tools · Vector · Storage · Secrets         │
 ├─────────────────────────────────────────────────────────────┤
 │  Domain Modules                                             │
-│    Agent · Workflow · Knowledge · Skill · Plugin · MCP      │
+│    Agent · Workflow · Knowledge · Plugin · Evaluation       │
 ├─────────────────────────────────────────────────────────────┤
 │  Adapters                                                   │
-│    OpenAI · Anthropic · DeepSeek · Milvus · MinIO · Vault   │
+│    OpenAI · Anthropic · LiteLLM · Milvus · pgvector · Vault │
 ├─────────────────────────────────────────────────────────────┤
 │  Infrastructure                                             │
-│    PostgreSQL · Redis · Milvus · MinIO · Celery             │
+│    PostgreSQL · Redis · Milvus or pgvector · S3 or files    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -247,11 +247,11 @@ SOIT is designed for teams who need agents to do real work in production:
 
 | Layer        | Choices                                                                  |
 | ------------ | ------------------------------------------------------------------------ |
-| Backend      | Python 3.12 · FastAPI · SQLModel · Alembic · Celery · OpenTelemetry      |
-| Frontend     | TypeScript · React Router 7 · TailwindCSS 4 · Zustand · React Query · React Flow |
-| Data         | PostgreSQL 15 · Redis 7 · Milvus 2.5 · MinIO                             |
-| Security     | HashiCorp Vault · JWT · bcrypt                                           |
-| LLM          | OpenAI · Anthropic · DeepSeek · Qwen · LangChain (adapter layer)         |
+| Backend      | Python 3.12 · FastAPI · SQLModel · Alembic · OpenTelemetry               |
+| Frontend     | TypeScript · React 19 · React Router 8 · TailwindCSS 4 · Zustand · React Query · React Flow |
+| Data         | PostgreSQL 15 · Redis 7 · Milvus 2.5 or pgvector · S3-compatible storage (MinIO) or local files |
+| Security     | HashiCorp Vault (sealed database store for evaluation installs) · JWT · bcrypt |
+| LLM          | OpenAI · Anthropic · DeepSeek · any OpenAI-compatible endpoint · LiteLLM for other providers |
 
 ## Roadmap
 
@@ -261,11 +261,14 @@ We ship in tight, themed iterations. The current focus areas:
 - [x] Capability registry with source-agnostic tool binding
 - [x] Agent versioning and release management
 - [x] Hexagonal kernel with strict port-adapter boundaries
-- [ ] Workspace observe console — *in progress*
-- [ ] Agent evaluation framework with regression testing
-- [ ] MCP marketplace for one-click tool installation
+- [x] Workspace observe console
+- [x] Agent evaluation with regression sets, LLM judging and a release gate
+- [x] Approval workflows with human-in-the-loop checkpoints
+- [x] Five-container lite profile for evaluation
+- [ ] OpenAI-compatible gateway: any OpenAI SDK through SOIT's budgets, audit and ledger
+- [ ] SOIT as an MCP server for agents that run elsewhere
 - [ ] Cost-aware multi-model routing policies
-- [ ] Approval workflows with human-in-the-loop checkpoints
+- [ ] MCP marketplace for one-click tool installation
 
 See the full [roadmap](./docs/roadmap.md) and [contributing guide](./CONTRIBUTING.md) to track direction and propose changes.
 
