@@ -6,9 +6,10 @@ LLM port policies: timeout/retry/rate-limit/audit.
 import asyncio
 import inspect
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, TypeVar
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, Tracer
@@ -42,6 +43,11 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
 )
 from app.kernel.ports.llm.runtime_config import validate_image_request
+from app.kernel.ports.llm.virtual_models import (
+    VirtualModelResolver,
+    is_virtual_model,
+    virtual_model_slug,
+)
 from app.kernel.ports.safety.interface import (
     ContentSafetyPort,
     SafetyDecision,
@@ -90,6 +96,30 @@ def _runtime_cost_fields(
 def _capped_retries(max_retries: int, cap: int | None) -> int:
     """Clamp a route retry budget to an operation-specific ceiling."""
     return max_retries if cap is None else min(max_retries, cap)
+
+
+_CallResult = TypeVar("_CallResult")
+
+# Route failures that mean "this target cannot serve the call right now";
+# a virtual model moves on to its next target instead of failing.
+_UNAVAILABLE_ROUTE_CODES = frozenset(
+    {
+        "MODEL_PROVIDER_DISABLED",
+        "MODEL_RUNTIME_DISABLED",
+        "MODEL_RUNTIME_NOT_FOUND",
+        "MODEL_CAPABILITY_UNAVAILABLE",
+    }
+)
+
+
+def _failure_label(exc: Exception) -> str:
+    """What went wrong, without the provider's message, which may echo input."""
+    if isinstance(exc, KernelError):
+        return exc.code
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None:
+        return f"status_{status_code}"
+    return type(exc).__name__
 
 
 @dataclass(frozen=True)
@@ -577,6 +607,7 @@ class LLMPolicyGateway(LLMPort):
         inspect_inbound: bool = True,
         inspect_outbound: bool = True,
         usage_counter: DailyUsageCounter | None = None,
+        virtual_models: VirtualModelResolver | None = None,
     ):
         """Initialize policy gateway.
 
@@ -620,6 +651,7 @@ class LLMPolicyGateway(LLMPort):
         self.inspect_inbound = inspect_inbound
         self.inspect_outbound = inspect_outbound
         self.usage_counter = usage_counter or DailyUsageCounter()
+        self.virtual_models = virtual_models
 
     async def _inspect(
         self,
@@ -771,6 +803,152 @@ class LLMPolicyGateway(LLMPort):
                 await asyncio.sleep(delay)
         raise RuntimeError("LLM retry loop exhausted")
 
+    async def _targets(self, model: str) -> list[str]:
+        """The concrete model refs a call to ``model`` may be served by, in order."""
+        if not is_virtual_model(model):
+            return [model]
+        targets = (
+            await self.virtual_models.resolve_targets(self.ctx, virtual_model_slug(model))
+            if self.virtual_models is not None
+            else None
+        )
+        if not targets:
+            raise KernelError(
+                "MODEL_RUNTIME_NOT_FOUND",
+                f"Virtual model was not found: {model}",
+                {"model": model},
+            )
+        return targets
+
+    def _fails_over(self, exc: Exception, route: _ResolvedPolicyRoute) -> bool:
+        """Whether another target may succeed where this one failed.
+
+        Timeouts, rate limits, server errors and lost connections are the
+        provider's trouble; an invalid request or a policy refusal would be
+        refused by the next target too.
+        """
+        if isinstance(exc, KernelTimeoutError):
+            return True
+        return self._is_retryable(exc, route.retryable_status_codes)
+
+    async def _call_with_failover(
+        self,
+        model: str,
+        required_capabilities: tuple[str, ...],
+        invoke: Callable[[_ResolvedPolicyRoute, str], Awaitable[_CallResult]],
+        *,
+        operation: str,
+    ) -> tuple[_ResolvedPolicyRoute, _CallResult, list[dict[str, Any]]]:
+        """Call the first target that serves the request.
+
+        For a concrete model this is the one route with its own retries. For
+        a virtual model the attempts are returned as run evidence.
+        """
+        targets = await self._targets(model)
+        attempts: list[dict[str, Any]] = []
+        for index, target in enumerate(targets):
+            last = index == len(targets) - 1
+            try:
+                route = await self._resolve_call_route(target, required_capabilities)
+            except KernelError as exc:
+                if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
+                    raise
+                attempts.append({"model_ref": target, "outcome": "unavailable", "reason": exc.code})
+                continue
+            try:
+                result = await self._run_call(
+                    lambda route=route, target=target: invoke(route, target),
+                    timeout_factory=lambda route=route, target=target: KernelTimeoutError(
+                        f"{operation} timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": target},
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+            except Exception as exc:
+                if last or not self._fails_over(exc, route):
+                    raise
+                attempts.append({"model_ref": target, "outcome": "failed", "reason": _failure_label(exc)})
+                continue
+            if len(targets) > 1:
+                attempts.append({"model_ref": target, "outcome": "succeeded"})
+            return route, result, attempts
+        raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+
+    async def _first_available_route(
+        self,
+        model: str,
+        required_capabilities: tuple[str, ...],
+        *,
+        timeout_fallback: float | None = None,
+        max_retries_cap: int | None = None,
+    ) -> tuple[_ResolvedPolicyRoute, str, list[dict[str, Any]]]:
+        """The first target whose route resolves, without failing over on calls.
+
+        Image calls use this: a failed image call may still have been billed,
+        so it is not repeated on another provider.
+        """
+        targets = await self._targets(model)
+        attempts: list[dict[str, Any]] = []
+        for index, target in enumerate(targets):
+            try:
+                route = await self._resolve_call_route(
+                    target,
+                    required_capabilities,
+                    timeout_fallback=timeout_fallback,
+                    max_retries_cap=max_retries_cap,
+                )
+            except KernelError as exc:
+                if index == len(targets) - 1 or exc.code not in _UNAVAILABLE_ROUTE_CODES:
+                    raise
+                attempts.append({"model_ref": target, "outcome": "unavailable", "reason": exc.code})
+                continue
+            if len(targets) > 1:
+                attempts.append({"model_ref": target, "outcome": "selected"})
+            return route, target, attempts
+        raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+
+    async def _open_stream(
+        self,
+        route: _ResolvedPolicyRoute,
+        target: str,
+        request: dict[str, Any],
+    ) -> tuple[Any, ChatStreamChunk | None]:
+        """Open a stream on one route and wait for its first chunk, with retries."""
+        aiter = None
+        for attempt in range(route.max_retries + 1):
+            try:
+                stream = route.port.stream_chat(model=target, ctx=self.ctx, **request)
+                if inspect.isawaitable(stream):
+                    stream = await asyncio.wait_for(stream, timeout=route.timeout_seconds)
+                aiter = stream.__aiter__()
+                first_chunk = await asyncio.wait_for(
+                    aiter.__anext__(),
+                    timeout=route.timeout_seconds,
+                )
+                first_chunk.runtime_target = first_chunk.runtime_target or route.target
+                return aiter, first_chunk
+            except StopAsyncIteration:
+                return aiter, None
+            except TimeoutError:
+                if attempt >= route.max_retries:
+                    raise KernelTimeoutError(
+                        f"LLM stream request timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": target},
+                    ) from None
+            except Exception as exc:
+                if attempt >= route.max_retries or not self._is_retryable(
+                    exc,
+                    route.retryable_status_codes,
+                ):
+                    raise
+            if route.retry_backoff != "none" and self.retry_backoff_base_seconds:
+                multiplier = 2**attempt if route.retry_backoff == "exponential" else 1
+                await asyncio.sleep(min(self.retry_backoff_base_seconds * multiplier, 5.0))
+        return aiter, None
+
     async def _check_daily_quota(self, *, key_suffix: str) -> None:
         if not self.daily_quota:
             return
@@ -892,7 +1070,6 @@ class LLMPolicyGateway(LLMPort):
         try:
             messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
-            route = await self._resolve_call_route(model, required_capabilities)
             with self.otel_tracer.start_as_current_span(
                 "soit.llm.chat",
                 attributes={
@@ -905,23 +1082,18 @@ class LLMPolicyGateway(LLMPort):
                     "soit.step.id": step.id if step else "",
                 },
             ) as span:
-                response = await self._run_call(
-                    lambda: route.port.chat(
+                route, response, attempts = await self._call_with_failover(
+                    model,
+                    required_capabilities,
+                    lambda route, target: route.port.chat(
                         messages=messages,
-                        model=model,
+                        model=target,
                         temperature=temperature,
                         max_tokens=max_tokens,
                         ctx=self.ctx,
                         **kwargs,
                     ),
-                    timeout_factory=lambda: KernelTimeoutError(
-                        f"LLM chat request timed out after {route.timeout_seconds} seconds",
-                        {"timeout_seconds": route.timeout_seconds, "model": model},
-                    ),
-                    timeout_seconds=route.timeout_seconds,
-                    max_retries=route.max_retries,
-                    retry_backoff=route.retry_backoff,
-                    retryable_status_codes=route.retryable_status_codes,
+                    operation="LLM chat request",
                 )
                 response.runtime_target = response.runtime_target or route.target
                 if self.inspect_outbound:
@@ -953,6 +1125,7 @@ class LLMPolicyGateway(LLMPort):
                         "tokens_prompt": response.tokens_prompt,
                         "tokens_completion": response.tokens_completion,
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": model_used,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],
@@ -1038,6 +1211,7 @@ class LLMPolicyGateway(LLMPort):
         runtime_target: LLMRuntimeTarget | None = None
         output_preview = ""
         safety_evidence: list[dict[str, Any]] = []
+        attempts: list[dict[str, Any]] = []
         outbound = (
             _OutboundStreamInspector(self, safety_evidence)
             if self.content_safety is not None and self.inspect_outbound
@@ -1076,48 +1250,45 @@ class LLMPolicyGateway(LLMPort):
         try:
             messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
-            route = await self._resolve_call_route(model, required_capabilities)
-            runtime_target = route.target
+            request = {
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                **kwargs,
+            }
+            targets = await self._targets(model)
+            route: _ResolvedPolicyRoute | None = None
             first_chunk: ChatStreamChunk | None = None
             aiter = None
-            for attempt in range(route.max_retries + 1):
+            # A stream moves to another target only before its first chunk;
+            # after that the consumer has seen output from this one.
+            for index, target in enumerate(targets):
+                last = index == len(targets) - 1
                 try:
-                    stream = route.port.stream_chat(
-                        messages=messages,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        ctx=self.ctx,
-                        **kwargs,
-                    )
-                    if inspect.isawaitable(stream):
-                        stream = await asyncio.wait_for(stream, timeout=route.timeout_seconds)
-                    aiter = stream.__aiter__()
-                    first_chunk = await asyncio.wait_for(
-                        aiter.__anext__(),
-                        timeout=route.timeout_seconds,
-                    )
-                    first_chunk.runtime_target = first_chunk.runtime_target or route.target
-                    break
-                except StopAsyncIteration:
-                    break
-                except TimeoutError:
-                    if attempt >= route.max_retries:
-                        raise KernelTimeoutError(
-                            f"LLM stream request timed out after {route.timeout_seconds} seconds",
-                            {"timeout_seconds": route.timeout_seconds, "model": model},
-                        ) from None
-                except Exception as exc:
-                    if attempt >= route.max_retries or not self._is_retryable(
-                        exc,
-                        route.retryable_status_codes,
-                    ):
+                    candidate = await self._resolve_call_route(target, required_capabilities)
+                except KernelError as exc:
+                    if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
                         raise
-                if route.retry_backoff != "none" and self.retry_backoff_base_seconds:
-                    multiplier = 2**attempt if route.retry_backoff == "exponential" else 1
-                    await asyncio.sleep(
-                        min(self.retry_backoff_base_seconds * multiplier, 5.0)
+                    attempts.append(
+                        {"model_ref": target, "outcome": "unavailable", "reason": exc.code}
                     )
+                    continue
+                try:
+                    aiter, first_chunk = await self._open_stream(candidate, target, request)
+                except Exception as exc:
+                    if last or not self._fails_over(exc, candidate):
+                        raise
+                    attempts.append(
+                        {"model_ref": target, "outcome": "failed", "reason": _failure_label(exc)}
+                    )
+                    continue
+                route = candidate
+                if len(targets) > 1:
+                    attempts.append({"model_ref": target, "outcome": "succeeded"})
+                break
+            if route is None:
+                raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+            runtime_target = route.target
 
             if first_chunk is not None:
                 tokens_prompt = first_chunk.tokens_prompt or tokens_prompt
@@ -1194,6 +1365,7 @@ class LLMPolicyGateway(LLMPort):
                         "tokens_prompt": tokens_prompt,
                         "tokens_completion": tokens_completion,
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": model_used,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],
@@ -1279,7 +1451,6 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(model, ("embeddings",))
             with self.otel_tracer.start_as_current_span(
                 "soit.llm.embed",
                 attributes={
@@ -1293,16 +1464,13 @@ class LLMPolicyGateway(LLMPort):
                     "soit.llm.embed.input_count": len(texts),
                 },
             ) as span:
-                response = await self._run_call(
-                    lambda: route.port.embed(texts=texts, model=model, ctx=self.ctx, **kwargs),
-                    timeout_factory=lambda: KernelTimeoutError(
-                        f"LLM embed request timed out after {route.timeout_seconds} seconds",
-                        {"timeout_seconds": route.timeout_seconds, "model": model}
+                route, response, attempts = await self._call_with_failover(
+                    model,
+                    ("embeddings",),
+                    lambda route, target: route.port.embed(
+                        texts=texts, model=target, ctx=self.ctx, **kwargs
                     ),
-                    timeout_seconds=route.timeout_seconds,
-                    max_retries=route.max_retries,
-                    retry_backoff=route.retry_backoff,
-                    retryable_status_codes=route.retryable_status_codes,
+                    operation="LLM embed request",
                 )
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)
@@ -1325,6 +1493,7 @@ class LLMPolicyGateway(LLMPort):
                         "tokens_used": response.tokens_used,
                         "embedding_count": len(texts),
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": model_used,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],
@@ -1407,7 +1576,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(
+            route, target, attempts = await self._first_available_route(
                 model,
                 ("image_generation",),
                 timeout_fallback=self.image_timeout_seconds,
@@ -1417,7 +1586,7 @@ class LLMPolicyGateway(LLMPort):
             # called, so an impossible request is never billed.
             validate_image_request(
                 route.image_capabilities,
-                model=model,
+                model=target,
                 size=size,
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
@@ -1437,7 +1606,7 @@ class LLMPolicyGateway(LLMPort):
             ) as span:
                 response = await self._run_call(
                     lambda: route.port.generate_image(
-                        prompt=prompt, model=model, n=n, size=size, ctx=self.ctx, **kwargs
+                        prompt=prompt, model=target, n=n, size=size, ctx=self.ctx, **kwargs
                     ),
                     timeout_factory=lambda: KernelTimeoutError(
                         f"LLM image request timed out after {route.timeout_seconds} seconds",
@@ -1469,6 +1638,7 @@ class LLMPolicyGateway(LLMPort):
                     metrics={
                         "image_count": image_count,
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": response.model or model,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],
@@ -1565,7 +1735,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(
+            route, target, attempts = await self._first_available_route(
                 model,
                 ("image_edit",),
                 timeout_fallback=self.image_timeout_seconds,
@@ -1573,7 +1743,7 @@ class LLMPolicyGateway(LLMPort):
             )
             validate_image_request(
                 route.image_capabilities,
-                model=model,
+                model=target,
                 size=size,
                 has_mask=mask is not None,
                 background=kwargs.get("background"),
@@ -1597,7 +1767,7 @@ class LLMPolicyGateway(LLMPort):
                     lambda: route.port.edit_image(
                         image=image,
                         prompt=prompt,
-                        model=model,
+                        model=target,
                         mask=mask,
                         n=n,
                         size=size,
@@ -1634,6 +1804,7 @@ class LLMPolicyGateway(LLMPort):
                     metrics={
                         "image_count": image_count,
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": response.model or model,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],
@@ -1717,7 +1888,6 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            route = await self._resolve_call_route(model, ("rerank",))
             with self.otel_tracer.start_as_current_span(
                 "soit.llm.rerank",
                 attributes={
@@ -1732,23 +1902,18 @@ class LLMPolicyGateway(LLMPort):
                     "soit.llm.rerank.top_n": top_n or len(documents),
                 },
             ) as span:
-                response = await self._run_call(
-                    lambda: route.port.rerank(
+                route, response, attempts = await self._call_with_failover(
+                    model,
+                    ("rerank",),
+                    lambda route, target: route.port.rerank(
                         query=query,
                         documents=documents,
-                        model=model,
+                        model=target,
                         top_n=top_n,
                         ctx=self.ctx,
                         **kwargs,
                     ),
-                    timeout_factory=lambda: KernelTimeoutError(
-                        f"LLM rerank request timed out after {route.timeout_seconds} seconds",
-                        {"timeout_seconds": route.timeout_seconds, "model": model}
-                    ),
-                    timeout_seconds=route.timeout_seconds,
-                    max_retries=route.max_retries,
-                    retry_backoff=route.retry_backoff,
-                    retryable_status_codes=route.retryable_status_codes,
+                    operation="LLM rerank request",
                 )
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)
@@ -1772,6 +1937,7 @@ class LLMPolicyGateway(LLMPort):
                         "rerank_count": len(documents),
                         "top_n": top_n or len(documents),
                         "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
                         "model": model_used,
                         "model_ref": identity["model_ref"],
                         "provider_id": identity["provider_id"],

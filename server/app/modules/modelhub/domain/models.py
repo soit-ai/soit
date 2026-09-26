@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, String, Text, UniqueConstraint
 from sqlmodel import JSON, Field, SQLModel
 
 from app.kernel.commons.ids import generate_ulid
@@ -292,4 +292,59 @@ class SyncJob(SQLModel, table=True):
     """Creation timestamp."""
 
     updated_at: datetime = Field(default_factory=utc_now)
+    """Last update timestamp."""
+
+class VirtualModel(SQLModel, table=True):
+    """A workspace name for an ordered list of model refs, tried in turn.
+
+    Calls name it ``vmodel:{slug}``; the LLM policy gateway moves to the next
+    target when one is unavailable or fails with an error another provider
+    may not have.
+    """
+
+    __tablename__ = "virtual_models"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "slug",
+            name="uq_virtual_models_scope_slug",
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"vmod_{generate_ulid()}")
+    """Virtual model ID."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    slug: str
+    """Name a call uses, as ``vmodel:{slug}``."""
+
+    name: str
+    """Display name."""
+
+    description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    """What the virtual model is for."""
+
+    targets_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    """Concrete ``model:`` refs, in the order they are tried."""
+
+    status: str = Field(default="active")
+    """Status (active/disabled)."""
+
+    created_by: str | None = Field(default=None, nullable=True)
+    """User who created it."""
+
+    created_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
     """Last update timestamp."""

@@ -39,7 +39,10 @@ from app.api.openai.schemas import (
     ImageGenerationRequest,
     validate_image_size,
 )
-from app.api.v1.modelhub.dependencies import get_modelhub_service
+from app.api.v1.modelhub.dependencies import (
+    get_modelhub_service,
+    get_virtual_model_service,
+)
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
@@ -52,12 +55,14 @@ from app.kernel.ports.llm.image_mask import (
     openai_alpha_to_mask,
 )
 from app.kernel.ports.llm.interface import ChatMessage, ChatStreamChunk
+from app.kernel.ports.llm.virtual_models import virtual_model_ref
 from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.images.service import ImageJobRequest, execute_image_job
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.middleware.openai_errors import openai_error_body
 from app.modules.modelhub.application.service import ModelHubService
+from app.modules.modelhub.application.virtual_models import VirtualModelService
 from app.wiring import get_container
 
 logger = logging.getLogger(__name__)
@@ -350,6 +355,7 @@ async def _close_abandoned(
 async def list_models(
     ctx: Annotated[RequestContext, Depends(require_workspace_read_ctx)],
     service: Annotated[ModelHubService, Depends(get_modelhub_service)],
+    virtual_models: Annotated[VirtualModelService, Depends(get_virtual_model_service)],
 ):
     """The workspace's callable models, by the ref a call names.
 
@@ -357,21 +363,28 @@ async def list_models(
     model from the list never picks one it will be refused.
     """
 
-    models = await service.list_runtime_models()
+    entries = [
+        {
+            "id": model.model_ref,
+            "object": "model",
+            "created": int(model.created_at.timestamp()),
+            "owned_by": model.owned_by,
+        }
+        for model in await service.list_runtime_models()
+    ]
+    entries.extend(
+        {
+            "id": virtual_model_ref(model.slug),
+            "object": "model",
+            "created": int(model.created_at.timestamp()),
+            "owned_by": "soit",
+        }
+        for model in await virtual_models.list_virtual_models()
+        if model.status == "active"
+    )
     if ctx.allowed_models is not None:
-        models = [model for model in models if model.model_ref in ctx.allowed_models]
-    return {
-        "object": "list",
-        "data": [
-            {
-                "id": model.model_ref,
-                "object": "model",
-                "created": int(model.created_at.timestamp()),
-                "owned_by": model.owned_by,
-            }
-            for model in models
-        ],
-    }
+        entries = [entry for entry in entries if entry["id"] in ctx.allowed_models]
+    return {"object": "list", "data": entries}
 
 
 def _embedding_value(vector: list[float], encoding_format: str) -> list[float] | str:

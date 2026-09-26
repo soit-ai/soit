@@ -17,6 +17,7 @@ from app.modules.modelhub.domain.models import (
     Provider,
     ProviderModel,
     SyncJob,
+    VirtualModel,
 )
 
 
@@ -221,6 +222,38 @@ class SyncJobRepository(AsyncRepository[SyncJob]):
                 )
             )
             .order_by(desc(SyncJob.started_at))
+            .limit(limit)
+        )
+        results = list((await self.db.exec(query)).scalars().all())
+        return self._unwrap_all(results)
+
+class VirtualModelRepository(AsyncRepository[VirtualModel]):
+    """Repository for workspace virtual models."""
+
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
+        super().__init__(VirtualModel, db, ctx)
+
+    async def get_by_slug(self, slug: str) -> VirtualModel | None:
+        query = select(VirtualModel).where(
+            and_(
+                VirtualModel.tenant_id == self.ctx.tenant_id,
+                VirtualModel.workspace_id == self.ctx.workspace_id,
+                VirtualModel.slug == slug,
+            )
+        )
+        result = (await self.db.exec(query)).scalars().first()
+        return self._unwrap_result(result)
+
+    async def list_all(self, limit: int = 200) -> builtins.list[VirtualModel]:
+        query = (
+            select(VirtualModel)
+            .where(
+                and_(
+                    VirtualModel.tenant_id == self.ctx.tenant_id,
+                    VirtualModel.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(VirtualModel.slug)
             .limit(limit)
         )
         results = list((await self.db.exec(query)).scalars().all())

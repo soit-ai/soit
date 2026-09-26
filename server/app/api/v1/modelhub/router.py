@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.v1.modelhub.dependencies import get_modelhub_service
+from app.api.v1.modelhub.dependencies import (
+    get_modelhub_service,
+    get_virtual_model_service,
+)
 from app.api.v1.modelhub.handlers import ModelHubHandlers
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
@@ -33,8 +36,12 @@ from app.modules.modelhub.application.schemas import (
     ProviderUpdate,
     SyncFromPlatformRequest,
     SyncJobResponse,
+    VirtualModelCreate,
+    VirtualModelResponse,
+    VirtualModelUpdate,
 )
 from app.modules.modelhub.application.service import ModelHubService
+from app.modules.modelhub.application.virtual_models import VirtualModelService
 
 router = APIRouter()
 
@@ -263,3 +270,69 @@ async def test_embeddings(
 ):
     handlers = ModelHubHandlers(service)
     return await handlers.test_embeddings(ctx, data)
+
+
+@router.get(
+    "/virtual-models",
+    response_model=list[VirtualModelResponse],
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+async def list_virtual_models(
+    service: VirtualModelService = Depends(get_virtual_model_service),
+):
+    return [
+        VirtualModelResponse.model_validate(model)
+        for model in await service.list_virtual_models()
+    ]
+
+
+@router.post(
+    "/virtual-models",
+    response_model=VirtualModelResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_workspace_write_ctx)],
+)
+async def create_virtual_model(
+    data: VirtualModelCreate,
+    service: VirtualModelService = Depends(get_virtual_model_service),
+):
+    return VirtualModelResponse.model_validate(await service.create_virtual_model(data))
+
+
+@router.get(
+    "/virtual-models/{virtual_model_id}",
+    response_model=VirtualModelResponse,
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+async def get_virtual_model(
+    virtual_model_id: str,
+    service: VirtualModelService = Depends(get_virtual_model_service),
+):
+    return VirtualModelResponse.model_validate(await service.get_virtual_model(virtual_model_id))
+
+
+@router.patch(
+    "/virtual-models/{virtual_model_id}",
+    response_model=VirtualModelResponse,
+    dependencies=[Depends(require_workspace_write_ctx)],
+)
+async def update_virtual_model(
+    virtual_model_id: str,
+    data: VirtualModelUpdate,
+    service: VirtualModelService = Depends(get_virtual_model_service),
+):
+    return VirtualModelResponse.model_validate(
+        await service.update_virtual_model(virtual_model_id, data)
+    )
+
+
+@router.delete(
+    "/virtual-models/{virtual_model_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_workspace_write_ctx)],
+)
+async def delete_virtual_model(
+    virtual_model_id: str,
+    service: VirtualModelService = Depends(get_virtual_model_service),
+):
+    await service.delete_virtual_model(virtual_model_id)

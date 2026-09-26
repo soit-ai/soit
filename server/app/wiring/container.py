@@ -249,6 +249,11 @@ class Container:
             lambda: self._create_llm_port(),
         )
 
+        self.register_factory(
+            "virtual_model_resolver",
+            lambda: self._create_virtual_model_resolver(),
+        )
+
         # Tool Gateway factory
         self.register_factory(
             "tool_port",
@@ -409,7 +414,14 @@ class Container:
             content_safety=self.get_content_safety_port(ctx),
             inspect_inbound=settings.content_safety_inspect_inbound,
             inspect_outbound=settings.content_safety_inspect_outbound,
+            virtual_models=self.get("virtual_model_resolver"),
         )
+
+    @staticmethod
+    def _create_virtual_model_resolver():
+        from app.adapters.llm.virtual_model_resolver import DatabaseVirtualModelResolver
+
+        return DatabaseVirtualModelResolver()
 
     def get_content_safety_port(self, ctx: RequestContext):
         """Return the content safety provider, or None when inspection is off.

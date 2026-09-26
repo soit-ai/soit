@@ -8,7 +8,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+from app.kernel.ports.llm.virtual_models import (
+    MAX_VIRTUAL_MODEL_TARGETS,
+    VIRTUAL_MODEL_PREFIX,
+    virtual_model_ref,
+)
 
 
 class ProviderCreate(BaseModel):
@@ -449,3 +455,69 @@ class RuntimeModel(BaseModel):
     display_name: str | None = None
     created_at: datetime
     capabilities: dict[str, Any] = Field(default_factory=dict)
+
+VIRTUAL_MODEL_SLUG_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,62}$"
+
+
+def _concrete_targets(value: list[str]) -> list[str]:
+    """Distinct ``model:{provider}:{model_id}`` refs, in the order given."""
+    targets: list[str] = []
+    for entry in value:
+        ref = entry.strip()
+        if ref.startswith(VIRTUAL_MODEL_PREFIX):
+            raise ValueError("A virtual model cannot target another virtual model")
+        parts = ref.split(":", 2)
+        if len(parts) != 3 or parts[0] != "model" or not parts[1] or not parts[2]:
+            raise ValueError(f"Targets must be model:{{provider}}:{{model_id}} refs: {entry}")
+        if ref in targets:
+            raise ValueError(f"A target appears twice: {ref}")
+        targets.append(ref)
+    return targets
+
+
+class VirtualModelCreate(BaseModel):
+    """A virtual model: an ordered list of model refs tried in turn."""
+
+    slug: str = Field(pattern=VIRTUAL_MODEL_SLUG_PATTERN, description="Called as vmodel:{slug}")
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    targets: list[str] = Field(min_length=1, max_length=MAX_VIRTUAL_MODEL_TARGETS)
+
+    @field_validator("targets")
+    @classmethod
+    def _valid_targets(cls, value: list[str]) -> list[str]:
+        return _concrete_targets(value)
+
+
+class VirtualModelUpdate(BaseModel):
+    """A change to a virtual model; only the fields sent are changed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    targets: list[str] | None = Field(default=None, min_length=1, max_length=MAX_VIRTUAL_MODEL_TARGETS)
+    status: Literal["active", "disabled"] | None = None
+
+    @field_validator("targets")
+    @classmethod
+    def _valid_targets(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else _concrete_targets(value)
+
+
+class VirtualModelResponse(BaseModel):
+    id: str
+    slug: str
+    name: str
+    description: str | None = None
+    targets: list[str] = Field(default_factory=list, validation_alias="targets_json")
+    status: str
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def model_ref(self) -> str:
+        """The name a call uses."""
+        return virtual_model_ref(self.slug)

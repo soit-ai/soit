@@ -77,6 +77,7 @@ from app.modules.memory.infra.repository import MemoryRepository
 
 # Modelhub
 from app.modules.modelhub.application.service import ModelHubService
+from app.modules.modelhub.application.virtual_models import VirtualModelService
 from app.modules.modelhub.infra.providers import ProviderCatalogAdapter
 from app.modules.modelhub.infra.repository import (
     PlatformModelRepository,
@@ -324,6 +325,18 @@ def build_modelhub_service(*, db: AsyncSession, ctx: RequestContext) -> ModelHub
         provider_cache_invalidator=provider_resolver.invalidate,
         runtime_llm_port=container.get_llm_port(ctx),
         model_reference_usage=DatabaseModelReferenceUsage(db, ctx),
+    )
+
+
+def build_virtual_model_service(*, db: AsyncSession, ctx: RequestContext) -> VirtualModelService:
+    from app.modules.modelhub.infra.model_catalog import WorkspaceModelRefCatalog
+    from app.modules.modelhub.infra.repository import VirtualModelRepository
+
+    return VirtualModelService(
+        db,
+        ctx,
+        repo=VirtualModelRepository(db, ctx),
+        catalog=WorkspaceModelRefCatalog(db, ctx),
     )
 
 

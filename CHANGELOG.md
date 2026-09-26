@@ -14,6 +14,19 @@ record for operators.
 
 ### Added
 
+- Virtual models: a workspace name, called as `vmodel:{slug}`, for an
+  ordered list of up to eight `model:` refs
+  (`/api/v1/modelhub/virtual-models`, migration `20260927110000`). A call
+  tries the targets in turn: an unavailable target (disabled, removed, or
+  missing a capability the call needs) is skipped, and a call that fails with
+  a timeout, 408, 409, 429, a 5xx or a lost connection moves to the next
+  target once that target's own retries are spent. An invalid request or a
+  policy refusal is not repeated elsewhere, a stream moves on only before its
+  first chunk, and an image call is never repeated on another provider
+  because the failed one may have been billed. Each attempt is recorded on
+  the run step, and cost is attributed to the provider that answered.
+  `/v1/models` lists active virtual models, and an API key's model list can
+  name them.
 - API keys carry their own limits: model calls per minute, calls per 24
   hours, tokens per UTC day, an IP allowlist and the model refs they may
   call. They apply on top of the member's own limits, and a null means no
