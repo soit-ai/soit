@@ -22,6 +22,11 @@ record for operators.
   `input_json_delta` fragments assembled into complete calls. The Anthropic
   capability preset now reports `tools`. Tool-name aliasing moved to one
   module shared with the OpenAI adapter.
+- Chat messages can show images beside their text (`ChatMessage.images`, by
+  URL or `data:` URL). The OpenAI Chat Completions, OpenAI Responses and
+  LiteLLM adapters send them as image parts and the Anthropic adapter as image
+  blocks; content safety still inspects the text and keeps the images when it
+  rewrites it, and context-window trimming keeps them too.
 
 ### Fixed
 

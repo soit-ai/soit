@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.llm.content_parts import anthropic_image_block
 from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
 from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.interface import (
@@ -296,6 +297,7 @@ class AnthropicLLMPort(LLMPort):
             if message.role not in {"user", "assistant"}:
                 raise ValidationError(f"Anthropic chat does not support message role: {message.role}")
             blocks = _text_blocks(message.content)
+            blocks.extend(anthropic_image_block(image) for image in message.images)
             if message.role == "assistant" and message.tool_calls:
                 blocks.extend(
                     {

@@ -677,6 +677,7 @@ class LLMPolicyGateway(LLMPort):
                     tool_call_id=getattr(message, "tool_call_id", None),
                     tool_calls=getattr(message, "tool_calls", None),
                     name=getattr(message, "name", None),
+                    images=getattr(message, "images", None),
                 )
             )
         return inspected if changed else messages

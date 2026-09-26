@@ -1603,17 +1603,17 @@ class AgentService:
             if not kept:
                 # The current user turn must never disappear because older context
                 # or a long published system prompt consumed the configured budget.
-                kept.append(ChatMessage(role=msg.role, content=content))
+                kept.append(ChatMessage(role=msg.role, content=content, images=msg.images))
                 remaining = max(remaining - len(content), 0)
                 continue
             if len(content) <= remaining:
-                kept.append(ChatMessage(role=msg.role, content=content))
+                kept.append(ChatMessage(role=msg.role, content=content, images=msg.images))
                 remaining -= len(content)
                 continue
             if remaining <= 0:
                 break
             sliced = content[-remaining:]
-            kept.append(ChatMessage(role=msg.role, content=sliced))
+            kept.append(ChatMessage(role=msg.role, content=sliced, images=msg.images))
             remaining = 0
             break
         return [*system_messages, *reversed(kept)]

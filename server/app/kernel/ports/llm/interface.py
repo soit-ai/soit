@@ -73,6 +73,19 @@ class LLMRuntimeTarget:
     provider_model_id: str | None = None
 
 
+@dataclass(frozen=True)
+class ChatImage:
+    """An image a message shows the model, by URL or `data:` URL."""
+
+    url: str
+    detail: str | None = None
+    """Resolution hint (`low`, `high`, `auto`) for providers that take one."""
+
+    @property
+    def is_data_url(self) -> bool:
+        return self.url.startswith("data:")
+
+
 class ChatMessage:
     """Chat message for LLM."""
 
@@ -84,21 +97,26 @@ class ChatMessage:
         tool_call_id: str | None = None,
         tool_calls: list[ToolCall] | None = None,
         name: str | None = None,
+        images: list[ChatImage] | None = None,
     ):
         """Initialize chat message.
 
         Args:
             role: Message role (system, user, assistant, tool).
-            content: Message content.
+            content: Message text. Content safety, truncation and the thread
+                ledger read this; images travel beside it.
             tool_call_id: ID of the tool call this message answers (role=tool).
             tool_calls: Tool calls made by assistant (role=assistant).
             name: Tool name for tool result messages.
+            images: Images shown with the text, for vision-capable models.
+                Adapters that cannot send images ignore them.
         """
         self.role = role
         self.content = content
         self.tool_call_id = tool_call_id
         self.tool_calls = tool_calls
         self.name = name
+        self.images = images or []
 
 
 class ChatResponse:

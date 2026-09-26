@@ -6,6 +6,7 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+from app.adapters.llm.content_parts import openai_chat_content
 from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.image_mask import mask_to_openai_alpha
 from app.kernel.ports.llm.interface import (
@@ -135,7 +136,7 @@ class LiteLLMPort(LLMPort):
     def _messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
         for message in messages:
-            item: dict[str, Any] = {"role": message.role, "content": message.content}
+            item: dict[str, Any] = {"role": message.role, "content": openai_chat_content(message)}
             if message.tool_call_id:
                 item["tool_call_id"] = message.tool_call_id
             if message.name:

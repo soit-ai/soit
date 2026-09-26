@@ -11,6 +11,7 @@ import httpx
 import numpy as np
 from openai import AsyncOpenAI
 
+from app.adapters.llm.content_parts import openai_chat_content, openai_responses_content
 from app.adapters.llm.tool_names import (
     TOOL_NAME_PATTERN,
     tool_name_alias,
@@ -82,7 +83,7 @@ class OpenAILLMPort(LLMPort):
         tool_name_map = tool_name_map or {}
         openai_messages = []
         for msg in messages:
-            m: dict[str, Any] = {"role": msg.role, "content": msg.content}
+            m: dict[str, Any] = {"role": msg.role, "content": openai_chat_content(msg)}
             if msg.role == "assistant" and msg.tool_calls:
                 m["tool_calls"] = [
                     {
@@ -122,8 +123,8 @@ class OpenAILLMPort(LLMPort):
                     }
                 )
                 continue
-            if message.content is not None:
-                items.append({"role": message.role, "content": message.content})
+            if message.content is not None or message.images:
+                items.append({"role": message.role, "content": openai_responses_content(message)})
             if message.role == "assistant" and message.tool_calls:
                 items.extend(
                     {
