@@ -39,6 +39,11 @@ record for operators.
 
 ### Changed
 
+- An API key is accepted as `Authorization: Bearer sk_...` as well as in
+  `X-API-Key`, which is how OpenAI SDKs and most HTTP clients send one. The
+  request context records which key authenticated a call, for per-key limits
+  and attribution, and a key's `last_used_at` is written at most once a
+  minute instead of on every request.
 - A call refused by a rate limit or a daily quota answers 429 with a
   `Retry-After` header and the code `RATE_LIMIT_EXCEEDED`; it was a 403
   `FORBIDDEN`, which clients could not tell apart from a permission refusal

@@ -54,6 +54,13 @@ class RequestContext:
     narrows what the caller's role would otherwise allow; it never widens it.
     """
 
+    api_key_id: str | None = None
+    """The API key that authenticated the request, when one did.
+
+    Per-key limits, cost attribution and audit use it; the user it belongs to
+    stays ``user_id``.
+    """
+
     def has_scope(self, scope: str) -> bool:
         """Return whether the credential permits this scope."""
         return self.scopes is None or scope in self.scopes

@@ -4,6 +4,7 @@ Authentication middleware for FastAPI.
 """
 
 import logging
+from dataclasses import replace
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -77,22 +78,10 @@ async def get_current_context(
         request_id = getattr(request.state, "request_id", None)
         trace_id = getattr(request.state, "trace_id", None)
         if request_id or trace_id:
-            context = RequestContext(
-                tenant_id=context.tenant_id,
-                workspace_id=context.workspace_id,
-                user_id=context.user_id,
-                request_id=request_id,
-                trace_id=trace_id,
-                tenant_role=context.tenant_role,
-                workspace_role=context.workspace_role,
-                # Carrying the credential scope ceiling is not optional:
-                # dropping it here silently restores the caller full role.
-                scopes=context.scopes,
-                llm_rate_limit_per_minute=context.llm_rate_limit_per_minute,
-                tool_rate_limit_per_minute=context.tool_rate_limit_per_minute,
-                llm_daily_quota=context.llm_daily_quota,
-                tool_daily_quota=context.tool_daily_quota,
-            )
+            # replace() keeps every other field: dropping the credential scope
+            # or the API key here would silently restore the caller's full role
+            # and lose per-key limits.
+            context = replace(context, request_id=request_id, trace_id=trace_id)
         set_request_context(
             request_id=request_id,
             trace_id=trace_id,
@@ -147,22 +136,10 @@ async def get_current_context_from_request(
         request_id = getattr(request.state, "request_id", None)
         trace_id = getattr(request.state, "trace_id", None)
         if request_id or trace_id:
-            context = RequestContext(
-                tenant_id=context.tenant_id,
-                workspace_id=context.workspace_id,
-                user_id=context.user_id,
-                request_id=request_id,
-                trace_id=trace_id,
-                tenant_role=context.tenant_role,
-                workspace_role=context.workspace_role,
-                # Carrying the credential scope ceiling is not optional:
-                # dropping it here silently restores the caller full role.
-                scopes=context.scopes,
-                llm_rate_limit_per_minute=context.llm_rate_limit_per_minute,
-                tool_rate_limit_per_minute=context.tool_rate_limit_per_minute,
-                llm_daily_quota=context.llm_daily_quota,
-                tool_daily_quota=context.tool_daily_quota,
-            )
+            # replace() keeps every other field: dropping the credential scope
+            # or the API key here would silently restore the caller's full role
+            # and lose per-key limits.
+            context = replace(context, request_id=request_id, trace_id=trace_id)
         set_request_context(
             request_id=request_id,
             trace_id=trace_id,

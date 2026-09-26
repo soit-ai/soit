@@ -4,7 +4,7 @@ Resolve RequestContext from request + membership.
 """
 
 import hashlib
-from datetime import UTC
+from datetime import UTC, timedelta
 
 from fastapi import Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,6 +17,11 @@ from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.workspace_access import WorkspaceAccessResolver
 
 security = HTTPBearer()
+
+API_KEY_PREFIX = "sk_"
+"""Prefix every issued API key starts with."""
+
+LAST_USED_WRITE_INTERVAL = timedelta(minutes=1)
 
 
 class ContextResolver:
@@ -74,6 +79,12 @@ class ContextResolver:
             token = auth_header[7:]  # Remove "Bearer " prefix
         else:
             token = authorization.credentials
+
+        # OpenAI SDKs and most HTTP clients send an API key as a bearer token.
+        # A signed session token never carries the key prefix, so the two
+        # cannot be confused.
+        if token.startswith(API_KEY_PREFIX):
+            return await self.resolve_from_api_key(token, workspace_id_header)
 
         # Decode JWT token
         payload = self.jwt_manager.decode_token(token)
@@ -173,9 +184,16 @@ class ContextResolver:
             if access is None:
                 raise ForbiddenError("User is not a member of the requested workspace")
 
-            key.last_used_at = utc_now()
-            key.updated_at = utc_now()
-            await api_repo.update(key)
+            now = utc_now()
+            last_used_at = key.last_used_at
+            if last_used_at is not None and last_used_at.tzinfo is None:
+                last_used_at = last_used_at.replace(tzinfo=UTC)
+            # A key in active use would otherwise write its row on every call;
+            # "last used" needs minute precision, not request precision.
+            if last_used_at is None or now - last_used_at >= LAST_USED_WRITE_INTERVAL:
+                key.last_used_at = now
+                key.updated_at = now
+                await api_repo.update(key)
 
             tenant_role = None
             membership_repo = TenantMembershipRepository(db)
@@ -194,6 +212,7 @@ class ContextResolver:
                 tool_rate_limit_per_minute=access.tool_rate_limit_per_minute,
                 llm_daily_quota=access.llm_daily_quota,
                 tool_daily_quota=access.tool_daily_quota,
+                api_key_id=key.id,
             )
         finally:
             await db.close()

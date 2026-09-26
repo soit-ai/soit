@@ -535,3 +535,98 @@ async def test_request_scoped_context_rebuild_preserves_every_field(monkeypatch)
         assert getattr(context, field.name) == getattr(resolved, field.name), (
             f"rebuild dropped {field.name}"
         )
+
+def _bind_sessions(async_db, monkeypatch) -> None:
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.infra.db import session as session_module
+
+    engine = async_db.bind
+    monkeypatch.setattr(
+        session_module,
+        "get_async_session_local",
+        lambda: (lambda: AsyncSession(bind=engine, expire_on_commit=False)),
+    )
+
+
+async def _issue_key(async_db, raw_key: str) -> ApiKey:
+    key = ApiKey(
+        tenant_id="tenant-1",
+        workspace_id="workspace-a",
+        user_id="user-1",
+        name="Gateway key",
+        key_prefix=raw_key[:12],
+        key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        scopes_json=["read", "write"],
+    )
+    async_db.add(key)
+    await async_db.commit()
+    return key
+
+
+@pytest.mark.asyncio
+async def test_a_bearer_api_key_authenticates_like_the_api_key_header(async_db, monkeypatch) -> None:
+    raw_key = "sk_bearer-sent-by-an-openai-sdk"
+    key = await _issue_key(async_db, raw_key)
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    context = await resolver.resolve_from_request(
+        _request(),
+        authorization=HTTPAuthorizationCredentials(scheme="Bearer", credentials=raw_key),
+    )
+
+    assert context.api_key_id == key.id
+    assert context.user_id == "user-1"
+    assert context.scopes == frozenset({"read", "write"})
+
+
+@pytest.mark.asyncio
+async def test_last_used_is_written_at_most_once_a_minute(async_db, monkeypatch) -> None:
+    raw_key = "sk_frequently-used-key"
+    key = await _issue_key(async_db, raw_key)
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    await resolver.resolve_from_api_key(raw_key, None)
+    await async_db.refresh(key)
+    first = key.last_used_at
+    assert first is not None
+
+    await resolver.resolve_from_api_key(raw_key, None)
+    await async_db.refresh(key)
+    assert key.last_used_at == first
+
+    key.last_used_at = utc_now() - timedelta(minutes=5)
+    async_db.add(key)
+    await async_db.commit()
+    await resolver.resolve_from_api_key(raw_key, None)
+    await async_db.refresh(key)
+    assert key.last_used_at is not None and key.last_used_at > first - timedelta(minutes=5)
+
+
+@pytest.mark.asyncio
+async def test_request_ids_are_added_without_dropping_the_key_or_scope(monkeypatch) -> None:
+    resolved = RequestContext(
+        tenant_id="tenant-1",
+        workspace_id="workspace-a",
+        user_id="user-1",
+        scopes=frozenset({"read"}),
+        api_key_id="key-1",
+    )
+
+    class _Resolver:
+        async def resolve_from_request(self, request, **_):
+            return resolved
+
+    monkeypatch.setattr(auth_middleware, "get_context_resolver", lambda: _Resolver())
+    request = _request()
+    request.state.request_id = "req-1"
+
+    context = await auth_middleware.get_current_context(
+        request, credentials=None, x_workspace_id=None, x_api_key=None
+    )
+
+    assert context.request_id == "req-1"
+    assert context.scopes == frozenset({"read"})
+    assert context.api_key_id == "key-1"
