@@ -15,6 +15,7 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
+from app.kernel.identity.rbac import lower_workspace_role
 from app.kernel.identity.workspace_access import WorkspaceAccessResolver
 from app.kernel.runtime.runs.content_capture import stricter_capture
 from app.settings.settings import settings
@@ -163,6 +164,7 @@ class ContextResolver:
 
         key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
         from app.infra.db.session import get_async_session_local
+        from app.modules.identity.domain.models import ServicePrincipal
         from app.modules.identity.infra.repository import (
             ApiKeyRepository,
             TenantMembershipRepository,
@@ -197,14 +199,47 @@ class ContextResolver:
                 # role; that is exactly the inheritance this replaces.
                 raise ForbiddenError("API key has no usable scope")
 
-            target_workspace_id = workspace_id_header or key.workspace_id
-            access = await self.workspace_access_resolver.resolve(
-                key.tenant_id,
-                target_workspace_id,
-                key.user_id,
-            )
-            if access is None:
-                raise ForbiddenError("User is not a member of the requested workspace")
+            subject_user_id = key.user_id
+            principal_kind: str | None = None
+            if key.principal_id is not None:
+                # A key issued to a service principal acts as the principal, in
+                # its own workspace only, with the lower of its role and its
+                # owner's: the owner's standing bounds what it can do.
+                principal = await db.get(ServicePrincipal, key.principal_id)
+                if (
+                    principal is None
+                    or principal.status != "active"
+                    or principal.tenant_id != key.tenant_id
+                    or principal.workspace_id != key.workspace_id
+                ):
+                    raise UnauthorizedError("API key's service principal is not active")
+                if workspace_id_header and workspace_id_header != principal.workspace_id:
+                    raise ForbiddenError("A service principal acts only in its own workspace")
+                target_workspace_id = principal.workspace_id
+                access = await self.workspace_access_resolver.resolve(
+                    key.tenant_id,
+                    target_workspace_id,
+                    principal.owner_user_id,
+                )
+                if access is None:
+                    raise ForbiddenError(
+                        "The service principal's owner is no longer a member of the workspace"
+                    )
+                workspace_role = lower_workspace_role(
+                    principal.workspace_role, access.workspace_role
+                )
+                subject_user_id = principal.id
+                principal_kind = "service_principal"
+            else:
+                target_workspace_id = workspace_id_header or key.workspace_id
+                access = await self.workspace_access_resolver.resolve(
+                    key.tenant_id,
+                    target_workspace_id,
+                    key.user_id,
+                )
+                if access is None:
+                    raise ForbiddenError("User is not a member of the requested workspace")
+                workspace_role = access.workspace_role
 
             now = utc_now()
             last_used_at = key.last_used_at
@@ -218,17 +253,20 @@ class ContextResolver:
                 await api_repo.update(key)
 
             tenant_role = None
-            membership_repo = TenantMembershipRepository(db)
-            tenant_membership = await membership_repo.get(key.tenant_id, key.user_id)
-            if tenant_membership:
-                tenant_role = tenant_membership.role
+            if principal_kind is None:
+                # A service principal holds no tenant role.
+                membership_repo = TenantMembershipRepository(db)
+                tenant_membership = await membership_repo.get(key.tenant_id, key.user_id)
+                if tenant_membership:
+                    tenant_role = tenant_membership.role
 
             return RequestContext(
                 tenant_id=key.tenant_id,
                 workspace_id=target_workspace_id,
-                user_id=key.user_id,
+                user_id=subject_user_id,
+                principal_kind=principal_kind,
                 tenant_role=tenant_role,
-                workspace_role=access.workspace_role,
+                workspace_role=workspace_role,
                 scopes=scopes,
                 llm_rate_limit_per_minute=access.llm_rate_limit_per_minute,
                 tool_rate_limit_per_minute=access.tool_rate_limit_per_minute,

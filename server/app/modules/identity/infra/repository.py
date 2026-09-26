@@ -18,6 +18,7 @@ from app.modules.identity.domain.models import (
     PinnedObject,
     ResourceGrant,
     SavedView,
+    ServicePrincipal,
     Tenant,
     TenantMembership,
     User,
@@ -850,3 +851,33 @@ class ResourceGrantRepository(AsyncRepository[ResourceGrant]):
         await self.db.delete(grant)
         await self.db.commit()
         return True
+
+class ServicePrincipalRepository(AsyncRepository[ServicePrincipal]):
+    """Repository for a workspace's service principals."""
+
+    def __init__(self, db: AsyncSession, ctx: RequestContext):
+        super().__init__(ServicePrincipal, db, ctx)
+
+    async def get_by_name(self, name: str) -> ServicePrincipal | None:
+        query = select(ServicePrincipal).where(
+            and_(
+                ServicePrincipal.tenant_id == self.ctx.tenant_id,
+                ServicePrincipal.workspace_id == self.ctx.workspace_id,
+                ServicePrincipal.name == name,
+            )
+        )
+        return _unwrap_result((await self.db.exec(query)).scalars().first())
+
+    async def list_all(self, limit: int = 200) -> list[ServicePrincipal]:
+        query = (
+            select(ServicePrincipal)
+            .where(
+                and_(
+                    ServicePrincipal.tenant_id == self.ctx.tenant_id,
+                    ServicePrincipal.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(ServicePrincipal.name)
+            .limit(limit)
+        )
+        return _unwrap_all(list((await self.db.exec(query)).scalars().all()))

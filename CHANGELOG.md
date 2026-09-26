@@ -14,6 +14,14 @@ record for operators.
 
 ### Added
 
+- Service principals: non-human callers of a workspace, such as a pipeline
+  or a partner system, each with a human owner and a workspace role
+  (`/api/v1/service-principals`, migration `20260927130000`). A workspace
+  owner or admin creates them and issues them API keys (`principal_id` on
+  `POST /api/v1/api-keys`). A key issued to a principal authenticates as the
+  principal, so runs, costs and audit are attributed to it; it acts only in
+  its own workspace, with the lower of its role and its owner's current role,
+  and stops working when the principal is disabled or the owner leaves.
 - Content-free runs. A workspace's `content_capture` can be `metadata_only`
   (`PATCH /api/v1/workspaces/{id}`), and an API key can ask for it on its own
   calls. Run and step summaries, output previews and error text are then

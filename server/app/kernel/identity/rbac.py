@@ -44,6 +44,21 @@ WORKSPACE_ROLES = {
     WORKSPACE_ROLE_VIEWER,
 }
 
+WORKSPACE_ROLE_RANK = {
+    WORKSPACE_ROLE_VIEWER: 1,
+    WORKSPACE_ROLE_DEV: 2,
+    WORKSPACE_ROLE_ADMIN: 3,
+    WORKSPACE_ROLE_OWNER: 4,
+}
+
+# A service principal never owns a workspace.
+SERVICE_PRINCIPAL_ROLES = (WORKSPACE_ROLE_VIEWER, WORKSPACE_ROLE_DEV, WORKSPACE_ROLE_ADMIN)
+
+
+def lower_workspace_role(first: str, second: str) -> str:
+    """The less powerful of two workspace roles; an unknown role ranks lowest."""
+    return first if WORKSPACE_ROLE_RANK.get(first, 0) <= WORKSPACE_ROLE_RANK.get(second, 0) else second
+
 
 class UserRole(str, Enum):
     """Tenant-level user roles."""

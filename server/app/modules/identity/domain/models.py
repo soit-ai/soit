@@ -309,6 +309,9 @@ class ApiKey(SQLModel, table=True):
     )
     """Model refs the key may call; None allows every model of the workspace."""
 
+    principal_id: str | None = Field(default=None, nullable=True, index=True)
+    """Service principal the key authenticates as; None means the issuing user."""
+
     content_capture: str | None = Field(default=None, nullable=True)
     """``metadata_only`` keeps this key's calls out of run text even where the
     workspace keeps content; None follows the workspace. It cannot loosen a
@@ -325,6 +328,63 @@ class ApiKey(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
+class ServicePrincipal(SQLModel, table=True):
+    """A non-human caller of one workspace, such as a pipeline or a partner system.
+
+    Keys issued to it authenticate as the principal, so runs, costs and audit
+    are attributed to it rather than to the person who set it up. It acts with
+    its own workspace role, never above the role its human owner holds: when
+    the owner leaves the workspace or is demoted, the principal loses the
+    same.
+    """
+
+    __tablename__ = "service_principals"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "workspace_id",
+            "name",
+            name="uq_service_principals_scope_name",
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"sp_{generate_ulid()}")
+    """Service principal ID; the user_id its calls are attributed to."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    name: str
+    """Display name."""
+
+    description: str | None = Field(default=None, nullable=True)
+    """What the principal is for."""
+
+    owner_user_id: str = Field(index=True)
+    """The member accountable for it; its role caps the principal's."""
+
+    workspace_role: str = Field(default="Dev")
+    """Role it acts with: Viewer, Dev or Admin."""
+
+    status: str = Field(default="active")
+    """active or disabled; a disabled principal's keys are refused."""
+
+    created_by: str
+    """Member who created it."""
+
+    created_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(
+        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    """Last update timestamp."""
+
 class ResourceGrant(SQLModel, table=True):
     """Resource-level grant for a user."""
 

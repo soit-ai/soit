@@ -8,7 +8,10 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
-from app.api.v1.identity.dependencies import get_identity_service
+from app.api.v1.identity.dependencies import (
+    get_identity_service,
+    get_service_principal_service,
+)
 from app.api.v1.permissions import (
     require_tenant_admin_ctx,
     require_workspace_read_ctx,
@@ -57,6 +60,9 @@ from app.modules.identity.application.schemas import (
     SavedViewCreate,
     SavedViewResponse,
     SavedViewUpdate,
+    ServicePrincipalCreate,
+    ServicePrincipalResponse,
+    ServicePrincipalUpdate,
     SessionRevokeAllResponse,
     TenantCreate,
     TenantResponse,
@@ -76,6 +82,7 @@ from app.modules.identity.application.service import (
     IdentityService,
     MfaRequired,
 )
+from app.modules.identity.application.service_principals import ServicePrincipalService
 
 
 def _client_ip(request: Request | None) -> str | None:
@@ -1087,3 +1094,45 @@ async def revoke_resource_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+
+async def list_service_principals(
+    service: ServicePrincipalService = Depends(get_service_principal_service),
+) -> list[ServicePrincipalResponse]:
+    """List the workspace's service principals."""
+    return [ServicePrincipalResponse.model_validate(item) for item in await service.list_principals()]
+
+
+async def create_service_principal(
+    data: ServicePrincipalCreate,
+    service: ServicePrincipalService = Depends(get_service_principal_service),
+) -> ServicePrincipalResponse:
+    """Create a service principal."""
+    return ServicePrincipalResponse.model_validate(await service.create_principal(data))
+
+
+async def get_service_principal(
+    principal_id: str,
+    service: ServicePrincipalService = Depends(get_service_principal_service),
+) -> ServicePrincipalResponse:
+    """Get a service principal."""
+    return ServicePrincipalResponse.model_validate(await service.get_principal(principal_id))
+
+
+async def update_service_principal(
+    principal_id: str,
+    data: ServicePrincipalUpdate,
+    service: ServicePrincipalService = Depends(get_service_principal_service),
+) -> ServicePrincipalResponse:
+    """Change a service principal."""
+    return ServicePrincipalResponse.model_validate(
+        await service.update_principal(principal_id, data)
+    )
+
+
+async def delete_service_principal(
+    principal_id: str,
+    service: ServicePrincipalService = Depends(get_service_principal_service),
+) -> None:
+    """Remove a service principal; keys issued to it stop working."""
+    await service.delete_principal(principal_id)

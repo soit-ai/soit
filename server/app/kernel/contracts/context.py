@@ -23,7 +23,7 @@ class RequestContext:
     """Workspace ID (required for workspace-scoped operations)."""
 
     user_id: str
-    """User ID (required)."""
+    """User ID (required); a service principal's ID when one is calling."""
 
     request_id: str | None = None
     """Request ID for tracing (optional)."""
@@ -77,6 +77,9 @@ class RequestContext:
 
     allowed_models: frozenset[str] | None = None
     """Model refs the credential may call; None allows every model."""
+
+    principal_kind: str | None = None
+    """`service_principal` when a key issued to one authenticated the call."""
 
     content_capture: str | None = None
     """What runs record of content: ``full`` or ``metadata_only``.

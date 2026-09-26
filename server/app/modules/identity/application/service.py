@@ -43,6 +43,7 @@ from app.modules.identity.application.ports import (
     PinnedObjectRepositoryPort,
     ResourceGrantRepositoryPort,
     SavedViewRepositoryPort,
+    ServicePrincipalRepositoryPort,
     TenantMembershipRepositoryPort,
     TenantRepositoryPort,
     UserMfaRepositoryPort,
@@ -140,6 +141,9 @@ class IdentityService:
         token_repo: IdentityTokenRepositoryPort,
         invitation_repo: WorkspaceInvitationRepositoryPort,
         mail_port: MailPort | None = None,
+        service_principal_repo_factory: (
+            Callable[[RequestContext], ServicePrincipalRepositoryPort] | None
+        ) = None,
     ):
         """Initialize identity service.
 
@@ -153,6 +157,7 @@ class IdentityService:
         self.tenant_repo = tenant_repo
         self.tenant_membership_repo = tenant_membership_repo
         self.workspace_repo_factory = workspace_repo_factory
+        self.service_principal_repo_factory = service_principal_repo_factory
         self.workspace_membership_repo_factory = workspace_membership_repo_factory
         self.api_key_repo = api_key_repo
         self.resource_grant_repo_factory = resource_grant_repo_factory
@@ -1673,6 +1678,8 @@ class IdentityService:
         import hashlib
         import secrets
 
+        if data.principal_id is not None:
+            await self._require_issuable_principal(data.principal_id, ctx)
         raw_key = f"sk_{secrets.token_urlsafe(32)}"
         key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
         key_prefix = raw_key[:12]
@@ -1693,9 +1700,25 @@ class IdentityService:
             ip_allowlist_json=data.ip_allowlist,
             allowed_models_json=data.allowed_models,
             content_capture=data.content_capture,
+            principal_id=data.principal_id,
         )
         api_key = await self.api_key_repo.create(api_key)
         return api_key, raw_key
+
+    async def _require_issuable_principal(self, principal_id: str, ctx: RequestContext) -> None:
+        # A key issued to a principal acts on the workspace with no person
+        # signing in, so issuing one is a governance act.
+        if not ctx.can_govern():
+            raise ForbiddenError(
+                "Workspace owner or admin role required to issue keys to a service principal"
+            )
+        if self.service_principal_repo_factory is None:
+            raise ValidationError("Service principals are not available here")
+        principal = await self.service_principal_repo_factory(ctx).get_by_id(principal_id)
+        if principal is None or principal.status != "active":
+            raise ValidationError(
+                "Service principal not found or not active", {"param": "principal_id"}
+            )
 
     async def update_api_key(
         self,
@@ -1804,6 +1827,7 @@ class IdentityService:
             ip_allowlist=old_key.ip_allowlist_json,
             allowed_models=old_key.allowed_models_json,
             content_capture=old_key.content_capture,
+            principal_id=old_key.principal_id,
         )
         return await self.create_api_key(new_key_data, ctx)
 

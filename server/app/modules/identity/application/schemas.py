@@ -480,6 +480,10 @@ class ApiKeyCreate(ApiKeyLimits):
         le=365,
         description="Lifetime in days; long-lived credentials must be reissued",
     )
+    principal_id: str | None = Field(
+        default=None,
+        description="Issue the key to a service principal, which it then authenticates as",
+    )
 
     @field_validator("scopes")
     @classmethod
@@ -518,6 +522,7 @@ class ApiKeyResponse(BaseModel):
     ip_allowlist: list[str] | None = Field(default=None, validation_alias="ip_allowlist_json")
     allowed_models: list[str] | None = Field(default=None, validation_alias="allowed_models_json")
     content_capture: str | None = None
+    principal_id: str | None = None
     last_used_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
@@ -560,6 +565,43 @@ class ResourceGrantResponse(BaseModel):
     user_id: str
     actions: list[str]
     created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ServicePrincipalCreate(BaseModel):
+    """A non-human caller of this workspace."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    workspace_role: Literal["Viewer", "Dev", "Admin"] = "Dev"
+    owner_user_id: str | None = Field(
+        default=None,
+        description="Member accountable for it; defaults to the creator",
+    )
+
+
+class ServicePrincipalUpdate(BaseModel):
+    """A change to a service principal; only the fields sent are changed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    workspace_role: Literal["Viewer", "Dev", "Admin"] | None = None
+    owner_user_id: str | None = None
+    status: Literal["active", "disabled"] | None = None
+
+
+class ServicePrincipalResponse(BaseModel):
+    id: str
+    tenant_id: str
+    workspace_id: str
+    name: str
+    description: str | None = None
+    owner_user_id: str
+    workspace_role: str
+    status: str
+    created_by: str
     created_at: datetime
     updated_at: datetime
 

@@ -15,6 +15,7 @@ from app.kernel.contracts.context import RequestContext
 from app.middleware import auth as auth_middleware
 from app.modules.identity.domain.models import (
     ApiKey,
+    ServicePrincipal,
     Tenant,
     Workspace,
     WorkspaceMembership,
@@ -719,3 +720,73 @@ async def test_a_key_can_tighten_but_not_loosen_content_capture(async_db, monkey
     assert (await open_workspace.resolve_from_api_key("sk_private-key")).content_capture == "metadata_only"
     assert (await open_workspace.resolve_from_api_key("sk_ordinary-key")).content_capture == "full"
     assert (await private_workspace.resolve_from_api_key("sk_ordinary-key")).content_capture == "metadata_only"
+
+async def _issue_principal(async_db, *, role: str = "Admin", status: str = "active") -> ServicePrincipal:
+    principal = ServicePrincipal(
+        tenant_id="tenant-1",
+        workspace_id="workspace-a",
+        name=f"pipeline-{role}-{status}",
+        owner_user_id="user-1",
+        workspace_role=role,
+        status=status,
+        created_by="user-1",
+    )
+    async_db.add(principal)
+    await async_db.commit()
+    return principal
+
+
+class _OwnerIsDev(_WorkspaceAccessResolver):
+    async def resolve(self, tenant_id, workspace_id, user_id, session_id=None):
+        access = await super().resolve(tenant_id, workspace_id, user_id, session_id)
+        access.workspace_role = "Dev"
+        return access
+
+
+@pytest.mark.asyncio
+async def test_a_key_issued_to_a_principal_acts_as_the_principal(async_db, monkeypatch) -> None:
+    principal = await _issue_principal(async_db, role="Viewer")
+    await _issue_key(async_db, "sk_principal-key", principal_id=principal.id)
+    _bind_sessions(async_db, monkeypatch)
+    access = _OwnerIsDev()
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=access)
+
+    context = await resolver.resolve_from_api_key("sk_principal-key")
+
+    assert context.user_id == principal.id
+    assert context.principal_kind == "service_principal"
+    assert context.tenant_role is None
+    assert context.workspace_role == "Viewer"
+    # The owner's membership is what authorizes the principal.
+    assert access.calls[-1] == ("tenant-1", "workspace-a", "user-1")
+
+
+@pytest.mark.asyncio
+async def test_a_principal_never_acts_above_its_owner(async_db, monkeypatch) -> None:
+    principal = await _issue_principal(async_db, role="Admin")
+    await _issue_key(async_db, "sk_ambitious-principal", principal_id=principal.id)
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_OwnerIsDev())
+
+    context = await resolver.resolve_from_api_key("sk_ambitious-principal")
+
+    assert context.workspace_role == "Dev"
+
+
+@pytest.mark.asyncio
+async def test_principal_keys_are_refused_when_the_principal_cannot_act(async_db, monkeypatch) -> None:
+    disabled = await _issue_principal(async_db, role="Dev", status="disabled")
+    active = await _issue_principal(async_db, role="Dev")
+    await _issue_key(async_db, "sk_disabled-principal", principal_id=disabled.id)
+    await _issue_key(async_db, "sk_active-principal", principal_id=active.id)
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    with pytest.raises(UnauthorizedError):
+        await resolver.resolve_from_api_key("sk_disabled-principal")
+    with pytest.raises(ForbiddenError):
+        await resolver.resolve_from_api_key("sk_active-principal", "workspace-b")
+
+    owner_gone = ContextResolver(_JWTManager(), workspace_access_resolver=SimpleNamespace(resolve=_resolve_none))
+    with pytest.raises(ForbiddenError):
+        await owner_gone.resolve_from_api_key("sk_active-principal")

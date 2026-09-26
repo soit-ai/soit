@@ -69,6 +69,7 @@ SEALED_SECRETS_PATH = VERSIONS_ROOT / "20260926110000_sealed_secret_values.py"
 API_KEY_LIMITS_PATH = VERSIONS_ROOT / "20260927100000_api_key_limits.py"
 VIRTUAL_MODELS_PATH = VERSIONS_ROOT / "20260927110000_virtual_models.py"
 CONTENT_CAPTURE_PATH = VERSIONS_ROOT / "20260927120000_content_capture.py"
+SERVICE_PRINCIPALS_PATH = VERSIONS_ROOT / "20260927130000_service_principals.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -135,6 +136,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         API_KEY_LIMITS_PATH.name,
         VIRTUAL_MODELS_PATH.name,
         CONTENT_CAPTURE_PATH.name,
+        SERVICE_PRINCIPALS_PATH.name,
     ]
 
     module = _load_baseline()

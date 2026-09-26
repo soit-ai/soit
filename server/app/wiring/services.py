@@ -39,6 +39,7 @@ from app.modules.evaluation.application.service import RegressionEvaluationServi
 
 # Identity
 from app.modules.identity.application.service import IdentityService
+from app.modules.identity.application.service_principals import ServicePrincipalService
 from app.modules.identity.infra.repository import (
     AccountDeletionRequestRepository,
     ApiKeyRepository,
@@ -46,6 +47,7 @@ from app.modules.identity.infra.repository import (
     PinnedObjectRepository,
     ResourceGrantRepository,
     SavedViewRepository,
+    ServicePrincipalRepository,
     TenantMembershipRepository,
     TenantRepository,
     UserMfaRepository,
@@ -265,6 +267,18 @@ def build_identity_service(*, db: AsyncSession) -> IdentityService:
         workspace_membership_repo_factory=workspace_membership_repo_factory,
         api_key_repo=api_key_repo,
         resource_grant_repo_factory=resource_grant_repo_factory,
+        service_principal_repo_factory=lambda ctx: ServicePrincipalRepository(db, ctx),
+    )
+
+
+def build_service_principal_service(
+    *, db: AsyncSession, ctx: RequestContext
+) -> ServicePrincipalService:
+    return ServicePrincipalService(
+        db,
+        ctx,
+        repo=ServicePrincipalRepository(db, ctx),
+        memberships=WorkspaceMembershipRepository(db, ctx),
     )
 
 

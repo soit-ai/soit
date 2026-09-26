@@ -3,9 +3,13 @@
 Identity API router.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.v1.identity import handlers
+from app.api.v1.permissions import (
+    require_workspace_governance_ctx,
+    require_workspace_read_ctx,
+)
 
 router = APIRouter()
 
@@ -455,4 +459,52 @@ router.add_api_route(
     methods=["DELETE"],
     summary="Revoke resource grant",
     tags=["resource_grants"],
+)
+
+# Service principal endpoints; the service enforces governance for changes.
+router.add_api_route(
+    "/service-principals",
+    handlers.list_service_principals,
+    methods=["GET"],
+    summary="List service principals",
+    tags=["service_principals"],
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+
+router.add_api_route(
+    "/service-principals",
+    handlers.create_service_principal,
+    methods=["POST"],
+    status_code=201,
+    summary="Create a service principal",
+    tags=["service_principals"],
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+
+router.add_api_route(
+    "/service-principals/{principal_id}",
+    handlers.get_service_principal,
+    methods=["GET"],
+    summary="Get a service principal",
+    tags=["service_principals"],
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+
+router.add_api_route(
+    "/service-principals/{principal_id}",
+    handlers.update_service_principal,
+    methods=["PATCH"],
+    summary="Update a service principal",
+    tags=["service_principals"],
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+
+router.add_api_route(
+    "/service-principals/{principal_id}",
+    handlers.delete_service_principal,
+    methods=["DELETE"],
+    status_code=204,
+    summary="Delete a service principal",
+    tags=["service_principals"],
+    dependencies=[Depends(require_workspace_governance_ctx)],
 )
