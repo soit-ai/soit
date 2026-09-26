@@ -236,6 +236,10 @@ record for operators.
   the image, CI and `.python-version` use 3.12).
 - The web console requires Node.js 22.22 or later, the floor React Router
   8 declares; CI, `web/.nvmrc` and the web image all run Node 24.
+- New knowledge bases default to `workspace` visibility, and migration
+  `20260926100000` sets every existing `private` knowledge base to
+  `workspace`, which keeps the access members had while visibility was not
+  enforced. Mark a knowledge base `private` to limit it.
 - JSON columns and API responses are encoded with orjson; log records are
   written from a listener thread (`LOG_ASYNC=false` restores synchronous
   writes).
@@ -288,6 +292,18 @@ record for operators.
 
 ### Fixed
 
+- Knowledge visibility is enforced. A `private` knowledge base is reachable
+  only by its creator, workspace owners and admins, and members holding a
+  resource grant on it: listings, the knowledge workbench, global search and
+  the agent builder's knowledge catalog leave it out for everyone else, and
+  reading, querying or editing it directly returns 403. The field was stored
+  but never checked, so every member could reach every knowledge base. Only
+  the creator or a workspace owner or admin can change a knowledge base's
+  visibility, and the retrieval summary now checks access like every other
+  knowledge route.
+- Creating a knowledge base with the console's second visibility choice
+  failed: it sent `restricted`, a value the API rejects. The choices are now
+  `workspace` and `private`, and the settings page can change visibility.
 - A workflow version's `spec.limits` are enforced: `timeout_ms` bounds the
   run's wall clock and cancels the node in flight, `max_steps` caps the nodes
   started, `budget` stops the run once its recorded cost in

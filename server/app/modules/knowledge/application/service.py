@@ -11,7 +11,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
-from app.kernel.identity.guard import workspace_guard
+from app.kernel.identity.guard import rbac_guard, workspace_guard
+from app.kernel.identity.permissions import RESOURCE_KNOWLEDGE, ResourceVisibility
 from app.kernel.ports.http.interface import HttpFetchPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
@@ -59,6 +60,10 @@ from app.modules.knowledge.domain.models import (
     KnowledgeDocument,
     KnowledgeIndex,
     KnowledgeIngestTask,
+)
+from app.modules.knowledge.domain.visibility import (
+    load_knowledge_visibility,
+    visible_knowledge_clause,
 )
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
 from app.modules.knowledge.runtime.pipeline import DocumentPipeline
@@ -247,20 +252,29 @@ class KnowledgeService:
         return [row for row in rows if tab_matches(row) and keyword_matches(row)]
 
     async def _list_workbench_knowledge(self) -> list[Knowledge]:
-        query = (
-            select(Knowledge)
-            .where(
-                and_(
-                    Knowledge.tenant_id == self.ctx.tenant_id,
-                    Knowledge.workspace_id == self.ctx.workspace_id,
-                    Knowledge.deleted_at.is_(None),
-                )
-            )
-            .order_by(desc(Knowledge.updated_at))
-        )
+        clauses = [
+            Knowledge.tenant_id == self.ctx.tenant_id,
+            Knowledge.workspace_id == self.ctx.workspace_id,
+            Knowledge.deleted_at.is_(None),
+        ]
+        visible = visible_knowledge_clause(self.ctx)
+        if visible is not None:
+            clauses.append(visible)
+        query = select(Knowledge).where(and_(*clauses)).order_by(desc(Knowledge.updated_at))
         results = list((await self.db.exec(query)).scalars().all())
         return [item if isinstance(item, Knowledge) else item[0] for item in results]
 
+    async def _knowledge_visibility(self, knowledge_id: str) -> ResourceVisibility | None:
+        return await load_knowledge_visibility(self.db, self.ctx, knowledge_id)
+
+    # The summary describes how a knowledge base is queried, which is as
+    # private as the knowledge base itself.
+    @rbac_guard(
+        RESOURCE_KNOWLEDGE,
+        "read",
+        resource_id_arg="knowledge_id",
+        visibility_resolver=_knowledge_visibility,
+    )
     async def summarize_retrieval(
         self,
         knowledge_id: str,
@@ -276,6 +290,7 @@ class KnowledgeService:
         the run ledger rather than by persisting query text.
         """
         clauses = [
+
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
             Run.subject_kind == "knowledge",

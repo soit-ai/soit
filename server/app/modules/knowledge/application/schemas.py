@@ -28,7 +28,7 @@ class KnowledgeCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     knowledge_type: str = Field(default="document", pattern="^(document|qa|code|graph|other)$")
-    visibility: str = Field(default="private", pattern="^(private|workspace|tenant)$")
+    visibility: str = Field(default="workspace", pattern="^(private|workspace|tenant)$")
     settings_json: dict[str, Any] = Field(default_factory=dict)
     chunking_json: dict[str, Any] = Field(default_factory=dict)
     retrieval_json: dict[str, Any] = Field(default_factory=dict)

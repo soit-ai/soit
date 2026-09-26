@@ -50,6 +50,8 @@ import {
   type KnowledgeDocument,
   type KnowledgeIndex,
   type KnowledgeQueryResponse,
+  type KnowledgeVisibility,
+  toKnowledgeVisibility,
 } from '@/services/knowledge-service'
 import { requestErrorMessage } from '@/utils/request'
 
@@ -152,7 +154,12 @@ export default function ConsoleKnowledgeDetail() {
   const [retryDocId, setRetryDocId] = useState<string | null>(null)
   const [editingChunk, setEditingChunk] = useState<KnowledgeChunk | null>(null)
   const [chunkForm, setChunkForm] = useState({ content: '', indexStatus: '' })
-  const [settingsForm, setSettingsForm] = useState({ name: '', source: '', threshold: '' })
+  const [settingsForm, setSettingsForm] = useState<{
+    name: string
+    source: string
+    threshold: string
+    visibility: KnowledgeVisibility
+  }>({ name: '', source: '', threshold: '', visibility: 'workspace' })
   const [deleteBaseOpen, setDeleteBaseOpen] = useState(false)
   const [indexForm, setIndexForm] = useState<{
     open: false | 'create' | 'edit'
@@ -287,6 +294,7 @@ export default function ConsoleKnowledgeDetail() {
       // into the uri.
       source: readString(base.settings_json, 'source_uri') ?? '',
       threshold: keywordMin != null ? `score ≥ ${keywordMin}` : '',
+      visibility: toKnowledgeVisibility(base.visibility),
     })
   }, [base])
 
@@ -486,6 +494,9 @@ export default function ConsoleKnowledgeDetail() {
         name: settingsForm.name.trim(),
         settings_json: settingsJson,
         retrieval_json: retrievalJson,
+        // Only a change is sent: the server lets the creator or a workspace
+        // owner/admin change visibility, while other editors may save the rest.
+        ...(settingsForm.visibility !== base?.visibility ? { visibility: settingsForm.visibility } : {}),
       })
     },
     onSuccess: () => {
@@ -1135,6 +1146,29 @@ export default function ConsoleKnowledgeDetail() {
             <select className="input" defaultValue="bge-m3 · vllm self-hosted">
               <option>bge-m3 · vllm self-hosted</option>
               <option>voyage-3</option>
+            </select>
+          </div>
+          <div className="frow">
+            <label>
+              {t('console.knowDetail.fields.visibility')}
+              <small>{t('console.knowDetail.fields.visibilityHint')}</small>
+            </label>
+            <select
+              className="input"
+              style={{ maxWidth: 320 }}
+              value={settingsForm.visibility}
+              onChange={(event) =>
+                setSettingsForm((state) => ({
+                  ...state,
+                  visibility: event.target.value as KnowledgeVisibility,
+                }))
+              }
+            >
+              <option value="workspace">{t('console.knowledgeVisibility.workspace')}</option>
+              <option value="private">{t('console.knowledgeVisibility.private')}</option>
+              {settingsForm.visibility === 'tenant' && (
+                <option value="tenant">{t('console.knowledgeVisibility.tenant')}</option>
+              )}
             </select>
           </div>
           <div className="frow">

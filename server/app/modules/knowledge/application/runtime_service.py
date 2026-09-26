@@ -12,12 +12,16 @@ from urllib.parse import unquote, urlparse
 from sqlalchemy import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import KernelError, ValidationError
+from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import rbac_guard, workspace_guard
-from app.kernel.identity.permissions import RESOURCE_KNOWLEDGE
+from app.kernel.identity.permissions import (
+    RESOURCE_KNOWLEDGE,
+    ResourceVisibility,
+    sees_private_resources,
+)
 from app.kernel.ports.http.interface import HttpFetchPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
@@ -57,6 +61,7 @@ from app.modules.knowledge.domain.models import (
     KnowledgeIngestTask,
 )
 from app.modules.knowledge.domain.versioning import DocumentVersioning
+from app.modules.knowledge.domain.visibility import knowledge_visibility
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
 from app.modules.knowledge.runtime.pipeline import DocumentPipeline
 from app.modules.knowledge.runtime.retrieval import RetrievalService
@@ -130,6 +135,10 @@ class KnowledgeRuntimeService:
         if not document:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
         return document.knowledge_id
+
+    async def _knowledge_visibility(self, knowledge_id: str) -> ResourceVisibility | None:
+        """Visibility of a knowledge base for resource permission checks."""
+        return knowledge_visibility(await self.knowledge_repo.get_by_id(knowledge_id))
 
     @staticmethod
     def _compose_knowledge_run_summary(knowledge_id: str, summary: str) -> str:
@@ -364,7 +373,7 @@ class KnowledgeRuntimeService:
 
         return knowledge
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def get_knowledge(self, knowledge_id: str) -> Knowledge:
         """Get a knowledge base by ID.
 
@@ -379,7 +388,7 @@ class KnowledgeRuntimeService:
             raise KernelError("NOT_FOUND", f"Knowledge {knowledge_id} not found")
         return knowledge
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def update_knowledge(self, knowledge_id: str, knowledge_in: KnowledgeUpdate) -> Knowledge:
         """Update a knowledge base.
 
@@ -406,7 +415,18 @@ class KnowledgeRuntimeService:
         if knowledge_in.status is not None:
             knowledge.status = knowledge_in.status
 
-        if knowledge_in.visibility is not None:
+        if knowledge_in.visibility is not None and knowledge_in.visibility != knowledge.visibility:
+            # Visibility decides who else can reach the knowledge base, so only
+            # its creator or a workspace owner/admin may change it.
+            if not (
+                sees_private_resources(self.ctx)
+                or (knowledge.created_by and knowledge.created_by == self.ctx.user_id)
+            ):
+                raise ForbiddenError(
+                    "Only the knowledge base creator or a workspace owner or admin "
+                    "can change its visibility",
+                    {"knowledge_id": knowledge_id},
+                )
             knowledge.visibility = knowledge_in.visibility
 
         if knowledge_in.settings_json is not None:
@@ -922,7 +942,7 @@ class KnowledgeRuntimeService:
                 )
             raise
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_ingest_tasks(
         self,
         knowledge_id: str,
@@ -941,7 +961,7 @@ class KnowledgeRuntimeService:
             offset=offset,
         )
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def get_ingest_task(self, knowledge_id: str, task_id: str) -> KnowledgeIngestTask:
         """Get ingest task by ID."""
         if not self.ingest_task_repo:
@@ -951,7 +971,7 @@ class KnowledgeRuntimeService:
             raise KernelError("NOT_FOUND", f"Ingest task {task_id} not found")
         return task
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def retry_ingest_task(self, knowledge_id: str, task_id: str) -> KnowledgeIngestTask:
         """Retry a failed ingest task."""
         task = await self.get_ingest_task(knowledge_id, task_id)
@@ -977,7 +997,7 @@ class KnowledgeRuntimeService:
         await self.db.commit()
         return await self.ingest_task_repo.update_status(task, "queued")
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def cancel_ingest_task(self, knowledge_id: str, task_id: str) -> KnowledgeIngestTask:
         """Cancel an ingest task."""
         task = await self.get_ingest_task(knowledge_id, task_id)
@@ -985,7 +1005,7 @@ class KnowledgeRuntimeService:
             raise KernelError("INVALID_STATUS", "Only queued/running tasks can be canceled")
         return await self.ingest_task_repo.update_status(task, "canceled")
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def retry_document_ingest(
         self,
         knowledge_id: str,
@@ -1089,7 +1109,7 @@ class KnowledgeRuntimeService:
                     except Exception as exc:
                         logger.warning("Failed to delete storage key %s: %s", key, exc)
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def create_index(self, knowledge_id: str, index_in: IndexCreate) -> KnowledgeIndex:
         """Create a new index for a knowledge.
 
@@ -1147,7 +1167,7 @@ class KnowledgeRuntimeService:
 
         return index
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_indexes(
         self,
         knowledge_id: str,
@@ -1167,7 +1187,7 @@ class KnowledgeRuntimeService:
         await self.get_knowledge(knowledge_id)
         return await self.index_repo.list_by_knowledge(knowledge_id, limit=limit, offset=offset)
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def get_index(self, knowledge_id: str, index_id: str) -> KnowledgeIndex:
         """Get index by ID.
 
@@ -1183,7 +1203,7 @@ class KnowledgeRuntimeService:
             raise KernelError("NOT_FOUND", f"Index {index_id} not found")
         return index
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def update_index(
         self,
         knowledge_id: str,
@@ -1242,7 +1262,7 @@ class KnowledgeRuntimeService:
 
         return index
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def delete_index(self, knowledge_id: str, index_id: str) -> None:
         """Delete index (soft delete).
 
@@ -1309,7 +1329,7 @@ class KnowledgeRuntimeService:
                 await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_document_versions(
         self,
         knowledge_id: str,
@@ -1327,7 +1347,7 @@ class KnowledgeRuntimeService:
         await self.get_knowledge(knowledge_id)
         return await self.versioning.list_versions(knowledge_id, doc_key)
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def rollback_document_version(
         self,
         knowledge_id: str,
@@ -1374,7 +1394,7 @@ class KnowledgeRuntimeService:
             "retrieved. Create an index with an embedding model first."
         )
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def upload_document(
         self,
         knowledge_id: str,
@@ -1477,7 +1497,7 @@ class KnowledgeRuntimeService:
                 await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_documents(
         self,
         knowledge_id: str,
@@ -1503,7 +1523,7 @@ class KnowledgeRuntimeService:
             offset=offset,
         )
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_chunks(
         self,
         knowledge_id: str,
@@ -1519,7 +1539,7 @@ class KnowledgeRuntimeService:
             offset=offset,
         )
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def update_chunk(
         self,
         knowledge_id: str,
@@ -1559,7 +1579,7 @@ class KnowledgeRuntimeService:
         await self.db.commit()
         return chunk
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_resolver=_resolve_knowledge_id_from_document)
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_resolver=_resolve_knowledge_id_from_document, visibility_resolver=_knowledge_visibility)
     async def get_document(self, document_id: str) -> KnowledgeDocument:
         """Get document by ID.
 
@@ -1574,7 +1594,7 @@ class KnowledgeRuntimeService:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
         return document
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def get_document_content(self, knowledge_id: str, document_id: str) -> tuple[bytes, str]:
         """Get document content for preview.
 
@@ -1600,7 +1620,7 @@ class KnowledgeRuntimeService:
             media_type = document.mime_type or "application/octet-stream"
         return data, media_type
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def download_document(self, knowledge_id: str, document_id: str) -> tuple[bytes, str, str]:
         """Download document file.
 
@@ -1628,7 +1648,7 @@ class KnowledgeRuntimeService:
             filename = document.filename or document.title or f"{document.doc_key}.txt"
         return data, media_type, filename
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_resolver=_resolve_knowledge_id_from_document)
+    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_resolver=_resolve_knowledge_id_from_document, visibility_resolver=_knowledge_visibility)
     async def delete_document(self, document_id: str) -> None:
         """Delete document (soft delete).
 
@@ -1691,7 +1711,7 @@ class KnowledgeRuntimeService:
                 await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
             raise
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def rebuild_index(self, knowledge_id: str, index_id: str | None = None) -> KnowledgeIndex:
         """Rebuild index.
 
@@ -1777,7 +1797,7 @@ class KnowledgeRuntimeService:
 
         return index
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_runs_for_knowledge(
         self,
         knowledge_id: str,
@@ -1825,7 +1845,7 @@ class KnowledgeRuntimeService:
                     continue
         return entries
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def summarize_run_costs_for_knowledge(
         self,
         knowledge_id: str,
@@ -1868,7 +1888,7 @@ class KnowledgeRuntimeService:
             summary.vector_count += int(entry.vector_count or 0)
         return summary
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def summarize_run_costs_by_mode_for_knowledge(
         self,
         knowledge_id: str,
@@ -1926,7 +1946,7 @@ class KnowledgeRuntimeService:
             for key, value in sorted(buckets.items(), key=lambda item: item[0])
         ]
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def summarize_run_costs_by_provider_for_knowledge(
         self,
         knowledge_id: str,
@@ -1981,7 +2001,7 @@ class KnowledgeRuntimeService:
             for key, value in sorted(buckets.items(), key=lambda item: (item[0] or ""))
         ]
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def summarize_run_costs_by_model_for_knowledge(
         self,
         knowledge_id: str,
@@ -2036,7 +2056,7 @@ class KnowledgeRuntimeService:
             for key, value in sorted(buckets.items(), key=lambda item: (item[0] or ""))
         ]
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_knowledge_usages(
         self,
         knowledge_id: str,
@@ -2048,7 +2068,7 @@ class KnowledgeRuntimeService:
         del knowledge_id, limit
         return []
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "run", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def query(
         self,
         knowledge_id: str,
@@ -2272,7 +2292,7 @@ class KnowledgeRuntimeService:
         """
         return await self.knowledge_repo.list(limit=limit, offset=offset)
 
-    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id")
+    @rbac_guard(RESOURCE_KNOWLEDGE, "delete", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def delete_knowledge(self, knowledge_id: str) -> None:
         """Delete a knowledge base (soft delete).
 

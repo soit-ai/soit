@@ -4,6 +4,7 @@ Resource-level permission checks and caching.
 """
 
 import os
+from dataclasses import dataclass
 from typing import Protocol
 
 import redis.asyncio as redis_async
@@ -30,7 +31,55 @@ ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_RUN = "run"
 ACTION_EXECUTE_ALIAS = "execute"
-PERMISSION_CACHE_VERSION = "v3"
+PERMISSION_CACHE_VERSION = "v4"
+
+
+VISIBILITY_PRIVATE = "private"
+VISIBILITY_WORKSPACE = "workspace"
+VISIBILITY_TENANT = "tenant"
+
+# Roles that see every resource in their workspace, private ones included.
+# Visibility is a question of who may see the resource at all, so it follows
+# the member's role; the credential scope still caps the action separately.
+_PRIVATE_VISIBLE_ROLES = ("Owner", "Admin")
+
+
+@dataclass(frozen=True)
+class ResourceVisibility:
+    """Who may see a resource beyond the workspace role ladder.
+
+    A ``private`` resource is visible to its creator, to workspace owners and
+    admins, and to members holding an explicit resource grant. ``workspace``
+    and ``tenant`` resources follow the role ladder alone.
+    """
+
+    visibility: str
+    created_by: str | None = None
+
+    @property
+    def is_private(self) -> bool:
+        return self.visibility == VISIBILITY_PRIVATE
+
+    def cache_marker(self) -> str:
+        if self.is_private:
+            return f"private:{self.created_by or ''}"
+        return "shared"
+
+
+def sees_private_resources(ctx: RequestContext) -> bool:
+    """Whether the member's role sees private resources they did not create."""
+
+    return ctx.workspace_role in _PRIVATE_VISIBLE_ROLES
+
+
+def private_resource_hidden(ctx: RequestContext, visibility: ResourceVisibility | None) -> bool:
+    """Whether ``visibility`` hides the resource from ``ctx`` absent a grant."""
+
+    if visibility is None or not visibility.is_private:
+        return False
+    if sees_private_resources(ctx):
+        return False
+    return not (visibility.created_by and visibility.created_by == ctx.user_id)
 
 
 class ResourceGrantProvider(Protocol):
@@ -120,6 +169,7 @@ class PermissionCache:
         resource_type: str,
         resource_id: str,
         action: str,
+        visibility: "ResourceVisibility | None" = None,
     ) -> bool | None:
         """Get cached permission check result.
 
@@ -136,7 +186,7 @@ class PermissionCache:
         if not redis:
             return None
 
-        cache_key = self._cache_key(ctx, resource_type, resource_id, action)
+        cache_key = self._cache_key(ctx, resource_type, resource_id, action, visibility)
         try:
             cached = await redis.get(cache_key)
             if cached is not None:
@@ -152,6 +202,7 @@ class PermissionCache:
         resource_id: str,
         action: str,
         allowed: bool,
+        visibility: "ResourceVisibility | None" = None,
     ) -> None:
         """Cache permission check result.
 
@@ -166,7 +217,7 @@ class PermissionCache:
         if not redis:
             return
 
-        cache_key = self._cache_key(ctx, resource_type, resource_id, action)
+        cache_key = self._cache_key(ctx, resource_type, resource_id, action, visibility)
         try:
             await redis.setex(
                 cache_key,
@@ -182,6 +233,7 @@ class PermissionCache:
         resource_type: str,
         resource_id: str,
         action: str,
+        visibility: "ResourceVisibility | None" = None,
     ) -> str:
         # The credential scope must be part of the identity: without it a
         # decision computed for an unrestricted session would be replayed
@@ -194,7 +246,10 @@ class PermissionCache:
             f"{ctx.tenant_id}:{ctx.workspace_id}:"
             f"{ctx.tenant_role or ''}:{ctx.workspace_role or ''}:"
             f"{scope_signature}:"
-            f"{resource_type}:{resource_id}:{action}"
+            f"{resource_type}:{resource_id}:{action}:"
+            # A decision depends on the visibility it was computed under, so
+            # making a resource private never replays an earlier allow.
+            f"{visibility.cache_marker() if visibility is not None else '-'}"
         )
 
     async def invalidate_permission(
@@ -270,6 +325,7 @@ async def check_resource_permission(
     resource_id: str,
     action: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Check if user has permission to perform action on resource.
 
@@ -279,6 +335,9 @@ async def check_resource_permission(
         resource_id: Resource ID.
         action: Action (read, write, delete, execute, publish, create, update, run).
         resource_owner_id: Optional resource owner ID (for ownership checks).
+        visibility: Optional visibility of the resource. A private resource
+            is out of the role ladder's reach for members who neither created
+            it nor administer the workspace; only an explicit grant opens it.
 
     Raises:
         ForbiddenError: If permission denied.
@@ -290,6 +349,7 @@ async def check_resource_permission(
         resource_type=resource_type,
         resource_id=resource_id,
         action=action,
+        visibility=visibility,
     )
 
     if cached is not None:
@@ -322,6 +382,11 @@ async def check_resource_permission(
         if effective_action == ACTION_READ:
             allowed = True
 
+    if allowed and private_resource_hidden(ctx, visibility):
+        # The role ladder speaks for workspace resources; a private one is
+        # reachable only through the grant check below.
+        allowed = False
+
     # A scope is a ceiling over every authority source: ownership and
     # explicit grants must not hand a scoped credential more than its scope,
     # or a read-only API key could still write resources its owner created.
@@ -350,6 +415,7 @@ async def check_resource_permission(
             resource_id=resource_id,
             action=action,
             allowed=allowed,
+            visibility=visibility,
         )
 
     if not allowed:
@@ -424,9 +490,10 @@ async def require_resource_read_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require read permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_READ, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_READ, resource_owner_id, visibility)
 
 
 async def require_resource_write_async(
@@ -434,9 +501,10 @@ async def require_resource_write_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require write permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_WRITE, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_WRITE, resource_owner_id, visibility)
 
 
 async def require_resource_delete_async(
@@ -444,9 +512,10 @@ async def require_resource_delete_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require delete permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_DELETE, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_DELETE, resource_owner_id, visibility)
 
 
 async def require_resource_execute_async(
@@ -454,9 +523,10 @@ async def require_resource_execute_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require execute permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_EXECUTE, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_EXECUTE, resource_owner_id, visibility)
 
 
 async def require_resource_create_async(
@@ -464,9 +534,10 @@ async def require_resource_create_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require create permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_CREATE, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_CREATE, resource_owner_id, visibility)
 
 
 async def require_resource_update_async(
@@ -474,9 +545,10 @@ async def require_resource_update_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require update permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_UPDATE, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_UPDATE, resource_owner_id, visibility)
 
 
 async def require_resource_run_async(
@@ -484,9 +556,10 @@ async def require_resource_run_async(
     resource_type: str,
     resource_id: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require run permission on resource (async)."""
-    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_RUN, resource_owner_id)
+    await _require_resource_action_async(ctx, resource_type, resource_id, ACTION_RUN, resource_owner_id, visibility)
 
 
 async def _require_resource_action_async(
@@ -495,6 +568,7 @@ async def _require_resource_action_async(
     resource_id: str,
     action: str,
     resource_owner_id: str | None = None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Require permission on resource (async)."""
     await check_resource_permission(
@@ -503,4 +577,5 @@ async def _require_resource_action_async(
         resource_id,
         action,
         resource_owner_id,
+        visibility,
     )

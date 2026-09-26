@@ -64,8 +64,8 @@ class Knowledge(SQLModel, table=True):
     status: str = Field(default="active")
     """Status: active, archived, disabled."""
 
-    visibility: str = Field(default="private")
-    """Visibility: private, workspace, tenant."""
+    visibility: str = Field(default="workspace")
+    """Visibility: private (creator, owners, admins, grantees), workspace, tenant."""
 
     settings_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     """General settings (parser/language/filters)."""

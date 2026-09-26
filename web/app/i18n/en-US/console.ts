@@ -1007,7 +1007,12 @@ const translation = {
       },
     },
     settingsTitle: 'Library settings',
-    fields: { name: 'Name', source: 'Source', sourceHint: 'Re-crawl runs as a governed task.', schedule: 'Sync schedule', chunking: 'Chunking', chunkingHint: 'Changing this re-chunks and re-embeds the whole library.', embedding: 'Embedding model', threshold: 'Retrieval threshold', del: 'Delete library', delHint: 'Run citations that reference this library remain in evidence.', delBtn: 'Delete…' },
+    fields: { name: 'Name', source: 'Source', sourceHint: 'Re-crawl runs as a governed task.', schedule: 'Sync schedule', chunking: 'Chunking', chunkingHint: 'Changing this re-chunks and re-embeds the whole library.', embedding: 'Embedding model', visibility: 'Visibility', visibilityHint: 'Only its creator or a workspace owner or admin can change this.', threshold: 'Retrieval threshold', del: 'Delete library', delHint: 'Run citations that reference this library remain in evidence.', delBtn: 'Delete…' },
+  },
+  knowledgeVisibility: {
+    workspace: 'workspace · every member of this workspace',
+    private: 'private · its creator, workspace owners and admins',
+    tenant: 'tenant · treated as workspace until cross-workspace sharing ships',
   },
   knowNew: {
     back: 'Back to knowledge',

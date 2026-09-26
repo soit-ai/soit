@@ -1,6 +1,7 @@
 """Workspace-scoped aggregate search queries."""
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 from urllib.parse import quote
 
 from sqlalchemy import desc, or_
@@ -12,6 +13,7 @@ from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.db.models.threads import Thread
 from app.modules.agent.domain.models import Agent
 from app.modules.knowledge.domain.models import Knowledge
+from app.modules.knowledge.domain.visibility import visible_knowledge_clause
 from app.modules.modelhub.domain.models import ProviderModel
 from app.modules.plugin.domain.models import Plugin
 from app.modules.search.application.schemas import (
@@ -30,6 +32,11 @@ SEARCH_KINDS: tuple[SearchKind, ...] = (
     "thread",
     "run",
 )
+
+
+def _knowledge_visibility_filter(ctx: RequestContext) -> list[Any]:
+    clause = visible_knowledge_clause(ctx)
+    return [] if clause is None else [clause]
 
 
 def _literal_like_pattern(value: str) -> str:
@@ -194,6 +201,7 @@ class GlobalSearchService:
                     Knowledge.tenant_id == self.ctx.tenant_id,
                     Knowledge.workspace_id == self.ctx.workspace_id,
                     Knowledge.deleted_at.is_(None),
+                    *_knowledge_visibility_filter(self.ctx),
                     or_(
                         Knowledge.id.ilike(pattern, escape="\\"),
                         Knowledge.name.ilike(pattern, escape="\\"),

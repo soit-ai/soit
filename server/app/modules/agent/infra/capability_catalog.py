@@ -10,9 +10,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.modules.knowledge.domain.models import Knowledge, KnowledgeIndex
+from app.modules.knowledge.domain.visibility import visible_knowledge_clause
 from app.modules.modelhub.domain.models import ProviderModel
 from app.modules.plugin.domain.models import PluginInstalledArtifact
 from app.modules.workflow.domain.models import Workflow, WorkflowVersion
+
+
+def _visible_knowledge(ctx: RequestContext) -> list[Any]:
+    clause = visible_knowledge_clause(ctx)
+    return [] if clause is None else [clause]
 
 
 def _item(
@@ -91,6 +97,7 @@ class SqlAgentCapabilityCatalog:
                     Knowledge.workspace_id == self.ctx.workspace_id,
                     Knowledge.deleted_at.is_(None),
                     Knowledge.status != "archived",
+                    *_visible_knowledge(self.ctx),
                 )
             )
         )

@@ -6,12 +6,13 @@ RBAC decorators for service-layer authorization.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.permissions import (
+    ResourceVisibility,
     require_resource_create_async,
     require_resource_delete_async,
     require_resource_read_async,
@@ -64,8 +65,14 @@ def rbac_guard(
     resource_id_resolver: Callable[..., Any] | None = None,
     owner_id_arg: str | None = None,
     owner_id_resolver: Callable[..., Any] | None = None,
+    visibility_resolver: Callable[[Any, str], Awaitable[ResourceVisibility | None]] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator for resource-level RBAC checks."""
+    """Decorator for resource-level RBAC checks.
+
+    `visibility_resolver` is awaited with the bound `self` (or `None`)
+    and the resolved resource id, and returns the resource's visibility so a
+    private resource stays hidden from members the role ladder would admit.
+    """
     action_key = action.strip().lower()
     if action_key not in ("read", "write", "delete", "create", "update", "run"):
         raise ValueError(f"Unsupported RBAC action: {action}")
@@ -97,7 +104,10 @@ def rbac_guard(
                     args,
                     kwargs,
                 )
-                await _apply_resource_guard_async(ctx, resource_type, action_key, str(resource_id), owner_id)
+                visibility = await _resolve_visibility(bound, visibility_resolver, str(resource_id))
+                await _apply_resource_guard_async(
+                    ctx, resource_type, action_key, str(resource_id), owner_id, visibility
+                )
                 async for item in func(*args, **kwargs):
                     yield item
 
@@ -123,12 +133,25 @@ def rbac_guard(
                 args,
                 kwargs,
             )
-            await _apply_resource_guard_async(ctx, resource_type, action_key, str(resource_id), owner_id)
+            visibility = await _resolve_visibility(bound, visibility_resolver, str(resource_id))
+            await _apply_resource_guard_async(
+                ctx, resource_type, action_key, str(resource_id), owner_id, visibility
+            )
             return await func(*args, **kwargs)
 
         return async_wrapper
 
     return decorator
+
+
+async def _resolve_visibility(
+    bound_args: inspect.BoundArguments,
+    resolver: Callable[[Any, str], Awaitable[ResourceVisibility | None]] | None,
+    resource_id: str,
+) -> ResourceVisibility | None:
+    if resolver is None:
+        return None
+    return await resolver(bound_args.arguments.get("self"), resource_id)
 
 
 async def _apply_resource_guard_async(
@@ -137,25 +160,26 @@ async def _apply_resource_guard_async(
     action: str,
     resource_id: str,
     owner_id: str | None,
+    visibility: ResourceVisibility | None = None,
 ) -> None:
     """Apply resource permission check asynchronously."""
     if action == "read":
-        await require_resource_read_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_read_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     if action == "write":
-        await require_resource_write_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_write_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     if action == "delete":
-        await require_resource_delete_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_delete_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     if action == "create":
-        await require_resource_create_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_create_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     if action == "update":
-        await require_resource_update_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_update_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     if action == "run":
-        await require_resource_run_async(ctx, resource_type, resource_id, owner_id)
+        await require_resource_run_async(ctx, resource_type, resource_id, owner_id, visibility)
         return
     raise ValueError(f"Unsupported RBAC action: {action}")
 

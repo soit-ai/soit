@@ -6,7 +6,7 @@ import { Backlink, ConsoleButton, FilterChip, KeyValueList, StatusChip } from '.
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { useMutation } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
-import { createKnowledgeBase } from '@/services/knowledge-service'
+import { createKnowledgeBase, type KnowledgeVisibility } from '@/services/knowledge-service'
 import { requestErrorMessage } from '@/utils/request'
 
 const SOURCE_KINDS = ['Web crawl', 'File upload', 'Git sync', 'API push']
@@ -27,7 +27,7 @@ export default function ConsoleKnowledgeNew() {
   const [embedding, setEmbedding] = useState('bge-m3 · vllm self-hosted')
   const [rerank, setRerank] = useState('on · bge-reranker')
   const [schedule, setSchedule] = useState('nightly 02:00Z')
-  const [visibility, setVisibility] = useState('workspace · all members')
+  const [visibility, setVisibility] = useState<KnowledgeVisibility>('workspace')
 
   // The wizard's controls are richer than the create payload's typed fields, so
   // the source, schedule and pattern choices ride along in settings_json where
@@ -39,7 +39,7 @@ export default function ConsoleKnowledgeNew() {
         {
           name: name.trim(),
           knowledge_type: 'document',
-          visibility: visibility.startsWith('workspace') ? 'workspace' : 'restricted',
+          visibility,
           settings_json: {
             source_kind: sourceKind,
             source_uri: sourceUri.trim() || undefined,
@@ -221,12 +221,12 @@ export default function ConsoleKnowledgeNew() {
               <label>{t('console.knowNew.fields.visibility')}</label>
               <select
                 className="input"
-                style={{ maxWidth: 240 }}
+                style={{ maxWidth: 320 }}
                 value={visibility}
-                onChange={(event) => setVisibility(event.target.value)}
+                onChange={(event) => setVisibility(event.target.value as KnowledgeVisibility)}
               >
-                <option>workspace · all members</option>
-                <option>restricted · selected teams</option>
+                <option value="workspace">{t('console.knowledgeVisibility.workspace')}</option>
+                <option value="private">{t('console.knowledgeVisibility.private')}</option>
               </select>
             </div>
           </div>

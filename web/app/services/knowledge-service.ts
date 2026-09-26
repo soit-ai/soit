@@ -28,11 +28,19 @@ export interface KnowledgeBase {
   updated_at: string
 }
 
+/** Who can reach a knowledge base beyond the workspace role ladder. */
+export type KnowledgeVisibility = 'private' | 'workspace' | 'tenant'
+
+/** Reads a stored visibility, treating anything unknown as workspace-visible. */
+export function toKnowledgeVisibility(value: string | null | undefined): KnowledgeVisibility {
+  return value === 'private' || value === 'tenant' ? value : 'workspace'
+}
+
 export interface KnowledgeCreateRequest {
   name: string
   description?: string
   knowledge_type?: 'document' | 'qa' | 'code' | 'graph' | 'other'
-  visibility?: string
+  visibility?: KnowledgeVisibility
   settings_json?: Record<string, unknown>
   chunking_json?: Record<string, unknown>
   retrieval_json?: Record<string, unknown>

@@ -21,7 +21,7 @@ class KnowledgeCreate(BaseModel):
     description: str | None = Field(None, max_length=1000)
     """Knowledge description."""
 
-    visibility: str = Field(default="private", pattern="^(private|workspace|tenant)$")
+    visibility: str = Field(default="workspace", pattern="^(private|workspace|tenant)$")
     """Visibility."""
 
     settings_json: dict[str, Any] | None = Field(default_factory=dict)

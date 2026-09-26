@@ -19,6 +19,7 @@ from app.modules.knowledge.domain.models import (
     KnowledgeIndex,
     KnowledgeIngestTask,
 )
+from app.modules.knowledge.domain.visibility import visible_knowledge_clause
 
 
 class KnowledgeRepository(AsyncRepository[Knowledge]):
@@ -88,13 +89,21 @@ class KnowledgeRepository(AsyncRepository[Knowledge]):
         Returns:
             List of Knowledge instances.
         """
-        query = select(Knowledge).where(
-            and_(
-                Knowledge.tenant_id == self.ctx.tenant_id,
-                Knowledge.workspace_id == self.ctx.workspace_id,
-                Knowledge.deleted_at.is_(None),
-            )
-        ).order_by(Knowledge.created_at.desc()).offset(offset).limit(limit)
+        clauses = [
+            Knowledge.tenant_id == self.ctx.tenant_id,
+            Knowledge.workspace_id == self.ctx.workspace_id,
+            Knowledge.deleted_at.is_(None),
+        ]
+        visible = visible_knowledge_clause(self.ctx)
+        if visible is not None:
+            clauses.append(visible)
+        query = (
+            select(Knowledge)
+            .where(and_(*clauses))
+            .order_by(Knowledge.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
