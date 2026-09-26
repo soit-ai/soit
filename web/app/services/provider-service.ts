@@ -715,3 +715,58 @@ export async function testModelConnection(
   )
   return response
 }
+
+/**
+ * A workspace name for an ordered list of model refs, called as
+ * `vmodel:{slug}`. A call tries the targets in turn and moves on when one is
+ * unavailable or fails in a way another provider might not.
+ */
+export interface VirtualModel {
+  id: string
+  slug: string
+  name: string
+  description?: string | null
+  /** Concrete `model:` refs, in the order they are tried. */
+  targets: string[]
+  status: 'active' | 'disabled' | string
+  /** `vmodel:{slug}`, the name a call uses. */
+  model_ref: string
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A virtual model holds at most this many targets. */
+export const MAX_VIRTUAL_MODEL_TARGETS = 8
+
+export const listVirtualModels = (config?: RequestConfigWithToast): Promise<VirtualModel[]> => {
+  return get<VirtualModel[]>('/modelhub/virtual-models', undefined, config)
+}
+
+export const createVirtualModel = (
+  data: { slug: string; name: string; description?: string; targets: string[] },
+  config?: RequestConfigWithToast,
+): Promise<VirtualModel> => {
+  return post<VirtualModel>('/modelhub/virtual-models', data, config)
+}
+
+/** The slug is fixed: callers name the model by it. */
+export const updateVirtualModel = (
+  virtualModelId: string,
+  data: {
+    name?: string
+    description?: string | null
+    targets?: string[]
+    status?: 'active' | 'disabled'
+  },
+  config?: RequestConfigWithToast,
+): Promise<VirtualModel> => {
+  return patch<VirtualModel>(`/modelhub/virtual-models/${virtualModelId}`, data, config)
+}
+
+export const deleteVirtualModel = (
+  virtualModelId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  return del(`/modelhub/virtual-models/${virtualModelId}`, undefined, config)
+}

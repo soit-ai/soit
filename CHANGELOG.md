@@ -14,6 +14,11 @@ record for operators.
 
 ### Added
 
+- Console: Build › Models has a Virtual models tab that lists each
+  `vmodel:` name with its targets in failover order, and creates, edits,
+  disables and deletes them. Targets are picked from the model library or
+  typed as a `model:` ref, and reordered in place; the slug callers use stays
+  fixed.
 - Console: Govern › Budgets lists every budget with its spend in the current
   period against the limit, its forecast, when it resets and what happens at
   the limit, flags the ones at risk, spent or on course to overrun, and

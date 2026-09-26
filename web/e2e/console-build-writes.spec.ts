@@ -503,3 +503,99 @@ test('a library row opens its settings, saves, tests and deletes', async ({ page
   expect(capture.current!.method).toBe('DELETE')
   expect(capture.current!.path).toContain('/modelhub/providers/p1/models/pm_1')
 })
+
+// --------------------------------------------------------- virtual models ---
+
+const virtualModel = {
+  id: 'vm_1',
+  slug: 'support-chat',
+  name: 'Support chat',
+  description: null,
+  targets: ['model:openai:gpt-5.5', 'model:anthropic:claude-sonnet-5'],
+  status: 'active',
+  model_ref: 'vmodel:support-chat',
+  created_by: 'user-1',
+  created_at: NOW,
+  updated_at: NOW,
+}
+
+/** One handler for the list and every write, recording the writes. */
+async function mockVirtualModels(page: Page, initial: unknown[]) {
+  const listed = [...initial]
+  const writes: { method: string; url: string; body: unknown }[] = []
+  await page.route('**/api/v1/modelhub/virtual-models**', (route) => {
+    const request = route.request()
+    if (request.method() === 'GET') return route.fulfill({ status: 200, contentType: 'application/json', body: ok(listed) })
+    const body = request.postDataJSON()
+    writes.push({ method: request.method(), url: request.url(), body })
+    if (request.method() === 'POST') listed.push({ ...virtualModel, ...body, model_ref: `vmodel:${body.slug}` })
+    return route.fulfill({
+      status: request.method() === 'POST' ? 201 : 200,
+      contentType: 'application/json',
+      body: ok({ ...virtualModel, ...body }),
+    })
+  })
+  return writes
+}
+
+test('a virtual model is created from library models in failover order', async ({ page }) => {
+  await mockModelsPage(page)
+  const writes = await mockVirtualModels(page, [])
+
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: 'Virtual models' }).click()
+  await expect(page.getByText('No virtual models.', { exact: false })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New virtual model' }).click()
+  const modal = page.locator('.console-modal')
+  const create = modal.getByRole('button', { name: 'Create', exact: true })
+  await modal.locator('.mrow', { hasText: /^Slug/ }).locator('input').fill('Support-Chat')
+  await modal.locator('.mrow', { hasText: /^Name/ }).locator('input').fill('Support chat')
+  // No target yet: a virtual model needs at least one.
+  await expect(create).toBeDisabled()
+
+  const addTarget = modal.getByLabel('Add a target')
+  await addTarget.fill('model:anthropic:claude-sonnet-5')
+  await modal.getByRole('button', { name: 'Add', exact: true }).click()
+  await addTarget.fill('model:openai:gpt-5.5')
+  await addTarget.press('Enter')
+  // The library names the targets it knows.
+  await expect(modal.getByTestId('virtual-model-target').first()).toContainText('Anthropic')
+
+  // Order is the failover order: put OpenAI first.
+  await modal.getByTestId('virtual-model-target').nth(1).getByRole('button', { name: 'Move up' }).click()
+  await create.click()
+
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0].method).toBe('POST')
+  expect(writes[0].body).toEqual({
+    slug: 'support-chat',
+    name: 'Support chat',
+    targets: ['model:openai:gpt-5.5', 'model:anthropic:claude-sonnet-5'],
+  })
+  const row = page.locator('tr', { hasText: 'vmodel:support-chat' })
+  await expect(row).toContainText('model:openai:gpt-5.5 → model:anthropic:claude-sonnet-5')
+})
+
+test('editing a virtual model keeps its slug and saves the targets left', async ({ page }) => {
+  await mockModelsPage(page)
+  const writes = await mockVirtualModels(page, [virtualModel])
+
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: 'Virtual models' }).click()
+  await page.locator('tr', { hasText: 'vmodel:support-chat' }).getByRole('button', { name: 'Edit' }).click()
+
+  const modal = page.locator('.console-modal')
+  await expect(modal.locator('.mrow', { hasText: /^Slug/ }).locator('input')).toBeDisabled()
+  await modal.getByTestId('virtual-model-target').first().getByRole('button', { name: 'Remove target' }).click()
+  await modal.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0].method).toBe('PATCH')
+  expect(writes[0].url).toContain('/modelhub/virtual-models/vm_1')
+  expect(writes[0].body).toEqual({
+    name: 'Support chat',
+    description: null,
+    targets: ['model:anthropic:claude-sonnet-5'],
+  })
+})

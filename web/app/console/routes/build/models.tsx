@@ -25,6 +25,10 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui'
+import {
+  VirtualModelsPanel,
+  type VirtualModelTargetOption,
+} from '../../components/virtual-models-panel'
 import { catColor, compactNumber, latency, money } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
@@ -47,7 +51,7 @@ import {
 import type { ProviderConfig } from '@/features/model-config/types'
 import { requestErrorMessage } from '@/utils/request'
 
-type MdTab = 'providers' | 'library' | 'usage'
+type MdTab = 'providers' | 'library' | 'virtual' | 'usage'
 type MdFilter = 'all' | 'chat' | 'embedding' | 'rerank'
 
 const PAGE_SIZE = 200
@@ -133,7 +137,11 @@ export default function ConsoleModels() {
   const modelsQuery = useQuery({
     queryKey: ['console', 'models', 'library'],
     queryFn: () => getModelWorkbenchModels({ page_size: PAGE_SIZE }),
-    options: { retry: false, refetchOnWindowFocus: false, enabled: tab === 'library' },
+    options: {
+      retry: false,
+      refetchOnWindowFocus: false,
+      enabled: tab === 'library' || tab === 'virtual',
+    },
   })
   // The kind and adapter-backend choices are whatever the deployment reports;
   // only fetched while a provider dialog is open.
@@ -295,6 +303,12 @@ export default function ConsoleModels() {
   const providerTabs = overviewQuery.data?.provider_tabs
   const providers = providersQuery.data?.items || []
   const libraryTabs = modelsQuery.data?.tabs
+  const targetOptions: VirtualModelTargetOption[] = (modelsQuery.data?.items || [])
+    .filter((row) => row.status !== 'disabled')
+    .map((row) => ({
+      ref: `model:${row.provider_slug || row.provider_kind}:${row.model_id}`,
+      label: `${row.display_name || row.model_id} · ${row.provider_name} · ${row.model_type}`,
+    }))
   const usage = overviewQuery.data?.top_models || []
 
   const matchesSearch = (row: ModelWorkbenchModelRow) => {
@@ -375,6 +389,7 @@ export default function ConsoleModels() {
           items={[
             { id: 'providers', label: t('console.models.tabs.providers'), count: providerTabs?.all },
             { id: 'library', label: t('console.models.tabs.library'), count: modelTabs?.all },
+            { id: 'virtual', label: t('console.models.tabs.virtual') },
             { id: 'usage', label: t('console.models.tabs.usage') },
           ]}
           value={tab}
@@ -544,6 +559,8 @@ export default function ConsoleModels() {
           </Pager>
         </WorkbenchPanel>
       )}
+
+      {tab === 'virtual' && <VirtualModelsPanel options={targetOptions} />}
 
       {tab === 'usage' && (
         <WorkbenchPanel
